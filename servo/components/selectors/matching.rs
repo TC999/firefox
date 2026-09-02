@@ -84,6 +84,10 @@ bitflags! {
         const RELATIVE_SELECTOR_SEARCH_DIRECTION_ANCESTOR_SIBLING =
             Self::RELATIVE_SELECTOR_SEARCH_DIRECTION_SIBLING.bits() |
             Self::RELATIVE_SELECTOR_SEARCH_DIRECTION_ANCESTOR.bits();
+
+        /// A child of this element may be using sibling-index() or sibling-count(),
+        /// and must be recascaded if other children are added or removed.
+        const MAY_HAVE_TREE_COUNTING_FUNCTION = 1 << 11;
     }
 }
 
@@ -103,7 +107,8 @@ impl ElementSelectorFlags {
             | ElementSelectorFlags::HAS_SLOW_SELECTOR_LATER_SIBLINGS
             | ElementSelectorFlags::HAS_SLOW_SELECTOR_NTH
             | ElementSelectorFlags::HAS_SLOW_SELECTOR_NTH_OF
-            | ElementSelectorFlags::HAS_EDGE_CHILD_SELECTOR)
+            | ElementSelectorFlags::HAS_EDGE_CHILD_SELECTOR
+            | ElementSelectorFlags::MAY_HAVE_TREE_COUNTING_FUNCTION)
     }
 }
 
@@ -437,7 +442,7 @@ where
 
 /// Matches a complex selector.
 #[inline(always)]
-fn matches_complex_selector<E>(
+pub fn matches_complex_selector<E>(
     mut iter: SelectorIter<E::Impl>,
     element: &E,
     context: &mut MatchingContext<E::Impl>,
@@ -448,7 +453,10 @@ where
 {
     // If this is the special pseudo-element mode, consume the ::pseudo-element
     // before proceeding, since the caller has already handled that part.
-    if context.matching_mode() == MatchingMode::ForStatelessPseudoElement && !context.is_nested() {
+    if context.matching_mode() == MatchingMode::ForStatelessPseudoElement
+        && !context.is_nested()
+        && rightmost == SubjectOrPseudoElement::Yes
+    {
         // Consume the pseudo.
         match *iter.next().unwrap() {
             Component::PseudoElement(ref pseudo) => {
@@ -755,8 +763,9 @@ fn hover_and_active_quirk_applies<Impl: SelectorImpl>(
     })
 }
 
+/// Whether we're matching either the subject, or the pseudo-element.
 #[derive(Clone, Copy, PartialEq)]
-enum SubjectOrPseudoElement {
+pub enum SubjectOrPseudoElement {
     Yes,
     No,
 }
@@ -1143,7 +1152,7 @@ pub(crate) fn compound_matches_featureless_host<Impl: SelectorImpl>(
             Component::PseudoElement(..) => {},
             // We allow logical pseudo-classes, but we'll fail matching of the inner selectors if
             // necessary.
-            Component::Is(ref l) | Component::Where(ref l) => {
+            Component::Is(l) | Component::Where(l) => {
                 let mut any_yes = false;
                 let mut any_no = false;
                 for selector in l.slice() {
@@ -1168,7 +1177,7 @@ pub(crate) fn compound_matches_featureless_host<Impl: SelectorImpl>(
                     matches = MatchesFeaturelessHost::Yes;
                 }
             },
-            Component::Negation(ref l) => {
+            Component::Negation(l) => {
                 // For now preserving behavior, see
                 // https://github.com/w3c/csswg-drafts/issues/10179 for existing resolutions that
                 // tweak this behavior.
@@ -1459,11 +1468,11 @@ where
         } else {
             ElementSelectorFlags::HAS_SLOW_SELECTOR_LATER_SIBLINGS
         };
-        flags |= if has_selectors {
-            ElementSelectorFlags::HAS_SLOW_SELECTOR_NTH_OF
-        } else {
-            ElementSelectorFlags::HAS_SLOW_SELECTOR_NTH
-        };
+        if has_selectors {
+            flags |= ElementSelectorFlags::HAS_SLOW_SELECTOR_NTH_OF;
+        } else if !is_edge_child_selector {
+            flags |= ElementSelectorFlags::HAS_SLOW_SELECTOR_NTH;
+        }
         element.apply_selector_flags(flags);
     }
 

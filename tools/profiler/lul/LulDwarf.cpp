@@ -63,8 +63,8 @@ using std::pair;
 using std::string;
 
 ByteReader::ByteReader(enum Endianness endian)
-    : offset_reader_(NULL),
-      address_reader_(NULL),
+    : offset_reader_(nullptr),
+      address_reader_(nullptr),
       endian_(endian),
       address_size_(0),
       offset_size_(0),
@@ -909,9 +909,9 @@ class CallFrameInfo::State {
         handler_(handler),
         reporter_(reporter),
         address_(address),
-        entry_(NULL),
-        cursor_(NULL),
-        saved_rules_(NULL) {}
+        entry_(nullptr),
+        cursor_(nullptr),
+        saved_rules_(nullptr) {}
 
   ~State() {
     if (saved_rules_) delete saved_rules_;
@@ -1150,7 +1150,7 @@ bool CallFrameInfo::State::DoInstruction() {
   // instructions to parse.
   MOZ_ASSERT(cursor_ < entry_->end);
 
-  unsigned opcode = *cursor_++;
+  unsigned opcode = static_cast<unsigned char>(*cursor_++);
   if ((opcode & 0xc0) != 0) {
     switch (opcode & 0xc0) {
       // Advance the address.
@@ -1229,15 +1229,18 @@ bool CallFrameInfo::State::DoInstruction() {
 
     // Change the base register used to compute the CFA.
     case DW_CFA_def_cfa_register: {
+      if (!ParseOperands("r", &ops)) return false;
       Rule* cfa_rule = rules_.CFARuleRef();
       if (!cfa_rule->isVALID()) {
-        reporter_->NoCFARule(entry_->offset, entry_->kind, CursorOffset());
-        return false;
+        if (!DoDefCFA(ops.register_number, 0)) {
+          reporter_->NoCFARule(entry_->offset, entry_->kind, CursorOffset());
+          return false;
+        }
+      } else {
+        cfa_rule->SetBaseRegister(ops.register_number);
+        if (!cfa_rule->Handle(handler_, address_, Handler::kCFARegister))
+          return false;
       }
-      if (!ParseOperands("r", &ops)) return false;
-      cfa_rule->SetBaseRegister(ops.register_number);
-      if (!cfa_rule->Handle(handler_, address_, Handler::kCFARegister))
-        return false;
       break;
     }
 
@@ -1488,7 +1491,7 @@ bool CallFrameInfo::ReadEntryPrologue(const char* cursor, Entry* entry) {
   entry->offset = cursor - buffer_;
   entry->start = cursor;
   entry->kind = kUnknown;
-  entry->end = NULL;
+  entry->end = nullptr;
 
   // Read the initial length. This sets reader_'s offset size.
   size_t length_size;
@@ -1552,7 +1555,7 @@ bool CallFrameInfo::ReadEntryPrologue(const char* cursor, Entry* entry) {
   // The fields specific to this kind of entry start here.
   entry->fields = cursor;
 
-  entry->cie = NULL;
+  entry->cie = nullptr;
 
   return true;
 }
@@ -1571,7 +1574,7 @@ bool CallFrameInfo::ReadCIEFields(CIE* cie) {
   cie->return_address_register = 0;
   cie->has_z_augmentation = false;
   cie->pointer_encoding = DW_EH_PE_absptr;
-  cie->instructions = 0;
+  cie->instructions = nullptr;
 
   // Parse the version number.
   if (cie->end - cursor < 1) return ReportIncomplete(cie);

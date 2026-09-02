@@ -9,7 +9,7 @@
 #include "SVGGeometryElement.h"
 
 nsresult NS_NewSVGLineElement(
-    nsIContent** aResult, already_AddRefed<mozilla::dom::NodeInfo>&& aNodeInfo);
+    nsIContent** aResult, already_AddRefed<mozilla::dom::NodeInfo> aNodeInfo);
 
 namespace mozilla::dom {
 
@@ -17,11 +17,11 @@ using SVGLineElementBase = SVGGeometryElement;
 
 class SVGLineElement final : public SVGLineElementBase {
  protected:
-  explicit SVGLineElement(already_AddRefed<mozilla::dom::NodeInfo>&& aNodeInfo);
+  explicit SVGLineElement(already_AddRefed<mozilla::dom::NodeInfo> aNodeInfo);
   JSObject* WrapNode(JSContext* cx, JS::Handle<JSObject*> aGivenProto) override;
   friend nsresult(::NS_NewSVGLineElement(
       nsIContent** aResult,
-      already_AddRefed<mozilla::dom::NodeInfo>&& aNodeInfo));
+      already_AddRefed<mozilla::dom::NodeInfo> aNodeInfo));
   // If the input line has length zero and linecaps aren't butt, adjust |aX2| by
   // a tiny amount to a barely-nonzero-length line that all of our draw targets
   // will render
@@ -33,9 +33,8 @@ class SVGLineElement final : public SVGLineElementBase {
   void GetMarkPoints(nsTArray<SVGMark>* aMarks) override;
   void GetAsSimplePath(SimplePath* aSimplePath) override;
   already_AddRefed<Path> BuildPath(PathBuilder* aBuilder) override;
-  bool GetGeometryBounds(
-      Rect* aBounds, const StrokeOptions& aStrokeOptions,
-      const Matrix& aToBoundsSpace,
+  Maybe<Rect> GetGeometryBounds(
+      const StrokeOptions& aStrokeOptions, const Matrix& aToBoundsSpace,
       const Matrix* aToNonScalingStrokeSpace = nullptr) override;
 
   nsresult Clone(dom::NodeInfo*, nsINode** aResult) const override;

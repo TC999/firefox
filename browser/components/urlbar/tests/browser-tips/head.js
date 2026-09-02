@@ -26,7 +26,7 @@ ChromeUtils.defineESModuleGetters(this, {
     "moz-src:///browser/components/urlbar/UrlbarProviderInterventions.sys.mjs",
   ProvidersManager:
     "moz-src:///browser/components/urlbar/UrlbarProvidersManager.sys.mjs",
-  UrlbarResult: "moz-src:///browser/components/urlbar/UrlbarResult.sys.mjs",
+  UrlbarResult: "chrome://browser/content/urlbar/UrlbarResult.mjs",
 });
 
 ChromeUtils.defineLazyGetter(this, "UrlbarTestUtils", () => {
@@ -115,7 +115,7 @@ function adjustGeneralPaths() {
 
 /**
  * Initializes a mock app update.  Adapted from runAboutDialogUpdateTest:
- * https://searchfox.org/mozilla-central/source/toolkit/mozapps/update/tests/browser/head.js
+ * https://searchfox.org/firefox-main/source/toolkit/mozapps/update/tests/browser/head.js
  *
  * @param {object} params
  *   See the files in toolkit/mozapps/update/tests/browser.
@@ -179,7 +179,7 @@ async function initUpdate(params) {
 
 /**
  * Performs steps in a mock update.  Adapted from runAboutDialogUpdateTest:
- * https://searchfox.org/mozilla-central/source/toolkit/mozapps/update/tests/browser/head.js
+ * https://searchfox.org/firefox-main/source/toolkit/mozapps/update/tests/browser/head.js
  *
  * @param {Array} steps
  *   See the files in toolkit/mozapps/update/tests/browser.
@@ -192,7 +192,7 @@ async function processUpdateSteps(steps) {
 
 /**
  * Performs a step in a mock update.  Adapted from runAboutDialogUpdateTest:
- * https://searchfox.org/mozilla-central/source/toolkit/mozapps/update/tests/browser/head.js
+ * https://searchfox.org/firefox-main/source/toolkit/mozapps/update/tests/browser/head.js
  *
  * @param {object} step
  *   See the files in toolkit/mozapps/update/tests/browser.
@@ -366,7 +366,7 @@ async function awaitTip(searchString, win = window) {
     "Number of results is greater than or equal to 2"
   );
   let result = context.results[1];
-  Assert.equal(result.type, UrlbarUtils.RESULT_TYPE.TIP, "Result type");
+  Assert.equal(result.type, UrlbarShared.RESULT_TYPE.TIP, "Result type");
   let element = await UrlbarTestUtils.waitForAutocompleteResultAt(win, 1);
   return [result, element];
 }
@@ -492,7 +492,7 @@ async function awaitNoTip(searchString, win = window) {
     fireInputEvent: true,
   });
   for (let result of context.results) {
-    Assert.notEqual(result.type, UrlbarUtils.RESULT_TYPE.TIP);
+    Assert.notEqual(result.type, UrlbarShared.RESULT_TYPE.TIP);
   }
 }
 
@@ -502,7 +502,7 @@ async function awaitNoTip(searchString, win = window) {
  *
  * @param {window} win
  *   A browser window.
- * @param {UrlbarProviderSearchTips.TIP_TYPE} expectedTip
+ * @param {Values<typeof UrlbarShared.SEARCH_TIP_TYPE>} expectedTip
  *   The expected search tip.  Pass a falsey value (like zero) for none.
  * @param {boolean} closeView
  *   If true, this function closes the urlbar view before returning.
@@ -521,18 +521,18 @@ async function checkTip(win, expectedTip, closeView = true) {
   Assert.ok(true, "View opened");
   Assert.equal(UrlbarTestUtils.getResultCount(win), 1, "Number of results");
   let result = await UrlbarTestUtils.getDetailsOfResultAt(win, 0);
-  Assert.equal(result.type, UrlbarUtils.RESULT_TYPE.TIP, "Result type");
+  Assert.equal(result.type, UrlbarShared.RESULT_TYPE.TIP, "Result type");
   let heuristic;
   let title;
   let name = SearchService.defaultEngine.name;
   switch (expectedTip) {
-    case UrlbarProviderSearchTips.TIP_TYPE.ONBOARD:
+    case UrlbarShared.SEARCH_TIP_TYPE.ONBOARD:
       heuristic = true;
       title =
         `Type less, find more: Search ${name} right from your ` +
         `address bar.`;
       break;
-    case UrlbarProviderSearchTips.TIP_TYPE.REDIRECT:
+    case UrlbarShared.SEARCH_TIP_TYPE.REDIRECT:
       heuristic = false;
       title =
         `Start your search in the address bar to see suggestions from ` +
@@ -568,8 +568,8 @@ function makeTipResult({
   descriptionLearnMoreTopic = undefined,
 }) {
   return new UrlbarResult({
-    type: UrlbarUtils.RESULT_TYPE.TIP,
-    source: UrlbarUtils.RESULT_SOURCE.OTHER_LOCAL,
+    type: UrlbarShared.RESULT_TYPE.TIP,
+    source: UrlbarShared.RESULT_SOURCE.OTHER_LOCAL,
     payload: {
       helpUrl,
       descriptionL10n,
@@ -594,7 +594,7 @@ function makeTipResult({
  *   A browser window.
  * @param {string} url
  *   The URL to load in a new foreground tab.
- * @param {UrlbarProviderSearchTips.TIP_TYPE} expectedTip
+ * @param {Values<typeof UrlbarShared.SEARCH_TIP_TYPE>} expectedTip
  *   The expected search tip.  Pass a falsey value (like zero) for none.
  * @param {boolean} reset
  *   If true, the search tips provider will be reset before this function
@@ -689,10 +689,10 @@ async function withDNSRedirect(domain, path, callback) {
 
 function resetSearchTipsProvider() {
   Services.prefs.clearUserPref(
-    `browser.urlbar.tipShownCount.${UrlbarProviderSearchTips.TIP_TYPE.ONBOARD}`
+    `browser.urlbar.tipShownCount.${UrlbarShared.SEARCH_TIP_TYPE.ONBOARD}`
   );
   Services.prefs.clearUserPref(
-    `browser.urlbar.tipShownCount.${UrlbarProviderSearchTips.TIP_TYPE.REDIRECT}`
+    `browser.urlbar.tipShownCount.${UrlbarShared.SEARCH_TIP_TYPE.REDIRECT}`
   );
   ProvidersManager.getInstanceForSap("urlbar").getProvider(
     "UrlbarProviderSearchTips"

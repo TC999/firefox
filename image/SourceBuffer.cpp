@@ -6,10 +6,11 @@
 
 #include <algorithm>
 #include <cstring>
-#include "mozilla/Likely.h"
-#include "nsIInputStream.h"
+
 #include "MainThreadUtils.h"
 #include "SurfaceCache.h"
+#include "mozilla/Likely.h"
+#include "nsIInputStream.h"
 
 using std::max;
 using std::min;
@@ -105,6 +106,29 @@ SourceBufferIterator::State SourceBufferIterator::AdvanceOrScheduleResume(
   // SourceBuffer.
   return mOwner->AdvanceIteratorOrScheduleResume(*this, aRequestedBytes,
                                                  aConsumer);
+}
+
+void SourceBufferIterator::MarkConsumed(size_t aConsumed) {
+  MOZ_ASSERT(mState == READY);
+  MOZ_ASSERT(aConsumed <= mData.mIterating.mNextReadLength);
+
+  if (mRemainderToRead != SIZE_MAX) [[unlikely]] {
+    MOZ_ASSERT(aConsumed <= mRemainderToRead);
+    mRemainderToRead -= aConsumed;
+  }
+
+  // Update the iterator to reflect partial consumption: advance mOffset by
+  // aConsumed, shrink mAvailableLength, and set mNextReadLength to the
+  // remaining bytes so Data()/Length() immediately expose the unconsumed
+  // portion. When all remaining bytes are eventually consumed and
+  // mNextReadLength reaches zero, the next AdvanceOrScheduleResume() will
+  // advance past zero bytes and fetch the next chunk.
+  mData.mIterating.mOffset += aConsumed;
+  mData.mIterating.mAvailableLength -= aConsumed;
+  mData.mIterating.mNextReadLength =
+      MOZ_LIKELY(mRemainderToRead == SIZE_MAX)
+          ? mData.mIterating.mAvailableLength
+          : std::min(mData.mIterating.mAvailableLength, mRemainderToRead);
 }
 
 bool SourceBufferIterator::RemainingBytesIsNoMoreThan(size_t aBytes) const {
@@ -302,7 +326,8 @@ void SourceBuffer::AddWaitingConsumer(IResumable* aConsumer) {
   }
 }
 
-void SourceBuffer::ResumeWaitingConsumers() {
+void SourceBuffer::ResumeWaitingConsumers(
+    nsTArray<RefPtr<IResumable>>* aOutConsumers) {
   mMutex.AssertCurrentThreadOwns();
 
   if (mWaitingConsumers.Length() == 0) {
@@ -313,12 +338,13 @@ void SourceBuffer::ResumeWaitingConsumers() {
     mWaitingConsumers[i]->Resume();
   }
 
-  mWaitingConsumers.Clear();
+  aOutConsumers->AppendElements(std::move(mWaitingConsumers));
 }
 
 nsresult SourceBuffer::ExpectLength(size_t aExpectedLength) {
   MOZ_ASSERT(aExpectedLength > 0, "Zero expected size?");
 
+  nsTArray<RefPtr<IResumable>> consumers;
   MutexAutoLock lock(mMutex);
 
   if (MOZ_UNLIKELY(mStatus)) {
@@ -333,14 +359,14 @@ nsresult SourceBuffer::ExpectLength(size_t aExpectedLength) {
 
   if (MOZ_UNLIKELY(!SurfaceCache::CanHold(aExpectedLength))) {
     NS_WARNING("SourceBuffer refused to store too large buffer");
-    return HandleError(NS_ERROR_INVALID_ARG);
+    return HandleError(NS_ERROR_INVALID_ARG, &consumers);
   }
 
   size_t length = min(aExpectedLength, MAX_CHUNK_CAPACITY);
   if (MOZ_UNLIKELY(NS_FAILED(AppendChunk(CreateChunk(length,
                                                      /* aExistingCapacity */ 0,
                                                      /* aRoundUp */ false))))) {
-    return HandleError(NS_ERROR_OUT_OF_MEMORY);
+    return HandleError(NS_ERROR_OUT_OF_MEMORY, &consumers);
   }
 
   return NS_OK;
@@ -360,6 +386,7 @@ nsresult SourceBuffer::Append(const char* aData, size_t aLength) {
   size_t forNextChunk = 0;
   size_t nextChunkCapacity = 0;
   size_t totalCapacity = 0;
+  nsTArray<RefPtr<IResumable>> consumers;
 
   {
     MutexAutoLock lock(mMutex);
@@ -371,7 +398,7 @@ nsresult SourceBuffer::Append(const char* aData, size_t aLength) {
 
     if (MOZ_UNLIKELY(mChunks.Length() == 0)) {
       if (MOZ_UNLIKELY(NS_FAILED(AppendChunk(CreateChunk(aLength))))) {
-        return HandleError(NS_ERROR_OUT_OF_MEMORY);
+        return HandleError(NS_ERROR_OUT_OF_MEMORY, &consumers);
       }
     }
 
@@ -430,16 +457,16 @@ nsresult SourceBuffer::Append(const char* aData, size_t aLength) {
     // If we created a new chunk, add it to the series.
     if (forNextChunk > 0) {
       if (MOZ_UNLIKELY(!nextChunk)) {
-        return HandleError(NS_ERROR_OUT_OF_MEMORY);
+        return HandleError(NS_ERROR_OUT_OF_MEMORY, &consumers);
       }
 
       if (MOZ_UNLIKELY(NS_FAILED(AppendChunk(std::move(nextChunk))))) {
-        return HandleError(NS_ERROR_OUT_OF_MEMORY);
+        return HandleError(NS_ERROR_OUT_OF_MEMORY, &consumers);
       }
     }
 
     // Resume any waiting readers now that there's new data.
-    ResumeWaitingConsumers();
+    ResumeWaitingConsumers(&consumers);
   }
 
   return NS_OK;
@@ -508,6 +535,7 @@ nsresult SourceBuffer::AppendFromInputStream(nsIInputStream* aInputStream,
 }
 
 void SourceBuffer::Complete(nsresult aStatus) {
+  nsTArray<RefPtr<IResumable>> consumers;
   MutexAutoLock lock(mMutex);
 
   // When an error occurs internally (e.g. due to an OOM), we save the status.
@@ -528,7 +556,7 @@ void SourceBuffer::Complete(nsresult aStatus) {
   mStatus = Some(aStatus);
 
   // Resume any waiting consumers now that we're complete.
-  ResumeWaitingConsumers();
+  ResumeWaitingConsumers(&consumers);
 
   // If we still have active consumers, just return.
   if (mConsumerCount > 0) {
@@ -683,7 +711,8 @@ SourceBufferIterator::State SourceBuffer::AdvanceIteratorOrScheduleResume(
   return aIterator.SetWaiting(!!aConsumer);
 }
 
-nsresult SourceBuffer::HandleError(nsresult aError) {
+nsresult SourceBuffer::HandleError(
+    nsresult aError, nsTArray<RefPtr<IResumable>>* aOutConsumers) {
   MOZ_ASSERT(NS_FAILED(aError), "Should have an error here");
   MOZ_ASSERT(aError == NS_ERROR_OUT_OF_MEMORY || aError == NS_ERROR_INVALID_ARG,
              "Unexpected error; may want to notify waiting readers, which "
@@ -697,7 +726,7 @@ nsresult SourceBuffer::HandleError(nsresult aError) {
   mStatus = Some(aError);
 
   // Drop our references to waiting readers.
-  mWaitingConsumers.Clear();
+  aOutConsumers->AppendElements(std::move(mWaitingConsumers));
 
   return *mStatus;
 }

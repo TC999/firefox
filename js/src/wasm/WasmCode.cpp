@@ -436,7 +436,7 @@ bool Code::createManyLazyEntryStubs(const WriteGuard& guard,
     Maybe<ImmPtr> callee;
     callee.emplace(calleePtr, ImmPtr::NoCheckToken());
     if (!GenerateEntryStubs(masm, funcExportIndex, fe, funcType, callee,
-                            /* asmjs */ false, &codeRanges)) {
+                            &codeRanges)) {
       return false;
     }
   }
@@ -525,9 +525,9 @@ bool Code::createManyLazyEntryStubs(const WriteGuard& guard,
     }
   }
 
-  guard->blocks[*stubBlockIndex]->sendToProfiler(
-      *codeMeta_, *codeTailMeta_, codeMetaForAsmJS_, FuncIonPerfSpewerSpan(),
-      FuncBaselinePerfSpewerSpan());
+  guard->blocks[*stubBlockIndex]->sendToProfiler(*codeMeta_, *codeTailMeta_,
+                                                 FuncIonPerfSpewerSpan(),
+                                                 FuncBaselinePerfSpewerSpan());
   return true;
 }
 
@@ -585,8 +585,6 @@ bool Code::getOrCreateInterpEntry(uint32_t funcIndex,
     *interpEntry = codeBlock.base() + fe.eagerInterpEntryOffset();
     return true;
   }
-
-  MOZ_ASSERT(!codeMetaForAsmJS_, "only wasm can lazily export functions");
 
   auto tryGetOrCreate = [&]() -> bool {
     auto guard = data_.writeLock();
@@ -688,15 +686,12 @@ class Module::PartialTier2CompileTaskImpl : public PartialTier2CompileTask {
   }
 };
 
+// The caller must call tryClaimTierUp() before.
 bool Code::requestTierUp(uint32_t funcIndex) const {
   // Note: this runs on the requesting (wasm-running) thread, not on a
   // compilation-helper thread.
-  MOZ_ASSERT(mode_ == CompileMode::LazyTiering);
-  FuncState& state = funcStates_[funcIndex - codeMeta_->numFuncImports];
-  if (!state.tierUpState.compareExchange(TierUpState::NotRequested,
-                                         TierUpState::Requested)) {
-    return true;
-  }
+  MOZ_ASSERT(funcStates_[funcIndex - codeMeta_->numFuncImports].tierUpState ==
+             TierUpState::Requested);
 
   auto task =
       js::MakeUnique<Module::PartialTier2CompileTaskImpl>(*this, funcIndex);
@@ -934,19 +929,12 @@ bool CodeBlock::initialize(const Code& code, size_t codeBlockIndex) {
 
 static JS::UniqueChars DescribeCodeRangeForProfiler(
     const wasm::CodeMetadata& codeMeta,
-    const wasm::CodeTailMetadata& codeTailMeta,
-    const CodeMetadataForAsmJS* codeMetaForAsmJS, const CodeRange& codeRange,
+    const wasm::CodeTailMetadata& codeTailMeta, const CodeRange& codeRange,
     CodeBlockKind codeBlockKind) {
   uint32_t funcIndex = codeRange.funcIndex();
   UTF8Bytes name;
-  bool ok;
-  if (codeMetaForAsmJS) {
-    ok = codeMetaForAsmJS->getFuncNameForAsmJS(funcIndex, &name);
-  } else {
-    ok = codeMeta.getFuncNameForWasm(NameContext::Standalone, funcIndex,
-                                     codeTailMeta.nameSectionPayload.get(),
-                                     &name);
-  }
+  bool ok = codeMeta.getFuncName(NameContext::Standalone, funcIndex,
+                                 codeTailMeta.nameSectionPayload.get(), &name);
   if (!ok) {
     return nullptr;
   }
@@ -955,7 +943,7 @@ static JS::UniqueChars DescribeCodeRangeForProfiler(
   }
 
   const char* category = "";
-  const char* filename = codeMeta.scriptedCaller().filename.get();
+  const char* filename = codeMeta.scriptedCaller().source.get();
   const char* suffix = "";
   if (codeRange.isFunction()) {
     category = "Wasm";
@@ -984,7 +972,6 @@ static JS::UniqueChars DescribeCodeRangeForProfiler(
 
 void CodeBlock::sendToProfiler(
     const CodeMetadata& codeMeta, const CodeTailMetadata& codeTailMeta,
-    const CodeMetadataForAsmJS* codeMetaForAsmJS,
     FuncIonPerfSpewerSpan ionSpewers,
     FuncBaselinePerfSpewerSpan baselineSpewers) const {
   bool enabled = false;
@@ -1006,27 +993,27 @@ void CodeBlock::sendToProfiler(
   // Save the collected Ion perf spewers with their IR/source information.
   for (FuncIonPerfSpewer& funcIonSpewer : ionSpewers) {
     const CodeRange& codeRange = this->codeRange(funcIonSpewer.funcIndex);
-    UniqueChars desc = DescribeCodeRangeForProfiler(
-        codeMeta, codeTailMeta, codeMetaForAsmJS, codeRange, kind);
+    UniqueChars desc =
+        DescribeCodeRangeForProfiler(codeMeta, codeTailMeta, codeRange, kind);
     if (!desc) {
       return;
     }
     uintptr_t start = uintptr_t(base() + codeRange.begin());
     uintptr_t size = codeRange.end() - codeRange.begin();
-    funcIonSpewer.spewer.saveWasmProfile(start, size, desc);
+    funcIonSpewer.spewer.saveWasmProfile(start, size, std::move(desc));
   }
 
   // Save the collected baseline perf spewers with their IR/source information.
   for (FuncBaselinePerfSpewer& funcBaselineSpewer : baselineSpewers) {
     const CodeRange& codeRange = this->codeRange(funcBaselineSpewer.funcIndex);
-    UniqueChars desc = DescribeCodeRangeForProfiler(
-        codeMeta, codeTailMeta, codeMetaForAsmJS, codeRange, kind);
+    UniqueChars desc =
+        DescribeCodeRangeForProfiler(codeMeta, codeTailMeta, codeRange, kind);
     if (!desc) {
       return;
     }
     uintptr_t start = uintptr_t(base() + codeRange.begin());
     uintptr_t size = codeRange.end() - codeRange.begin();
-    funcBaselineSpewer.spewer.saveProfile(start, size, desc);
+    funcBaselineSpewer.spewer.saveProfile(start, size, std::move(desc));
   }
 
   // Save the rest of the code ranges.
@@ -1041,8 +1028,8 @@ void CodeBlock::sendToProfiler(
       continue;
     }
 
-    UniqueChars desc = DescribeCodeRangeForProfiler(
-        codeMeta, codeTailMeta, codeMetaForAsmJS, codeRange, kind);
+    UniqueChars desc =
+        DescribeCodeRangeForProfiler(codeMeta, codeTailMeta, codeRange, kind);
     if (!desc) {
       return;
     }
@@ -1217,13 +1204,11 @@ bool JumpTables::initialize(CompileMode mode, const CodeMetadata& codeMeta,
 }
 
 Code::Code(CompileMode mode, const CodeMetadata& codeMeta,
-           const CodeTailMetadata& codeTailMeta,
-           const CodeMetadataForAsmJS* codeMetaForAsmJS)
+           const CodeTailMetadata& codeTailMeta)
     : mode_(mode),
       data_(mutexid::WasmCodeProtected),
       codeMeta_(&codeMeta),
       codeTailMeta_(&codeTailMeta),
-      codeMetaForAsmJS_(codeMetaForAsmJS),
       completeTier1_(nullptr),
       completeTier2_(nullptr),
       profilingLabels_(mutexid::WasmCodeProfilingLabels,
@@ -1406,20 +1391,14 @@ bool Code::appendProfilingLabels(
     MOZ_ASSERT(bytecodeStr);
 
     UTF8Bytes name;
-    bool ok;
-    if (codeMetaForAsmJS()) {
-      ok =
-          codeMetaForAsmJS()->getFuncNameForAsmJS(codeRange.funcIndex(), &name);
-    } else {
-      ok = codeMeta().getFuncNameForWasm(
-          NameContext::Standalone, codeRange.funcIndex(),
-          codeTailMeta().nameSectionPayload.get(), &name);
-    }
+    bool ok =
+        codeMeta().getFuncName(NameContext::Standalone, codeRange.funcIndex(),
+                               codeTailMeta().nameSectionPayload.get(), &name);
     if (!ok || !name.append(" (", 2)) {
       return false;
     }
 
-    if (const char* filename = codeMeta().scriptedCaller().filename.get()) {
+    if (const char* filename = codeMeta().scriptedCaller().source.get()) {
       if (!name.append(filename, strlen(filename))) {
         return false;
       }
@@ -1460,10 +1439,10 @@ const char* Code::profilingLabel(uint32_t funcIndex) const {
   return ((CacheableCharsVector&)labels)[funcIndex].get();
 }
 
-void Code::addSizeOfMiscIfNotSeen(
-    MallocSizeOf mallocSizeOf, CodeMetadata::SeenSet* seenCodeMeta,
-    CodeMetadataForAsmJS::SeenSet* seenCodeMetaForAsmJS,
-    Code::SeenSet* seenCode, size_t* code, size_t* data) const {
+void Code::addSizeOfMiscIfNotSeen(MallocSizeOf mallocSizeOf,
+                                  CodeMetadata::SeenSet* seenCodeMeta,
+                                  Code::SeenSet* seenCode, size_t* code,
+                                  size_t* data) const {
   auto p = seenCode->lookupForAdd(this);
   if (p) {
     return;
@@ -1472,16 +1451,13 @@ void Code::addSizeOfMiscIfNotSeen(
   (void)ok;  // oh well
 
   auto guard = data_.readLock();
-  *data +=
-      mallocSizeOf(this) + guard->blocks.sizeOfExcludingThis(mallocSizeOf) +
-      guard->blocksLinkData.sizeOfExcludingThis(mallocSizeOf) +
-      guard->lazyExports.sizeOfExcludingThis(mallocSizeOf) +
-      (codeMetaForAsmJS() ? codeMetaForAsmJS()->sizeOfIncludingThisIfNotSeen(
-                                mallocSizeOf, seenCodeMetaForAsmJS)
-                          : 0) +
-      funcImports_.sizeOfExcludingThis(mallocSizeOf) +
-      profilingLabels_.lock()->sizeOfExcludingThis(mallocSizeOf) +
-      jumpTables_.sizeOfMiscExcludingThis();
+  *data += mallocSizeOf(this) +
+           guard->blocks.sizeOfExcludingThis(mallocSizeOf) +
+           guard->blocksLinkData.sizeOfExcludingThis(mallocSizeOf) +
+           guard->lazyExports.sizeOfExcludingThis(mallocSizeOf) +
+           funcImports_.sizeOfExcludingThis(mallocSizeOf) +
+           profilingLabels_.lock()->sizeOfExcludingThis(mallocSizeOf) +
+           jumpTables_.sizeOfMiscExcludingThis();
   for (const SharedCodeSegment& stub : guard->lazyStubSegments) {
     stub->addSizeOfMisc(mallocSizeOf, code, data);
   }
@@ -1530,15 +1506,9 @@ void CodeBlock::disassemble(JSContext* cx, int kindSelection,
       if (range.hasFuncIndex()) {
         const char* funcName = "(unknown)";
         UTF8Bytes namebuf;
-        bool ok;
-        if (code->codeMetaForAsmJS()) {
-          ok = code->codeMetaForAsmJS()->getFuncNameForAsmJS(range.funcIndex(),
-                                                             &namebuf);
-        } else {
-          ok = code->codeMeta().getFuncNameForWasm(
-              NameContext::Standalone, range.funcIndex(),
-              code->codeTailMeta().nameSectionPayload.get(), &namebuf);
-        }
+        bool ok = code->codeMeta().getFuncName(
+            NameContext::Standalone, range.funcIndex(),
+            code->codeTailMeta().nameSectionPayload.get(), &namebuf);
         if (ok && namebuf.append('\0')) {
           funcName = namebuf.begin();
         }
@@ -1642,6 +1612,7 @@ void wasm::PatchDebugSymbolicAccesses(uint8_t* codeBase, MacroAssembler& masm) {
       case SymbolicAddress::PrintF32:
       case SymbolicAddress::PrintF64:
       case SymbolicAddress::PrintText:
+      case SymbolicAddress::Printf:
         break;
       default:
         MOZ_CRASH("unexpected symbol in PatchDebugSymbolicAccesses");

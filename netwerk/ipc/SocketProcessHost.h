@@ -6,8 +6,8 @@
 #define mozilla_net_SocketProcessHost_h
 
 #include "mozilla/Maybe.h"
-#include "mozilla/ipc/GeckoChildProcessHost.h"
 #include "mozilla/MemoryReportingProcess.h"
+#include "mozilla/ipc/GeckoChildProcessHost.h"
 #include "mozilla/ipc/TaskFactory.h"
 
 namespace mozilla {
@@ -117,6 +117,9 @@ class SocketProcessHost final : public mozilla::ipc::GeckoChildProcessHost {
   // OnProcessUnexpectedShutdown will be invoked.
   bool mShutdownRequested;
   bool mChannelClosed;
+#if defined(XP_MACOSX) || defined(XP_IOS)
+  bool mAppleFastDatapathProbeResultReceived = false;
+#endif
 
 #if defined(XP_LINUX) && defined(MOZ_SANDBOX)
   RefPtr<SandboxBroker> mSandboxBroker;

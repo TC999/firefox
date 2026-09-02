@@ -47,6 +47,8 @@ ScriptElement::ScriptAvailable(nsresult aResult, nsIScriptElement* aElement,
     if (parser) {
       parser->IncrementScriptNestingLevel();
     }
+    // XXX Cannot dispatch the error event asynchronously? Then, we can drop
+    // MOZ_CAN_RUN_SCRIPT from the script loaders.
     nsresult rv = FireErrorEvent();
     if (parser) {
       parser->DecrementScriptNestingLevel();
@@ -58,10 +60,9 @@ ScriptElement::ScriptAvailable(nsresult aResult, nsIScriptElement* aElement,
 
 /* virtual */
 nsresult ScriptElement::FireErrorEvent() {
-  nsIContent* cont = GetAsContent();
-
-  return nsContentUtils::DispatchTrustedEvent(
-      cont->OwnerDoc(), cont, u"error"_ns, CanBubble::eNo, Cancelable::eNo);
+  const nsCOMPtr<nsIContent> cont = GetAsContent();
+  return nsContentUtils::DispatchTrustedEvent(cont, u"error"_ns, CanBubble::eNo,
+                                              Cancelable::eNo);
 }
 
 NS_IMETHODIMP
@@ -87,7 +88,8 @@ ScriptElement::ScriptEvaluated(nsresult aResult, nsIScriptElement* aElement,
 }
 
 void ScriptElement::CharacterDataChanged(nsIContent* aContent,
-                                         const CharacterDataChangeInfo& aInfo) {
+                                         const CharacterDataChangeInfo& aInfo)
+    MOZ_CAN_RUN_SCRIPT_BOUNDARY {
   if (!nsContentUtils::IsInSameAnonymousTree(GetAsContent(), aContent)) {
     return;
   }
@@ -97,7 +99,8 @@ void ScriptElement::CharacterDataChanged(nsIContent* aContent,
 
 void ScriptElement::AttributeChanged(Element* aElement, int32_t aNameSpaceID,
                                      nsAtom* aAttribute, AttrModType aModType,
-                                     const nsAttrValue* aOldValue) {
+                                     const nsAttrValue* aOldValue)
+    MOZ_CAN_RUN_SCRIPT_BOUNDARY {
   if (aElement != GetAsContent()) {
     return;
   }
@@ -123,21 +126,31 @@ void ScriptElement::AttributeChanged(Element* aElement, int32_t aNameSpaceID,
 }
 
 void ScriptElement::ContentAppended(nsIContent* aFirstNewContent,
-                                    const ContentAppendInfo& aInfo) {
+                                    const ContentAppendInfo& aInfo)
+    MOZ_CAN_RUN_SCRIPT_BOUNDARY {
   if (!nsContentUtils::IsInSameAnonymousTree(GetAsContent(),
                                              aFirstNewContent)) {
     return;
   }
   UpdateTrustWorthiness(aInfo.mMutationEffectOnScript);
+  // moveBefore() must not run the script.
+  if (aInfo.mOldParent) {
+    return;
+  }
   MaybeProcessScript(nullptr /* aParser */);
 }
 
 void ScriptElement::ContentInserted(nsIContent* aChild,
-                                    const ContentInsertInfo& aInfo) {
+                                    const ContentInsertInfo& aInfo)
+    MOZ_CAN_RUN_SCRIPT_BOUNDARY {
   if (!nsContentUtils::IsInSameAnonymousTree(GetAsContent(), aChild)) {
     return;
   }
   UpdateTrustWorthiness(aInfo.mMutationEffectOnScript);
+  // moveBefore() must not run the script.
+  if (aInfo.mOldParent) {
+    return;
+  }
   MaybeProcessScript(nullptr /* aParser */);
 }
 
@@ -247,7 +260,9 @@ bool ScriptElement::MaybeProcessScript(const nsAString& aSourceText) {
   if (!type.IsEmpty()) {
     if (!nsContentUtils::IsJavascriptMIMEType(type) &&
         !type.LowerCaseEqualsASCII("module") &&
-        !type.LowerCaseEqualsASCII("importmap")) {
+        !type.LowerCaseEqualsASCII("importmap") &&
+        !(StaticPrefs::dom_speculation_rules_enabled() &&
+          type.LowerCaseEqualsASCII("speculationrules"))) {
 #ifdef DEBUG
       // There is a WebGL convention to store strings they need inside script
       // tags with these specific unknown script types, so don't warn for them.

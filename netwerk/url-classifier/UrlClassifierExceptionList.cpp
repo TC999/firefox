@@ -3,14 +3,15 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "UrlClassifierExceptionList.h"
-#include "nsIEffectiveTLDService.h"
-#include "nsIUrlClassifierExceptionListEntry.h"
-#include "nsIURI.h"
-#include "mozilla/net/UrlClassifierCommon.h"
+
 #include "mozilla/ProfilerMarkers.h"
+#include "mozilla/RustRegex.h"
+#include "mozilla/net/UrlClassifierCommon.h"
+#include "nsIEffectiveTLDService.h"
+#include "nsIURI.h"
+#include "nsIUrlClassifierExceptionListEntry.h"
 #include "nsNetCID.h"
 #include "nsServiceManagerUtils.h"
-#include "mozilla/RustRegex.h"
 
 namespace mozilla::net {
 
@@ -47,7 +48,7 @@ UrlClassifierExceptionList::AddEntry(
   NS_ENSURE_TRUE(topLevelUrlPattern.IsEmpty() == topLevelSite.IsEmpty(),
                  NS_ERROR_INVALID_ARG);
 
-  if (MOZ_LOG_TEST(UrlClassifierCommon::sLog, LogLevel::Debug)) {
+  if (MOZ_LOG_TEST(gChannelClassifierLog, LogLevel::Debug)) {
     nsAutoCString entryString;
     (void)aEntry->Describe(entryString);
     UC_LOG_DEBUG(("UrlClassifierExceptionList::%s - Adding entry: %s",
@@ -162,7 +163,7 @@ bool UrlClassifierExceptionList::ExceptionListMatchesLoad(
     }
     if (match) {
       // Match found, return immediately.
-      if (MOZ_LOG_TEST(UrlClassifierCommon::sLog, LogLevel::Debug)) {
+      if (MOZ_LOG_TEST(gChannelClassifierLog, LogLevel::Debug)) {
         nsAutoCString entryString;
         (void)entry->Describe(entryString);
         UC_LOG_DEBUG(

@@ -134,6 +134,7 @@ def backfill_action(parameters, graph_config, input, task_group_id, task_id):
     This action takes a task ID and schedules it on previous pushes (via support action).
     When 'slices' is 0 (default), standard backfill is used (all pushes).
     When 'slices' > 0, the gap of missing pushes is detected and the mode is chosen automatically.
+
       - small gaps: standard backfill
       - large gaps: sliced backfill (exact pivot pushes at n/N+1, 2n/N+1, ... for slices=N).
 
@@ -165,7 +166,9 @@ def backfill_action(parameters, graph_config, input, task_group_id, task_id):
         strategy = "standard"
         pushes = get_pushes_from_params_input(parameters, input)
     else:
-        pushes = get_pushes_in_gap(parameters, input_for_action.get("label", ""))
+        pushes = get_pushes_in_gap(
+            parameters, input_for_action.get("label", ""), graph_config
+        )
         if len(pushes) < MIN_SLICE_GAP:
             strategy = "standard"
         else:
@@ -173,7 +176,17 @@ def backfill_action(parameters, graph_config, input, task_group_id, task_id):
 
     planned_pushes = plan_pushes_to_trigger(pushes, strategy, slices)
     failed = False
-    for push_id in planned_pushes:
+    logger.info(
+        "BACKFILL_STARTED: %s",
+        json.dumps({
+            "label": input_for_action.get("label", ""),
+            "strategy": strategy,
+            "slices": slices,
+            "scanned_push_count": len(pushes),
+            "target_pushes": planned_pushes,
+        }),
+    )
+    for i, push_id in enumerate(planned_pushes, 1):
         try:
             # The Gecko decision task can sometimes fail on a push and we need to handle
             # the exception that this call will produce
@@ -184,6 +197,18 @@ def backfill_action(parameters, graph_config, input, task_group_id, task_id):
             # don't want to report an error for it.
             continue
 
+        logger.info(
+            "BACKFILL_DATA: %s",
+            json.dumps({
+                "push_id": push_id,
+                "decision_task_id": push_decision_task_id,
+                "label": input_for_action.get("label", ""),
+                "strategy": strategy,
+                "slices": slices,
+                "push_count": i,
+                "total_pushes": len(planned_pushes),
+            }),
+        )
         try:
             trigger_action(
                 action_name="backfill-task",
@@ -206,12 +231,21 @@ def add_backfill_suffix(regex, symbol, suffix):
     return symbol
 
 
+def is_speedometer_task(label):
+    return "shippable" in label and "speedometer3" in label
+
+
 def backfill_modifier(task, input):
     if task.label != input["label"]:
         return task
 
     logger.debug(f"Modifying test_manifests for {task.label}")
     times = input.get("times", 1)
+
+    if is_speedometer_task(task.label):
+        # Reduce duplicates to 1 from 12. Allow `times` to continue
+        # to be used by doing this before the check below.
+        task.attributes["task_duplicates"] = 1
 
     # Set task duplicates based on 'times' value.
     if times > 1:
@@ -272,6 +306,10 @@ def new_label(label, tasks):
             return begining_label + "-1"
         raise Exception(f"New label ({label}) was not found in the task-graph")
     else:
+        # Handle the case where an unnumbered task was previously chunked (e.g.,
+        # "task-swr" maps to "task-swr-1" in an older revision).
+        if label + "-1" in tasks:
+            return label + "-1"
         raise Exception(f"{label} was not found in the task-graph")
 
 

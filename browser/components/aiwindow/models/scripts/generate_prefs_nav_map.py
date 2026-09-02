@@ -23,7 +23,7 @@ TOPSRCDIR = Path(__file__).resolve().parents[5]
 PREFS_JS = TOPSRCDIR / "browser/components/preferences/preferences.js"
 FTL_FILES = [
     TOPSRCDIR / "browser/locales/en-US/browser/preferences/preferences.ftl",
-    TOPSRCDIR / "browser/locales-preview/aiFeatures.ftl",
+    TOPSRCDIR / "browser/locales/en-US/browser/aiFeatures.ftl",
 ]
 OUTPUT = TOPSRCDIR / "browser/components/aiwindow/models/PreferencesNavMap.sys.mjs"
 
@@ -31,8 +31,8 @@ OUTPUT = TOPSRCDIR / "browser/components/aiwindow/models/PreferencesNavMap.sys.m
 TOPLEVEL_PANE_L10N_IDS = {
     "general": "pane-general-title",
     "home": "pane-home-title",
-    "search": "pane-search-title",
-    "privacy": "pane-privacy-title",
+    "search": "pane-search-title2",
+    "privacy": "pane-privacy-title3",
     "sync": "pane-sync-title3",
 }
 

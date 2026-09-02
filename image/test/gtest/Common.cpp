@@ -6,18 +6,17 @@
 
 #include <cstdlib>
 
-#include "gfxPlatform.h"
-
 #include "ImageFactory.h"
+#include "gfxPlatform.h"
 #include "imgITools.h"
 #include "mozilla/Preferences.h"
+#include "mozilla/RefPtr.h"
 #include "nsComponentManagerUtils.h"
 #include "nsDirectoryServiceDefs.h"
 #include "nsIFile.h"
 #include "nsIInputStream.h"
 #include "nsIProperties.h"
 #include "nsNetUtil.h"
-#include "mozilla/RefPtr.h"
 #include "nsStreamUtils.h"
 #include "nsString.h"
 
@@ -759,6 +758,12 @@ ImageTestCase GreenFirstFrameAnimatedJXLTestCase() {
                        TEST_CASE_IS_TRANSPARENT | TEST_CASE_IS_ANIMATED,
                        /* aFrameCount */ 2);
 }
+
+ImageTestCase LongAnimatedJXLTestCase() {
+  return ImageTestCase("long-animated.jxl", "image/jxl", IntSize(100, 100),
+                       TEST_CASE_IS_TRANSPARENT | TEST_CASE_IS_ANIMATED,
+                       /* aFrameCount */ 1000);
+}
 #endif
 
 ImageTestCase BlendAnimatedGIFTestCase() {
@@ -783,6 +788,14 @@ ImageTestCase BlendAnimatedAVIFTestCase() {
                        TEST_CASE_IS_TRANSPARENT | TEST_CASE_IS_ANIMATED,
                        /* aFrameCount */ 2);
 }
+
+#ifdef MOZ_JXL
+ImageTestCase BlendAnimatedJXLTestCase() {
+  return ImageTestCase("blend.jxl", "image/jxl", IntSize(100, 100),
+                       TEST_CASE_IS_TRANSPARENT | TEST_CASE_IS_ANIMATED,
+                       /* aFrameCount */ 2);
+}
+#endif
 
 ImageTestCase CorruptTestCase() {
   return ImageTestCase("corrupt.jpg", "image/jpeg", IntSize(100, 100),
@@ -825,24 +838,30 @@ ImageTestCase CorruptAVIFTestCase() {
 }
 
 ImageTestCase TransparentAVIFTestCase() {
-  return ImageTestCase("transparent.avif", "image/avif", IntSize(1200, 1200),
-                       TEST_CASE_IS_TRANSPARENT);
+  auto testCase = ImageTestCase("transparent.avif", "image/avif",
+                                IntSize(100, 100), TEST_CASE_IS_TRANSPARENT);
+  testCase.mColor = BGRAColor(0x00, 0xFF, 0x00, 0x80);
+  return testCase;
 }
 
 ImageTestCase TransparentPNGTestCase() {
-  return ImageTestCase("transparent.png", "image/png", IntSize(32, 32),
-                       TEST_CASE_IS_TRANSPARENT);
+  auto testCase = ImageTestCase("transparent.png", "image/png",
+                                IntSize(100, 100), TEST_CASE_IS_TRANSPARENT);
+  testCase.mColor = BGRAColor(0x00, 0xFF, 0x00, 0x80);
+  return testCase;
 }
 
 ImageTestCase TransparentGIFTestCase() {
-  return ImageTestCase("transparent.gif", "image/gif", IntSize(16, 16),
-                       TEST_CASE_IS_TRANSPARENT);
+  auto testCase = ImageTestCase("transparent.gif", "image/gif",
+                                IntSize(100, 100), TEST_CASE_IS_TRANSPARENT);
+  testCase.mColor = BGRAColor::Transparent();
+  return testCase;
 }
 
 ImageTestCase TransparentWebPTestCase() {
   ImageTestCase test("transparent.webp", "image/webp", IntSize(100, 100),
                      TEST_CASE_IS_TRANSPARENT);
-  test.mColor = BGRAColor::Transparent();
+  test.mColor = BGRAColor(0x00, 0xFF, 0x00, 0x80);
   return test;
 }
 
@@ -854,7 +873,7 @@ ImageTestCase TransparentNoAlphaHeaderWebPTestCase() {
 }
 
 ImageTestCase FirstFramePaddingGIFTestCase() {
-  return ImageTestCase("transparent.gif", "image/gif", IntSize(16, 16),
+  return ImageTestCase("first-frame-padding.gif", "image/gif", IntSize(16, 16),
                        TEST_CASE_IS_TRANSPARENT);
 }
 
@@ -1024,6 +1043,10 @@ ImageTestCase GreenJXLTestCase() {
   return ImageTestCase("green.jxl", "image/jxl", IntSize(100, 100));
 }
 
+ImageTestCase ProgressiveJXLTestCase() {
+  return ImageTestCase("progressive.jxl", "image/jxl", IntSize(500, 375));
+}
+
 ImageTestCase DownscaledJXLTestCase() {
   return ImageTestCase("downscaled.jxl", "image/jxl", IntSize(100, 100),
                        IntSize(20, 20));
@@ -1035,13 +1058,57 @@ ImageTestCase LargeJXLTestCase() {
 }
 
 ImageTestCase TransparentJXLTestCase() {
-  return ImageTestCase("transparent.jxl", "image/jxl", IntSize(1200, 1200),
-                       TEST_CASE_IS_TRANSPARENT);
+  auto testCase = ImageTestCase("transparent.jxl", "image/jxl",
+                                IntSize(100, 100), TEST_CASE_IS_TRANSPARENT);
+  testCase.mColor = BGRAColor(0x00, 0xFF, 0x00, 0x80);
+  return testCase;
+}
+
+ImageTestCase CorruptJXLTestCase() {
+  return ImageTestCase("corrupt.jxl", "image/jxl", IntSize(100, 100),
+                       TEST_CASE_HAS_ERROR);
+}
+
+ImageTestCase PerfRgbLosslessJXLTestCase() {
+  return ImageTestCase("perf_srgb_lossless.jxl", "image/jxl",
+                       IntSize(1000, 1000));
+}
+
+ImageTestCase PerfRgbAlphaLosslessJXLTestCase() {
+  return ImageTestCase("perf_srgb_alpha_lossless.jxl", "image/jxl",
+                       IntSize(1000, 1000), TEST_CASE_IS_TRANSPARENT);
+}
+
+ImageTestCase PerfRgbLossyJXLTestCase() {
+  return ImageTestCase("perf_srgb_lossy.jxl", "image/jxl", IntSize(1000, 1000));
+}
+
+ImageTestCase PerfRgbAlphaLossyJXLTestCase() {
+  return ImageTestCase("perf_srgb_alpha_lossy.jxl", "image/jxl",
+                       IntSize(1000, 1000), TEST_CASE_IS_TRANSPARENT);
+}
+
+// Progressive (multi-pass) lossy RGBA encoding spanning more than one
+// 256px coded group; regression test for bug 2054317 (a group's already-
+// finalized modular alpha buffer being incorrectly re-flushed once later
+// passes for the same group arrive).
+ImageTestCase ProgressiveAlphaMultiGroupJXLTestCase() {
+  return ImageTestCase("progressive_alpha_multigroup.jxl", "image/jxl",
+                       IntSize(257, 64),
+                       TEST_CASE_IGNORE_OUTPUT | TEST_CASE_IS_TRANSPARENT);
 }
 #endif
 
 ImageTestCase ExifResolutionTestCase() {
   return ImageTestCase("exif_resolution.jpg", "image/jpeg", IntSize(100, 50));
+}
+
+ImageTestCase ExifOrientationDownscaleJPGTestCase() {
+  // EXIF orientation 6 (rotate 90 CW): stored 48x160, oriented 160x48. The
+  // 8x32 output is a non-aspect-preserving downscale exercising libjpeg-turbo
+  // IDCT scale-factor selection across the orientation axis swap (bug 2033250).
+  return ImageTestCase("green-exif-orient6.jpg", "image/jpeg", IntSize(160, 48),
+                       IntSize(8, 32), TEST_CASE_IS_FUZZY);
 }
 
 RefPtr<Image> TestCaseToDecodedImage(const ImageTestCase& aTestCase) {

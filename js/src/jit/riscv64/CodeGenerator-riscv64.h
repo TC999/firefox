@@ -27,10 +27,6 @@ class CodeGeneratorRiscv64 : public CodeGeneratorShared {
 
   NonAssertingLabel deoptLabel_;
 
-  Operand ToOperand(const LAllocation& a);
-  Operand ToOperand(const LAllocation* a);
-  Operand ToOperand(const LDefinition* def);
-
   MoveOperand toMoveOperand(LAllocation a) const;
 
   template <typename T1, typename T2>
@@ -58,8 +54,8 @@ class CodeGeneratorRiscv64 : public CodeGeneratorShared {
     Label bail;
     UseScratchRegisterScope temps(&masm);
     Register scratch = temps.Acquire();
-    masm.ma_and(scratch, reg, Imm32(0xFF));
-    masm.ma_b(scratch, scratch, &bail, Assembler::Zero);
+    masm.zext_b(scratch, reg);
+    masm.ma_b(scratch, scratch, &bail, Assembler::Zero, LongJump);
     bailoutFrom(&bail, snapshot);
   }
 
@@ -68,11 +64,7 @@ class CodeGeneratorRiscv64 : public CodeGeneratorShared {
 
   bool generateOutOfLineCode();
 
-  template <typename T>
-  void branchToBlock(Register lhs, T rhs, MBasicBlock* mir,
-                     Assembler::Condition cond) {
-    masm.ma_b(lhs, rhs, skipTrivialBlocks(mir)->lir()->label(), cond);
-  }
+  enum FloatFormat { SingleFloat, DoubleFloat };
   void branchToBlock(FloatFormat fmt, FloatRegister lhs, FloatRegister rhs,
                      MBasicBlock* mir, Assembler::DoubleCondition cond);
 
@@ -91,11 +83,6 @@ class CodeGeneratorRiscv64 : public CodeGeneratorShared {
 
   void emitTableSwitchDispatch(MTableSwitch* mir, Register index,
                                Register base);
-
-  template <typename T>
-  void emitWasmLoad(T* ins);
-  template <typename T>
-  void emitWasmStore(T* ins);
 
   void generateInvalidateEpilogue();
 
@@ -129,8 +116,6 @@ class CodeGeneratorRiscv64 : public CodeGeneratorShared {
                         Register output);
   void emitBigIntPtrMod(LBigIntPtrMod* ins, Register dividend, Register divisor,
                         Register output);
-
-  void emitMulI64(Register lhs, int64_t rhs, Register dest);
 };
 
 typedef CodeGeneratorRiscv64 CodeGeneratorSpecific;

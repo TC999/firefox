@@ -48,19 +48,17 @@ private val RippleRadius = 24.dp
  * A Button with the following functionalities:
  * - it has a minimum touch target size of 48dp
  * - it will play a sound effect for clicks
- * - it will use the [AcornTheme] ripple color.
  *
  * @param onClick Callback for when this button is clicked.
  * @param contentDescription Text used by accessibility services to describe what this button does.
  * @param modifier Optional modifier for further customisation of this button.
- * @param onClickLabel Semantic / accessibility label for the [onClick] action.
- * Will be read as "Double tap to [onClickLabel]".
- * @param enabled Whether or not this button will handle input events and appear enabled
- * for semantics purposes. `true` by default.
- * @param interactionSource An optional hoisted [MutableInteractionSource] for observing and
- * emitting [Interaction]s for this button. You can use this to change the button's appearance
- * or preview the button in different states. Note that if `null` is provided interactions will
- * still happen internally.
+ * @param onClickLabel Semantic / accessibility label for the [onClick] action. Will be read as "Double tap to
+ *   [onClickLabel]".
+ * @param enabled Whether or not this button will handle input events and appear enabled for semantics purposes. `true`
+ *   by default.
+ * @param interactionSource An optional hoisted [MutableInteractionSource] for observing and emitting [Interaction]s for
+ *   this button. You can use this to change the button's appearance or preview the button in different states. Note
+ *   that if `null` is provided interactions will still happen internally.
  * @param content The content to be shown inside this button.
  */
 @Composable
@@ -68,43 +66,45 @@ fun IconButton(
     onClick: () -> Unit,
     contentDescription: String?,
     modifier: Modifier = Modifier,
-    colors: IconButtonColors = IconButtonDefaults.iconButtonColors(
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        disabledContentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
-    ),
+    colors: IconButtonColors =
+        IconButtonDefaults.iconButtonColors(
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            disabledContentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+        ),
     onClickLabel: String? = null,
     enabled: Boolean = true,
     interactionSource: MutableInteractionSource = remember { MutableInteractionSource() },
     content: @Composable () -> Unit,
 ) {
-    val view = LocalView.current
-    Box(
-        modifier = modifier
-            .semantics {
-                if (contentDescription != null) {
-                    this.contentDescription = contentDescription
-                }
-            }
-            .minimumInteractiveComponentSize()
-            .clickable(
-                interactionSource = interactionSource,
-                indication = ripple(
-                    bounded = false,
-                    radius = RippleRadius,
-                    color = AcornTheme.colors.ripple,
-                ),
-                enabled = enabled,
-                onClickLabel = onClickLabel,
-                role = Role.Button,
-                onClick = {
-                    view.playSoundEffect(SoundEffectConstants.CLICK)
-                    onClick()
-                },
-            ),
-        contentAlignment = Alignment.Center,
-    ) {
-        val contentColor = if (enabled) colors.contentColor else colors.disabledContentColor
-        CompositionLocalProvider(LocalContentColor provides contentColor, content = content)
+    val contentColor = if (enabled) colors.contentColor else colors.disabledContentColor
+
+    CompositionLocalProvider(LocalContentColor provides contentColor) {
+        val view = LocalView.current
+
+        Box(
+            modifier =
+                modifier
+                    .semantics {
+                        if (contentDescription != null) {
+                            this.contentDescription = contentDescription
+                        }
+                    }
+                    .minimumInteractiveComponentSize()
+                    .clickable(
+                        interactionSource = interactionSource,
+                        indication = ripple(bounded = false, radius = RippleRadius),
+                        enabled = enabled,
+                        onClickLabel = onClickLabel,
+                        role = Role.Button,
+                        onClick = {
+                            view.playSoundEffect(SoundEffectConstants.CLICK)
+                            onClick()
+                        },
+                    ),
+            contentAlignment = Alignment.Center,
+        ) {
+            content()
+        }
     }
 }
 

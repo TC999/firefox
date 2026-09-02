@@ -5,10 +5,10 @@
 #ifndef mozilla_widget_GeckoViewSupport_h
 #define mozilla_widget_GeckoViewSupport_h
 
+#include "mozilla/dom/CanonicalBrowsingContext.h"
 #include "mozilla/java/GeckoResultWrappers.h"
 #include "mozilla/java/GeckoSessionNatives.h"
 #include "mozilla/java/WebResponseWrappers.h"
-#include "mozilla/dom/CanonicalBrowsingContext.h"
 #include "mozilla/widget/WindowEvent.h"
 
 class nsPIDOMWindowOuter;
@@ -68,7 +68,7 @@ class GeckoViewSupport final
                    jni::String::Param aChromeURI, bool aPrivateMode);
 
   // Close and destroy the nsWindow.
-  void Close();
+  MOZ_CAN_RUN_SCRIPT void Close();
 
   // Transfer this nsWindow to new GeckoSession objects.
   void Transfer(const java::GeckoSession::Window::LocalRef& inst,

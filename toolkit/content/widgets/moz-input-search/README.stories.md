@@ -16,7 +16,7 @@
 
 ## Code
 
-The source for `moz-input-search` can be found under [toolkit/content/widgets/moz-input-search](https://searchfox.org/mozilla-central/source/toolkit/content/widgets/moz-input-search)
+The source for `moz-input-search` can be found under [toolkit/content/widgets/moz-input-search](https://searchfox.org/firefox-main/source/toolkit/content/widgets/moz-input-search)
 
 ## How to use `moz-input-search`
 
@@ -173,6 +173,20 @@ In order to disable the `moz-input-search`, add `disabled=""` or `disabled` to t
 ```html story
 <div style={{width: '500px'}}>
 <moz-input-search label="Search" disabled></moz-input-search>
+</div>
+```
+
+### Setting the `required` state
+
+If the `moz-input-search` needs to be required, add `required` to the markup.
+
+```html
+<moz-input-search label="Search" required></moz-input-search>
+```
+
+```html story
+<div style={{width: '500px'}}>
+<moz-input-search label="Search" required></moz-input-search>
 </div>
 ```
 

@@ -24,6 +24,14 @@ function promisePopupNotificationShown(name) {
       if (!notification) {
         return;
       }
+      // Don't use PopupNotifications.isPanelOpen here: it also returns true
+      // while the panel is still in the "showing" state, in which case the
+      // popup frame isn't open yet and its contents aren't focusable.
+      let panelState = PopupNotifications.panel.state;
+      if (panelState != "open") {
+        info(`Ignoring popupshown for ${name}, panel state: ${panelState}`);
+        return;
+      }
 
       ok(notification, `${name} notification shown`);
       ok(PopupNotifications.isPanelOpen, "notification panel open");
@@ -155,7 +163,11 @@ add_task(async function test_install_source_blocked_direct() {
     tab.linkedBrowser,
     [{ baseUrl: BASE_URL }],
     async function ({ baseUrl }) {
-      content.document.location.href = baseUrl + "policytest_v0.1.xpi";
+      // Trigger navigation from the content principal. Without wrappedJSObject
+      // we would trigger a navigation from a system principal, which users are
+      // not going to encounter in practice (such requests would be initiated
+      // from the parent process instead of the child process).
+      content.wrappedJSObject.location.href = baseUrl + "policytest_v0.1.xpi";
     }
   );
   await popupPromise;
@@ -278,7 +290,11 @@ add_task(async function test_install_source_allowed_direct() {
     tab.linkedBrowser,
     [{ baseUrl: BASE_URL }],
     async function ({ baseUrl }) {
-      content.document.location.href = baseUrl + "policytest_v0.1.xpi";
+      // Trigger navigation from the content principal. Without wrappedJSObject
+      // we would trigger a navigation from a system principal, which users are
+      // not going to encounter in practice (such requests would be initiated
+      // from the parent process instead of the child process).
+      content.wrappedJSObject.location.href = baseUrl + "policytest_v0.1.xpi";
     }
   );
   await popupPromise;

@@ -1,0 +1,37 @@
+{
+  "background": {
+    "color": {
+      "@base": {
+        "value": "{background.color.box.@base}"
+      },
+      "warning": {
+        "value": "{message-bar.background.color.@base}"
+      },
+      "success": {
+        "value": "{message-bar.background.color.@base}"
+      },
+      "critical": {
+        "value": "{message-bar.background.color.@base}"
+      }
+    }
+  },
+  "container": {
+    "padding": {
+      "inline": {
+        "value": "8px"
+      }
+    }
+  },
+  "icon": {
+    "container": {
+      "border": {
+        "color": {
+          "value": {
+            "default": "transparent",
+            "forcedColors": "{message-bar.icon.color}"
+          }
+        }
+      }
+    }
+  }
+}

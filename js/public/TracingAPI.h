@@ -25,7 +25,7 @@ JS_PUBLIC_API const char* GCTraceKindToAscii(JS::TraceKind kind);
 JS_PUBLIC_API size_t GCTraceKindSize(JS::TraceKind kind);
 
 // Kinds of JSTracer.
-enum class TracerKind {
+enum class TracerKind : uint8_t {
   // Generic tracers: Internal tracers that have a different virtual method
   // called for each edge kind.
   Marking,
@@ -49,7 +49,7 @@ enum class TracerKind {
   HeapCheck
 };
 
-enum class WeakMapTraceAction {
+enum class WeakMapTraceAction : uint8_t {
   /**
    * Do not trace into weak map keys or values during traversal. Users must
    * handle weak maps manually.
@@ -76,7 +76,7 @@ enum class WeakMapTraceAction {
 };
 
 // Whether a tracer should trace weak edges. GCMarker sets this to Skip.
-enum class WeakEdgeTraceAction { Skip, Trace };
+enum class WeakEdgeTraceAction : bool { Skip, Trace };
 
 struct TraceOptions {
   JS::WeakMapTraceAction weakMapAction = WeakMapTraceAction::TraceValues;
@@ -120,6 +120,12 @@ class TracingContext {
   constexpr static size_t InvalidIndex = size_t(-1);
   size_t index() const { return index_; }
 
+  // Gets the nesting level. Sometimes, when logging from the CC, we skip GC
+  // cells and simply attribute their edges to the current node. This value
+  // is set from AutoClearTracingContext in that case to indicate how nested
+  // we are in that cycle.
+  size_t nesting() const { return nesting_; }
+
   // Build a description of this edge in the heap graph. This call may invoke
   // the context functor, if set, which may inspect arbitrary areas of the
   // heap. On the other hand, the description provided by this method may be
@@ -142,8 +148,14 @@ class TracingContext {
   friend class AutoTracingIndex;
   size_t index_ = InvalidIndex;
 
+  friend class AutoClearTracingContext;
+  size_t nesting_ = 0;
+
   friend class AutoTracingDetails;
   Functor* functor_ = nullptr;
+
+  friend class AutoTracingWeakEdge;
+  bool weak_ = false;
 };
 
 }  // namespace JS
@@ -182,7 +194,7 @@ class JS_PUBLIC_API JSTracer {
   // which is freqently useful if, for example, we only want to process one type
   // of edge.
 #define DEFINE_ON_EDGE_METHOD(name, type, _1, _2) \
-  virtual void on##name##Edge(type** thingp, const char* name) = 0;
+  virtual bool on##name##Edge(type** thingp, const char* name) = 0;
   JS_FOR_EACH_TRACEKIND(DEFINE_ON_EDGE_METHOD)
 #undef DEFINE_ON_EDGE_METHOD
 
@@ -193,9 +205,9 @@ class JS_PUBLIC_API JSTracer {
 
  private:
   JSRuntime* const runtime_;
+  JS::TracingContext context_;
   const JS::TracerKind kind_;
   const JS::TraceOptions options_;
-  JS::TracingContext context_;
 };
 
 namespace js {
@@ -213,8 +225,8 @@ class GenericTracerImpl : public JSTracer {
   T* derived() { return static_cast<T*>(this); }
 
 #define DEFINE_ON_EDGE_METHOD(name, type, _1, _2)              \
-  void on##name##Edge(type** thingp, const char* name) final { \
-    derived()->onEdge(thingp, name);                           \
+  bool on##name##Edge(type** thingp, const char* name) final { \
+    return derived()->onEdge(thingp, name);                    \
   }
   JS_FOR_EACH_TRACEKIND(DEFINE_ON_EDGE_METHOD)
 #undef DEFINE_ON_EDGE_METHOD
@@ -237,12 +249,16 @@ class JS_PUBLIC_API CallbackTracer
 
   // Override this method to receive notification when a node in the GC
   // heap graph is visited.
-  virtual void onChild(JS::GCCellPtr thing, const char* name) = 0;
+  virtual bool onChild(JS::GCCellPtr thing, const char* name) = 0;
 
  private:
   template <typename T>
-  void onEdge(T** thingp, const char* name) {
-    onChild(JS::GCCellPtr(*thingp), name);
+  bool onEdge(T** thingp, const char* name) {
+    T* thing = *thingp;
+    if (!thing) {
+      return true;
+    }
+    return onChild(JS::GCCellPtr(thing), name);
   }
   friend class js::GenericTracerImpl<CallbackTracer>;
 };
@@ -264,6 +280,21 @@ class MOZ_RAII AutoTracingIndex {
   void operator++() {
     MOZ_ASSERT(trc_->context().index_ != TracingContext::InvalidIndex);
     ++trc_->context().index_;
+  }
+};
+
+// Sets a bool on the tracer's context indicating a weak edge
+class MOZ_RAII AutoTracingWeakEdge {
+  JSTracer* trc_;
+
+ public:
+  explicit AutoTracingWeakEdge(JSTracer* trc) : trc_(trc) {
+    MOZ_ASSERT(!trc_->context().weak_);
+    trc_->context().weak_ = true;
+  }
+  ~AutoTracingWeakEdge() {
+    MOZ_ASSERT(trc_->context().weak_);
+    trc_->context().weak_ = false;
   }
 };
 
@@ -292,6 +323,7 @@ class MOZ_RAII AutoClearTracingContext {
   explicit AutoClearTracingContext(JSTracer* trc)
       : trc_(trc), prev_(trc->context()) {
     trc_->context() = TracingContext();
+    trc_->context().nesting_ = prev_.nesting_ + 1;
   }
 
   ~AutoClearTracingContext() { trc_->context() = prev_; }
@@ -397,9 +429,6 @@ inline bool IsTracerKind(JSTracer* trc, JS::TracerKind kind) {
 
 // Trace an edge that is not a GC root and is not wrapped in a barriered
 // wrapper for some reason.
-//
-// This method does not check if |*edgep| is non-null before tracing through
-// it, so callers must check any nullable pointer before calling this method.
 extern JS_PUBLIC_API void UnsafeTraceManuallyBarrieredEdge(JSTracer* trc,
                                                            JSObject** thingp,
                                                            const char* name);

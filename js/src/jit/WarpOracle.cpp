@@ -54,6 +54,8 @@ class MOZ_STACK_CLASS WarpScriptOracle {
   HandleScript script_;
   const CompileInfo* info_;
   ICScript* icScript_;
+  Vector<uint32_t, 16, SystemAllocPolicy> monomorphicInlineHints_;
+  bool monomorphicInlineHintsComputed_ = false;
 
   // Index of the next ICEntry for getICEntry. This assumes the script's
   // bytecode is processed from first to last instruction.
@@ -67,6 +69,7 @@ class MOZ_STACK_CLASS WarpScriptOracle {
   WarpEnvironment createEnvironment();
   AbortReasonOr<Ok> maybeInlineIC(WarpOpSnapshotList& snapshots,
                                   BytecodeLocation loc);
+  AbortReasonOr<Ok> ensureMonomorphicInlineHints();
   AbortReasonOr<bool> maybeInlineCall(WarpOpSnapshotList& snapshots,
                                       BytecodeLocation loc, ICCacheIRStub* stub,
                                       ICFallbackStub* fallbackStub,
@@ -189,8 +192,8 @@ AbortReasonOr<WarpSnapshot*> WarpOracle::createSnapshot() {
 
 #ifdef JS_JITSPEW
   if (JitSpewEnabled(JitSpew_WarpSnapshots)) {
-    Fprinter& out = JitSpewPrinter();
-    snapshot->dump(out);
+    AutoJitSpewMessage msg(JitSpew_WarpSnapshots);
+    snapshot->dump(msg.printer());
   }
 #endif
 
@@ -414,15 +417,6 @@ AbortReasonOr<WarpScriptSnapshot*> WarpScriptOracle::createScriptSnapshot() {
         break;
       }
 
-      case JSOp::Lambda: {
-        JSFunction* fun = loc.getFunction(script_);
-        if (IsAsmJSModule(fun)) {
-          return abort(AbortReason::Disable, "asm.js module function lambda");
-        }
-        MOZ_TRY(maybeInlineIC(opSnapshots, loc));
-        break;
-      }
-
       case JSOp::GetElemSuper: {
 #if defined(JS_CODEGEN_X86)
         // x86 does not have enough registers.
@@ -593,6 +587,7 @@ AbortReasonOr<WarpScriptSnapshot*> WarpScriptOracle::createScriptSnapshot() {
       case JSOp::Not:
       case JSOp::CloseIter:
       case JSOp::OptimizeGetIterator:
+      case JSOp::Lambda:
         MOZ_TRY(maybeInlineIC(opSnapshots, loc));
         break;
       case JSOp::Call:
@@ -655,12 +650,8 @@ AbortReasonOr<WarpScriptSnapshot*> WarpScriptOracle::createScriptSnapshot() {
       case JSOp::Goto:
       case JSOp::DebugCheckSelfHosted:
       case JSOp::DynamicImport:
-#ifdef ENABLE_SOURCE_PHASE_IMPORTS
-      case JSOp::DynamicImportSource:
-#endif
       case JSOp::ToString:
       case JSOp::GlobalOrEvalDeclInstantiation:
-      case JSOp::BindVar:
       case JSOp::MutateProto:
       case JSOp::Callee:
       case JSOp::ToAsyncIter:
@@ -688,7 +679,6 @@ AbortReasonOr<WarpScriptSnapshot*> WarpScriptOracle::createScriptSnapshot() {
       case JSOp::FinalYieldRval:
       case JSOp::AsyncResolve:
       case JSOp::AsyncReject:
-      case JSOp::CheckResumeKind:
       case JSOp::CanSkipAwait:
       case JSOp::MaybeExtractAwaitValue:
       case JSOp::AsyncAwait:
@@ -727,6 +717,7 @@ AbortReasonOr<WarpScriptSnapshot*> WarpScriptOracle::createScriptSnapshot() {
       case JSOp::RetRval:
       case JSOp::InitialYield:
       case JSOp::Yield:
+      case JSOp::Resume:
       case JSOp::ResumeKind:
       case JSOp::ThrowMsg:
       case JSOp::Try:
@@ -734,11 +725,9 @@ AbortReasonOr<WarpScriptSnapshot*> WarpScriptOracle::createScriptSnapshot() {
       case JSOp::NewPrivateName:
       case JSOp::StrictConstantEq:
       case JSOp::StrictConstantNe:
-#ifdef ENABLE_EXPLICIT_RESOURCE_MANAGEMENT
       case JSOp::AddDisposable:
       case JSOp::TakeDisposeCapability:
       case JSOp::CreateSuppressedError:
-#endif
         // Supported by WarpBuilder. Nothing to do.
         break;
 
@@ -778,30 +767,45 @@ static void LineNumberAndColumn(HandleScript script, BytecodeLocation loc,
 #endif
 }
 
-static void MaybeSetInliningStateFromJitHints(JSContext* cx,
-                                              ICFallbackStub* fallbackStub,
-                                              JSScript* script,
-                                              BytecodeLocation loc) {
+static bool ShouldSetInliningStateFromJitHints(ICFallbackStub* fallbackStub,
+                                               BytecodeLocation loc) {
   // Only update the state if it has already been marked as a candidate.
   if (fallbackStub->trialInliningState() != TrialInliningState::Candidate) {
-    return;
+    return false;
   }
 
   // Make sure the op is inlineable.
   if (!TrialInliner::IsValidInliningOp(loc.getOp())) {
-    return;
+    return false;
   }
 
-  if (!cx->runtime()->jitRuntime()->hasJitHintsMap()) {
-    return;
+  return true;
+}
+
+// Lazily snapshot this script's monomorphic inline hint offsets so subsequent
+// ICs can check them without looking up the script in the JitHintsMap.
+AbortReasonOr<Ok> WarpScriptOracle::ensureMonomorphicInlineHints() {
+  if (monomorphicInlineHintsComputed_) {
+    return Ok();
   }
 
-  JitHintsMap* jitHints = cx->runtime()->jitRuntime()->getJitHintsMap();
-  uint32_t offset = loc.bytecodeToOffset(script);
-
-  if (jitHints->hasMonomorphicInlineHintAtOffset(script, offset)) {
-    fallbackStub->setTrialInliningState(TrialInliningState::MonomorphicInlined);
+  monomorphicInlineHintsComputed_ = true;
+  if (!cx_->runtime()->jitRuntime()->hasJitHintsMap()) {
+    return Ok();
   }
+
+  JitHintsMap* jitHints = cx_->runtime()->jitRuntime()->getJitHintsMap();
+  auto offsets = jitHints->getMonomorphicInlineOffsets(script_);
+  if (offsets.empty()) {
+    return Ok();
+  }
+
+  // Copy the hints into this WarpScriptOracle.
+  if (!monomorphicInlineHints_.append(offsets.data(), offsets.size())) {
+    return abort(AbortReason::Alloc);
+  }
+
+  return Ok();
 }
 
 template <auto FuseMember, CompilationDependency::Type DepType>
@@ -1014,7 +1018,15 @@ AbortReasonOr<Ok> WarpScriptOracle::maybeInlineIC(WarpOpSnapshotList& snapshots,
 
   // Set the trial inlining state directly if there is a hint cached from a
   // previous compilation.
-  MaybeSetInliningStateFromJitHints(cx_, fallbackStub, script_, loc);
+  if (ShouldSetInliningStateFromJitHints(fallbackStub, loc)) {
+    MOZ_TRY(ensureMonomorphicInlineHints());
+    if (std::find(monomorphicInlineHints_.begin(),
+                  monomorphicInlineHints_.end(),
+                  offset) != monomorphicInlineHints_.end()) {
+      fallbackStub->setTrialInliningState(
+          TrialInliningState::MonomorphicInlined);
+    }
+  }
 
   // Clear the used-by-transpiler flag on the IC. It can still be set from a
   // previous compilation because we don't clear the flag on every IC when

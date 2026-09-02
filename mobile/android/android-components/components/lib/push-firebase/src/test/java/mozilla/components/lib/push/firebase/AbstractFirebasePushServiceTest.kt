@@ -8,6 +8,7 @@ import com.google.android.gms.common.ConnectionResult
 import com.google.android.gms.common.GoogleApiAvailability
 import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.RemoteMessage
+import kotlin.test.assertNotNull
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import mozilla.components.concept.push.PushProcessor
@@ -15,7 +16,6 @@ import mozilla.components.support.test.any
 import mozilla.components.support.test.mock
 import mozilla.components.support.test.robolectric.testContext
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -53,13 +53,14 @@ class AbstractFirebasePushServiceTest {
     @Test
     fun `new encrypted messages are passed to the processor`() {
         val remoteMessage: RemoteMessage = mock()
-        val data = mapOf(
-            "chid" to "1234",
-            "body" to "contents",
-            "con" to "encoding",
-            "enc" to "salt",
-            "cryptokey" to "dh256",
-        )
+        val data =
+            mapOf(
+                "chid" to "1234",
+                "body" to "contents",
+                "con" to "encoding",
+                "enc" to "salt",
+                "cryptokey" to "dh256",
+            )
         `when`(remoteMessage.data).thenReturn(data)
         service.onMessageReceived(remoteMessage)
 
@@ -69,9 +70,7 @@ class AbstractFirebasePushServiceTest {
     @Test
     fun `malformed message exception should not be thrown`() {
         val remoteMessage: RemoteMessage = mock()
-        val data = mapOf(
-            "chid" to "1234",
-        )
+        val data = mapOf("chid" to "1234")
         `when`(remoteMessage.data).thenReturn(data)
         service.onMessageReceived(remoteMessage)
 
@@ -82,11 +81,12 @@ class AbstractFirebasePushServiceTest {
     @Test
     fun `do nothing if the message is not for us`() {
         val remoteMessage: RemoteMessage = mock()
-        val data = mapOf(
-            "con" to "encoding",
-            "enc" to "salt",
-            "cryptokey" to "dh256",
-        )
+        val data =
+            mapOf(
+                "con" to "encoding",
+                "enc" to "salt",
+                "cryptokey" to "dh256",
+            )
         `when`(remoteMessage.data).thenReturn(data)
 
         service.onMessageReceived(remoteMessage)
@@ -96,12 +96,13 @@ class AbstractFirebasePushServiceTest {
 
     @Test
     fun `service is initialized with correct default background dispatcher`() = runTest {
-        val backgroundService = object : AbstractFirebasePushService() {
-            override fun getFirebaseMessaging(): FirebaseMessaging {
-                return mockMessaging
+        val backgroundService =
+            object : AbstractFirebasePushService() {
+                override fun getFirebaseMessaging(): FirebaseMessaging {
+                    return mockMessaging
+                }
             }
-        }
-        assertNotNull("Dispatcher should be present", backgroundService.coroutineContext)
+        assertNotNull(backgroundService.coroutineContext, "Dispatcher should be present")
 
         assertFalse(
             "Default dispatcher should not be a Main dispatcher",
@@ -113,11 +114,12 @@ class AbstractFirebasePushServiceTest {
     fun `service is initialized with correct background dispatcher`() = runTest {
         val testDispatcher = StandardTestDispatcher()
 
-        val backgroundService = object : AbstractFirebasePushService(testDispatcher) {
-            override fun getFirebaseMessaging(): FirebaseMessaging {
-                return mockMessaging
+        val backgroundService =
+            object : AbstractFirebasePushService(testDispatcher) {
+                override fun getFirebaseMessaging(): FirebaseMessaging {
+                    return mockMessaging
+                }
             }
-        }
 
         assertTrue(
             "Service context should use the provided dispatcher",

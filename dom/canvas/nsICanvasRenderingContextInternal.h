@@ -149,6 +149,13 @@ class nsICanvasRenderingContextInternal : public nsISupports,
     return GetSurfaceSnapshot();
   }
 
+  virtual bool SupportAsyncSnapshot() { return false; };
+
+  virtual RefPtr<mozilla::dom::HTMLCanvasElement::SurfaceSnapshotPromise>
+  GetSurfaceSnapshotAsync() {
+    return nullptr;
+  }
+
   // If this is called with true, the backing store of the canvas should
   // be created as opaque; all compositing operators should assume the
   // dst alpha is always 1.0.  If this is never called, the context's
@@ -227,8 +234,9 @@ class nsICanvasRenderingContextInternal : public nsISupports,
   // Checking if fingerprinting protection is enable for the given target.
   bool ShouldResistFingerprinting(mozilla::RFPTarget aTarget) const;
 
-  bool DispatchEvent(const nsAString& eventName, mozilla::CanBubble aCanBubble,
-                     mozilla::Cancelable aIsCancelable) const;
+  MOZ_CAN_RUN_SCRIPT bool DispatchEvent(
+      const nsAString& eventName, mozilla::CanBubble aCanBubble,
+      mozilla::Cancelable aIsCancelable) const;
 
   void RecordCanvasUsage(mozilla::CanvasExtractionAPI aAPI,
                          mozilla::CSSIntSize size) const;

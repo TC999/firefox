@@ -4,8 +4,16 @@
 
 package org.mozilla.conventions
 
+import org.gradle.api.provider.ListProperty
+import org.gradle.api.provider.MapProperty
 import org.gradle.api.provider.Property
 
 interface ProjectExtension {
     val androidComponentsProject: Property<Boolean>
+    val ktfmtSourcePaths: ListProperty<String>
+    val detektSourcePaths: ListProperty<String>
+    val detektConfig: Property<String>
+    val detektBaseline: Property<String>
+    val detektAutoCorrect: Property<Boolean>
+    val detektReports: MapProperty<String, String>
 }

@@ -12,7 +12,7 @@
 // on tabs where a shim using a given logo happens to be active).
 const LogosBaseURL = "https://smartblock.firefox.etp/";
 
-const releaseBranch = browser.appConstants.getReleaseBranch();
+const releaseBranch = browser.appConstants.getEffectiveUpdateChannel();
 
 const platform =
   browser.appConstants.getPlatform() === "android" ? "android" : "desktop";
@@ -259,10 +259,13 @@ class Shim {
 
   async _allowRequestsInETP(alsoClearResourceCache) {
     let modified = false;
-    const matches = this.matches.map(m => m.patterns).flat();
-    if (matches.length) {
+    const matchEntries = this.matches.map(({ patterns, types }) => ({
+      patterns,
+      types,
+    }));
+    if (matchEntries.length) {
       // ensure requests shimmed in both PB and non-PB modes
-      await browser.trackingProtection.shim(this.id, matches);
+      await browser.trackingProtection.shim(this.id, matchEntries);
       modified = true;
     }
 
@@ -447,20 +450,29 @@ class Shim {
   }
 
   async clearUserOptIns(forPrivateMode) {
-    const optIns = await this.getApplicableOptIns();
+    // This method is called whenever any private browsing window is closed.
+    // Avoid performing unnecessary works, in order to keep the resource cache
+    // as much as possible.
     const activeHostOptIns = forPrivateMode
       ? this._pBModeHostOptIns
       : this._hostOptIns;
-    if (optIns.length) {
-      activeHostOptIns.clear();
-      await browser.trackingProtection.allow(
-        this.id,
-        optIns,
-        forPrivateMode,
-        Array.from(activeHostOptIns)
-      );
-      this.clearResourceCache();
+    if (!activeHostOptIns.length) {
+      return;
     }
+
+    const optIns = await this.getApplicableOptIns();
+    if (!optIns.length) {
+      return;
+    }
+
+    activeHostOptIns.clear();
+    await browser.trackingProtection.allow(
+      this.id,
+      optIns,
+      forPrivateMode,
+      Array.from(activeHostOptIns)
+    );
+    this.clearResourceCache();
   }
 
   clearResourceCache() {
@@ -765,7 +777,7 @@ class Shims {
       registerShimListener(
         browser.webRequest.onBeforeRequest,
         this._ensureShimForRequestOnTab.bind(this),
-        { urls, types: [type] },
+        { urls },
         ["blocking"]
       );
     }
@@ -1142,6 +1154,11 @@ class Shims {
 
     const { frameId, originUrl, requestId, tabId, type, url } = details;
 
+    // For sub_frame requests frameId identifies the frame being navigated,
+    // not the one holding it, so shim scripts have to be injected into the
+    // parent frame instead.
+    const shimFrameId = type === "sub_frame" ? details.parentFrameId : frameId;
+
     // Ignore requests unrelated to tabs
     if (tabId < 0) {
       return undefined;
@@ -1242,7 +1259,7 @@ class Shims {
         try {
           await browser.tabs.executeScript(tabId, {
             file: `/lib/smartblock_embeds_helper.js`,
-            frameId,
+            frameId: shimFrameId,
             runAt: "document_start",
           });
         } catch (_) {}
@@ -1252,7 +1269,7 @@ class Shims {
         try {
           await browser.tabs.executeScript(tabId, {
             file: `/shims/${runFirst}`,
-            frameId,
+            frameId: shimFrameId,
             runAt: "document_start",
           });
           shimToApply.setActiveOnTab(tabId);

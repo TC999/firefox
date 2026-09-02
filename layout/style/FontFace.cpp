@@ -68,7 +68,7 @@ NS_INTERFACE_MAP_END
 NS_IMPL_CYCLE_COLLECTING_ADDREF(FontFace)
 NS_IMPL_CYCLE_COLLECTING_RELEASE(FontFace)
 
-FontFace::FontFace(nsIGlobalObject* aParent) { BindToOwner(aParent); }
+FontFace::FontFace(nsIGlobalObject* aParent) { BindToGlobal(aParent); }
 
 FontFace::~FontFace() {
   // Assert that we don't drop any FontFace objects during a Servo traversal,
@@ -97,7 +97,7 @@ already_AddRefed<FontFace> FontFace::CreateForRule(
   FontFaceSetImpl* setImpl = aFontFaceSet->GetImpl();
   MOZ_ASSERT(setImpl);
 
-  RefPtr<FontFace> obj = new FontFace(aGlobal);
+  RefPtr<FontFace> obj = do_AddRef(new FontFace(aGlobal));
   obj->mImpl = FontFaceImpl::CreateForRule(obj, setImpl, aRule);
   return obj.forget();
 }
@@ -120,8 +120,8 @@ already_AddRefed<FontFace> FontFace::Constructor(
     return nullptr;
   }
 
-  RefPtr<FontFace> obj = new FontFace(global);
-  obj->mImpl = new FontFaceImpl(obj, setImpl);
+  RefPtr<FontFace> obj = do_AddRef(new FontFace((global)));
+  obj->mImpl = MakeRefPtr<FontFaceImpl>(obj, setImpl);
   if (!obj->mImpl->SetDescriptors(aFamily, aDescriptors)) {
     return obj.forget();
   }
@@ -164,10 +164,10 @@ void FontFace::SetWeight(const nsACString& aValue, ErrorResult& aRv) {
   mImpl->SetWeight(aValue, aRv);
 }
 
-void FontFace::GetStretch(nsACString& aResult) { mImpl->GetStretch(aResult); }
+void FontFace::GetWidth(nsACString& aResult) { mImpl->GetWidth(aResult); }
 
-void FontFace::SetStretch(const nsACString& aValue, ErrorResult& aRv) {
-  mImpl->SetStretch(aValue, aRv);
+void FontFace::SetWidth(const nsACString& aValue, ErrorResult& aRv) {
+  mImpl->SetWidth(aValue, aRv);
 }
 
 void FontFace::GetUnicodeRange(nsACString& aResult) {
@@ -301,11 +301,11 @@ void FontFace::MaybeReject(FontFaceLoadedRejectReason aReason,
 }
 
 void FontFace::EnsurePromise() {
-  if (mLoaded || !mImpl || !GetOwnerGlobal()) {
+  if (mLoaded || !mImpl || !GetRelevantGlobal()) {
     return;
   }
 
-  mLoaded = Promise::CreateInfallible(GetOwnerGlobal());
+  mLoaded = Promise::CreateInfallible(GetRelevantGlobal());
 
   if (mImpl->Status() == FontFaceLoadStatus::Loaded) {
     mLoaded->MaybeResolve(this);

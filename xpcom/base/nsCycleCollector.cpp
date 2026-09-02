@@ -148,7 +148,6 @@
 #endif
 
 #include "base/process_util.h"
-
 #include "mozilla/AutoRestore.h"
 #include "mozilla/CycleCollectedJSContext.h"
 #include "mozilla/CycleCollectedJSRuntime.h"
@@ -164,6 +163,7 @@
 #include <utility>
 
 #include "js/SliceBudget.h"
+#include "js/friend/CycleCollector.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/Likely.h"
 #include "mozilla/LinkedList.h"
@@ -173,9 +173,9 @@
 #include "mozilla/ProfilerLabels.h"
 #include "mozilla/ProfilerMarkers.h"
 #include "mozilla/SegmentedVector.h"
-#include "mozilla/glean/XpcomMetrics.h"
 #include "mozilla/ThreadLocal.h"
 #include "mozilla/UniquePtr.h"
+#include "mozilla/glean/XpcomMetrics.h"
 #include "nsContentUtils.h"
 #include "nsCycleCollectionNoteRootCallback.h"
 #include "nsCycleCollectionParticipant.h"
@@ -496,12 +496,7 @@ class EdgePool {
       }
       return mPointer->ptrInfo;
     }
-    bool operator==(const Iterator& aOther) const {
-      return mPointer == aOther.mPointer;
-    }
-    bool operator!=(const Iterator& aOther) const {
-      return mPointer != aOther.mPointer;
-    }
+    bool operator==(const Iterator& aOther) const = default;
 
 #ifdef DEBUG_CC_GRAPH
     bool Initialized() const { return mPointer != nullptr; }
@@ -1259,6 +1254,12 @@ class nsCycleCollector : public nsIMemoryReporter {
   // returns whether anything was collected
   bool CollectWhite();
 
+  void ClearWhiteJSWeakRefTargets();
+
+ public:
+  bool IsGCThingWhiteInCCGraph(JS::GCCellPtr aPtr);
+
+ private:
   void CleanupAfterCollection();
 };
 
@@ -1727,7 +1728,7 @@ class nsCycleCollectorLogSinkToFile final : public nsICycleCollectorLogSink {
     // We don't want any JS to run between ScanRoots and CollectWhite calls,
     // and since ScanRoots calls this method, better to log the message
     // asynchronously.
-    RefPtr<LogStringMessageAsync> log = new LogStringMessageAsync(msg);
+    RefPtr log = MakeRefPtr<LogStringMessageAsync>(msg);
     NS_DispatchToCurrentThread(log);
     return NS_OK;
   }
@@ -2041,7 +2042,7 @@ class CCGraphBuilder final : public nsCycleCollectionTraversalCallback,
   UniquePtr<NodePool::Enumerator> mCurrNode;
   uint32_t mNoteChildCount;
 
-  struct PtrInfoCache : public MruCache<void*, PtrInfo*, PtrInfoCache, 491> {
+  struct PtrInfoCache : public MruCache<void*, PtrInfo*, PtrInfoCache, 256> {
     static HashNumber Hash(const void* aKey) { return HashGeneric(aKey); }
     static bool Match(const void* aKey, const PtrInfo* aVal) {
       return aVal->mPointer == aKey;
@@ -3248,6 +3249,8 @@ bool nsCycleCollector::CollectWhite() {
   //   - Unlink(whites), which drops outgoing links on each white.
   //   - Unroot(whites), which returns the whites to normal GC.
 
+  ClearWhiteJSWeakRefTargets();
+
   // Segments are 4 KiB on 32-bit and 8 KiB on 64-bit.
   static const size_t kSegmentSize = sizeof(void*) * 1024;
   SegmentedVector<PtrInfo*, kSegmentSize, InfallibleAllocPolicy> whiteNodes(
@@ -3337,6 +3340,31 @@ bool nsCycleCollector::CollectWhite() {
   mKnownSnowWhiteCount = 0;
 
   return numWhiteNodes > 0 || numWhiteGCed > 0 || numWhiteJSZones > 0;
+}
+
+static bool IsGCThingWhiteInCCGraph(JS::GCCellPtr aPtr, void* aData) {
+  auto* cc = static_cast<nsCycleCollector*>(aData);
+  return cc->IsGCThingWhiteInCCGraph(aPtr);
+}
+
+bool nsCycleCollector::IsGCThingWhiteInCCGraph(JS::GCCellPtr aPtr) {
+  PtrInfo* pinfo = mGraph.FindNode(aPtr.asCell());
+  if (!pinfo) {
+    return false;
+  }
+
+  MOZ_ASSERT(pinfo->mParticipant);
+  bool isWhite = pinfo->mColor == white;
+
+  MOZ_ASSERT_IF(isWhite, pinfo->IsGrayJS());
+  return isWhite;
+}
+
+void nsCycleCollector::ClearWhiteJSWeakRefTargets() {
+  // Clear the targets of JS WeakRef objects whose target is part of a cycle
+  // that we're about to unlink.
+  JSRuntime* runtime = Runtime()->Runtime();
+  JS::MaybeClearWeakRefTargets(runtime, &::IsGCThingWhiteInCCGraph, this);
 }
 
 ////////////////////////
@@ -3586,14 +3614,15 @@ void nsCycleCollector::CleanupAfterCollection() {
 #endif
 
   if (NS_IsMainThread()) {
-    glean::cycle_collector::time.AccumulateRawDuration(interval);
+    glean::cycle_collector::time.ProcessGet().AccumulateRawDuration(interval);
     glean::cycle_collector::visited_ref_counted.AccumulateSingleSample(
         mResults.mVisitedRefCounted);
     glean::cycle_collector::visited_gced.AccumulateSingleSample(
         mResults.mVisitedGCed);
     glean::cycle_collector::collected.AccumulateSingleSample(mWhiteNodeCount);
   } else {
-    glean::cycle_collector::worker_time.AccumulateRawDuration(interval);
+    glean::cycle_collector::worker_time.ProcessGet().AccumulateRawDuration(
+        interval);
     glean::cycle_collector::worker_visited_ref_counted.AccumulateSingleSample(
         mResults.mVisitedRefCounted);
     glean::cycle_collector::worker_visited_gced.AccumulateSingleSample(

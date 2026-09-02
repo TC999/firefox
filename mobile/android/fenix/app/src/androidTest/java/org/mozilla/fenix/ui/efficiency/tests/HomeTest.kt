@@ -5,9 +5,16 @@
 package org.mozilla.fenix.ui.efficiency.tests
 
 import org.junit.Test
+import org.mozilla.fenix.customannotations.SmokeTest
+import org.mozilla.fenix.helpers.TestAssetHelper.getGenericAsset
 import org.mozilla.fenix.ui.efficiency.helpers.BaseTest
+import org.mozilla.fenix.ui.efficiency.navigation.LaunchConfig
+import org.mozilla.fenix.ui.efficiency.selectors.HomeSelectors
 
-class HomeTest : BaseTest() {
+class HomeTest : BaseTest(LaunchConfig(isPocketEnabled = false, isRecentlyVisitedFeatureEnabled = false)) {
+    private val mockWebServer
+        get() = fenixTestRule.mockWebServer
+
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/235396
     @Test
     fun homeScreenItemsTest() {
@@ -20,5 +27,27 @@ class HomeTest : BaseTest() {
 
         // Then: the browser chrome, page components, and elements should load
         on.home.mozVerifyElementsByGroup("topSitesCompose")
+    }
+
+    // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/1364362
+    @SmokeTest
+    @Test
+    fun verifyContinueSectionTest() {
+        val firstWebPage = mockWebServer.getGenericAsset(4)
+        val secondWebPage = mockWebServer.getGenericAsset(1)
+
+        on.browserPage.navigateToPage(firstWebPage.url.toString())
+        on.home.navigateToPage().mozVerify(HomeSelectors.CONTINUE_SECTION).mozVerifyElementsByGroup("continue")
+
+        on.browserPage.navigateToPage(secondWebPage.url.toString())
+        on.home.navigateToPage().mozVerify(HomeSelectors.CONTINUE_SECTION).mozVerifyElementsByGroup("continue")
+
+        on.tabDrawer.navigateToPage()
+        on.tabDrawer.closeTabWithTitle(secondWebPage.title)
+        on.home.navigateToPage().mozVerify(HomeSelectors.CONTINUE_SECTION).mozVerifyElementsByGroup("continue")
+
+        on.tabDrawer.navigateToPage()
+        on.tabDrawer.closeTabWithTitle(firstWebPage.title)
+        on.home.mozVerifyElementAbsent(HomeSelectors.CONTINUE_SECTION)
     }
 }

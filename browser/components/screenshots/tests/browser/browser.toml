@@ -19,9 +19,6 @@ prefs = [
 ]
 
 ["browser_iframe_test.js"]
-skip-if = [
-  "opt",
-]
 
 ["browser_keyboard_shortcuts.js"]
 run-if = [
@@ -64,6 +61,10 @@ skip-if = [
 ["browser_screenshots_splitview.js"]
 
 ["browser_screenshots_telemetry_tests.js"]
+
+skip-if = [
+  "os == 'mac' && os_version == '15.30' && arch == 'aarch64'", # Bug 2023967
+]
 
 ["browser_screenshots_test_downloads.js"]
 

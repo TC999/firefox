@@ -7,6 +7,7 @@
 #include "CertVerifier.h"
 #include "ExtendedValidation.h"
 #include "NSSCertDBTrustDomain.h"
+#include "PKCS11Token.h"
 #include "X509CertValidity.h"
 #include "certdb.h"
 #include "ipc/IPCMessageUtils.h"
@@ -28,7 +29,6 @@
 #include "nsIX509Cert.h"
 #include "nsNSSCertHelper.h"
 #include "nsNSSCertTrust.h"
-#include "nsPK11TokenDB.h"
 #include "nsPKCS12Blob.h"
 #include "nsProxyRelease.h"
 #include "nsReadableUtils.h"
@@ -52,8 +52,6 @@ using namespace mozilla::psm;
 extern LazyLogModule gPIPNSSLog;
 
 NS_IMPL_ISUPPORTS(nsNSSCertificate, nsIX509Cert, nsISerializable, nsIClassInfo)
-
-nsNSSCertificate::nsNSSCertificate() : mCert("nsNSSCertificate::mCert") {}
 
 nsNSSCertificate::nsNSSCertificate(CERTCertificate* cert)
     : mCert("nsNSSCertificate::mCert") {
@@ -472,8 +470,8 @@ nsNSSCertificate::GetTokenName(nsAString& aTokenName) {
   if (!internalSlot) {
     return NS_ERROR_FAILURE;
   }
-  nsCOMPtr<nsIPK11Token> token(
-      new nsPK11Token(cert->slot ? cert->slot : internalSlot.get()));
+  nsCOMPtr<nsIPKCS11Token> token(
+      new PKCS11Token(cert->slot ? cert->slot : internalSlot.get()));
   nsAutoCString tmp;
   nsresult rv = token->GetTokenName(tmp);
   if (NS_FAILED(rv)) {

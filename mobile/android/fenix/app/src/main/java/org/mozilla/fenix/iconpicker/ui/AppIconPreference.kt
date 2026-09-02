@@ -19,34 +19,35 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.PreviewParameter
 import androidx.compose.ui.unit.dp
 import androidx.navigation.findNavController
-import androidx.preference.Preference
-import androidx.preference.PreferenceViewHolder
 import mozilla.components.compose.base.annotation.FlexibleWindowPreview
+import mozilla.components.compose.base.theme.PreviewThemeProvider
+import mozilla.components.compose.base.theme.Theme
 import org.mozilla.fenix.GleanMetrics.CustomizationSettings
 import org.mozilla.fenix.R
 import org.mozilla.fenix.iconpicker.AppIcon
 import org.mozilla.fenix.iconpicker.AppIconRepository
 import org.mozilla.fenix.iconpicker.DefaultAppIconRepository
 import org.mozilla.fenix.iconpicker.DefaultPackageManagerWrapper
+import org.mozilla.fenix.settings.ComposePreference
 import org.mozilla.fenix.settings.CustomizationFragmentDirections
 import org.mozilla.fenix.theme.FirefoxTheme
-import org.mozilla.fenix.theme.PreviewThemeProvider
-import org.mozilla.fenix.theme.Theme
 
 private val IconSize = 40.dp
 
 /**
  * User preference showing the currently selected icon and enables the user to navigate to the app icon selection view.
  */
-class AppIconPreference @JvmOverloads constructor(
+class AppIconPreference
+@JvmOverloads
+constructor(
     context: Context,
     attrs: AttributeSet? = null,
-) : Preference(context, attrs) {
+) : ComposePreference(context, attrs) {
 
     private val appIconRepository: AppIconRepository by lazy {
         DefaultAppIconRepository(
@@ -55,28 +56,19 @@ class AppIconPreference @JvmOverloads constructor(
         )
     }
 
-    init {
-        layoutResource = R.layout.app_icon_preference
-    }
+    @Composable
+    override fun Content() {
+        val view = LocalView.current
 
-    override fun onBindViewHolder(holder: PreferenceViewHolder) {
-        super.onBindViewHolder(holder)
-
-        (holder.findViewById(R.id.compose_view) as ComposeView).setContent {
-            FirefoxTheme {
-                SelectAppIcon(
-                    appIcon = appIconRepository.selectedAppIcon,
-                    onClick = {
-                        CustomizationSettings.appIconSelectionTapped.record()
-
-                        val navController = holder.itemView.findNavController()
-                        navController.navigate(
-                            CustomizationFragmentDirections.actionCustomizationFragmentAppIconSelectionFragment(),
-                        )
-                    },
-                )
-            }
-        }
+        SelectAppIcon(
+            appIcon = appIconRepository.selectedAppIcon,
+            onClick = {
+                CustomizationSettings.appIconSelectionTapped.record()
+                view
+                    .findNavController()
+                    .navigate(CustomizationFragmentDirections.actionCustomizationFragmentAppIconSelectionFragment())
+            },
+        )
     }
 }
 
@@ -87,13 +79,13 @@ private fun SelectAppIcon(
 ) {
     Surface {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { onClick(appIcon) }
-                .padding(
-                    horizontal = FirefoxTheme.layout.space.dynamic200,
-                    vertical = FirefoxTheme.layout.space.static100,
-                ),
+            modifier =
+                Modifier.fillMaxWidth()
+                    .clickable { onClick(appIcon) }
+                    .padding(
+                        horizontal = FirefoxTheme.layout.space.dynamic200,
+                        vertical = FirefoxTheme.layout.space.static100,
+                    ),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             AppIcon(
@@ -121,9 +113,7 @@ private fun SelectAppIcon(
 
 @FlexibleWindowPreview
 @Composable
-private fun SelectAppIconPreview(
-    @PreviewParameter(PreviewThemeProvider::class) theme: Theme,
-) {
+private fun SelectAppIconPreview(@PreviewParameter(PreviewThemeProvider::class) theme: Theme) {
     FirefoxTheme(theme) {
         SelectAppIcon(AppIcon.AppDefault) {}
     }

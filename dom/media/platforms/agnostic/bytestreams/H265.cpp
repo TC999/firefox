@@ -19,8 +19,8 @@
 
 mozilla::LazyLogModule gH265("H265");
 
-#define LOG(msg, ...) MOZ_LOG(gH265, LogLevel::Debug, (msg, ##__VA_ARGS__))
-#define LOGV(msg, ...) MOZ_LOG(gH265, LogLevel::Verbose, (msg, ##__VA_ARGS__))
+#define LOG(msg, ...) MOZ_LOG_FMT(gH265, LogLevel::Debug, msg, ##__VA_ARGS__)
+#define LOGV(msg, ...) MOZ_LOG_FMT(gH265, LogLevel::Verbose, msg, ##__VA_ARGS__)
 
 #define TRUE_OR_RETURN(condition)            \
   do {                                       \
@@ -65,7 +65,7 @@ H265NALU::H265NALU(const uint8_t* aData, uint32_t aByteSize)
   mNalUnitType = reader.ReadBits(6);
   mNuhLayerId = reader.ReadBits(6);
   mNuhTemporalIdPlus1 = reader.ReadBits(3);
-  LOGV("Created H265NALU, type=%hhu, size=%u", mNalUnitType, aByteSize);
+  LOGV("Created H265NALU, type={}, size={}", mNalUnitType, aByteSize);
 }
 
 /* static */ Result<HVCCConfig, nsresult> HVCCConfig::Parse(
@@ -75,12 +75,12 @@ H265NALU::H265NALU(const uint8_t* aData, uint32_t aByteSize)
     return mozilla::Err(NS_ERROR_FAILURE);
   }
   if (aSample->Size() < 3) {
-    LOG("Incorrect sample size %zu", aSample->Size());
+    LOG("Incorrect sample size {}", aSample->Size());
     return mozilla::Err(NS_ERROR_FAILURE);
   }
   if (aSample->mTrackInfo &&
       !aSample->mTrackInfo->mMimeType.EqualsLiteral("video/hevc")) {
-    LOG("Only allow 'video/hevc' (mimeType=%s)",
+    LOG("Only allow 'video/hevc' (mimeType={})",
         aSample->mTrackInfo->mMimeType.get());
     return mozilla::Err(NS_ERROR_FAILURE);
   }
@@ -96,7 +96,7 @@ Result<HVCCConfig, nsresult> HVCCConfig::Parse(
     return mozilla::Err(NS_ERROR_FAILURE);
   }
   if (aExtraData->Length() < 23) {
-    LOG("Incorrect extra-data size %zu", aExtraData->Length());
+    LOG("Incorrect extra-data size {}", aExtraData->Length());
     return mozilla::Err(NS_ERROR_FAILURE);
   }
   const auto& byteBuffer = *aExtraData;
@@ -139,12 +139,12 @@ Result<HVCCConfig, nsresult> HVCCConfig::Parse(
     (void)reader.ReadBits(2);  // array_completeness + reserved
     const uint8_t nalUnitType = reader.ReadBits(6);
     const uint16_t numNalus = reader.ReadBits(16);
-    LOGV("nalu-type=%u, nalu-num=%u", nalUnitType, numNalus);
+    LOGV("nalu-type={}, nalu-num={}", nalUnitType, numNalus);
     for (uint16_t nIdx = 0; nIdx < numNalus; nIdx++) {
       const uint16_t nalUnitLength = reader.ReadBits(16);
       if (reader.BitsLeft() < nalUnitLength * 8) {
-        LOG("Aborting parsing, NALU size (%u bits) is larger than remaining "
-            "(%zu bits)!",
+        LOG("Aborting parsing, NALU size ({} bits) is larger than remaining "
+            "({} bits)!",
             nalUnitLength * 8u, reader.BitsLeft());
         // We return what we've parsed so far and ignore the rest.
         hvcc.mByteBuffer = aExtraData;
@@ -160,7 +160,7 @@ Result<HVCCConfig, nsresult> HVCCConfig::Parse(
       if (nalu.IsSPS() || nalu.IsPPS() || nalu.IsVPS() || nalu.IsSEI()) {
         hvcc.mNALUs.AppendElement(nalu);
       } else {
-        LOG("Ignore NALU (%u) which is not SPS/PPS/VPS or SEI",
+        LOG("Ignore NALU ({}) which is not SPS/PPS/VPS or SEI",
             nalu.mNalUnitType);
       }
     }
@@ -552,32 +552,12 @@ uint32_t H265ProfileTierLevel::GetDpbMaxPicBuf() const {
 }
 
 bool H265ProfileTierLevel::operator==(
-    const H265ProfileTierLevel& aOther) const {
-  return COMPARE_FIELD(general_profile_space) &&
-         COMPARE_FIELD(general_tier_flag) &&
-         COMPARE_FIELD(general_profile_idc) &&
-         COMPARE_FIELD(general_profile_compatibility_flags) &&
-         COMPARE_FIELD(general_progressive_source_flag) &&
-         COMPARE_FIELD(general_interlaced_source_flag) &&
-         COMPARE_FIELD(general_non_packed_constraint_flag) &&
-         COMPARE_FIELD(general_frame_only_constraint_flag) &&
-         COMPARE_FIELD(general_level_idc);
-}
+    const H265ProfileTierLevel& aOther) const = default;
 
-bool H265StRefPicSet::operator==(const H265StRefPicSet& aOther) const {
-  return COMPARE_FIELD(num_negative_pics) && COMPARE_FIELD(num_positive_pics) &&
-         COMPARE_FIELD(numDeltaPocs) && COMPARE_ARRAY(usedByCurrPicS0) &&
-         COMPARE_ARRAY(usedByCurrPicS1) && COMPARE_ARRAY(deltaPocS0) &&
-         COMPARE_ARRAY(deltaPocS1);
-}
+bool H265StRefPicSet::operator==(const H265StRefPicSet& aOther) const = default;
 
-bool H265VUIParameters::operator==(const H265VUIParameters& aOther) const {
-  return COMPARE_FIELD(sar_width) && COMPARE_FIELD(sar_height) &&
-         COMPARE_FIELD(video_full_range_flag) &&
-         COMPARE_FIELD(colour_primaries) &&
-         COMPARE_FIELD(transfer_characteristics) &&
-         COMPARE_FIELD(matrix_coeffs);
-}
+bool H265VUIParameters::operator==(const H265VUIParameters& aOther) const =
+    default;
 
 bool H265VUIParameters::HasValidAspectRatio() const {
   return aspect_ratio_info_present_flag && mIsSARValid;
@@ -1227,6 +1207,134 @@ already_AddRefed<mozilla::MediaByteBuffer> H265::DecodeNALUnit(
   return rbsp.forget();
 }
 
+/* static */
+mozilla::Maybe<mozilla::gfx::HDRMetadata> H265::ParseSEIHDRMetadata(
+    const H265NALU& aNALU) {
+  MOZ_ASSERT(aNALU.mNalUnitType == H265NALU::NAL_TYPES::PREFIX_SEI_NUT ||
+             aNALU.mNalUnitType == H265NALU::NAL_TYPES::SUFFIX_SEI_NUT);
+
+  RefPtr<MediaByteBuffer> rbsp = H265::DecodeNALUnit(aNALU.mNALU);
+  if (!rbsp) {
+    return Nothing();
+  }
+
+  const Span<const uint8_t> data(rbsp->Elements(), rbsp->Length());
+  size_t offset = 0;
+
+  // SEI type 137 (mastering display colour volume) and type 144 (content light
+  // level info) are defined in ITU-T H.265 (08/2021) §D.3.26 and §D.3.27.
+  static constexpr uint8_t kSEIMasteringDisplayType = 137;
+  static constexpr uint8_t kSEIContentLightLevelType = 144;
+  // Fixed-point conversion factors per ITU-T H.265 (08/2021) §D.3.26:
+  static constexpr float kPrimariesDivisor = 50000.0f;
+  static constexpr float kLuminanceDivisor = 10000.0f;
+
+  gfx::HDRMetadata hdr;
+  bool hasMasteringDisplay = false;
+  bool hasCLL = false;
+
+  while (offset < data.Length()) {
+    // rbsp_trailing_bits() ends with a stop bit (0x80) per H.265 §7.4.1.
+    if (offset + 1 == data.Length() && data[offset] == 0x80) {
+      break;
+    }
+
+    // SEI payloadType and payloadSize use 0xff-prefix multi-byte encoding
+    // (ff_byte in ITU-T H.265 §7.3.2.4): accumulate 0xff-valued bytes, then
+    // add the terminating non-0xff byte.
+    size_t payloadType = 0;
+    while (offset < data.Length() && data[offset] == 0xff) {
+      payloadType += 0xff;
+      offset++;
+    }
+    if (offset >= data.Length()) {
+      break;
+    }
+    payloadType += data[offset++];
+
+    size_t payloadSize = 0;
+    while (offset < data.Length() && data[offset] == 0xff) {
+      payloadSize += 0xff;
+      offset++;
+    }
+    if (offset >= data.Length()) {
+      break;
+    }
+    payloadSize += data[offset++];
+
+    if (offset + payloadSize > data.Length()) {
+      break;
+    }
+
+    if (payloadType == kSEIMasteringDisplayType) {
+      if (payloadSize != 24) {
+        NS_WARNING("H265 SEI mastering display: unexpected payload size");
+        offset += payloadSize;
+        continue;
+      }
+      // ITU-T H.265 (08/2021) §D.3.26 Table D.2 primary order: G[0], B[1], R[2]
+      // Each chromaticity is u16 big-endian / 50000.0f
+      BufferReader br(data.Elements() + offset, payloadSize);
+      auto g0x = br.ReadU16();
+      auto g0y = br.ReadU16();
+      auto b1x = br.ReadU16();
+      auto b1y = br.ReadU16();
+      auto r2x = br.ReadU16();
+      auto r2y = br.ReadU16();
+      auto wpx = br.ReadU16();
+      auto wpy = br.ReadU16();
+      auto maxL = br.ReadU32();
+      auto minL = br.ReadU32();
+      if (g0x.isErr() || g0y.isErr() || b1x.isErr() || b1y.isErr() ||
+          r2x.isErr() || r2y.isErr() || wpx.isErr() || wpy.isErr() ||
+          maxL.isErr() || minL.isErr()) {
+        LOG("H265 SEI mastering display: failed to read fields");
+        offset += payloadSize;
+        continue;
+      }
+      gfx::Chromaticity green{g0x.unwrap() / kPrimariesDivisor,
+                              g0y.unwrap() / kPrimariesDivisor};
+      gfx::Chromaticity blue{b1x.unwrap() / kPrimariesDivisor,
+                             b1y.unwrap() / kPrimariesDivisor};
+      gfx::Chromaticity red{r2x.unwrap() / kPrimariesDivisor,
+                            r2y.unwrap() / kPrimariesDivisor};
+      gfx::Chromaticity whitePoint{wpx.unwrap() / kPrimariesDivisor,
+                                   wpy.unwrap() / kPrimariesDivisor};
+      float maxLuminance = maxL.unwrap() / kLuminanceDivisor;
+      float minLuminance = minL.unwrap() / kLuminanceDivisor;
+
+      hdr.mSmpte2086 = Some(gfx::Smpte2086Metadata{red, green, blue, whitePoint,
+                                                   maxLuminance, minLuminance});
+      hasMasteringDisplay = true;
+    } else if (payloadType == kSEIContentLightLevelType) {
+      if (payloadSize != 4) {
+        NS_WARNING("H265 SEI content light level: unexpected payload size");
+        offset += payloadSize;
+        continue;
+      }
+      BufferReader br(data.Elements() + offset, payloadSize);
+      auto maxCLL = br.ReadU16();
+      auto maxFALL = br.ReadU16();
+      if (maxCLL.isErr() || maxFALL.isErr()) {
+        LOG("H265 SEI content light level: failed to read fields");
+        offset += payloadSize;
+        continue;
+      }
+      hdr.mContentLightLevel =
+          Some(gfx::ContentLightLevel{maxCLL.unwrap(), maxFALL.unwrap()});
+      hasCLL = true;
+    }
+
+    offset += payloadSize;
+  }
+
+  if (!hasMasteringDisplay && !hasCLL) {
+    return Nothing();
+  }
+  MOZ_ASSERT(hdr.IsValid());
+  return Some(hdr);
+}
+
 #ifdef MOZ_WMF
 static void AppendSEIInt(MediaByteBuffer* aDest, size_t aValue) {
   while (aValue >= 0xff) {
@@ -1383,7 +1491,7 @@ already_AddRefed<mozilla::MediaByteBuffer> H265::ExtractHVCCExtraData(
       break;
     }
     const H265NALU nalu(p, nalLen);
-    LOGV("Found NALU, type=%u", nalu.mNalUnitType);
+    LOGV("Found NALU, type={}", nalu.mNalUnitType);
     if (nalu.IsSPS()) {
       auto rv = H265::DecodeSPSFromSPSNALU(nalu);
       if (rv.isErr()) {
@@ -1424,7 +1532,7 @@ already_AddRefed<mozilla::MediaByteBuffer> H265::ExtractHVCCExtraData(
   auto vpsEntry = nalusMap.Lookup(H265NALU::VPS_NUT);
   auto ppsEntry = nalusMap.Lookup(H265NALU::PPS_NUT);
 
-  LOGV("Found %zu SPS NALU, %zu VPS NALU, %zu PPS NALU",
+  LOGV("Found {} SPS NALU, {} VPS NALU, {} PPS NALU",
        spsEntry ? spsEntry.Data().Length() : 0,
        vpsEntry ? vpsEntry.Data().Length() : 0,
        ppsEntry ? ppsEntry.Data().Length() : 0);
@@ -1514,7 +1622,7 @@ bool H265::CompareExtraData(const mozilla::MediaByteBuffer* aExtraData1,
   const auto config1 = rv1.unwrap();
   const auto config2 = rv2.unwrap();
   uint8_t numSPS = config1.NumSPS();
-  if (numSPS == 0 || numSPS != config2.NumSPS()) {
+  if (numSPS != config2.NumSPS()) {
     return false;
   }
 

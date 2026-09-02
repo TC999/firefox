@@ -26,14 +26,12 @@ import org.mozilla.fenix.components.IntentProcessorType
 import org.mozilla.fenix.components.getType
 import org.mozilla.fenix.ext.components
 import org.mozilla.fenix.ext.isIntentInternal
-import org.mozilla.fenix.ext.settings
 import org.mozilla.fenix.perf.MarkersActivityLifecycleCallbacks
 import org.mozilla.fenix.perf.StartupTimeline
 import org.mozilla.fenix.shortcut.NewTabShortcutIntentProcessor
+import org.mozilla.fenix.shortcut.UninstallShortcutIntentProcessor
 
-/**
- * Processes incoming intents and sends them to the corresponding activity.
- */
+/** Processes incoming intents and sends them to the corresponding activity. */
 class IntentReceiverActivity : Activity() {
 
     private val logger = Logger("IntentReceiverActivity")
@@ -76,7 +74,7 @@ class IntentReceiverActivity : Activity() {
     fun processIntent(intent: Intent) {
         // Call process for side effects, short on the first that returns true
 
-        var private = settings().openLinksInAPrivateTab
+        var private = components.settings.openLinksInAPrivateTab
         if (!private) {
             // if PRIVATE_BROWSING_MODE is already set to true, honor that
             private = intent.getBooleanExtra(PRIVATE_BROWSING_MODE, false)
@@ -135,17 +133,18 @@ class IntentReceiverActivity : Activity() {
     }
 
     private fun getIntentProcessors(private: Boolean): List<IntentProcessor> {
-        val modeDependentProcessors = if (private) {
-            listOf(
-                components.intentProcessors.privateCustomTabIntentProcessor,
-                components.intentProcessors.privateIntentProcessor,
-            )
-        } else {
-            listOf(
-                components.intentProcessors.customTabIntentProcessor,
-                components.intentProcessors.intentProcessor,
-            )
-        }
+        val modeDependentProcessors =
+            if (private) {
+                listOf(
+                    components.intentProcessors.privateCustomTabIntentProcessor,
+                    components.intentProcessors.privateIntentProcessor,
+                )
+            } else {
+                listOf(
+                    components.intentProcessors.customTabIntentProcessor,
+                    components.intentProcessors.intentProcessor,
+                )
+            }
 
         return components.intentProcessors.externalAppIntentProcessors +
             components.intentProcessors.fennecPageShortcutIntentProcessor +
@@ -153,20 +152,22 @@ class IntentReceiverActivity : Activity() {
             components.intentProcessors.webNotificationsIntentProcessor +
             components.intentProcessors.passwordManagerIntentProcessor +
             modeDependentProcessors +
-            NewTabShortcutIntentProcessor()
+            NewTabShortcutIntentProcessor() +
+            UninstallShortcutIntentProcessor()
     }
 
     private fun addReferrerInformation(intent: Intent) {
         // Pass along referrer information when possible.
         // unfortunately you can get a RuntimeException thrown from android here
         @Suppress("TooGenericExceptionCaught")
-        val r = try {
-            // NB: referrer can be spoofed by the calling application. Use with caution.
-            referrer
-        } catch (_: RuntimeException) {
-            // this could happen if the referrer intent contains data we can't deserialize
-            return
-        } ?: return
+        val r =
+            try {
+                // NB: referrer can be spoofed by the calling application. Use with caution.
+                referrer
+            } catch (_: RuntimeException) {
+                // this could happen if the referrer intent contains data we can't deserialize
+                return
+            } ?: return
         intent.putExtra(EXTRA_ACTIVITY_REFERRER_PACKAGE, r.host)
         r.host?.let { host ->
             try {

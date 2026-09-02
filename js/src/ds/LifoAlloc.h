@@ -220,10 +220,10 @@ struct CanLifoAlloc<T*> : std::true_type {};
 //   template <> struct CanLifoAlloc<MyType> : std::true_type {};
 //
 template <typename T>
-using lifo_alloc_pointer = typename std::enable_if<
-    js::CanLifoAlloc<typename std::remove_pointer<T>::type>::value ||
-        std::is_trivially_destructible_v<typename std::remove_pointer<T>::type>,
-    T>::type;
+using lifo_alloc_pointer = std::enable_if_t<
+    js::CanLifoAlloc<std::remove_pointer_t<T>>::value ||
+        std::is_trivially_destructible_v<std::remove_pointer_t<T>>,
+    T>;
 
 namespace detail {
 
@@ -233,10 +233,10 @@ class SingleLinkedList;
 template <typename T, typename D = JS::DeletePolicy<T>>
 class SingleLinkedListElement {
   friend class SingleLinkedList<T, D>;
-  js::UniquePtr<T, D> next_;
+  js::UniquePtr<T, D> next_{nullptr};
 
  public:
-  SingleLinkedListElement() : next_(nullptr) {}
+  SingleLinkedListElement() = default;
   ~SingleLinkedListElement() { MOZ_ASSERT(!next_); }
 
   T* next() const { return next_.get(); }
@@ -305,12 +305,7 @@ class SingleLinkedList {
       return *this;
     }
 
-    bool operator!=(const Iterator& other) const {
-      return current_ != other.current_;
-    }
-    bool operator==(const Iterator& other) const {
-      return current_ == other.current_;
-    }
+    bool operator==(const Iterator& other) const = default;
   };
 
   Iterator begin() const { return Iterator(head_.get()); }
@@ -470,9 +465,6 @@ class BumpChunk : public SingleLinkedListElement<BumpChunk> {
     MOZ_ASSERT(end() <= capacity_);
   }
 
-  BumpChunk& operator=(const BumpChunk&) = delete;
-  BumpChunk(const BumpChunk&) = delete;
-
   explicit BumpChunk(uintptr_t capacity)
       : bump_(begin()),
         capacity_(base() + capacity)
@@ -526,6 +518,9 @@ class BumpChunk : public SingleLinkedListElement<BumpChunk> {
 
  public:
   ~BumpChunk() { release(); }
+
+  BumpChunk& operator=(const BumpChunk&) = delete;
+  BumpChunk(const BumpChunk&) = delete;
 
   // Returns true if this chunk contains no allocated content.
   bool empty() const { return end() == begin(); }
@@ -742,9 +737,6 @@ class LifoAlloc {
   bool fallibleScope_;
 #endif
 
-  void operator=(const LifoAlloc&) = delete;
-  LifoAlloc(const LifoAlloc&) = delete;
-
   // Return a BumpChunk that can perform an allocation of at least size |n|.
   UniqueBumpChunk newChunkWithCapacity(size_t n, bool oversize);
 
@@ -815,6 +807,9 @@ class LifoAlloc {
   {
     reset(defaultChunkSize);
   }
+
+  void operator=(const LifoAlloc&) = delete;
+  LifoAlloc(const LifoAlloc&) = delete;
 
   // Set the threshold to allocate data in its own chunk outside the space for
   // small allocations.

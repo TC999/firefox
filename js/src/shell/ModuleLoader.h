@@ -30,14 +30,9 @@ class ModuleLoader {
                                  uint32_t lineNumber,
                                  JS::ColumnNumberOneOrigin columnNumber);
 
-  static bool GetImportMetaProperties(JSContext* cx, HandleValue privateValue,
+  static bool GetImportMetaProperties(JSContext* cx, HandleObject moduleRecord,
                                       HandleObject metaObject);
   static bool ImportMetaResolve(JSContext* cx, unsigned argc, Value* vp);
-
-  static bool DynamicImportDelayFulfilled(JSContext* cx, unsigned argc,
-                                          Value* vp);
-  static bool DynamicImportDelayRejected(JSContext* cx, unsigned argc,
-                                         Value* vp);
 
   bool loadAndExecute(JSContext* cx, HandleString path,
                       HandleObject moduleRequestArg, MutableHandleValue rval);
@@ -46,23 +41,22 @@ class ModuleLoader {
   static bool LoadResolved(JSContext* cx, HandleValue hostDefined);
   static bool LoadRejected(JSContext* cx, HandleValue hostDefined,
                            HandleValue error);
+  static bool DynamicImportLoadResolved(JSContext* cx, HandleValue hostDefined);
+  static bool DynamicImportLoadRejected(JSContext* cx, HandleValue hostDefined,
+                                        HandleValue error);
   bool loadImportedModule(JSContext* cx, HandleScript referrer,
                           HandleObject moduleRequest, HandleValue payload);
-  bool populateImportMeta(JSContext* cx, HandleValue privateValue,
+  bool populateImportMeta(JSContext* cx, JS::HandleObject moduleRecord,
                           HandleObject metaObject);
   bool importMetaResolve(JSContext* cx,
                          JS::Handle<JS::Value> referencingPrivate,
                          JS::Handle<JSString*> specifier,
                          JS::MutableHandle<JSString*> urlOut);
-  bool dynamicImport(JSContext* cx, HandleScript referrer,
-                     HandleObject moduleRequest, HandleValue payload);
-  bool doDynamicImport(JSContext* cx, HandleScript referrer,
-                       HandleObject moduleRequest, HandleValue payload);
+  JSObject* getOrLoadModule(JSContext* cx, HandleScript referrer,
+                            HandleObject moduleRequest);
   JSObject* loadAndParse(JSContext* cx, HandleString path,
                          HandleObject moduleRequestArg);
-#ifdef ENABLE_SOURCE_PHASE_IMPORTS
   JSObject* getOrCreateTest262ModuleSourceModule(JSContext* cx);
-#endif
   bool lookupModuleInRegistry(JSContext* cx, JS::ModuleType moduleType,
                               HandleString path, MutableHandleObject moduleOut);
   bool addModuleToRegistry(JSContext* cx, JS::ModuleType moduleType,

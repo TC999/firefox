@@ -4,8 +4,7 @@
 
 package mozilla.components.feature.summarize
 
-import mozilla.components.concept.llm.ErrorCode
-import mozilla.components.concept.llm.Llm
+import mozilla.components.feature.summarize.settings.summarizeSettingsReducer
 import mozilla.components.ui.richtext.ir.RichDocument
 
 /**
@@ -15,41 +14,80 @@ import mozilla.components.ui.richtext.ir.RichDocument
  * @param action The [SummarizationAction] to process.
  * @return The resulting [SummarizationState] after applying the action.
  */
-fun summarizationReducer(state: SummarizationState, action: SummarizationAction) = when (action) {
-    is ShakeConsentRequested -> SummarizationState.ShakeConsentRequired
-    OffDeviceSummarizationShakeConsentAction.CancelClicked -> SummarizationState.Finished.Cancelled
-    OffDeviceSummarizationShakeConsentAction.LearnMoreClicked -> SummarizationState.Finished.LearnMoreAboutShakeConsent
-    OnDeviceSummarizationShakeConsentAction.LearnMoreClicked -> SummarizationState.Finished.LearnMoreAboutShakeConsent
-    is SummarizationRequested -> SummarizationState.Loading(action.info)
-    is SummarizationCompleted -> state.complete()
-    is SummarizationFailed -> SummarizationState.Error(action.throwable.summarizationError())
-    is ReceivedParsedDocument -> state.updateDocument(action.document)
-    is SettingsClicked -> when (state) {
-        is SummarizationState.Summarized -> SummarizationState.Settings(info = state.info, document = state.document)
-        else -> state
+fun summarizationReducer(state: SummarizationState, action: SummarizationAction) =
+    when (action) {
+        is ShakeConsentRequested -> SummarizationState.ShakeConsentRequired
+        SignInSummarizationContentAction.DismissClicked,
+        OffDeviceSummarizationShakeConsentAction.CancelClicked -> SummarizationState.Finished.Cancelled
+        SignInSummarizationContentAction.LearnMoreClicked -> SummarizationState.LearnMoreAboutCloudSupportedFeatures
+        SignInSummarizationContentAction.SignInClicked -> SummarizationState.Finished.NavigatedToSignIn
+        OffDeviceSummarizationShakeConsentAction.LearnMoreClicked -> SummarizationState.LearnMoreAboutShakeConsent
+        OnDeviceSummarizationShakeConsentAction.LearnMoreClicked -> SummarizationState.LearnMoreAboutShakeConsent
+        ErrorAction.ErrorDismissed -> SummarizationState.Finished.ErrorDismissed
+        PageLoadStarted -> SummarizationState.PageLoading
+        is LlmProviderAction.SignInRequired -> SummarizationState.SignInRequired
+        is SummarizationRequested -> SummarizationState.Loading(action.info)
+        is SummarizationCompleted -> state.complete()
+        is SummarizationFailed -> SummarizationState.Error(SummarizationError.SummarizationFailed(action.exception))
+        is ReceivedParsedDocument -> state.updateDocument(action.document)
+        is SettingsLoaded ->
+            when (state) {
+                is SummarizationState.Summarized ->
+                    SummarizationState.Settings(
+                        info = state.info,
+                        document = state.document,
+                        settingsState = action.settings,
+                        feedback = state.feedback,
+                    )
+                else -> state
+            }
+        is SettingsBackClicked ->
+            when (state) {
+                is SummarizationState.Settings ->
+                    SummarizationState.Summarized(
+                        info = state.info,
+                        document = state.document,
+                        feedback = state.feedback,
+                    )
+                else -> state
+            }
+        is SummaryFeedbackProvided ->
+            when (state) {
+                is SummarizationState.Summarized -> state.copy(feedback = action.feedback)
+                else -> state
+            }
+        is SummarizeSettingsActionWrapper ->
+            when (state) {
+                is SummarizationState.Settings ->
+                    state.copy(settingsState = summarizeSettingsReducer(state.settingsState, action.inner))
+                else -> state
+            }
+
+        is ContentExtracted,
+        DownloadConsentAction.AllowClicked,
+        DownloadConsentAction.CancelClicked,
+        DownloadConsentAction.LearnMoreClicked,
+        DownloadErrorAction.CancelClicked,
+        DownloadErrorAction.LearnMoreClicked,
+        DownloadErrorAction.TryAgainClicked,
+        DownloadInProgressAction.CancelClicked,
+        ErrorAction.LearnMoreClicked,
+        is LlmProviderAction.ProviderInitialized,
+        OffDeviceSummarizationShakeConsentAction.AllowClicked,
+        OnDeviceSummarizationShakeConsentAction.AllowClicked,
+        OnDeviceSummarizationShakeConsentAction.CancelClicked,
+        PageLoadCompleted,
+        SettingsClicked,
+        SignInSummarizationContentAction.DismissClicked,
+        SignInSummarizationContentAction.LearnMoreClicked,
+        SignInSummarizationContentAction.SignInClicked,
+        ViewAppeared,
+        is ViewDismissed -> state
     }
-    is SettingsBackClicked -> when (state) {
-        is SummarizationState.Settings -> SummarizationState.Summarized(info = state.info, document = state.document)
-        else -> state
-    }
-    is LlmProviderAction.ProviderFailed -> SummarizationState.Error(
-        SummarizationError.SummarizationFailed(action.exception),
-    )
-    else -> state
-}
 
 private fun SummarizationState.complete(): SummarizationState {
     if (this !is SummarizationState.Summarizing) return this
     return SummarizationState.Summarized(info, document)
-}
-
-private fun Throwable.summarizationError(): SummarizationError {
-    val exception = (this as? Llm.Exception) ?: Llm.Exception.unknown(message)
-    val contentTooLong = 1005
-    return when (exception.errorCode) {
-        ErrorCode(contentTooLong) -> SummarizationError.ContentTooLong
-        else -> SummarizationError.SummarizationFailed(exception)
-    }
 }
 
 internal fun SummarizationState.updateDocument(document: RichDocument): SummarizationState {

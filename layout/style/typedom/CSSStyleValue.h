@@ -26,7 +26,9 @@ struct URLExtraData;
 namespace dom {
 
 class GlobalObject;
+class CSSImageValue;
 class CSSKeywordValue;
+class CSSUnparsedValue;
 class CSSUnsupportedValue;
 class CSSNumericValue;
 class CSSTransformValue;
@@ -36,9 +38,11 @@ class CSSStyleValue : public nsISupports, public nsWrapperCache {
   enum class StyleValueType {
     Uninitialized,  // TODO: Remove once the implementation is complete.
     UnsupportedValue,
+    UnparsedValue,
     KeywordValue,
     NumericValue,
     TransformValue,
+    ImageValue,
   };
 
   explicit CSSStyleValue(nsCOMPtr<nsISupports> aParent);
@@ -99,6 +103,14 @@ class CSSStyleValue : public nsISupports, public nsWrapperCache {
   // Defined in CSSUnsupportedValue.cpp
   CSSPropertyId* GetPropertyId();
 
+  bool IsCSSUnparsedValue() const;
+
+  // Defined in CSSUnparsedValue.cpp
+  const CSSUnparsedValue& GetAsCSSUnparsedValue() const;
+
+  // Defined in CSSUnparsedValue.cpp
+  CSSUnparsedValue& GetAsCSSUnparsedValue();
+
   bool IsCSSKeywordValue() const;
 
   // Defined in CSSKeywordValue.cpp
@@ -122,6 +134,14 @@ class CSSStyleValue : public nsISupports, public nsWrapperCache {
 
   // Defined in CSSTransformValue.cpp
   CSSTransformValue& GetAsCSSTransformValue();
+
+  bool IsCSSImageValue() const;
+
+  // Defined in CSSImageValue.cpp
+  const CSSImageValue& GetAsCSSImageValue() const;
+
+  // Defined in CSSImageValue.cpp
+  CSSImageValue& GetAsCSSImageValue();
 
   void ToCssTextWithProperty(const CSSPropertyId& aPropertyId,
                              nsACString& aDest) const;

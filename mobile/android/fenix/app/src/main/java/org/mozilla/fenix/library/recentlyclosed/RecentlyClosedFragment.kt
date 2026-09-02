@@ -12,6 +12,7 @@ import android.view.MenuInflater
 import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
+import androidx.appcompat.R as appcompatR
 import androidx.core.view.MenuProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -36,15 +37,10 @@ import org.mozilla.fenix.ext.setTextColor
 import org.mozilla.fenix.ext.showToolbar
 import org.mozilla.fenix.library.LibraryPageFragment
 
-/**
- * Screen showing all recently closed tabs.
- */
+/** Screen showing all recently closed tabs. */
 @Suppress("TooManyFunctions")
 class RecentlyClosedFragment :
-    LibraryPageFragment<RecoverableTab>(),
-    UserInteractionHandler,
-    MenuProvider,
-    SystemInsetsPaddedFragment {
+    LibraryPageFragment<RecoverableTab>(), UserInteractionHandler, MenuProvider, SystemInsetsPaddedFragment {
     private lateinit var recentlyClosedFragmentStore: RecentlyClosedFragmentStore
     private var _recentlyClosedFragmentView: RecentlyClosedFragmentView? = null
     private val recentlyClosedFragmentView: RecentlyClosedFragmentView
@@ -62,8 +58,10 @@ class RecentlyClosedFragment :
         if (recentlyClosedFragmentStore.state.selectedTabs.isNotEmpty()) {
             inflater.inflate(R.menu.history_select_multi, menu)
             menu.findItem(R.id.delete_history_multi_select)?.let { deleteItem ->
-                deleteItem.title = SpannableString(deleteItem.title)
-                    .apply { setTextColor(requireContext(), R.attr.textCritical) }
+                deleteItem.title =
+                    SpannableString(deleteItem.title).apply {
+                        setTextColor(requireContext(), appcompatR.attr.colorError)
+                    }
             }
         } else {
             inflater.inflate(R.menu.library_menu, menu)
@@ -111,27 +109,34 @@ class RecentlyClosedFragment :
         savedInstanceState: Bundle?,
     ): View {
         val binding = FragmentRecentlyClosedTabsBinding.inflate(inflater, container, false)
-        recentlyClosedFragmentStore = fragmentStore(
-            RecentlyClosedFragmentState(
-                items = listOf(),
-                selectedTabs = emptySet(),
-            ),
-        ) { RecentlyClosedFragmentStore(it) }.value
-        recentlyClosedController = DefaultRecentlyClosedController(
-            appStore = requireComponents.appStore,
-            navController = findNavController(),
-            browserStore = requireComponents.core.store,
-            recentlyClosedStore = recentlyClosedFragmentStore,
-            tabsUseCases = requireComponents.useCases.tabsUseCases,
-            recentlyClosedTabsStorage = requireComponents.core.recentlyClosedTabsStorage.value,
-            lifecycleScope = lifecycleScope,
-            openToBrowser = { url -> openItem(url) },
-        )
+        recentlyClosedFragmentStore =
+            fragmentStore(
+                    RecentlyClosedFragmentState(
+                        items = listOf(),
+                        selectedTabs = emptySet(),
+                    )
+                ) {
+                    RecentlyClosedFragmentStore(it)
+                }
+                .value
+        recentlyClosedController =
+            DefaultRecentlyClosedController(
+                appStore = requireComponents.appStore,
+                navController = findNavController(),
+                browserStore = requireComponents.core.store,
+                recentlyClosedStore = recentlyClosedFragmentStore,
+                tabsUseCases = requireComponents.useCases.tabsUseCases,
+                recentlyClosedTabsStorage = requireComponents.core.recentlyClosedTabsStorage.value,
+                shareUseCases = requireComponents.useCases.shareUseCases,
+                lifecycleScope = lifecycleScope,
+                openToBrowser = { url -> openItem(url) },
+            )
         recentlyClosedInteractor = RecentlyClosedFragmentInteractor(recentlyClosedController)
-        _recentlyClosedFragmentView = RecentlyClosedFragmentView(
-            binding.recentlyClosedLayout,
-            recentlyClosedInteractor,
-        )
+        _recentlyClosedFragmentView =
+            RecentlyClosedFragmentView(
+                binding.recentlyClosedLayout,
+                recentlyClosedInteractor,
+            )
         return binding.root
     }
 
@@ -142,10 +147,7 @@ class RecentlyClosedFragment :
 
     private fun openItem(url: String) {
         requireComponents.appStore.dispatch(
-            AppAction.BrowsingModeManagerModeChanged(
-                mode =
-            requireComponents.appStore.state.mode,
-            ),
+            AppAction.BrowsingModeManagerModeChanged(mode = requireComponents.appStore.state.mode)
         )
         findNavController().openToBrowser()
         requireComponents.useCases.fenixBrowserUseCases.loadUrlOrSearch(
@@ -163,12 +165,11 @@ class RecentlyClosedFragment :
         }
 
         requireComponents.core.store.flowScoped(viewLifecycleOwner, Dispatchers.Main) { flow ->
-            flow.map { state -> state.closedTabs }
+            flow
+                .map { state -> state.closedTabs }
                 .distinctUntilChanged()
                 .collect { tabs ->
-                    recentlyClosedFragmentStore.dispatch(
-                        RecentlyClosedFragmentAction.Change(tabs),
-                    )
+                    recentlyClosedFragmentStore.dispatch(RecentlyClosedFragmentAction.Change(tabs))
                 }
         }
     }

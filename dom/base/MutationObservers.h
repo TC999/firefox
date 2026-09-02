@@ -115,6 +115,8 @@ class MutationObservers {
    * @see nsIMutationObserver::ParentChainChanged
    */
   static inline void NotifyParentChainChanged(nsIContent* aContent) {
+    // The only way a chain changes without a child list changing.
+    nsINode::ForgetObserverChainIfCached(aContent);
     mozilla::SafeDoublyLinkedList<nsIMutationObserver>* observers =
         aContent->GetMutationObservers();
     if (observers) {
@@ -125,13 +127,6 @@ class MutationObservers {
       }
     }
   }
-
-  static void NotifyARIAAttributeDefaultWillChange(
-      mozilla::dom::Element* aElement, nsAtom* aAttribute,
-      AttrModType aModType);
-  static void NotifyARIAAttributeDefaultChanged(mozilla::dom::Element* aElement,
-                                                nsAtom* aAttribute,
-                                                AttrModType aModType);
 
   /**
    * Notify that an animation is added/changed/removed.

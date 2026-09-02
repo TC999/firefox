@@ -92,7 +92,7 @@ OnlineSpeechRecognitionService::OnStopRequest(nsIRequest* aRequest,
   nsAutoCString errorMsg;
   SpeechRecognitionErrorCode errorCode;
 
-  SR_LOG("STT Result: %s", mBuf.get());
+  SR_LOG("STT Result: {}", mBuf.get());
 
   if (NS_FAILED(aStatusCode)) {
     success = false;
@@ -286,7 +286,7 @@ void OnlineSpeechRecognitionService::DoSTT() {
                           prefEndpoint);
 
   if (!prefEndpoint.IsEmpty()) {
-    speechRecognitionEndpoint = prefEndpoint;
+    speechRecognitionEndpoint = std::move(prefEndpoint);
   } else {
     speechRecognitionEndpoint = DEFAULT_RECOGNITION_ENDPOINT;
   }
@@ -389,7 +389,7 @@ void OnlineSpeechRecognitionService::DoSTT() {
     }
     if (bodyStream) {
       rv = uploadChan->ExplicitSetUploadStream(bodyStream, "audio/ogg"_ns,
-                                               length, "POST"_ns, false);
+                                               length, "POST"_ns);
       MOZ_RELEASE_ASSERT(NS_SUCCEEDED(rv));
     }
   }

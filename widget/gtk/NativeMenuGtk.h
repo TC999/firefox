@@ -5,10 +5,10 @@
 #ifndef mozilla_widget_NativeMenuGtk_h
 #define mozilla_widget_NativeMenuGtk_h
 
+#include "GRefPtr.h"
+#include "mozilla/EventForwards.h"
 #include "mozilla/RefCounted.h"
 #include "mozilla/widget/NativeMenu.h"
-#include "mozilla/EventForwards.h"
-#include "GRefPtr.h"
 
 struct org_kde_kwin_appmenu;
 
@@ -31,9 +31,8 @@ class NativeMenuGtk : public NativeMenu {
   explicit NativeMenuGtk(dom::Element* aElement);
 
   // NativeMenu
-  MOZ_CAN_RUN_SCRIPT_BOUNDARY void ShowMenuAnchored(nsIFrame* aClickedFrame,
-                                                    const CSSIntRect& aRect,
-                                                    int8_t aPosition) override;
+  MOZ_CAN_RUN_SCRIPT_BOUNDARY void ShowMenuAnchored(
+      nsIFrame* aClickedFrame, const nsMenuPopupFrame* aPopupFrame) override;
   MOZ_CAN_RUN_SCRIPT_BOUNDARY void ShowMenuAtPosition(
       nsIFrame* aClickedFrame, const CSSIntPoint& aPosition,
       bool aIsContextMenu) override;
@@ -43,12 +42,6 @@ class NativeMenuGtk : public NativeMenu {
   void OpenSubmenu(dom::Element* aMenuElement) override;
   void CloseSubmenu(dom::Element* aMenuElement) override;
   RefPtr<dom::Element> Element() override;
-  void AddObserver(NativeMenu::Observer* aObserver) override {
-    mObservers.AppendElement(aObserver);
-  }
-  void RemoveObserver(NativeMenu::Observer* aObserver) override {
-    mObservers.RemoveElement(aObserver);
-  }
 
   MOZ_CAN_RUN_SCRIPT void OnUnmap();
 
@@ -60,7 +53,6 @@ class NativeMenuGtk : public NativeMenu {
   bool mPoppedUp = false;
   RefPtr<GtkWidget> mNativeMenu;
   RefPtr<MenuModelGMenu> mMenuModel;
-  nsTArray<NativeMenu::Observer*> mObservers;
 };
 
 #ifdef MOZ_ENABLE_DBUS

@@ -5,14 +5,14 @@
 #ifndef mozilla_net_CookieStorage_h
 #define mozilla_net_CookieStorage_h
 
-#include "CookieKey.h"
+#include <functional>
 
+#include "CookieCommons.h"
+#include "CookieKey.h"
 #include "nsICookieNotification.h"
 #include "nsIObserver.h"
 #include "nsTHashtable.h"
 #include "nsWeakReference.h"
-#include <functional>
-#include "CookieCommons.h"
 
 class nsIArray;
 class nsICookie;
@@ -73,6 +73,9 @@ class CookieStorage : public nsIObserver, public nsSupportsWeakReference {
 
   uint32_t CountCookiesFromHost(const nsACString& aBaseDomain,
                                 uint32_t aPrivateBrowsingId);
+
+  bool HasCookiesForSite(const nsACString& aBaseDomain,
+                         const OriginAttributesPattern& aPattern);
 
   uint32_t CountCookieBytesNotMatchingCookie(const Cookie& cookie,
                                              const nsACString& baseDomain);
@@ -245,6 +248,8 @@ class CookieStorage : public nsIObserver, public nsSupportsWeakReference {
   virtual already_AddRefed<nsIArray> PurgeCookies(int64_t aCurrentTimeInUsec,
                                                   uint16_t aMaxNumberOfCookies,
                                                   int64_t aCookiePurgeAge) = 0;
+
+  void PurgeExpiredCookies();
 
   void RemoveCookiesFromBack(nsTArray<CookieListIter>& aCookieIters,
                              nsCOMPtr<nsIArray>& aPurgedList);

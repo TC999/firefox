@@ -8,13 +8,14 @@
 
 #include "ActiveLayerTracker.h"
 #include "mozAutoDocUpdate.h"
-#include "mozilla/DeclarationBlock.h"
+#include "mozilla/CSSPropFlags.h"
 #include "mozilla/SMILCSSValueType.h"
 #include "mozilla/SMILValue.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/SVGElement.h"
 #include "mozilla/layers/ScrollLinkedEffectDetector.h"
+#include "nsCSSProps.h"
 #include "nsIFrame.h"
 #include "nsWrapperCacheInlines.h"
 
@@ -62,7 +63,7 @@ NS_IMPL_CYCLE_COLLECTING_ADDREF(nsDOMCSSAttributeDeclaration)
 NS_IMPL_CYCLE_COLLECTING_RELEASE(nsDOMCSSAttributeDeclaration)
 
 nsresult nsDOMCSSAttributeDeclaration::SetCSSDeclaration(
-    DeclarationBlock* aDecl, MutationClosureData* aClosureData) {
+    Block* aDecl, MutationClosureData* aClosureData) {
   NS_ASSERTION(mElement, "Must have Element to set the declaration!");
 
   // Whenever changing element.style values, aClosureData must be non-null.
@@ -74,8 +75,6 @@ nsresult nsDOMCSSAttributeDeclaration::SetCSSDeclaration(
   // getting here when the attribute hasn't changed.
   MOZ_ASSERT_IF(aClosureData && aClosureData->mShouldBeCalled,
                 aClosureData->mWasCalled);
-
-  aDecl->SetDirty();
   if (mIsSMILOverride) {
     mElement->SetSMILOverrideStyleDeclaration(*aDecl);
     return NS_OK;
@@ -89,15 +88,16 @@ Document* nsDOMCSSAttributeDeclaration::DocToUpdate() {
   return mElement->OwnerDoc();
 }
 
-DeclarationBlock* nsDOMCSSAttributeDeclaration::GetOrCreateCSSDeclaration(
-    Operation aOperation, DeclarationBlock** aCreated) {
+StyleLockedDeclarationBlock*
+nsDOMCSSAttributeDeclaration::GetOrCreateCSSDeclaration(Operation aOperation,
+                                                        Block** aCreated) {
   MOZ_ASSERT(aOperation != Operation::Modify || aCreated);
 
   if (!mElement) {
     return nullptr;
   }
 
-  DeclarationBlock* declaration;
+  StyleLockedDeclarationBlock* declaration;
   if (mIsSMILOverride) {
     declaration = mElement->GetSMILOverrideStyleDeclaration();
   } else {
@@ -113,14 +113,7 @@ DeclarationBlock* nsDOMCSSAttributeDeclaration::GetOrCreateCSSDeclaration(
   }
 
   // cannot fail
-  auto decl = MakeRefPtr<DeclarationBlock>();
-  // Mark the declaration dirty so that it can be reused by the caller.
-  // Normally SetDirty is called later in SetCSSDeclaration.
-  decl->SetDirty();
-#ifdef DEBUG
-  RefPtr<DeclarationBlock> mutableDecl = decl->EnsureMutable();
-  MOZ_ASSERT(mutableDecl == decl);
-#endif
+  RefPtr decl = Servo_DeclarationBlock_CreateEmpty().Consume();
   decl.swap(*aCreated);
   return *aCreated;
 }
@@ -142,14 +135,14 @@ nsresult nsDOMCSSAttributeDeclaration::SetSMILValueHelper(SetterFunc aFunc) {
   // No need to do the ActiveLayerTracker / ScrollLinkedEffectDetector bits,
   // since we're in a SMIL animation anyway, no need to try to detect we're a
   // scripted animation.
-  RefPtr<DeclarationBlock> created;
-  DeclarationBlock* olddecl =
+  RefPtr<Block> created;
+  Block* olddecl =
       GetOrCreateCSSDeclaration(Operation::Modify, getter_AddRefs(created));
   if (!olddecl) {
     return NS_ERROR_NOT_AVAILABLE;
   }
   mozAutoDocUpdate autoUpdate(DocToUpdate(), true);
-  RefPtr<DeclarationBlock> decl = olddecl->EnsureMutable();
+  RefPtr<Block> decl = EnsureBlockMutable(olddecl);
 
   bool changed = aFunc(*decl);
 
@@ -165,27 +158,26 @@ nsresult nsDOMCSSAttributeDeclaration::SetSMILValue(
     const NonCustomCSSPropertyId aPropId, const SMILValue& aValue) {
   MOZ_ASSERT(aValue.mType == &SMILCSSValueType::sSingleton,
              "We should only try setting a CSS value type");
-  return SetSMILValueHelper([&](DeclarationBlock& aDecl) {
+  return SetSMILValueHelper([&](StyleLockedDeclarationBlock& aDecl) {
     return SMILCSSValueType::SetPropertyValues(aPropId, aValue, aDecl);
   });
 }
 
 nsresult nsDOMCSSAttributeDeclaration::SetSMILValue(
     const NonCustomCSSPropertyId aPropId, const SVGAnimatedLength& aLength) {
-  return SetSMILValueHelper([aPropId, &aLength](DeclarationBlock& aDecl) {
-    MOZ_ASSERT(aDecl.IsMutable());
-    return SVGElement::UpdateDeclarationBlockFromLength(
-        *aDecl.Raw(), aPropId, aLength, SVGElement::ValToUse::Anim);
-  });
+  return SetSMILValueHelper(
+      [aPropId, &aLength](StyleLockedDeclarationBlock& aDecl) {
+        return SVGElement::UpdateDeclarationBlockFromLength(
+            aDecl, aPropId, aLength, SVGElement::ValToUse::Anim);
+      });
 }
 
 nsresult nsDOMCSSAttributeDeclaration::SetSMILValue(
     const NonCustomCSSPropertyId aPropId, const SVGAnimatedPathSegList& aPath) {
   MOZ_ASSERT(aPropId == eCSSProperty_d);
-  return SetSMILValueHelper([&aPath](DeclarationBlock& aDecl) {
-    MOZ_ASSERT(aDecl.IsMutable());
+  return SetSMILValueHelper([&aPath](StyleLockedDeclarationBlock& aDecl) {
     return SVGElement::UpdateDeclarationBlockFromPath(
-        *aDecl.Raw(), aPath, SVGElement::ValToUse::Anim);
+        aDecl, aPath, SVGElement::ValToUse::Anim);
   });
 }
 
@@ -194,13 +186,11 @@ nsresult nsDOMCSSAttributeDeclaration::SetSMILValue(
     const SVGAnimatedTransformList* aTransform,
     const gfx::Matrix* aAnimateMotionTransform) {
   MOZ_ASSERT(aPropId == eCSSProperty_transform);
-  return SetSMILValueHelper(
-      [aTransform, aAnimateMotionTransform](DeclarationBlock& aDecl) {
-        MOZ_ASSERT(aDecl.IsMutable());
-        return SVGElement::UpdateDeclarationBlockFromTransform(
-            *aDecl.Raw(), aTransform, aAnimateMotionTransform,
-            SVGElement::ValToUse::Anim);
-      });
+  return SetSMILValueHelper([aTransform, aAnimateMotionTransform](
+                                StyleLockedDeclarationBlock& aDecl) {
+    return SVGElement::UpdateDeclarationBlockFromTransform(
+        aDecl, aTransform, aAnimateMotionTransform, SVGElement::ValToUse::Anim);
+  });
 }
 
 // Scripted modifications to style.opacity or style.transform (or other
@@ -235,40 +225,6 @@ void nsDOMCSSAttributeDeclaration::SetPropertyValue(
                                         aRv);
 }
 
-static bool IsScrollLinkedEffectiveProperty(
-    const NonCustomCSSPropertyId aPropId) {
-  switch (aPropId) {
-    case eCSSProperty_background_position:
-    case eCSSProperty_background_position_x:
-    case eCSSProperty_background_position_y:
-    case eCSSProperty_transform:
-    case eCSSProperty_translate:
-    case eCSSProperty_rotate:
-    case eCSSProperty_scale:
-    case eCSSProperty_offset_path:
-    case eCSSProperty_offset_distance:
-    case eCSSProperty_offset_rotate:
-    case eCSSProperty_offset_anchor:
-    case eCSSProperty_offset_position:
-    case eCSSProperty_top:
-    case eCSSProperty_left:
-    case eCSSProperty_bottom:
-    case eCSSProperty_right:
-    case eCSSProperty_margin:
-    case eCSSProperty_margin_top:
-    case eCSSProperty_margin_left:
-    case eCSSProperty_margin_bottom:
-    case eCSSProperty_margin_right:
-    case eCSSProperty_margin_inline_start:
-    case eCSSProperty_margin_inline_end:
-    case eCSSProperty_margin_block_start:
-    case eCSSProperty_margin_block_end:
-      return true;
-    default:
-      return false;
-  }
-}
-
 void nsDOMCSSAttributeDeclaration::MutationClosureFunction(
     void* aData, NonCustomCSSPropertyId aPropId) {
   auto* data = static_cast<MutationClosureData*>(aData);
@@ -278,7 +234,9 @@ void nsDOMCSSAttributeDeclaration::MutationClosureFunction(
   if (data->mWasCalled) {
     return;
   }
-  if (IsScrollLinkedEffectiveProperty(aPropId)) {
+  // Aliases and custom properties are not covered here.
+  if (aPropId < eCSSProperty_COUNT &&
+      nsCSSProps::PropHasFlags(aPropId, CSSPropFlags::ScrollLinkedEffective)) {
     mozilla::layers::ScrollLinkedEffectDetector::PositioningPropertyMutated();
   }
   if (IsActiveLayerProperty(aPropId)) {

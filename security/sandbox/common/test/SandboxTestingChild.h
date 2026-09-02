@@ -5,9 +5,9 @@
 #ifndef mozilla_SandboxTestingChild_h
 #define mozilla_SandboxTestingChild_h
 
-#include "mozilla/PSandboxTestingChild.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/Monitor.h"
+#include "mozilla/PSandboxTestingChild.h"
 #include "mozilla/StaticPtr.h"
 #include "mozilla/UniquePtr.h"
 #include "nsISupports.h"
@@ -37,7 +37,7 @@ class SandboxTestingChild : public PSandboxTestingChild {
   NS_INLINE_DECL_THREADSAFE_REFCOUNTING(SandboxTestingChild, override)
 
   bool IsTestThread();
-  void PostToTestThread(already_AddRefed<nsIRunnable>&& runnable);
+  void PostToTestThread(already_AddRefed<nsIRunnable> runnable);
 
   void ActorDestroy(ActorDestroyReason aWhy) override;
 

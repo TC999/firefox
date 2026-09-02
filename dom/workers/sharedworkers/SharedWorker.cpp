@@ -10,11 +10,11 @@
 #include "mozilla/EventDispatcher.h"
 #include "mozilla/StorageAccess.h"
 #include "mozilla/dom/ClientInfo.h"
+#include "mozilla/dom/ContentChild.h"
 #include "mozilla/dom/Event.h"
 #include "mozilla/dom/MessageChannel.h"
 #include "mozilla/dom/MessagePort.h"
 #include "mozilla/dom/PMessagePort.h"
-#include "mozilla/dom/RemoteWorkerManager.h"  // RemoteWorkerManager::GetRemoteType
 #include "mozilla/dom/RemoteWorkerTypes.h"
 #include "mozilla/dom/SharedWorkerBinding.h"
 #include "mozilla/dom/SharedWorkerChild.h"
@@ -81,6 +81,12 @@ already_AddRefed<SharedWorker> SharedWorker::Constructor(
   nsCOMPtr<nsPIDOMWindowInner> window =
       do_QueryInterface(aGlobal.GetAsSupports());
   MOZ_ASSERT(window);
+
+  if (!window->IsCurrentInnerWindow()) {
+    aRv.ThrowInvalidStateError(
+        "Cannot create worker for a going to be discarded document");
+    return nullptr;
+  }
 
   // Our current idiom is that storage-related APIs specialize for the system
   // principal themselves, which is consistent with StorageAllowedForwindow not
@@ -202,6 +208,14 @@ already_AddRefed<SharedWorker> SharedWorker::Constructor(
     }
   }
 
+  // Throw early if this process would not be allowed to start a shared worker.
+  if (!BackgroundChild::ValidatePrincipal(loadInfo.mLoadingPrincipal, {})) {
+    MOZ_ASSERT_UNREACHABLE(
+        "ValidatePrincipal failure in SharedWorker::Constructor");
+    aRv.ThrowSecurityError("SharedWorker access not available.");
+    return nullptr;
+  }
+
   PrincipalInfo partitionedPrincipalInfo;
   if (loadInfo.mPrincipal->Equals(loadInfo.mPartitionedPrincipal)) {
     partitionedPrincipalInfo = principalInfo;
@@ -244,13 +258,6 @@ already_AddRefed<SharedWorker> SharedWorker::Constructor(
   MOZ_ASSERT(loadInfo.mCookieJarSettings);
   net::CookieJarSettings::Cast(loadInfo.mCookieJarSettings)->Serialize(cjsData);
 
-  auto remoteType = RemoteWorkerManager::GetRemoteType(
-      loadInfo.mPrincipal, WorkerKind::WorkerKindShared);
-  if (NS_WARN_IF(remoteType.isErr())) {
-    aRv.Throw(remoteType.unwrapErr());
-    return nullptr;
-  }
-
   Maybe<RFPTargetSet> overriddenFingerprintingSettingsArg;
   if (loadInfo.mOverriddenFingerprintingSettings.isSome()) {
     overriddenFingerprintingSettingsArg.emplace(
@@ -267,7 +274,9 @@ already_AddRefed<SharedWorker> SharedWorker::Constructor(
       loadInfo.mIsOn3PCBExceptionList,
       OriginTrials::FromWindow(nsGlobalWindowInner::Cast(window)),
       void_t() /* OptionalServiceWorkerData */, agentClusterId,
-      remoteType.unwrap());
+      RemoteType(RemoteType::Kind::WebContent) /* ignored */,
+      loadInfo.mLanguageOverrideLocale, loadInfo.mLanguageOverride.Clone(),
+      loadInfo.mTimezoneOverride);
 
   PSharedWorkerChild* pActor = actorChild->SendPSharedWorkerConstructor(
       remoteWorkerData, loadInfo.mWindowID, portIdentifier.release());
@@ -380,6 +389,23 @@ void SharedWorker::Suspend() {
 void SharedWorker::Resume() {
   if (mActor) {
     mActor->SendResume();
+  }
+}
+
+void SharedWorker::UpdateLanguageOverride(
+    const nsACString& aLanguageOverride, const nsTArray<nsString>& aLanguages) {
+  AssertIsOnMainThread();
+
+  if (mActor) {
+    mActor->SendSetLocaleOverride(aLanguageOverride, aLanguages);
+  }
+}
+
+void SharedWorker::UpdateTimezoneOverride(const nsAString& aTimezoneOverride) {
+  AssertIsOnMainThread();
+
+  if (mActor) {
+    mActor->SendUpdateTimezoneOverride(aTimezoneOverride);
   }
 }
 

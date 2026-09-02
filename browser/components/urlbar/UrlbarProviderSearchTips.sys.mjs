@@ -13,6 +13,7 @@ import {
   UrlbarProvider,
   UrlbarUtils,
 } from "moz-src:///browser/components/urlbar/UrlbarUtils.sys.mjs";
+import { UrlbarShared } from "chrome://browser/content/urlbar/UrlbarShared.mjs";
 
 const lazy = {};
 
@@ -27,7 +28,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
   UrlbarPrefs: "moz-src:///browser/components/urlbar/UrlbarPrefs.sys.mjs",
   UrlbarProviderTopSites:
     "moz-src:///browser/components/urlbar/UrlbarProviderTopSites.sys.mjs",
-  UrlbarResult: "moz-src:///browser/components/urlbar/UrlbarResult.sys.mjs",
+  UrlbarResult: "chrome://browser/content/urlbar/UrlbarResult.mjs",
   setTimeout: "resource://gre/modules/Timer.sys.mjs",
 });
 
@@ -37,13 +38,6 @@ XPCOMUtils.defineLazyPreferenceGetter(
   "browser.newtabpage.activity-stream.asrouter.userprefs.cfr.features",
   true
 );
-
-// The possible tips to show.
-const TIPS = {
-  NONE: "",
-  ONBOARD: "searchTip_onboard",
-  REDIRECT: "searchTip_redirect",
-};
 
 ChromeUtils.defineLazyGetter(lazy, "SUPPORTED_ENGINES", () => {
   // Converts a list of Google domains to a pipe separated string of escaped TLDs.
@@ -93,6 +87,16 @@ export class UrlbarProviderSearchTips extends UrlbarProvider {
   /** @type {?UrlbarProviderSearchTips} */
   static #instance = null;
 
+  /**
+   * Whether and what kind of tip we've shown in the current engagement.
+   *
+   * @type {Values<typeof UrlbarShared.SEARCH_TIP_TYPE>}
+   */
+  showedTipTypeInCurrentEngagement = UrlbarShared.SEARCH_TIP_TYPE.NONE;
+
+  /** @type {Values<typeof UrlbarShared.SEARCH_TIP_TYPE>} */
+  currentTip = UrlbarShared.SEARCH_TIP_TYPE.NONE;
+
   constructor() {
     super();
     if (UrlbarProviderSearchTips.#instance) {
@@ -103,7 +107,7 @@ export class UrlbarProviderSearchTips extends UrlbarProvider {
     // Whether we should disable tips for the current browser session, for
     // example because a tip was already shown.
     this.disableTipsForCurrentSession = true;
-    for (let tip of Object.values(TIPS)) {
+    for (let tip of Object.values(UrlbarShared.SEARCH_TIP_TYPE)) {
       if (
         tip &&
         lazy.UrlbarPrefs.get(`tipShownCount.${tip}`) < MAX_SHOWN_COUNT
@@ -113,20 +117,8 @@ export class UrlbarProviderSearchTips extends UrlbarProvider {
       }
     }
 
-    // Whether and what kind of tip we've shown in the current engagement.
-    this.showedTipTypeInCurrentEngagement = TIPS.NONE;
-
     // Used to track browser windows we've seen.
     this._seenWindows = new WeakSet();
-  }
-
-  /**
-   * Enum of the types of search tips.
-   *
-   * @returns {{ NONE: string; ONBOARD: string; REDIRECT: string; }}
-   */
-  static get TIP_TYPE() {
-    return TIPS;
   }
 
   static get PRIORITY() {
@@ -135,10 +127,10 @@ export class UrlbarProviderSearchTips extends UrlbarProvider {
   }
 
   /**
-   * @returns {Values<typeof UrlbarUtils.PROVIDER_TYPE>}
+   * @returns {Values<typeof UrlbarShared.PROVIDER_TYPE>}
    */
   get type() {
-    return UrlbarUtils.PROVIDER_TYPE.PROFILE;
+    return UrlbarShared.PROVIDER_TYPE.PROFILE;
   }
 
   /**
@@ -165,23 +157,24 @@ export class UrlbarProviderSearchTips extends UrlbarProvider {
    * @param {UrlbarQueryContext} queryContext
    * @param {(provider: UrlbarProvider, result: UrlbarResult) => void} addCallback
    *   Callback invoked by the provider to add a new result.
+   * @param {UrlbarParentController} controller The controller instance.
    */
-  async startQuery(queryContext, addCallback) {
+  async startQuery(queryContext, addCallback, controller) {
     let instance = this.queryInstance;
 
     let tip = this.currentTip;
     this.showedTipTypeInCurrentEngagement = this.currentTip;
-    this.currentTip = TIPS.NONE;
+    this.currentTip = UrlbarShared.SEARCH_TIP_TYPE.NONE;
 
     let defaultEngine = await lazy.SearchService.getDefault();
-    let icon = await defaultEngine.getIconURL();
+    let icon = await UrlbarUtils.getEngineIconUrl(defaultEngine, controller);
     if (instance != this.queryInstance) {
       return;
     }
 
     let result;
     switch (tip) {
-      case TIPS.ONBOARD:
+      case UrlbarShared.SEARCH_TIP_TYPE.ONBOARD:
         result = this.#makeResult({
           tip,
           icon,
@@ -194,7 +187,7 @@ export class UrlbarProviderSearchTips extends UrlbarProvider {
           heuristic: true,
         });
         break;
-      case TIPS.REDIRECT:
+      case UrlbarShared.SEARCH_TIP_TYPE.REDIRECT:
         result = this.#makeResult({
           tip,
           icon,
@@ -239,7 +232,7 @@ export class UrlbarProviderSearchTips extends UrlbarProvider {
   }
 
   onSearchSessionEnd() {
-    this.showedTipTypeInCurrentEngagement = TIPS.NONE;
+    this.showedTipTypeInCurrentEngagement = UrlbarShared.SEARCH_TIP_TYPE.NONE;
   }
 
   /**
@@ -316,7 +309,9 @@ export class UrlbarProviderSearchTips extends UrlbarProvider {
     // blurred. Since we open the view to show the redirect tip without focusing
     // the input, the view won't close in that case. We need to close it
     // manually.
-    if (this.showedTipTypeInCurrentEngagement != TIPS.NONE) {
+    if (
+      this.showedTipTypeInCurrentEngagement != UrlbarShared.SEARCH_TIP_TYPE.NONE
+    ) {
       window.gURLBar.view.close();
     }
 
@@ -360,9 +355,9 @@ export class UrlbarProviderSearchTips extends UrlbarProvider {
     let isSearchHomepage = !isNewtab && (await isDefaultEngineHomepage(urlStr));
 
     if (isNewtab) {
-      tip = TIPS.ONBOARD;
+      tip = UrlbarShared.SEARCH_TIP_TYPE.ONBOARD;
     } else if (isSearchHomepage) {
-      tip = TIPS.REDIRECT;
+      tip = UrlbarShared.SEARCH_TIP_TYPE.REDIRECT;
     } else {
       // No tip.
       return;
@@ -416,14 +411,16 @@ export class UrlbarProviderSearchTips extends UrlbarProvider {
 
       this.currentTip = tip;
 
-      window.gURLBar.search("", { focus: tip == TIPS.ONBOARD });
+      window.gURLBar.search("", {
+        focus: tip == UrlbarShared.SEARCH_TIP_TYPE.ONBOARD,
+      });
     }, SHOW_TIP_DELAY_MS);
   }
 
   #makeResult({ tip, icon, titleL10n, heuristic = false }) {
     return new lazy.UrlbarResult({
-      type: UrlbarUtils.RESULT_TYPE.TIP,
-      source: UrlbarUtils.RESULT_SOURCE.OTHER_LOCAL,
+      type: UrlbarShared.RESULT_TYPE.TIP,
+      source: UrlbarShared.RESULT_SOURCE.OTHER_LOCAL,
       heuristic,
       payload: {
         type: tip,

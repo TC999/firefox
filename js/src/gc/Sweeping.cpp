@@ -15,6 +15,7 @@
  */
 
 #include "mozilla/DebugOnly.h"
+#include "mozilla/glue/Debug.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/ScopeExit.h"
 #include "mozilla/TimeStamp.h"
@@ -34,11 +35,14 @@
 #include "gc/TraceKind.h"
 #include "gc/WeakMap.h"
 #include "gc/Zone.h"
+#include "jit/CacheIRHealth.h"
 #include "jit/JitFrames.h"
 #include "jit/JitRuntime.h"
+#include "jit/JitScript.h"
 #include "jit/JitZone.h"
 #include "proxy/DeadObjectProxy.h"
 #include "vm/BigIntType.h"
+#include "vm/CodeCoverage.h"
 #include "vm/HelperThreads.h"
 #include "vm/JSContext.h"
 #include "vm/Probes.h"
@@ -49,6 +53,7 @@
 #include "gc/PrivateIterators-inl.h"
 #include "vm/GeckoProfiler-inl.h"
 #include "vm/JSObject-inl.h"
+#include "vm/JSScript-inl.h"
 #include "vm/PropMap-inl.h"
 #include "vm/Shape-inl.h"
 #include "vm/StringType-inl.h"
@@ -470,7 +475,7 @@ Arena* GCRuntime::releaseSomeEmptyArenas(Zone* zone, Arena* emptyArenas) {
   for (size_t i = 0; i < count; i++) {
     Arena* arena = arenasToRelease[i];
     if (isAtomsZone) {
-      atomMarking.freeIndex(atomsBitmapIndexes[i], lock);
+      atomReferences.freeIndex(atomsBitmapIndexes[i], lock);
     }
     arena->chunk()->releaseArena(this, arena, lock);
   }
@@ -669,8 +674,6 @@ IncrementalProgress GCRuntime::markWeakReferences(
     }
   }
 
-  markIncomingGraySymbolEdgesFromUncollectedZones();
-
   bool markedAny = true;
   while (markedAny) {
     if (!marker().markUntilBudgetExhausted(budget)) {
@@ -685,46 +688,12 @@ IncrementalProgress GCRuntime::markWeakReferences(
         markedAny |= WeakMapBase::markZoneIteratively(zone, &marker());
       }
     }
-
-    markedAny |= jit::JitRuntime::MarkJitcodeGlobalTableIteratively(&marker());
   }
 
   assertNoMarkingWork();
   checkSlowEnter.release();  // No need to lengthen next slice.
 
   return Finished;
-}
-
-void GCRuntime::markIncomingGraySymbolEdgesFromUncollectedZones() {
-  // We need to mark through ephemeron edges where the source is a live symbol
-  // that is referenced from an uncollected zone and which may not have been
-  // marked in this GC. At the same time we want to avoid unnecessarily holding
-  // on to symbols in zone GCs (by marking them as referenced in the atom
-  // marking bitmap), which is why we don't just mark all such symbols at the
-  // start of GC.
-  //
-  // This situation arises because WeakMap::markEntry may find an unmarked
-  // symbol key that is marked gray by uncollected zones while it is currently
-  // marking black. It can't mark it at that time so it leaves it alone; we mark
-  // it here instead when we are gray weak marking.
-  //
-  // Atoms referenced by uncollected zones will be marked later in
-  // updateAtomsBitmap() which prevents them dying, but since this is after
-  // we've done ephemeron marking it won't mark through the ephemeron edges.
-
-  if (marker().markColor() != MarkColor::Gray || !atomsZone()->isGCMarking()) {
-    return;
-  }
-
-  for (auto iter = atomsZone()->gcEphemeronEdges().iter(); !iter.done();
-       iter.next()) {
-    auto* symbol = iter.get().key()->as<JS::Symbol>();
-    if (isSymbolReferencedByUncollectedZone(symbol, marker().markColor())) {
-      TraceManuallyBarrieredEdge(marker().tracer(), &symbol,
-                                 "incoming symbol edge");
-      MOZ_ASSERT(symbol == iter.get().key());
-    }
-  }
 }
 
 IncrementalProgress GCRuntime::markWeakReferencesInCurrentGroup(
@@ -861,7 +830,8 @@ bool Zone::findSweepGroupEdges(Zone* atomsZone) {
     }
   }
 
-  if (gcFinalizationRegistriesMayHaveSymbolRegistrations_ &&
+  if (atomsZone->wasGCStarted() &&
+      gcFinalizationRegistriesMayHaveSymbolRegistrations_ &&
       !atomsZone->addSweepGroupEdgeTo(this)) {
     return false;
   }
@@ -1330,7 +1300,6 @@ IncrementalProgress GCRuntime::markGray(JS::GCContext* gcx,
   auto [mainThreadBudget, helperThreadBudget] = budgetConcurrentMarking(budget);
 
   if (markSynchronously(mainThreadBudget, useParallelMarking) == NotFinished) {
-    MOZ_ASSERT(hasMarkingWork());
     MOZ_ASSERT(isIncremental);
     MOZ_ASSERT(safeToYield);
 
@@ -1366,6 +1335,7 @@ IncrementalProgress GCRuntime::endMarkingSweepGroup(JS::GCContext* gcx,
   }
 
   MOZ_ASSERT(marker().isDrained());
+  MOZ_ASSERT(!hasAnyDeferredWeakMaps());
 
   // We must not yield after this point before we start sweeping the group.
   safeToYield = false;
@@ -1378,40 +1348,23 @@ IncrementalProgress GCRuntime::endMarkingSweepGroup(JS::GCContext* gcx,
   return Finished;
 }
 
-// Causes the given WeakCache to be swept when run.
-class ImmediateSweepWeakCacheTask : public GCParallelTask {
-  Zone* zone;
-  JS::detail::WeakCacheBase& cache;
+using WeakCacheToSweepVector = Vector<WeakCacheToSweep, 8, SystemAllocPolicy>;
 
- public:
-  ImmediateSweepWeakCacheTask(GCRuntime* gc, Zone* zone,
-                              JS::detail::WeakCacheBase& wc)
-      : GCParallelTask(gc, gcstats::PhaseKind::SWEEP_WEAK_CACHES),
-        zone(zone),
-        cache(wc) {}
-
-  ImmediateSweepWeakCacheTask(ImmediateSweepWeakCacheTask&& other) noexcept
-      : GCParallelTask(std::move(other)),
-        zone(other.zone),
-        cache(other.cache) {}
-
-  ImmediateSweepWeakCacheTask(const ImmediateSweepWeakCacheTask&) = delete;
-
-  void run(AutoLockHelperThreadState& lock) override {
-    AutoUnlockHelperThreadState unlock(lock);
-    AutoSetThreadIsSweeping threadIsSweeping(zone);
-    SweepingTracer trc(gc->rt);
-    cache.traceWeak(&trc, JS::detail::WeakCacheBase::Lock);
-  }
-};
+static size_t ImmediateSweepWeakCache(GCRuntime* gc,
+                                      const WeakCacheToSweep& item) {
+  AutoSetThreadIsSweeping threadIsSweeping(item.zone);
+  SweepingTracer trc(gc->rt);
+  return item.cache->traceWeak(&trc, JS::detail::WeakCacheBase::Lock);
+}
 
 void GCRuntime::updateAtomsBitmap() {
-  atomMarking.refineZoneBitmapsForCollectedZones(this);
+  atomReferences.refineZoneBitmapsForCollectedZones(this);
 
   // Mark atoms used by uncollected zones after refining the atoms bitmaps.
   auto& atomsToMark = atomsUsedByUncollectedZones.ref();
   if (atomsToMark) {
-    atomMarking.markAtomsUsedByUncollectedZones(this, std::move(atomsToMark));
+    atomReferences.markAtomsUsedByUncollectedZones(this,
+                                                   std::move(atomsToMark));
   }
 
   // For convenience sweep these tables non-incrementally as part of bitmap
@@ -1432,6 +1385,13 @@ void GCRuntime::sweepRealmGlobals() {
   for (SweepGroupRealmsIter r(this); !r.done(); r.next()) {
     AutoSetThreadIsSweeping threadIsSweeping(r->zone());
     r->traceWeakGlobalEdge(&trc);
+  }
+}
+
+void GCRuntime::sweepWasmInstances() {
+  for (SweepGroupRealmsIter r(this); !r.done(); r.next()) {
+    AutoSetThreadIsSweeping threadIsSweeping(r->zone());
+    r->wasm.traceWeakInstances();
   }
 }
 
@@ -1480,6 +1440,47 @@ void GCRuntime::sweepUniqueIds() {
 void JS::Zone::sweepUniqueIds() {
   SweepingTracer trc(runtimeFromAnyThread());
   uniqueIds().traceWeak(&trc);
+}
+
+void GCRuntime::maybeWriteCoverageAndSpew() {
+  // Write any code coverage information and JIT spew for dying scripts before
+  // the relevant tables are swept.
+
+  gcstats::AutoPhase ap(stats(), gcstats::PhaseKind::SWEEP_SCRIPT_MAPS);
+  for (SweepGroupZonesIter zone(this); !zone.done(); zone.next()) {
+    AutoSetThreadIsSweeping threadIsSweeping(zone);
+    zone->maybeWriteCoverageAndSpew();
+  }
+}
+
+void JS::Zone::maybeWriteCoverageAndSpew() {
+  MOZ_ASSERT_IF(scriptLCovMap, coverage::IsLCovEnabled());
+  if (scriptLCovMap) {
+    for (auto iter = scriptLCovMap->get().iter(); !iter.done(); iter.next()) {
+      if (IsAboutToBeFinalized(iter.get().key())) {
+        (void)MaybeWriteScriptCoverage(iter.get().key()->asJSScript(),
+                                       iter.get().value());
+      }
+    }
+  }
+
+#ifdef JS_CACHEIR_SPEW
+  if (scriptFinalWarmUpCountMap) {
+    for (auto iter = scriptFinalWarmUpCountMap->get().iter(); !iter.done();
+         iter.next()) {
+      if (IsAboutToBeFinalized(iter.get().key())) {
+        BaseScript* base = iter.get().key();
+        if (base->hasBytecode()) {
+          JSScript* jsScript = base->asJSScript();
+          if (jsScript->hasJitScript()) {
+            maybeUpdateWarmUpCount(jsScript);
+          }
+          maybeSpewScriptFinalWarmUpCount(jsScript);
+        }
+      }
+    }
+  }
+#endif
 }
 
 /* static */
@@ -1608,9 +1609,6 @@ void JS::Zone::sweepObjectsWithWeakPointers(JSTracer* trc) {
   });
 }
 
-using WeakCacheTaskVector =
-    mozilla::Vector<ImmediateSweepWeakCacheTask, 0, SystemAllocPolicy>;
-
 // Call a functor for all weak caches that need to be swept in the current
 // sweep group.
 template <typename Functor>
@@ -1632,12 +1630,12 @@ static inline bool IterateWeakCaches(GCRuntime* gc, Functor f) {
   return true;
 }
 
-static bool PrepareWeakCacheTasks(GCRuntime* gc,
-                                  WeakCacheTaskVector* immediateTasks) {
-  // Start incremental sweeping for caches that support it or add to a vector
-  // of sweep tasks to run on a helper thread.
+static bool PrepareWeakCacheSweeping(GCRuntime* gc,
+                                     WeakCacheToSweepVector* immediateCaches) {
+  // Start incremental sweeping for caches that support it and add remaining
+  // caches to a vector to be swept immediately by helper threads.
 
-  MOZ_ASSERT(immediateTasks->empty());
+  MOZ_ASSERT(immediateCaches->empty());
 
   bool ok =
       IterateWeakCaches(gc, [&](JS::detail::WeakCacheBase* cache, Zone* zone) {
@@ -1650,11 +1648,11 @@ static bool PrepareWeakCacheTasks(GCRuntime* gc,
           return true;
         }
 
-        return immediateTasks->emplaceBack(gc, zone, *cache);
+        return immediateCaches->emplaceBack(cache, zone);
       });
 
   if (!ok) {
-    immediateTasks->clearAndFree();
+    immediateCaches->clearAndFree();
   }
 
   return ok;
@@ -1728,29 +1726,6 @@ IncrementalProgress GCRuntime::beginSweepingSweepGroup(JS::GCContext* gcx,
     }
   }
 
-  // Updating the atom marking bitmaps. This marks atoms referenced by
-  // uncollected zones so cannot be done in parallel with the other sweeping
-  // work below.
-  if (sweepingAtoms) {
-    AutoPhase ap(stats(), PhaseKind::UPDATE_ATOMS_BITMAP);
-    updateAtomsBitmap();
-  }
-
-#ifdef DEBUG
-  // Now that the final mark state has been computed check any gray marking
-  // assertions we delayed until this point.
-  for (SweepGroupZonesIter zone(this); !zone.done(); zone.next()) {
-    for (const auto* cell : zone->cellsToAssertNotGray()) {
-      JS::AssertCellIsNotGray(cell);
-    }
-    zone->cellsToAssertNotGray().clearAndFree();
-  }
-#endif
-
-#ifdef JS_GC_ZEAL
-  validateIncrementalMarking();
-#endif
-
   AutoSetThreadIsSweeping threadIsSweeping;
 
   // Disable incremental barriers for all zones while we are sweeping/finalizing
@@ -1772,7 +1747,14 @@ IncrementalProgress GCRuntime::beginSweepingSweepGroup(JS::GCContext* gcx,
   // This must happen before updating embedding weak pointers.
   sweepRealmGlobals();
 
+  // Prune dying wasm instances from each realm's weak instance list now, at the
+  // start of sweeping, before the mutator can observe them via the (now no-op)
+  // instances() read barrier during later incremental slices.
+  sweepWasmInstances();
+
   sweepEmbeddingWeakPointers(gcx);
+
+  maybeWriteCoverageAndSpew();
 
   {
     AutoLockHelperThreadState lock;
@@ -1797,34 +1779,64 @@ IncrementalProgress GCRuntime::beginSweepingSweepGroup(JS::GCContext* gcx,
         this, &GCRuntime::sweepObjectsWithWeakPointers,
         PhaseKind::SWEEP_WEAK_POINTERS, GCUse::Sweeping, lock);
 
-    WeakCacheTaskVector sweepCacheTasks;
+    WeakCacheToSweepVector immediateCaches;
     bool canSweepWeakCachesOffThread =
-        PrepareWeakCacheTasks(this, &sweepCacheTasks);
+        PrepareWeakCacheSweeping(this, &immediateCaches);
     if (canSweepWeakCachesOffThread) {
       weakCachesToSweep.ref().emplace(currentSweepGroup);
-      for (auto& task : sweepCacheTasks) {
-        startTask(task, lock);
-      }
     }
 
     {
+      VectorIterator<WeakCacheToSweepVector> work(immediateCaches);
+      AutoRunParallelWork sweepImmediate(
+          this, ImmediateSweepWeakCache, PhaseKind::SWEEP_WEAK_CACHES,
+          GCUse::Sweeping, work, SliceBudget::unlimited(), lock);
+
       AutoUnlockHelperThreadState unlock(lock);
       sweepJitDataOnMainThread(gcx);
 
       if (!canSweepWeakCachesOffThread) {
-        MOZ_ASSERT(sweepCacheTasks.empty());
+        MOZ_ASSERT(immediateCaches.empty());
         SweepAllWeakCachesOnMainThread(this);
       }
     }
-
-    for (auto& task : sweepCacheTasks) {
-      joinTask(task, lock);
-    }
   }
 
+  // Updating the atom reference bitmaps. This marks atoms referenced by
+  // uncollected zones so cannot be done in parallel with the other sweeping
+  // work below.
   if (sweepingAtoms) {
+    AutoPhase ap(stats(), PhaseKind::UPDATE_ATOMS_BITMAP);
+    updateAtomsBitmap();
     startSweepingAtomsTable();
   }
+
+#ifdef JS_GC_ZEAL
+  validateIncrementalMarking();
+#endif
+
+#ifdef DEBUG
+  // Now that the final mark state has been computed check any gray marking
+  // assertions we delayed until this point.
+
+  if (areGrayBitsValid()) {
+    for (SweepGroupZonesIter zone(this); !zone.done(); zone.next()) {
+      for (const auto* cell : zone->cellsToAssertNotGray()) {
+        if (cell->isMarkedGray()) {
+          const char* kind = JS::GCTraceKindToAscii(cell->getTraceKind());
+          printf_stderr("AssertCellIsNotGray: Found gray %s %p\n", kind, cell);
+          foundUnexpectedGrayCells = true;
+        }
+      }
+      zone->cellsToAssertNotGray().clearAndFree();
+    }
+
+    if (foundUnexpectedGrayCells) {
+      // Finish the GC non-incrementally. We will assert at the end of GC.
+      budget = SliceBudget::unlimited();
+    }
+  }
+#endif
 
   // Queue all GC things in all zones for sweeping, either on the foreground
   // or on the background thread.
@@ -1933,9 +1945,11 @@ IncrementalProgress GCRuntime::markDuringSweeping(JS::GCContext* gcx,
                                                   SliceBudget& budget) {
   MOZ_ASSERT(markTask.isIdle());
 
-  // If we can mark in parallel with sweeping on the main thread we do that.
-  if (markOnBackgroundThreadDuringSweeping) {
-    if (!marker().isDrained() || hasDelayedMarking()) {
+  // If we can mark in parallel with sweeping on the main thread we do
+  // that. Skip this for internally triggered slices not running in idle time.
+  if (markOnBackgroundThreadDuringSweeping && !shouldYieldBeforeSweep(budget)) {
+    if (!marker().isDrained() || hasDelayedMarking() ||
+        hasAnyDeferredWeakMaps()) {
       AutoLockHelperThreadState lock;
       MOZ_ASSERT(markTask.isIdle(lock));
       markTask.initialize(false, budget, lock);
@@ -1951,10 +1965,22 @@ IncrementalProgress GCRuntime::markDuringSweeping(JS::GCContext* gcx,
 
   auto [mainThreadBudget, helperThreadBudget] = budgetConcurrentMarking(budget);
 
-  markSynchronously(mainThreadBudget, useParallelMarking);
+  IncrementalProgress result =
+      markSynchronously(mainThreadBudget, useParallelMarking);
 
-  if (hasMarkingWork()) {
+  if (!marker().isMarkStackEmpty()) {
+    MOZ_ASSERT(result == NotFinished);
     maybeStartConcurrentMarking(helperThreadBudget);
+    return NotFinished;
+  }
+
+  if (result == NotFinished) {
+    return NotFinished;
+  }
+
+  // Yield eagerly after marking has finished for internally triggered slices
+  // not running in idle time.
+  if (shouldYieldBeforeSweep(budget)) {
     return NotFinished;
   }
 
@@ -1970,7 +1996,6 @@ void GCRuntime::beginSweepPhase(AutoGCSession& session) {
    * fail, rather than nest badly and leave the unmarked newborn to be swept.
    */
 
-  MOZ_ASSERT(preparedForSweepInThisSlice);
   MOZ_ASSERT(!abortSweepAfterCurrentGroup);
   MOZ_ASSERT(!markOnBackgroundThreadDuringSweeping);
 
@@ -1980,7 +2005,9 @@ void GCRuntime::beginSweepPhase(AutoGCSession& session) {
 #endif
 
 #ifdef JS_GC_ZEAL
-  computeNonIncrementalMarkingForValidation(session);
+  if (hasZealMode(ZealMode::IncrementalMarkingValidator) && isIncremental) {
+    computeNonIncrementalMarkingForValidation(session);
+  }
 #endif
 
   gcstats::AutoPhase ap(stats(), gcstats::PhaseKind::SWEEP);
@@ -2030,6 +2057,9 @@ void js::gc::BackgroundMarkTask::initialize(bool isConcurrent,
   this->isConcurrent = isConcurrent;
   this->budget = budget;
   this->interruptRequest = false;
+
+  // This must happen on the main thread.
+  gc->bufferRuntime().incOffThreadCount();
 }
 
 void js::gc::BackgroundMarkTask::run(AutoLockHelperThreadState& lock) {
@@ -2056,6 +2086,7 @@ void js::gc::BackgroundMarkTask::run(AutoLockHelperThreadState& lock) {
   }
 
   gc->maybeRequestGCAfterBackgroundTask(lock);
+  gc->bufferRuntime().decOffThreadCount();
 }
 
 void js::gc::BackgroundMarkTask::pause() {
@@ -2118,6 +2149,7 @@ void GCRuntime::resumeBackgroundMarking() {
     return;
   }
 
+  bufferRuntime().incOffThreadCount();
   markTask.start();
 }
 
@@ -2653,33 +2685,6 @@ bool GCRuntime::initSweepActions() {
   return sweepActions != nullptr;
 }
 
-void GCRuntime::prepareForSweepSlice() {
-  // Work that must be done at the start of each slice where we sweep.
-  //
-  // Since this must happen at the start of the slice, it must be called in
-  // marking slices before any sweeping happens. Therefore it is called
-  // conservatively since we may not always transition to sweeping from marking.
-
-  // Clear out whole cell store buffer entries to unreachable cells.
-  if (storeBuffer().mayHavePointersToDeadCells()) {
-    collectNurseryFromMajorGC(sliceReason);
-  }
-
-  // Trace wrapper rooters before marking if we might start sweeping in
-  // this slice.
-  rt->mainContextFromOwnThread()->traceWrapperGCRooters(marker().tracer());
-
-  // Incremental marking validation re-runs all marking non-incrementally
-  // in the first sweep slice, which requires collecting the nursery.
-
-  if (state() == State::Mark &&
-      hasZealMode(ZealMode::IncrementalMarkingValidator)) {
-    collectNurseryFromMajorGC(JS::GCReason::EVICT_NURSERY);
-  }
-
-  preparedForSweepInThisSlice = true;
-}
-
 // Ensure barriers are disabled if required when entering a sweep slice and
 // re-enabled when yielding to the mutator. |disableBarriersForSweeping| is set
 // in beginSweepingSweepGroup and cleared in endSweepingSweepGroup.
@@ -2704,17 +2709,13 @@ class js::gc::AutoUpdateBarriersForSweeping {
 };
 
 IncrementalProgress GCRuntime::sweepPhase(SliceBudget& budget) {
-  MOZ_ASSERT(preparedForSweepInThisSlice);
-  MOZ_ASSERT_IF(storeBuffer().isEnabled(),
-                !storeBuffer().mayHavePointersToDeadCells());
-
   // The first time we enter the sweep phase we must not yield to the mutator
   // until we've started sweeping a sweep group but in that case the stack must
   // be empty already.
   MOZ_ASSERT(initialState <= State::Sweep);
 
-  bool isFirstSweepSlice = initialState < State::Sweep;
 #ifdef DEBUG
+  bool isFirstSweepSlice = initialState < State::Sweep;
   if (isFirstSweepSlice) {
     assertNoMarkingWork();
   }
@@ -2725,11 +2726,17 @@ IncrementalProgress GCRuntime::sweepPhase(SliceBudget& budget) {
 
   markSliceCount++;
 
-  finishAnyConcurrentMarking(budget);
-  if (!isFirstSweepSlice && budget.isOverBudget()) {
+  bool finishedMainThreadOnlyMarking = finishAnyConcurrentMarking(budget);
+  if (!finishedMainThreadOnlyMarking) {
     auto [_, helperThreadBudget] = budgetConcurrentMarking(budget);
     maybeStartConcurrentMarking(helperThreadBudget);
     return NotFinished;
+  }
+
+  // Clear out whole cell store buffer entries with pointers to unreachable
+  // cells in case we free them.
+  if (storeBuffer().mayHavePointersToDeadCells()) {
+    collectNurseryFromMajorGC(JS::GCReason::EVICT_NURSERY);
   }
 
   JS::GCContext* gcx = rt->gcContext();

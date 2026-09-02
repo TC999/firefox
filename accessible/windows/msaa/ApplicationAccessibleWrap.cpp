@@ -4,11 +4,11 @@
 
 #include "ApplicationAccessibleWrap.h"
 
-#include "nsIGfxInfo.h"
 #include "AccAttributes.h"
-#include "nsServiceManagerUtils.h"
-#include "mozilla/Components.h"
 #include "MsaaAccessible.h"
+#include "mozilla/Components.h"
+#include "nsIGfxInfo.h"
+#include "nsServiceManagerUtils.h"
 
 using namespace mozilla;
 using namespace mozilla::a11y;
@@ -18,7 +18,7 @@ using namespace mozilla::a11y;
 NS_IMPL_ISUPPORTS_INHERITED0(ApplicationAccessibleWrap, ApplicationAccessible)
 
 already_AddRefed<AccAttributes> ApplicationAccessibleWrap::NativeAttributes() {
-  RefPtr<AccAttributes> attributes = new AccAttributes();
+  auto attributes = MakeRefPtr<AccAttributes>();
   return attributes.forget();
 }
 

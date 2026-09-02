@@ -14,7 +14,6 @@ import mozilla.appservices.adsclient.MozAdsTile
 import mozilla.components.concept.base.crash.CrashReporting
 import mozilla.components.feature.top.sites.TopSite
 import mozilla.components.support.test.any
-import mozilla.components.support.test.argumentCaptor
 import mozilla.components.support.test.mock
 import mozilla.components.support.test.whenever
 import org.junit.After
@@ -47,89 +46,90 @@ class MacTopSitesProviderTest {
     }
 
     @Test
-    fun `GIVEN a list of Ad placement to request WHEN tile ads are requested THEN sponsored top sites are returned in the correct placement order`() = runTest {
-        val placements = listOf("placement2", "placement1", "placement3")
-        val provider = MacTopSitesProvider(
-            adsClientProvider = lazy { MozAdsClientProvider },
-            requestConfig = getRequestConfig(placements = placements),
-        )
-        val tiles = createTiles(count = 3)
+    fun `GIVEN a list of Ad placement to request WHEN tile ads are requested THEN sponsored top sites are returned in the correct placement order`() =
+        runTest {
+            val placements = listOf("placement2", "placement1", "placement3")
+            val provider =
+                MacTopSitesProvider(
+                    adsClientProvider = lazy { MozAdsClientProvider },
+                    requestConfig = getRequestConfig(placements = placements),
+                )
+            val tiles = createTiles(count = 3)
+            val expectedRequests = placements.map { MozAdsPlacementRequest(placementId = it, iabContent = null) }
 
-        whenever(client.requestTileAds(mozAdRequests = any(), options = any())).thenReturn(tiles)
+            whenever(client.requestTileAds(mozAdRequests = expectedRequests)).thenReturn(tiles)
 
-        val topSites = provider.getTopSites()
+            val topSites = provider.getTopSites()
 
-        verify(client).requestTileAds(mozAdRequests = any(), options = any())
+            verify(client).requestTileAds(mozAdRequests = expectedRequests)
 
-        assertEquals(3, topSites.size)
-        placements.forEachIndexed { i, placement ->
-            val tile = tiles[placement]
-            if (tile != null) {
-                assertTopSiteEqualsTile(tile, topSites[i])
+            assertEquals(3, topSites.size)
+            placements.forEachIndexed { i, placement ->
+                val tile = tiles[placement]
+                if (tile != null) {
+                    assertTopSiteEqualsTile(tile, topSites[i])
+                }
             }
         }
-    }
 
     @Test
-    fun `GIVEN placement IDs for the request config WHEN tile ads are requested THEN ensure the placement IDs used in the Ad placement requests are correct`() = runTest {
-        val placements = listOf("placement1", "placement2")
-        val provider = MacTopSitesProvider(
-            adsClientProvider = lazy { MozAdsClientProvider },
-            requestConfig = getRequestConfig(placements),
-        )
-        val captor = argumentCaptor<List<MozAdsPlacementRequest>>()
+    fun `GIVEN placement IDs for the request config WHEN tile ads are requested THEN ensure the placement IDs used in the Ad placement requests are correct`() =
+        runTest {
+            val placements = listOf("placement1", "placement2")
+            val provider =
+                MacTopSitesProvider(
+                    adsClientProvider = lazy { MozAdsClientProvider },
+                    requestConfig = getRequestConfig(placements),
+                )
+            val expectedRequests = placements.map { MozAdsPlacementRequest(placementId = it, iabContent = null) }
 
-        whenever(client.requestTileAds(mozAdRequests = any(), options = any())).thenReturn(createTiles())
+            whenever(client.requestTileAds(mozAdRequests = expectedRequests)).thenReturn(createTiles())
 
-        provider.getTopSites()
+            provider.getTopSites()
 
-        verify(client).requestTileAds(mozAdRequests = captor.capture(), options = any())
-
-        val capturedRequests = captor.value
-        assertEquals(placements.size, capturedRequests.size)
-        assertEquals(capturedRequests.map { it.placementId }, placements)
-    }
+            verify(client).requestTileAds(mozAdRequests = expectedRequests)
+        }
 
     @Test
     fun `GIVEN Ads client API exception WHEN tile ads are requested THEN log error and return empty list`() = runTest {
-        val provider = MacTopSitesProvider(
-            adsClientProvider = lazy { MozAdsClientProvider },
-            requestConfig = getRequestConfig(),
-            crashReporter = crashReporter,
-        )
+        val provider =
+            MacTopSitesProvider(
+                adsClientProvider = lazy { MozAdsClientProvider },
+                requestConfig = getRequestConfig(),
+                crashReporter = crashReporter,
+            )
         val exception = MozAdsClientApiException.Other("test error")
 
-        whenever(client.requestTileAds(mozAdRequests = any(), options = any())).thenThrow(exception)
+        whenever(client.requestTileAds(mozAdRequests = emptyList())).thenThrow(exception)
 
         val topSites = provider.getTopSites()
 
-        verify(client).requestTileAds(mozAdRequests = any(), options = any())
+        verify(client).requestTileAds(mozAdRequests = emptyList())
 
         assertEquals(0, topSites.size)
         verify(crashReporter).recordCrashBreadcrumb(breadcrumb = any())
         verify(crashReporter).submitCaughtException(exception)
     }
 
-    private fun getRequestConfig(
-        placements: List<String> = listOf(),
-    ) = MacTopSitesRequestConfig(
-        placements = placements,
-    )
+    private fun getRequestConfig(placements: List<String> = listOf()) =
+        MacTopSitesRequestConfig(placements = placements)
 
     private fun createTiles(count: Int = 1): Map<String, MozAdsTile> {
         return (1..count).associate {
-            "placement$it" to MozAdsTile(
-                blockKey = "$it",
-                callbacks = MozAdsCallbacks(
-                    click = "https://mozilla.com/$it/click",
-                    impression = "https://mozilla.com/$it/impression",
-                    report = null,
-                ),
-                format = "",
-                imageUrl = "https://test.com/image$it.jpg",
-                name = "Mozilla$it",
-                url = "https://mozilla.com/$it/",
-            )
+            "placement$it" to
+                MozAdsTile(
+                    blockKey = "$it",
+                    callbacks =
+                        MozAdsCallbacks(
+                            click = "https://mozilla.com/$it/click",
+                            impression = "https://mozilla.com/$it/impression",
+                            report = null,
+                        ),
+                    format = "",
+                    imageUrl = "https://test.com/image$it.jpg",
+                    name = "Mozilla$it",
+                    url = "https://mozilla.com/$it/",
+                )
         }
     }
 

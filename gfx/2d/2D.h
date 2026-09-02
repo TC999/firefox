@@ -5,15 +5,16 @@
 #ifndef MOZILLA_GFX_2D_H
 #define MOZILLA_GFX_2D_H
 
-#include "Types.h"
-#include "Point.h"
-#include "Rect.h"
-#include "Matrix.h"
-#include "Quaternion.h"
-#include "UserData.h"
-#include "FontVariation.h"
 #include <functional>
 #include <vector>
+
+#include "FontVariation.h"
+#include "Matrix.h"
+#include "Point.h"
+#include "Quaternion.h"
+#include "Rect.h"
+#include "Types.h"
+#include "UserData.h"
 
 // GenericRefCountedBase allows us to hold on to refcounted objects of any type
 // (contrary to RefCounted<T> which requires knowing the type T) and, in
@@ -26,12 +27,12 @@
 // This RefPtr class isn't ideal for usage in Azure, as it doesn't allow T**
 // outparams using the &-operator. But it will have to do as there's no easy
 // solution.
+#include "mozilla/Atomics.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/StaticMutex.h"
 #include "mozilla/StaticPtr.h"
 #include "mozilla/ThreadSafeWeakPtr.h"
-#include "mozilla/Atomics.h"
-
+#include "mozilla/gfx/FontData.h"
 #include "nsRegionFwd.h"
 
 #if defined(MOZ_WIDGET_ANDROID) || defined(MOZ_WIDGET_GTK)
@@ -1188,26 +1189,22 @@ class FTUserFontData final
  public:
   NS_INLINE_DECL_THREADSAFE_REFCOUNTING(FTUserFontData)
 
-  FTUserFontData(const uint8_t* aData, uint32_t aLength)
-      : mFontData(aData), mLength(aLength) {}
+  explicit FTUserFontData(FontData* aFontData) : mFontData(aFontData) {}
   explicit FTUserFontData(const char* aFilename) : mFilename(aFilename) {}
 
-  const uint8_t* FontData() const { return mFontData; }
-  uint32_t FontDataLength() const { return mLength; }
+  const uint8_t* GetData() const {
+    return mFontData ? mFontData->Data() : nullptr;
+  }
+  uint32_t Length() const { return mFontData ? mFontData->Length() : 0; }
 
   already_AddRefed<mozilla::gfx::SharedFTFace> CloneFace(
       int aFaceIndex = 0) override;
 
  private:
-  ~FTUserFontData() {
-    if (mFontData) {
-      free((void*)mFontData);
-    }
-  }
+  ~FTUserFontData() = default;
 
   std::string mFilename;
-  const uint8_t* mFontData = nullptr;
-  uint32_t mLength = 0;
+  RefPtr<FontData> mFontData;
 };
 
 /** SharedFTFace is a shared wrapper around an FT_Face. It is ref-counted,
@@ -1456,7 +1453,7 @@ class DrawTarget : public external::AtomicRefCounted<DrawTarget> {
    * node. This is used to generate tagged PDF output. Specifying an id of (0,
    * 0) disassociates subsequent calls from any accessibility node.
    */
-  virtual void AccessibleId(uint64_t aBrowsingContextId, uint64_t aAccId) {}
+  virtual void AccessibleId(uint64_t aInnerWindowId, uint64_t aAccId) {}
 
   /**
    * Returns a SourceSurface which is a snapshot of the current contents of the
@@ -1531,6 +1528,13 @@ class DrawTarget : public external::AtomicRefCounted<DrawTarget> {
       SurfaceFormat aFormat) {
     return nullptr;
   }
+
+  /**
+   * Try to replay a source surface into this draw target, returning `true` on
+   * success. Parameter coordinate spaces match DrawSurface().
+   */
+  bool TryToReplaySurface(SourceSurface* aSurface, const Rect& aDest,
+                          const Rect& aSource);
 
   /**
    * Draw a surface to the draw target, when the surface will be available
@@ -2164,9 +2168,6 @@ class GFX2D_API Factory {
   static void Init(const Config& aConfig);
   static void ShutDown();
 
-  static bool HasSSE2();
-  static bool HasSSE4();
-
   /**
    * Returns false if any of the following are true:
    *
@@ -2350,10 +2351,10 @@ class GFX2D_API Factory {
                                                         const char* aFilename,
                                                         int aFaceIndex);
   static FT_Face NewFTFaceFromData(FT_Library aFTLibrary, const uint8_t* aData,
-                                   size_t aDataSize, int aFaceIndex);
+                                   uint32_t aLength, int aFaceIndex);
   static already_AddRefed<SharedFTFace> NewSharedFTFaceFromData(
-      FT_Library aFTLibrary, const uint8_t* aData, size_t aDataSize,
-      int aFaceIndex, SharedFTFaceData* aSharedData = nullptr);
+      FT_Library aFTLibrary, FontData* aFontData, int aFaceIndex,
+      SharedFTFaceData* aSharedData = nullptr);
   static void ReleaseFTFace(FT_Face aFace);
   static FT_Error LoadFTGlyph(FT_Face aFace, uint32_t aGlyphIndex,
                               int32_t aFlags);

@@ -1145,6 +1145,11 @@ bool Assembler::oom() const {
 // expects all pools that need to be placed have been placed. If they haven't
 // then we need to go an flush the pools :(
 size_t Assembler::size() const { return m_buffer.size(); }
+// Returns the size of the buffer we can currently read, hence ignoring any
+// un-flushed data in currently-under-construction constant pool(s).
+size_t Assembler::readableSize() const {
+  return m_buffer.sizeExcludingCurrentPool();
+}
 // Size of the relocation table, in bytes.
 size_t Assembler::jumpRelocationTableBytes() const {
   return jumpRelocations_.length();
@@ -1581,21 +1586,22 @@ BufferOffset Assembler::as_dtm(LoadStore ls, Register rn, uint32_t mask,
   return writeInst(0x08000000 | RN(rn) | ls | mode | mask | c | wb);
 }
 
-BufferOffset Assembler::allocLiteralLoadEntry(
-    size_t numInst, unsigned numPoolEntries, PoolHintPun& php, uint8_t* data,
-    const LiteralDoc& doc, ARMBuffer::PoolEntry* pe, bool loadToPC) {
+BufferOffset Assembler::allocLiteralLoadEntry(size_t numInst,
+                                              unsigned numPoolEntries,
+                                              PoolHintPun& php, uint8_t* data,
+                                              const LiteralDoc& doc,
+                                              bool loadToPC) {
   uint8_t* inst = (uint8_t*)&php.raw;
 
   MOZ_ASSERT(inst);
   MOZ_ASSERT(numInst == 1);  // Or fix the disassembly
 
-  BufferOffset offs =
-      m_buffer.allocEntry(numInst, numPoolEntries, inst, data, pe);
+  BufferOffset offs = m_buffer.allocEntry(numInst, numPoolEntries, inst, data);
   propagateOOM(offs.assigned());
 #ifdef JS_DISASM_ARM
   Instruction* instruction = m_buffer.getInstOrNull(offs);
   if (instruction) {
-    spewLiteralLoad(php, loadToPC, instruction, doc);
+    spewLiteralLoad(php, loadToPC, instruction, offs, doc);
   }
 #endif
   return offs;
@@ -1608,8 +1614,8 @@ BufferOffset Assembler::as_Imm32Pool(Register dest, uint32_t value,
                                      Condition c) {
   PoolHintPun php;
   php.phd.init(0, c, PoolHintData::PoolDTR, dest);
-  BufferOffset offs = allocLiteralLoadEntry(
-      1, 1, php, (uint8_t*)&value, LiteralDoc(value), nullptr, dest == pc);
+  BufferOffset offs = allocLiteralLoadEntry(1, 1, php, (uint8_t*)&value,
+                                            LiteralDoc(value), dest == pc);
   return offs;
 }
 
@@ -1828,7 +1834,7 @@ BufferOffset Assembler::as_b(Label* l, Condition c) {
                        "Buffer size limit should prevent this");
     as_b(offset, c, ret);
 #ifdef JS_DISASM_ARM
-    spewBranch(m_buffer.getInstOrNull(ret), refLabel(l));
+    spewBranch(m_buffer.getInstOrNull(ret), ret, refLabel(l));
 #endif
     return ret;
   }
@@ -1894,7 +1900,7 @@ BufferOffset Assembler::as_bl(Label* l, Condition c) {
 
     as_bl(offset, c, ret);
 #ifdef JS_DISASM_ARM
-    spewBranch(m_buffer.getInstOrNull(ret), refLabel(l));
+    spewBranch(m_buffer.getInstOrNull(ret), ret, refLabel(l));
 #endif
     return ret;
   }
@@ -2777,8 +2783,8 @@ void Assembler::initDisassembler() {
   //
   //                     -> label
 
-  spew_.setLabelIndent("          ");             // 10
-  spew_.setTargetIndent("                    ");  // 20
+  spew_.setLabelIndent("                  ");             // 18
+  spew_.setTargetIndent("                            ");  // 28
 }
 
 void Assembler::finishDisassembler() { spew_.spewOrphans(); }
@@ -2796,14 +2802,14 @@ void Assembler::finishDisassembler() { spew_.spewOrphans(); }
 // (loop back edges) some information about the intended target may be
 // propagated from higher levels, and if so it's printed here.
 
-void Assembler::spew(Instruction* i) {
+void Assembler::spew(Instruction* i, BufferOffset offs) {
   if (spew_.isDisabled() || !i) {
     return;
   }
 
   DisasmBuffer buffer;
   disassembleInstruction(i, buffer);
-  spew_.spew("%s", buffer.start());
+  spew_.spew("%06x  %s", offs.getOffset(), buffer.start());
 }
 
 // If a target label is known, always print that and do not attempt to
@@ -2811,7 +2817,8 @@ void Assembler::spew(Instruction* i) {
 // metainformation (pointers for a chain of jump instructions), and
 // not actual branch targets.
 
-void Assembler::spewBranch(Instruction* i, const LabelDoc& target) {
+void Assembler::spewBranch(Instruction* i, BufferOffset offs,
+                           const LabelDoc& target) {
   if (spew_.isDisabled() || !i) {
     return;
   }
@@ -2851,7 +2858,7 @@ void Assembler::spewBranch(Instruction* i, const LabelDoc& target) {
       }
     }
   }
-  spew_.spew("%s%s", buffer.start(), labelBuf);
+  spew_.spew("%06x  %s%s", offs.getOffset(), buffer.start(), labelBuf);
 
   if (haveTarget) {
     spew_.spewRef(target);
@@ -2859,7 +2866,8 @@ void Assembler::spewBranch(Instruction* i, const LabelDoc& target) {
 }
 
 void Assembler::spewLiteralLoad(PoolHintPun& php, bool loadToPC,
-                                const Instruction* i, const LiteralDoc& doc) {
+                                const Instruction* i, BufferOffset offs,
+                                const LiteralDoc& doc) {
   if (spew_.isDisabled()) {
     return;
   }
@@ -2899,7 +2907,8 @@ void Assembler::spewLiteralLoad(PoolHintPun& php, bool loadToPC,
   disasm::NameConverter converter;
   disasm::Disassembler dasm(converter);
   dasm.InstructionDecode(buffer, reinterpret_cast<uint8_t*>(&inst));
-  spew_.spew("%s    ; .const %s", buffer.start(), litbuf);
+  spew_.spew("%06x  %s    ; .const %s", offs.getOffset(), buffer.start(),
+             litbuf);
 }
 
 #endif  // JS_DISASM_ARM

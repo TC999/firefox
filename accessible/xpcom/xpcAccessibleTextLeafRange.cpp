@@ -4,8 +4,8 @@
 
 #include "xpcAccessibleTextLeafRange.h"
 
-#include "nsIAccessible.h"
 #include "TextLeafRange.h"
+#include "nsIAccessible.h"
 #include "xpcAccessibleDocument.h"
 
 using namespace mozilla;
@@ -66,7 +66,7 @@ NS_IMETHODIMP xpcAccessibleTextLeafPoint::FindBoundary(
   TextLeafPoint result = thisPoint.FindBoundary(
       aBoundaryType, static_cast<nsDirection>(aDirection),
       static_cast<TextLeafPoint::BoundaryFlags>(aFlags));
-  RefPtr<xpcAccessibleTextLeafPoint> point = new xpcAccessibleTextLeafPoint(
+  auto point = MakeRefPtr<xpcAccessibleTextLeafPoint>(
       result ? ToXPC(result.mAcc) : nullptr, result ? result.mOffset : 0);
   point.forget(aPoint);
   return NS_OK;

@@ -5,8 +5,9 @@
 #ifndef mozilla_image_AnimationFrameBuffer_h
 #define mozilla_image_AnimationFrameBuffer_h
 
-#include "ISurfaceProvider.h"
 #include <deque>
+
+#include "ISurfaceProvider.h"
 
 namespace mozilla {
 namespace image {
@@ -71,7 +72,7 @@ class AnimationFrameBuffer {
         mRedecodeError(aOther.mRedecodeError),
         mRecycling(aOther.mRecycling) {}
 
-  virtual ~AnimationFrameBuffer() {}
+  virtual ~AnimationFrameBuffer() = default;
 
   /**
    * @returns True if frames post-advance may be discarded and redecoded on

@@ -17,7 +17,7 @@ namespace mozilla::dom {
 // Implementation
 
 SVGPolyElement::SVGPolyElement(
-    already_AddRefed<mozilla::dom::NodeInfo>&& aNodeInfo)
+    already_AddRefed<mozilla::dom::NodeInfo> aNodeInfo)
     : SVGPolyElementBase(std::move(aNodeInfo)) {}
 
 already_AddRefed<DOMSVGPointList> SVGPolyElement::Points() {
@@ -52,21 +52,21 @@ void SVGPolyElement::GetMarkPoints(nsTArray<SVGMark>* aMarks) {
 
   float zoom = UserSpaceMetrics::GetZoom(this);
 
-  float px = points[0].mX * zoom, py = points[0].mY * zoom, prevAngle = 0.0f;
-  if (!(std::isfinite(px) && std::isfinite(py))) {
+  Point prevPos = points[0] * zoom;
+  float prevAngle = 0.0f;
+  if (!prevPos.IsFinite()) {
     return;
   }
 
-  aMarks->AppendElement(SVGMark(px, py, 0, SVGMark::Type::Start));
+  aMarks->AppendElement(SVGMark(prevPos, 0, SVGMark::Type::Start));
 
   for (uint32_t i = 1; i < points.Length(); ++i) {
-    float x = points[i].mX * zoom;
-    float y = points[i].mY * zoom;
-    if (!(std::isfinite(x) && std::isfinite(y))) {
+    gfx::Point pos = points[i] * zoom;
+    if (!pos.IsFinite()) {
       aMarks->Clear();
       return;
     }
-    float angle = std::atan2(y - py, x - px);
+    float angle = std::atan2(pos.y - prevPos.y, pos.x - prevPos.x);
 
     // Vertex marker.
     if (i == 1) {
@@ -76,53 +76,51 @@ void SVGPolyElement::GetMarkPoints(nsTArray<SVGMark>* aMarks) {
           SVGContentUtils::AngleBisect(prevAngle, angle);
     }
 
-    aMarks->AppendElement(SVGMark(x, y, 0, SVGMark::Type::Mid));
+    aMarks->AppendElement(SVGMark(pos, 0, SVGMark::Type::Mid));
 
     prevAngle = angle;
-    px = x;
-    py = y;
+    prevPos = pos;
   }
 
   aMarks->LastElement().angle = prevAngle;
   aMarks->LastElement().type = SVGMark::Type::End;
 }
 
-bool SVGPolyElement::GetGeometryBounds(Rect* aBounds,
-                                       const StrokeOptions& aStrokeOptions,
-                                       const Matrix& aToBoundsSpace,
-                                       const Matrix* aToNonScalingStrokeSpace) {
+Maybe<Rect> SVGPolyElement::GetGeometryBounds(
+    const StrokeOptions& aStrokeOptions, const Matrix& aToBoundsSpace,
+    const Matrix* aToNonScalingStrokeSpace) {
   const SVGPointList& points = mPoints.GetAnimValue();
 
   if (points.IsEmpty()) {
     // Rendering of the element is disabled
-    aBounds->SetEmpty();
-    return true;
+    return Some(Rect());
   }
 
   if (aStrokeOptions.mLineWidth > 0 || aToNonScalingStrokeSpace) {
     // We don't handle non-scaling-stroke or stroke-miterlimit etc. yet
-    return false;
+    return Nothing();
   }
 
   float zoom = UserSpaceMetrics::GetZoom(this);
 
+  Rect bounds;
   if (aToBoundsSpace.IsRectilinear()) {
     // We can avoid transforming each point and just transform the result.
     // Important for large point lists.
 
-    Rect bounds(Point(points[0]) * zoom, Size());
+    bounds = Rect(Point(points[0]) * zoom, Size());
     for (uint32_t i = 1; i < points.Length(); ++i) {
       bounds.ExpandToEnclose(Point(points[i]) * zoom);
     }
-    *aBounds = aToBoundsSpace.TransformBounds(bounds);
+    bounds = aToBoundsSpace.TransformBounds(bounds);
   } else {
-    *aBounds =
+    bounds =
         Rect(aToBoundsSpace.TransformPoint(Point(points[0]) * zoom), Size());
     for (uint32_t i = 1; i < points.Length(); ++i) {
-      aBounds->ExpandToEnclose(
+      bounds.ExpandToEnclose(
           aToBoundsSpace.TransformPoint(Point(points[i]) * zoom));
     }
   }
-  return aBounds->IsFinite();
+  return bounds.IsFinite() ? Some(bounds) : Nothing();
 }
 }  // namespace mozilla::dom

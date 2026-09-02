@@ -57,7 +57,6 @@ pub trait IsTreeScoped {
     Serialize,
     Deserialize,
 )]
-#[typed_value(derive_fields)]
 pub struct TreeScoped<T> {
     /// The scoped value.
     pub value: T,
@@ -103,10 +102,7 @@ impl<T> Parse for TreeScoped<T>
 where
     T: Parse,
 {
-    fn parse<'i, 't>(
-        context: &ParserContext,
-        input: &mut Parser<'i, 't>,
-    ) -> Result<Self, ParseError<'i>> {
+    fn parse(context: &ParserContext, input: &mut Parser) -> Result<Self, ParseError> {
         Ok(TreeScoped {
             value: T::parse(context, input)?,
             scope: CascadeLevel::same_tree_author_normal(),
@@ -126,7 +122,7 @@ where
             scope: if context.current_scope().is_tree() {
                 context.current_scope()
             } else {
-                self.scope.clone()
+                self.scope
             },
         }
     }
@@ -134,7 +130,7 @@ where
     fn from_computed_value(computed: &Self::ComputedValue) -> Self {
         Self {
             value: ToComputedValue::from_computed_value(&computed.value),
-            scope: computed.scope.clone(),
+            scope: computed.scope,
         }
     }
 }
@@ -343,6 +339,7 @@ pub enum PreferredRatio<N> {
     ToTyped,
 )]
 #[repr(C)]
+#[typed(todo_derive_fields)]
 pub struct GenericAspectRatio<N> {
     /// Specifiy auto or not.
     #[animation(constant)]
@@ -399,7 +396,6 @@ impl<N> ToAnimatedZero for AspectRatio<N> {
     ToTyped,
 )]
 #[repr(C)]
-#[typed_value(derive_fields)]
 pub enum GenericInset<P, LP> {
     /// A `<length-percentage>` value.
     LengthPercentage(LP),
@@ -424,10 +420,7 @@ where
 {
     fn collect_completion_keywords(f: style_traits::KeywordsCollectFn) {
         LP::collect_completion_keywords(f);
-        f(&["auto"]);
-        if static_prefs::pref!("layout.css.anchor-positioning.enabled") {
-            f(&["anchor", "anchor-size"]);
-        }
+        f(&["auto", "anchor", "anchor-size"]);
     }
 }
 
@@ -470,6 +463,7 @@ pub use self::GenericInset as Inset;
     ToTyped,
 )]
 #[repr(C)]
+#[typed(todo_derive_fields)]
 pub struct GenericAnchorFunction<Percentage, Fallback> {
     /// Anchor name of the element to anchor to.
     /// If omitted, selects the implicit anchor element.

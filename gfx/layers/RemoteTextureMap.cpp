@@ -9,8 +9,11 @@
 
 #include "CompositableHost.h"
 #include "ImageDataSerializer.h"
-#include "mozilla/ipc/ProtocolUtils.h"
+#include "SharedSurface.h"
+#include "mozilla/StaticPrefs_gfx.h"
+#include "mozilla/StaticPrefs_webgl.h"
 #include "mozilla/gfx/gfxVars.h"
+#include "mozilla/ipc/ProtocolUtils.h"
 #include "mozilla/layers/AsyncImagePipelineManager.h"
 #include "mozilla/layers/BufferTexture.h"
 #include "mozilla/layers/CompositorThread.h"
@@ -18,24 +21,25 @@
 #include "mozilla/layers/RemoteTextureHostWrapper.h"
 #include "mozilla/layers/TextureClientSharedSurface.h"
 #include "mozilla/layers/WebRenderTextureHost.h"
-#include "mozilla/StaticPrefs_gfx.h"
-#include "mozilla/StaticPrefs_webgl.h"
 #include "mozilla/webgpu/SharedTexture.h"
 #include "mozilla/webrender/RenderThread.h"
-#include "SharedSurface.h"
 
 namespace mozilla::layers {
+
+void SharedResourceWrapper::ClearTextureHost() {
+  if (mTag == Tag::SharedSurface) {
+    mSharedSurface->ClearTextureHost();
+  } else if (mTag == Tag::SharedTexture) {
+    mSharedTexture->ClearTextureHost();
+  }
+}
 
 RemoteTextureRecycleBin::RemoteTextureRecycleBin(bool aIsShared)
     : mIsShared(aIsShared) {}
 
-RemoteTextureRecycleBin::~RemoteTextureRecycleBin() = default;
-
 RemoteTextureOwnerClient::RemoteTextureOwnerClient(
     const base::ProcessId aForPid)
     : mForPid(aForPid) {}
-
-RemoteTextureOwnerClient::~RemoteTextureOwnerClient() = default;
 
 bool RemoteTextureOwnerClient::IsRegistered(
     const RemoteTextureOwnerId aOwnerId) {
@@ -53,7 +57,7 @@ void RemoteTextureOwnerClient::RegisterTextureOwner(
   RefPtr<RemoteTextureRecycleBin> recycleBin;
   if (aSharedRecycling) {
     if (!mSharedRecycleBin) {
-      mSharedRecycleBin = new RemoteTextureRecycleBin(true);
+      mSharedRecycleBin = MakeRefPtr<RemoteTextureRecycleBin>(true);
     }
     recycleBin = mSharedRecycleBin;
   }
@@ -157,8 +161,23 @@ void RemoteTextureOwnerClient::PushTexture(
 
   UniquePtr<TextureData> textureData =
       MakeUnique<SharedSurfaceTextureData>(aDesc, aFormat, aSize);
-  RefPtr<TextureHost> textureHost = RemoteTextureMap::CreateRemoteTexture(
-      textureData.get(), TextureFlags::DEFAULT);
+
+  RefPtr<layers::TextureHost> textureHost =
+      [&]() -> already_AddRefed<TextureHost> {
+    RefPtr<layers::TextureHost> textureHost = aSharedSurface->GetTextureHost();
+    if (textureHost) {
+      return textureHost.forget();
+    }
+    textureHost = RemoteTextureMap::CreateRemoteTexture(textureData.get(),
+                                                        TextureFlags::DEFAULT);
+    if (textureHost) {
+      if (aDesc.type() == SurfaceDescriptor::TSurfaceDescriptorD3D10) {
+        aSharedSurface->SetTextureHost(textureHost);
+      }
+    }
+    return textureHost.forget();
+  }();
+
   if (!textureHost) {
     MOZ_ASSERT_UNREACHABLE("unexpected to be called");
     return;
@@ -178,8 +197,23 @@ void RemoteTextureOwnerClient::PushTexture(
 
   UniquePtr<TextureData> textureData =
       MakeUnique<SharedSurfaceTextureData>(aDesc, aFormat, aSize);
-  RefPtr<TextureHost> textureHost = RemoteTextureMap::CreateRemoteTexture(
-      textureData.get(), TextureFlags::DEFAULT);
+
+  RefPtr<layers::TextureHost> textureHost =
+      [&]() -> already_AddRefed<TextureHost> {
+    RefPtr<layers::TextureHost> textureHost = aSharedTexture->GetTextureHost();
+    if (textureHost) {
+      return textureHost.forget();
+    }
+    textureHost = RemoteTextureMap::CreateRemoteTexture(textureData.get(),
+                                                        TextureFlags::DEFAULT);
+    if (textureHost) {
+      if (aDesc.type() == SurfaceDescriptor::TSurfaceDescriptorD3D10) {
+        aSharedTexture->SetTextureHost(textureHost);
+      }
+    }
+    return textureHost.forget();
+  }();
+
   if (!textureHost) {
     MOZ_ASSERT_UNREACHABLE("unexpected to be called");
     return;
@@ -294,10 +328,6 @@ void RemoteTextureMap::Shutdown() {
     sInstance = nullptr;
   }
 }
-
-RemoteTextureMap::RemoteTextureMap() : mMonitor("RemoteTextureMap::mMonitor") {}
-
-RemoteTextureMap::~RemoteTextureMap() = default;
 
 bool RemoteTextureMap::RecycleTexture(
     const RefPtr<RemoteTextureRecycleBin>& aRecycleBin,
@@ -557,15 +587,20 @@ void RemoteTextureMap::GetLatestBufferSnapshot(
     uint8_t* src = bufferTextureHost->GetBuffer();
     uint8_t* dst = aDestShmem.get<uint8_t>();
 
-    const Maybe<int32_t> src_stride = ImageDataSerializer::GetRGBStride(
+    const Maybe<int32_t> maybe_src_stride = ImageDataSerializer::GetRGBStride(
         bufferTextureHost->GetBufferDescriptor());
-    MOZ_RELEASE_ASSERT(src_stride.isSome());
-    // note that this might still copy some padding bytes
-    const size_t min_stride = std::min(size_t(src_stride.value()), aDestStride);
+    MOZ_RELEASE_ASSERT(maybe_src_stride.isSome());
+    const size_t src_stride = static_cast<size_t>(maybe_src_stride.value());
+    const size_t bytesPerRow = static_cast<size_t>(src_size.width) * 4;
+    MOZ_RELEASE_ASSERT(src_stride >= bytesPerRow);
+    MOZ_RELEASE_ASSERT(aDestStride >= bytesPerRow);
 
     for (int y = 0; y < src_size.height; y++) {
-      memcpy(dst, src, min_stride);
-      src += src_stride.value();
+      memcpy(dst, src, bytesPerRow);
+      if (bytesPerRow < aDestStride) {
+        memset(dst + bytesPerRow, 0, aDestStride - bytesPerRow);
+      }
+      src += src_stride;
       dst += aDestStride;
     }
   }
@@ -594,7 +629,7 @@ void RemoteTextureMap::RegisterTextureOwner(
   if (aRecycleBin) {
     owner->mRecycleBin = aRecycleBin;
   } else {
-    owner->mRecycleBin = new RemoteTextureRecycleBin(false);
+    owner->mRecycleBin = MakeRefPtr<RemoteTextureRecycleBin>(false);
   }
 
   auto itWaiting = mWaitingTextureOwners.find(key);
@@ -615,6 +650,11 @@ void RemoteTextureMap::KeepTextureDataAliveForTextureHostIfNecessary(
     // SharedResourceWrapper/TextureData alive while the TextureHost is alive.
     if (holder->mTextureHost &&
         holder->mTextureHost->NumCompositableRefs() > 0) {
+      // Clear TextureHost before calling TextureHost::SetDestroyedCallback().
+      if (holder->mResourceWrapper) {
+        holder->mResourceWrapper->ClearTextureHost();
+      }
+
       RefPtr<nsISerialEventTarget> eventTarget = GetCurrentSerialEventTarget();
       RefPtr<Runnable> runnable = NS_NewRunnableFunction(
           "RemoteTextureMap::UnregisterTextureOwner::Runnable",
@@ -1081,7 +1121,7 @@ void RemoteTextureMap::GetRemoteTexture(
       if (it != mRemoteTextureHostWrapperHolders.end() &&
           !it->second->mRemoteTextureHost) {
         it->second->mRemoteTextureHost = owner->mLatestTextureHost;
-      } else {
+      } else if (it != mRemoteTextureHostWrapperHolders.end()) {
         MOZ_ASSERT(it->second->mRemoteTextureHost == owner->mLatestTextureHost);
       }
     }
@@ -1445,7 +1485,7 @@ RemoteTextureMap::TextureDataHolder::TextureDataHolder(
 RemoteTextureMap::RenderingReadyCallbackHolder::RenderingReadyCallbackHolder(
     const RemoteTextureId aTextureId,
     std::function<void(const RemoteTextureInfo&)>&& aCallback)
-    : mTextureId(aTextureId), mCallback(aCallback) {}
+    : mTextureId(aTextureId), mCallback(std::move(aCallback)) {}
 
 RemoteTextureMap::RemoteTextureHostWrapperHolder::
     RemoteTextureHostWrapperHolder(

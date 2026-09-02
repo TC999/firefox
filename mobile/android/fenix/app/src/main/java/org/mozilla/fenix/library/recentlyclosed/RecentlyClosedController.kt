@@ -19,26 +19,33 @@ import org.mozilla.fenix.GleanMetrics.RecentlyClosedTabs
 import org.mozilla.fenix.R
 import org.mozilla.fenix.browser.browsingmode.BrowsingMode
 import org.mozilla.fenix.components.AppStore
+import org.mozilla.fenix.components.share.ShareSheetChooserAction
+import org.mozilla.fenix.components.share.ShareSource
+import org.mozilla.fenix.components.usecases.ShareUseCases
 import org.mozilla.fenix.ext.openToBrowser
 
 @Suppress("TooManyFunctions")
 interface RecentlyClosedController {
-    /**
-     * [TabState] to get the state of the tab.
-     */
+    /** [TabState] to get the state of the tab. */
     fun handleOpen(tab: TabState)
 
-    /**
-     * [TabState] to get the state of the tabs.
-     */
+    /** [TabState] to get the state of the tabs. */
     fun handleOpen(tabs: Set<TabState>)
+
     fun handleDelete(tab: TabState)
+
     fun handleDelete(tabs: Set<TabState>)
+
     fun handleShare(tabs: Set<TabState>)
+
     fun handleNavigateToHistory()
+
     fun handleRestore(item: TabState)
+
     fun handleSelect(tab: TabState)
+
     fun handleDeselect(tab: TabState)
+
     fun handleBackPressed(): Boolean
 }
 
@@ -50,6 +57,7 @@ class DefaultRecentlyClosedController(
     private val recentlyClosedStore: RecentlyClosedFragmentStore,
     private val recentlyClosedTabsStorage: RecentlyClosedTabsStorage,
     private val tabsUseCases: TabsUseCases,
+    private val shareUseCases: ShareUseCases,
     private val lifecycleScope: CoroutineScope,
     private val openToBrowser: (url: String) -> Unit,
 ) : RecentlyClosedController {
@@ -104,23 +112,36 @@ class DefaultRecentlyClosedController(
 
     override fun handleShare(tabs: Set<TabState>) {
         RecentlyClosedTabs.menuShare.record(NoExtras())
-        val shareData = tabs.map { ShareData(url = it.url, title = it.title) }
-        navController.navigate(
-            RecentlyClosedFragmentDirections.actionGlobalShareFragment(
-                data = shareData.toTypedArray(),
-            ),
+
+        val shareData = tabs.map { ShareData(url = it.url, title = it.title, private = it.private) }
+        shareUseCases.shareItems(
+            items = shareData,
+            source = ShareSource.RECENTLY_CLOSED,
+            chooserActions =
+                if (tabs.size == 1) {
+                    listOf(
+                        ShareSheetChooserAction.SEND_TO_DEVICES,
+                        ShareSheetChooserAction.QR_CODE,
+                    )
+                } else {
+                    listOf(ShareSheetChooserAction.SEND_TO_DEVICES)
+                },
+            navigateToShareFragment = {
+                navController.navigate(
+                    RecentlyClosedFragmentDirections.actionGlobalShareFragment(data = shareData.toTypedArray())
+                )
+            },
         )
     }
 
     /**
      * Handles the restoration of a recently closed tab.
      *
-     * If the current browsing mode is Normal, the tab is restored using [TabsUseCases.restore]
-     * and deleted from the storage. The browser is then opened to this restored tab.
+     * If the current browsing mode is Normal, the tab is restored using [TabsUseCases.restore] and deleted from the
+     * storage. The browser is then opened to this restored tab.
      *
-     * If the current browsing mode is Private, then a new tab is opened in the current
-     * browsing mode using [handleOpen] and it is not deleted from the storage.
-     * The new tab is not restored from the disk.
+     * If the current browsing mode is Private, then a new tab is opened in the current browsing mode using [handleOpen]
+     * and it is not deleted from the storage. The new tab is not restored from the disk.
      *
      * @param item The [TabState] of the tab to restore.
      */

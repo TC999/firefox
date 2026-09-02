@@ -10,90 +10,63 @@ import org.mozilla.fenix.tabstray.data.TabsTrayItem
 import org.mozilla.fenix.tabstray.redux.state.Page
 import org.mozilla.fenix.tabstray.redux.state.TabsTrayState
 import org.mozilla.fenix.tabstray.redux.store.TabsTrayStore
+import org.mozilla.fenix.tabstray.repository.uistate.data.PersistedUIState
 import org.mozilla.fenix.tabstray.syncedtabs.SyncedTabsListItem
 
 /**
- * [Action]s dispatched to change the state of [TabsTrayState] or otherwise perform side effects
- * via [TabsTrayStore].
+ * [Action]s dispatched to change the state of [TabsTrayState] or otherwise perform side effects via [TabsTrayStore].
  */
 sealed interface TabsTrayAction : Action {
 
-    /**
-     * [TabsTrayAction]s which trigger storage side effects.
-     */
+    /** [TabsTrayAction]s which trigger storage side effects. */
     sealed interface TabsStorageAction
 
-    /**
-     * Dispatched when the Store has initialized.
-     */
-    object InitAction : TabsTrayAction, TabsStorageAction
+    /** Dispatched when the Store has initialized. */
+    object InitAction : TabsTrayAction, TabsStorageAction, TabManagerUiStateStorageAction
 
-    /**
-     * Dispatched when a tab data update has been received.
-     */
-    data class TabDataUpdateReceived(val tabStorageUpdate: TabStorageUpdate) : TabsTrayAction
+    /** Dispatched when a tab data update has been received. */
+    data class TabDataUpdateReceived(val tabStorageUpdate: TabStorageUpdate) :
+        TabsTrayAction, TabManagerUiStateStorageAction
 
-    /**
-     * Entered multi-select mode.
-     */
+    /** Dispatched when a UI state update has been received from the UI state persistence layer. */
+    data class PersistedUiStateUpdateReceived(val update: PersistedUIState) : TabsTrayAction
+
+    /** Entered multi-select mode. */
     object EnterSelectMode : TabsTrayAction
 
-    /**
-     * Exited multi-select mode.
-     */
+    /** Dispatched when the user requests to select all tabs in the current tray. */
+    object SelectAllNormalTabs : TabsTrayAction
+
+    /** Exited multi-select mode. */
     object ExitSelectMode : TabsTrayAction
 
-    /**
-     * Added a new [TabsTrayItem] to the selection set.
-     */
-    data class AddSelectTabItem(val item: TabsTrayItem) : TabsTrayAction
+    /** Added a new [TabsTrayItem.Tab] to the selection set. */
+    data class AddSelectTab(val tab: TabsTrayItem.Tab) : TabsTrayAction
 
-    /**
-     * Removed a [TabsTrayItem] from the selection set.
-     */
-    data class RemoveSelectTabItem(val item: TabsTrayItem) : TabsTrayAction
+    /** Removed a [TabsTrayItem.Tab] from the selection set. */
+    data class RemoveSelectTab(val tab: TabsTrayItem.Tab) : TabsTrayAction
 
-    /**
-     * The active page in the tray that is now in focus.
-     */
-    data class PageSelected(val page: Page) : TabsTrayAction
+    /** The active page in the tray that is now in focus. */
+    data class PageSelected(val page: Page) : TabsTrayAction, TabManagerUiStateStorageAction
 
-    /**
-     * A request to perform a "sync" action.
-     */
+    /** A request to perform a "sync" action. */
     object SyncNow : TabsTrayAction
 
     /**
-     * When a "sync" action has completed; this can be triggered immediately after [SyncNow] if
-     * no sync action was able to be performed.
+     * When a "sync" action has completed; this can be triggered immediately after [SyncNow] if no sync action was able
+     * to be performed.
      */
     object SyncCompleted : TabsTrayAction
 
     /**
      * Updates the [org.mozilla.fenix.tabstray.redux.state.TabsTrayState.inactiveTabsExpanded] boolean
      *
-     * @property expanded The updated boolean to [org.mozilla.fenix.tabstray.redux.state.TabsTrayState.inactiveTabsExpanded]
+     * @property expanded The updated boolean to
+     *   [org.mozilla.fenix.tabstray.redux.state.TabsTrayState.inactiveTabsExpanded]
      */
     data class UpdateInactiveExpanded(val expanded: Boolean) : TabsTrayAction
 
-    /**
-     * Updates the list of tabs in [org.mozilla.fenix.tabstray.redux.state.TabsTrayState.inactiveTabs].
-     */
-    data class UpdateInactiveTabs(val tabs: List<TabsTrayItem.Tab>) : TabsTrayAction
-
-    /**
-     * Updates the list of tabs in [org.mozilla.fenix.tabstray.redux.state.TabsTrayState.normalTabs].
-     */
-    data class UpdateNormalTabs(val tabs: List<TabsTrayItem>) : TabsTrayAction
-
-    /**
-     * Updates the list of tabs in [org.mozilla.fenix.tabstray.redux.state.TabsTrayState.privateTabs].
-     */
-    data class UpdatePrivateTabs(val tabs: List<TabsTrayItem>) : TabsTrayAction
-
-    /**
-     * Updates the list of synced tabs in [org.mozilla.fenix.tabstray.redux.state.TabsTrayState.syncedTabs].
-     */
+    /** Updates the list of synced tabs in [org.mozilla.fenix.tabstray.redux.state.TabsTrayState.syncedTabs]. */
     data class UpdateSyncedTabs(val tabs: List<SyncedTabsListItem>) : TabsTrayAction
 
     /**
@@ -110,49 +83,31 @@ sealed interface TabsTrayAction : Action {
      */
     data class SyncedTabsHeaderToggled(val index: Int) : TabsTrayAction
 
-    /**
-     * [TabsTrayAction] fired when the tab auto close dialog is shown.
-     */
+    /** [TabsTrayAction] fired when the tab auto close dialog is shown. */
     object TabAutoCloseDialogShown : TabsTrayAction
 
-    /**
-     * [TabsTrayAction] fired when the user requests to share all of their normal tabs.
-     */
+    /** [TabsTrayAction] fired when the user requests to share all of their normal tabs. */
     object ShareAllNormalTabs : TabsTrayAction
 
-    /**
-     * [TabsTrayAction] fired when the user requests to share all of their private tabs.
-     */
+    /** [TabsTrayAction] fired when the user requests to share all of their private tabs. */
     object ShareAllPrivateTabs : TabsTrayAction
 
-    /**
-     * [TabsTrayAction] fired when the user requests to close all normal tabs.
-     */
+    /** [TabsTrayAction] fired when the user requests to close all normal tabs. */
     object CloseAllNormalTabs : TabsTrayAction
 
-    /**
-     * [TabsTrayAction] fired when the user requests to close all private tabs.
-     */
+    /** [TabsTrayAction] fired when the user requests to close all private tabs. */
     object CloseAllPrivateTabs : TabsTrayAction
 
-    /**
-     * [TabsTrayAction] fired when the three-dot menu is displayed to the user.
-     */
+    /** [TabsTrayAction] fired when the three-dot menu is displayed to the user. */
     object ThreeDotMenuShown : TabsTrayAction
 
-    /**
-     * [TabsTrayAction] fired when the user requests to bookmark selected tabs.
-     */
+    /** [TabsTrayAction] fired when the user requests to bookmark selected tabs. */
     data class BookmarkSelectedTabs(val tabCount: Int) : TabsTrayAction
 
-    /**
-     * [TabsTrayAction] fired when the user clicks on the Tab Search icon.
-     */
+    /** [TabsTrayAction] fired when the user clicks on the Tab Search icon. */
     object TabSearchClicked : TabsTrayAction
 
-    /**
-     * [TabsTrayAction] fired when the user clicks on the back button or swipes to navigate back.
-     */
+    /** [TabsTrayAction] fired when the user clicks on the back button or swipes to navigate back. */
     object NavigateBackInvoked : TabsTrayAction
 
     /**
@@ -162,13 +117,39 @@ sealed interface TabsTrayAction : Action {
      */
     data class UpdatePbmLockStatus(val isLocked: Boolean) : TabsTrayAction
 
-    /**
-     * [TabsTrayAction] fired when the user dismisses the Inactive Tabs CFR.
-     */
+    /** [TabsTrayAction] fired when the user dismisses the Inactive Tabs CFR. */
     object DismissInactiveTabsCFR : TabsTrayAction
 
-    /**
-     * [TabsTrayAction] fired when the user dismisses the inactive tabs auto-close dialog.
-     */
+    /** [TabsTrayAction] fired when the user dismisses the inactive tabs auto-close dialog. */
     object DismissInactiveTabsAutoCloseDialog : TabsTrayAction
+
+    /**
+     * [TabsTrayAction] Fired when a reorder is requested from a TabsTray gesture.
+     *
+     * @property sourceId The id of the item being reordered
+     * @property destinationId The id of the reorder target
+     * @property placeAfter Whether to place the item before or after the target
+     */
+    data class ReorderTabsTrayItem(
+        val sourceId: String,
+        val destinationId: String?,
+        val placeAfter: Boolean,
+    ) : TabsTrayAction, TabsStorageAction
+
+    /**
+     * [TabsTrayAction] fired when a tab drag is started from the tabs tray.
+     *
+     * @property sourceId The id of the item being dragged.
+     * @property preserveSelectMode Whether select mode should be preserved on a drag.
+     */
+    data class TabDragStart(
+        val sourceId: String,
+        val preserveSelectMode: Boolean,
+    ) : TabsTrayAction
+
+    /** [TabsTrayAction] fired when a tab drag is cancelled from the tabs tray. */
+    object TabDragCancel : TabsTrayAction
+
+    /** Long pressed a [TabsTrayItem] in the TabsTray. */
+    data class TabItemLongClicked(val item: TabsTrayItem) : TabsTrayAction
 }

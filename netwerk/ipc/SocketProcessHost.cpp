@@ -4,17 +4,17 @@
 
 #include "SocketProcessHost.h"
 
+#include "ProfilerParent.h"
 #include "SocketProcessParent.h"
 #include "mozilla/dom/ContentParent.h"
+#include "mozilla/ipc/Endpoint.h"
 #include "mozilla/ipc/FileDescriptor.h"
+#include "mozilla/ipc/ProcessChild.h"
 #include "mozilla/ipc/ProcessUtils.h"
 #include "nsAppRunner.h"
 #include "nsIOService.h"
 #include "nsIObserverService.h"
-#include "ProfilerParent.h"
 #include "nsNetUtil.h"
-#include "mozilla/ipc/Endpoint.h"
-#include "mozilla/ipc/ProcessChild.h"
 
 #if defined(XP_LINUX) && defined(MOZ_SANDBOX)
 #  include "mozilla/SandboxBroker.h"
@@ -34,6 +34,10 @@ using namespace mozilla::ipc;
 
 namespace mozilla {
 namespace net {
+
+#if defined(XP_MACOSX) || defined(XP_IOS)
+static bool sAppleFastDatapathProbeAllowed = true;
+#endif
 
 #if defined(XP_MACOSX) && defined(MOZ_SANDBOX)
 bool SocketProcessHost::sLaunchWithMacSandbox = false;
@@ -69,7 +73,7 @@ bool SocketProcessHost::Launch() {
 
   SharedPreferenceSerializer prefSerializer;
   if (!prefSerializer.SerializeToSharedMemory(GeckoProcessType_VR,
-                                              /* remoteType */ ""_ns)) {
+                                              /* remoteType */ {})) {
     return false;
   }
   prefSerializer.AddSharedPrefCmdLineArgs(*this, extraArgs);
@@ -142,7 +146,7 @@ void SocketProcessHost::InitAfterConnect(bool aSucceeded) {
   DebugOnly<bool> rv = TakeInitialEndpoint().Bind(mSocketProcessParent.get());
   MOZ_ASSERT(rv);
 
-  SocketPorcessInitAttributes attributes;
+  SocketProcessInitAttributes attributes;
   nsCOMPtr<nsIIOService> ioService(do_GetIOService());
   MOZ_ASSERT(ioService, "No IO service?");
   DebugOnly<nsresult> result = ioService->GetOffline(&attributes.mOffline());
@@ -175,6 +179,10 @@ void SocketProcessHost::InitAfterConnect(bool aSucceeded) {
     attributes.mInitSandbox() = true;
   }
 #endif  // XP_LINUX && MOZ_SANDBOX
+
+#if defined(XP_MACOSX) || defined(XP_IOS)
+  attributes.mAppleFastDatapathProbeAllowed() = sAppleFastDatapathProbeAllowed;
+#endif
 
   (void)GetActor()->SendInit(attributes);
 
@@ -210,6 +218,12 @@ void SocketProcessHost::Shutdown() {
 
 void SocketProcessHost::OnChannelClosed() {
   MOZ_ASSERT(NS_IsMainThread());
+
+#if defined(XP_MACOSX) || defined(XP_IOS)
+  if (!mShutdownRequested && !mAppleFastDatapathProbeResultReceived) {
+    sAppleFastDatapathProbeAllowed = false;
+  }
+#endif
 
   mChannelClosed = true;
 

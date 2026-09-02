@@ -4,13 +4,13 @@
 
 package mozilla.components.feature.top.sites
 
+import kotlin.test.assertNotNull
 import kotlinx.coroutines.test.runTest
 import mozilla.components.feature.top.sites.db.PinnedSiteDao
 import mozilla.components.feature.top.sites.db.PinnedSiteEntity
 import mozilla.components.feature.top.sites.db.TopSiteDatabase
 import mozilla.components.support.test.mock
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Test
 import org.mockito.Mockito.verify
 import org.mockito.Mockito.`when`
@@ -34,16 +34,35 @@ class PinnedSitesStorageTest {
             isDefault = true,
         )
 
-        verify(dao).insertAllPinnedSites(
-            listOf(
-                PinnedSiteEntity(title = "Mozilla", url = "https://www.mozilla.org", isDefault = true, createdAt = 42),
-                PinnedSiteEntity(title = "Firefox", url = "https://www.firefox.com", isDefault = true, createdAt = 42),
-                PinnedSiteEntity(title = "Wikipedia", url = "https://www.wikipedia.com", isDefault = true, createdAt = 42),
-                PinnedSiteEntity(title = "Pocket", url = "https://www.getpocket.com", isDefault = true, createdAt = 42),
-            ),
-        )
-
-        Unit
+        verify(dao)
+            .insertAllPinnedSites(
+                listOf(
+                    PinnedSiteEntity(
+                        title = "Mozilla",
+                        url = "https://www.mozilla.org",
+                        isDefault = true,
+                        createdAt = 42,
+                    ),
+                    PinnedSiteEntity(
+                        title = "Firefox",
+                        url = "https://www.firefox.com",
+                        isDefault = true,
+                        createdAt = 42,
+                    ),
+                    PinnedSiteEntity(
+                        title = "Wikipedia",
+                        url = "https://www.wikipedia.com",
+                        isDefault = true,
+                        createdAt = 42,
+                    ),
+                    PinnedSiteEntity(
+                        title = "Pocket",
+                        url = "https://www.getpocket.com",
+                        isDefault = true,
+                        createdAt = 42,
+                    ),
+                )
+            )
     }
 
     @Test
@@ -59,10 +78,26 @@ class PinnedSitesStorageTest {
         // PinnedSiteDao.insertPinnedSite is actually called with "id = null", but due to an
         // extraneous assignment ("entity.id = ") in PinnedSiteStorage.addPinnedSite we can for now
         // only verify the call with "id = 0". See issue #9708.
-        verify(dao).insertPinnedSite(PinnedSiteEntity(id = 0, title = "Mozilla", url = "https://www.mozilla.org", isDefault = false, createdAt = 3))
-        verify(dao).insertPinnedSite(PinnedSiteEntity(id = 0, title = "Firefox", url = "https://www.firefox.com", isDefault = true, createdAt = 3))
-
-        Unit
+        verify(dao)
+            .insertPinnedSite(
+                PinnedSiteEntity(
+                    id = 0,
+                    title = "Mozilla",
+                    url = "https://www.mozilla.org",
+                    isDefault = false,
+                    createdAt = 3,
+                )
+            )
+        verify(dao)
+            .insertPinnedSite(
+                PinnedSiteEntity(
+                    id = 0,
+                    title = "Firefox",
+                    url = "https://www.firefox.com",
+                    isDefault = true,
+                    createdAt = 3,
+                )
+            )
     }
 
     @Test
@@ -82,12 +117,13 @@ class PinnedSitesStorageTest {
         val storage = PinnedSiteStorage(mock())
         val dao = mockDao(storage)
 
-        `when`(dao.getPinnedSites()).thenReturn(
-            listOf(
-                PinnedSiteEntity(1, "Mozilla", "https://www.mozilla.org", false, 10),
-                PinnedSiteEntity(2, "Firefox", "https://www.firefox.com", true, 10),
-            ),
-        )
+        `when`(dao.getPinnedSites())
+            .thenReturn(
+                listOf(
+                    PinnedSiteEntity(1, "Mozilla", "https://www.mozilla.org", false, 10),
+                    PinnedSiteEntity(2, "Firefox", "https://www.firefox.com", true, 10),
+                )
+            )
         `when`(dao.getPinnedSitesCount()).thenReturn(2)
 
         val topSites = storage.getPinnedSites()

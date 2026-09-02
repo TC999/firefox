@@ -3,11 +3,32 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
+import { Message } from "moz-src:///browser/components/aiwindow/models/Message.sys.mjs";
+
+/** @typedef {import("./ChatConversation.sys.mjs").PooledHistoryResult} PooledHistoryResult */
+/** @typedef {import("./ChatConversation.sys.mjs").Citation} Citation */
+
 const TOKEN_LABELS = {
   EXISTING_MEMORY: "existing_memory",
   SEARCH: "search",
   FOLLOWUP: "followup",
+  KIT: "kit",
 };
+
+// Deterministic fallback normalization for follow-up suggestions. Token/tag
+// extraction can leave whitespace artifacts ("sentence ."), and the model
+// sometimes emits a trailing period or other terminal punctuation that we
+// don't want to render in the suggestion chips.
+function normalizeFollowUp(value) {
+  if (!value) {
+    return "";
+  }
+  return value
+    .replace(/[.!?…]+\s*$/u, "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .replace(/ ([.,!?…;:])/g, "$1");
+}
 
 /**
  * @import { ContextWebsite } from "chrome://browser/content/urlbar/SmartbarInput.mjs"
@@ -30,29 +51,13 @@ const TOKEN_LABELS = {
  */
 
 /**
- * A message in a conversation.
+ * A chat message.
  */
-export class ChatMessage {
-  id;
-  createdDate;
-  parentMessageId;
+export class ChatMessage extends Message {
   revisionRootMessageId;
-  ordinal;
   isActiveBranch;
-  role;
-  modelId;
-  params;
-  usage;
-
-  /**
-   * The message content object.
-   *
-   * @type {TextContent | FunctionContent}
-   */
-  content;
   convId;
   pageUrl;
-  turnIndex;
   memoriesEnabled;
   memoriesFlagSource;
   memoriesApplied;
@@ -60,6 +65,11 @@ export class ChatMessage {
   followUpSuggestions; // transient value
   pageHistoryDeleted;
   tokens;
+  toolUIData;
+  toolUIDraft; // transient value, in-progress form state for the tool UI
+  historyResults;
+  citations;
+  kit;
 
   /**
    * @param {object} param
@@ -108,6 +118,13 @@ export class ChatMessage {
    * the only message of the revision branch set to true.
    * @param {?boolean} param.pageHistoryDeleted - Whether pageUrl was removed due
    * to a history removal action like Forget This Site or Delete Page
+   * @param {?object} param.toolUIData - Tool UI data to render with this message
+   * @param {?string} param.toolCallId - id of the tool call this message responds to (role == tool)
+   * @param {?string} param.toolName - function name for tool messages (role == tool)
+   * @param {PooledHistoryResult[]} [param.historyResults = []] - Snapshot of the
+   * conversation history results pool as of this message's completion, used to
+   * restore the history thumbnail grid.
+   * @param {Citation[]} [param.citations = []] - The web-search sources
    */
   constructor({
     ordinal,
@@ -130,27 +147,40 @@ export class ChatMessage {
     revisionRootMessageId = id,
     isActiveBranch = true,
     pageHistoryDeleted = false,
-  }) {
-    this.id = id;
-    this.createdDate = createdDate;
-    this.parentMessageId = parentMessageId;
+    toolUIData = null,
+    toolCallId = null,
+    toolName = null,
+    historyResults = [],
+    citations = [],
+  } = {}) {
+    super({
+      id,
+      createdDate,
+      ordinal,
+      role,
+      content,
+      turnIndex,
+      parentMessageId,
+      modelId,
+      params,
+      usage,
+      toolCallId,
+      toolName,
+    });
     this.revisionRootMessageId = revisionRootMessageId;
     this.isActiveBranch = isActiveBranch;
-    this.ordinal = ordinal;
-    this.role = role;
-    this.modelId = modelId;
-    this.params = params;
-    this.usage = usage;
-    this.content = content;
     this.convId = convId;
     this.pageUrl = pageUrl;
-    this.turnIndex = turnIndex;
     this.memoriesEnabled = memoriesEnabled;
     this.memoriesFlagSource = memoriesFlagSource;
     this.memoriesApplied = memoriesApplied;
     this.webSearchQueries = webSearchQueries;
     this.followUpSuggestions = followUpSuggestions;
     this.pageHistoryDeleted = pageHistoryDeleted;
+    this.toolUIData = toolUIData;
+    this.toolUIDraft = null;
+    this.historyResults = historyResults;
+    this.citations = citations;
     this.tokens = {
       search: [],
       existing_memory: [],
@@ -167,19 +197,30 @@ export class ChatMessage {
    */
   addTokens(tokens) {
     tokens.forEach(({ key, value }) => {
+      let storedValue = value;
+      if (key == TOKEN_LABELS.FOLLOWUP) {
+        storedValue = normalizeFollowUp(value);
+        if (!storedValue) {
+          return;
+        }
+      }
+
       if (Array.isArray(this.tokens[key])) {
-        this.tokens[key].push(value);
+        this.tokens[key].push(storedValue);
       }
 
       switch (key) {
         case TOKEN_LABELS.EXISTING_MEMORY:
-          (this._pendingMemoryIds ??= []).push(value);
+          this.memoriesApplied.push(value);
           break;
         case TOKEN_LABELS.SEARCH:
           this.webSearchQueries.push(value);
           break;
         case TOKEN_LABELS.FOLLOWUP:
-          this.followUpSuggestions.push(value);
+          this.followUpSuggestions.push(storedValue);
+          break;
+        case TOKEN_LABELS.KIT:
+          this.kit = value;
       }
     });
   }
@@ -283,15 +324,19 @@ export class UserRoleOpts {
 export class ChatMinimal {
   #id;
   #title;
+  #pageUrl;
 
   /**
    * @param {object} params
    * @param {string} params.convId
    * @param {string} params.title
+   * @param {?string} [params.pageUrl] - URL of the page the chat was about,
+   *   used to render a site favicon. Null for chats not tied to a page.
    */
-  constructor({ convId, title }) {
+  constructor({ convId, title, pageUrl = null }) {
     this.#id = convId;
     this.#title = title;
+    this.#pageUrl = pageUrl;
   }
 
   get id() {
@@ -300,6 +345,10 @@ export class ChatMinimal {
 
   get title() {
     return this.#title;
+  }
+
+  get pageUrl() {
+    return this.#pageUrl;
   }
 }
 

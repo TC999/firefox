@@ -53,6 +53,7 @@ class BackgroundParent final {
   using ProcessId = base::ProcessId;
   using BlobImpl = mozilla::dom::BlobImpl;
   using ContentParent = mozilla::dom::ContentParent;
+  using LoadedOriginSet = mozilla::dom::LoadedOriginSet;
   using ThreadsafeContentParentHandle =
       mozilla::dom::ThreadsafeContentParentHandle;
 
@@ -78,7 +79,26 @@ class BackgroundParent final {
   static ThreadsafeContentParentHandle* GetContentParentHandle(
       PBackgroundParent* aBackgroundActor);
 
+  // Return the loaded-origin state associated with a content process actor, or
+  // null for an in-process actor.
+  //
+  // This function may only be called on the background thread.
+  static LoadedOriginSet* GetLoadedOrigins(PBackgroundParent* aBackgroundActor);
+
   static uint64_t GetChildID(PBackgroundParent* aBackgroundActor);
+
+  static mozilla::dom::RemoteType GetRemoteType(
+      PBackgroundParent* aBackgroundActor);
+
+  // Whenever receiving a Principal we need to validate that Principal case
+  // by case. The options can customize the behaviour of the checks.
+  // See ContentParent::ValidatePrincipal for an analog.
+  static bool ValidatePrincipal(
+      PBackgroundParent* aBackgroundActor, nsIPrincipal* aPrincipal,
+      const EnumSet<dom::ValidatePrincipalOptions>& aOptions = {});
+  static bool ValidatePrincipalInfo(
+      PBackgroundParent* aBackgroundActor, const PrincipalInfo& aPrincipalInfo,
+      const EnumSet<dom::ValidatePrincipalOptions>& aOptions = {});
 
   static void KillHardAsync(PBackgroundParent* aBackgroundActor,
                             const nsACString& aReason);

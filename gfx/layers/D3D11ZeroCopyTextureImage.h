@@ -7,10 +7,10 @@
 
 #include "ImageContainer.h"
 #include "mozilla/RefPtr.h"
+#include "mozilla/ThreadSafeWeakPtr.h"
 #include "mozilla/gfx/Types.h"
 #include "mozilla/layers/TextureClient.h"
 #include "mozilla/layers/TextureD3D11.h"
-#include "mozilla/ThreadSafeWeakPtr.h"
 
 struct ID3D11Texture2D;
 struct IMFSample;
@@ -61,6 +61,7 @@ class D3D11ZeroCopyTextureImage : public Image {
                             const gfx::ColorSpace2 aColorSpace,
                             const gfx::ColorRange aColorRange,
                             const gfx::TransferFunction aTransferFunction,
+                            const Maybe<gfx::HDRMetadata>& aHDRMetadata,
                             const gfx::ColorDepth aColorDepth);
   virtual ~D3D11ZeroCopyTextureImage();
 
@@ -102,6 +103,7 @@ class D3D11ZeroCopyTextureImage : public Image {
   const gfx::ColorSpace2 mColorSpace;
   const gfx::ColorRange mColorRange;
   const gfx::TransferFunction mTransferFunction;
+  const Maybe<gfx::HDRMetadata> mHDRMetadata;
   const gfx::ColorDepth mColorDepth;
 };
 
@@ -110,7 +112,7 @@ class IMFSampleWrapper : public SupportsThreadSafeWeakPtr<IMFSampleWrapper> {
   MOZ_DECLARE_REFCOUNTED_TYPENAME(IMFSampleWrapper)
 
   static RefPtr<IMFSampleWrapper> Create(IMFSample* aVideoSample);
-  virtual ~IMFSampleWrapper();
+  virtual ~IMFSampleWrapper() = default;
   void ClearVideoSample();
 
  protected:
@@ -131,6 +133,7 @@ class D3D11TextureIMFSampleImage final : public D3D11ZeroCopyTextureImage {
                              const gfx::ColorSpace2 aColorSpace,
                              const gfx::ColorRange aColorRange,
                              const gfx::TransferFunction aTransferFunction,
+                             const Maybe<gfx::HDRMetadata>& aHDRMetadata,
                              const gfx::ColorDepth aColorDepth);
   virtual ~D3D11TextureIMFSampleImage() = default;
 
@@ -149,6 +152,7 @@ class D3D11TextureAVFrameImage final : public D3D11ZeroCopyTextureImage {
                            const gfx::ColorSpace2 aColorSpace,
                            const gfx::ColorRange aColorRange,
                            const gfx::TransferFunction aTransferFunction,
+                           const Maybe<gfx::HDRMetadata>& aHDRMetadata,
                            const gfx::ColorDepth aColorDepth);
   virtual ~D3D11TextureAVFrameImage() = default;
 

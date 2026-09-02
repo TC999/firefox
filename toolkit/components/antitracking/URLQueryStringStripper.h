@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -51,7 +49,9 @@ class URLQueryStringStripper final : public nsIObserver,
 
   // Returns whether there is a rule matching the host that tells us to strip
   // this query parameter.
-  bool ShouldStripParam(const nsACString& aHost, const nsACString& aName);
+  bool ShouldStripParam(const nsACString& aHost,
+                        const nsACString& aSchemelessSite,
+                        const nsACString& aName);
   // Tries parse query parameter value as url and recurse into
   // `StripForCopyOrShareInternal` to strip query parameters for it. Returns how
   // many params were stripped, but at most 1 in dry mode. Modifies aValue to
@@ -70,7 +70,8 @@ class URLQueryStringStripper final : public nsIObserver,
   nsTHashSet<nsCString> mList;
   nsTHashSet<nsCString> mAllowList;
   nsCOMPtr<nsIURLQueryStrippingListService> mListService;
-  nsTHashMap<nsCString, dom::StripRule> mStripOnShareMap;
+  nsTHashMap<nsCString, dom::StripRule> mStripOnShareHostMap;
+  nsTHashMap<nsCString, dom::StripRule> mStripOnShareSchemelessSiteMap;
   Maybe<dom::StripRule> mStripOnShareGlobal;
   bool mIsInitialized;
   // Indicates whether or not we currently have registered an observer

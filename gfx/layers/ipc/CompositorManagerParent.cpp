@@ -3,17 +3,18 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "mozilla/layers/CompositorManagerParent.h"
-#include "mozilla/gfx/GPUParent.h"
+
+#include "VsyncSource.h"
+#include "gfxPlatform.h"
 #include "mozilla/gfx/CanvasManagerParent.h"
-#include "mozilla/webrender/RenderThread.h"
+#include "mozilla/gfx/GPUParent.h"
 #include "mozilla/ipc/Endpoint.h"
 #include "mozilla/layers/CompositorBridgeParent.h"
-#include "mozilla/layers/ContentCompositorBridgeParent.h"
 #include "mozilla/layers/CompositorThread.h"
+#include "mozilla/layers/ContentCompositorBridgeParent.h"
 #include "mozilla/layers/RemoteTextureMap.h"
 #include "mozilla/layers/SharedSurfacesParent.h"
-#include "gfxPlatform.h"
-#include "VsyncSource.h"
+#include "mozilla/webrender/RenderThread.h"
 
 namespace mozilla {
 namespace layers {
@@ -41,8 +42,8 @@ CompositorManagerParent::CreateSameProcess(uint32_t aNamespace) {
   // The child is responsible for setting up the IPC channel in the same
   // process case because if we open from the child perspective, we can do it
   // on the main thread and complete before we return the manager handles.
-  RefPtr<CompositorManagerParent> parent =
-      new CompositorManagerParent(dom::ContentParentId(), aNamespace);
+  RefPtr<CompositorManagerParent> parent = new CompositorManagerParent(
+      dom::ContentParentId(), aNamespace, /* aContentBridgeNamespace */ 0);
   parent->SetOtherEndpointProcInfo(ipc::EndpointProcInfo::Current());
   return parent.forget();
 }
@@ -50,7 +51,8 @@ CompositorManagerParent::CreateSameProcess(uint32_t aNamespace) {
 /* static */
 bool CompositorManagerParent::Create(
     Endpoint<PCompositorManagerParent>&& aEndpoint,
-    dom::ContentParentId aChildId, uint32_t aNamespace, bool aIsRoot) {
+    dom::ContentParentId aChildId, uint32_t aNamespace,
+    uint32_t aContentBridgeNamespace, bool aIsRoot) {
   MOZ_ASSERT(NS_IsMainThread());
 
   // We are creating a manager for the another process, inside the GPU process
@@ -61,8 +63,8 @@ bool CompositorManagerParent::Create(
     return false;
   }
 
-  RefPtr<CompositorManagerParent> bridge =
-      new CompositorManagerParent(aChildId, aNamespace);
+  RefPtr<CompositorManagerParent> bridge = new CompositorManagerParent(
+      aChildId, aNamespace, aContentBridgeNamespace);
 
   RefPtr<Runnable> runnable =
       NewRunnableMethod<Endpoint<PCompositorManagerParent>&&, bool>(
@@ -104,20 +106,22 @@ CompositorManagerParent::CreateSameProcessWidgetCompositorBridge(
   TimeDuration vsyncRate =
       gfxPlatform::GetPlatform()->GetGlobalVsyncDispatcher()->GetVsyncRate();
 
-  RefPtr<CompositorBridgeParent> bridge = new CompositorBridgeParent(
-      sInstance, aScale, vsyncRate, aOptions, aUseExternalSurfaceSize,
-      aSurfaceSize, aInnerWindowId);
+  RefPtr bridge = MakeRefPtr<CompositorBridgeParent>(
+      sInstance, /* aNamespace */ 0, aScale, vsyncRate, aOptions,
+      aUseExternalSurfaceSize, aSurfaceSize, aInnerWindowId);
 
   sInstance->mPendingCompositorBridges.AppendElement(bridge);
   return bridge.forget();
 }
 
 CompositorManagerParent::CompositorManagerParent(
-    dom::ContentParentId aContentId, uint32_t aNamespace)
+    dom::ContentParentId aContentId, uint32_t aNamespace,
+    uint32_t aContentBridgeNamespace)
     : mCompositorThreadHolder(CompositorThreadHolder::GetSingleton()),
       mSharedSurfacesHolder(MakeRefPtr<SharedSurfacesHolder>(aNamespace)),
       mContentId(aContentId),
-      mNamespace(aNamespace) {}
+      mNamespace(aNamespace),
+      mContentBridgeNamespace(aContentBridgeNamespace) {}
 
 CompositorManagerParent::~CompositorManagerParent() = default;
 
@@ -223,11 +227,22 @@ void CompositorManagerParent::Shutdown() {
 
 already_AddRefed<PCompositorBridgeParent>
 CompositorManagerParent::AllocPCompositorBridgeParent(
-    const CompositorBridgeOptions& aOpt) {
+    const CompositorBridgeOptions& aOpt, const uint32_t& aNamespace) {
   switch (aOpt.type()) {
     case CompositorBridgeOptions::TContentCompositorOptions: {
-      RefPtr<ContentCompositorBridgeParent> bridge =
-          new ContentCompositorBridgeParent(this);
+      // The namespace is chosen by the child, but it must match the one the
+      // UI process assigned for its compositor bridge. Otherwise a
+      // compromised content process could claim another namespace (e.g. the
+      // LayersId namespace) and pass ownership checks on pipeline ids that
+      // belong to other bridges (CompositorBridgeParentBase::OwnsPipelineId).
+      if (NS_WARN_IF(mContentBridgeNamespace == 0 ||
+                     aNamespace != mContentBridgeNamespace)) {
+        MOZ_ASSERT_UNREACHABLE("Invalid content compositor namespace!");
+        break;
+      }
+
+      RefPtr bridge =
+          MakeRefPtr<ContentCompositorBridgeParent>(this, aNamespace);
       return bridge.forget();
     }
     case CompositorBridgeOptions::TWidgetCompositorOptions: {
@@ -240,8 +255,8 @@ CompositorManagerParent::AllocPCompositorBridgeParent(
       }
 
       const WidgetCompositorOptions& opt = aOpt.get_WidgetCompositorOptions();
-      RefPtr<CompositorBridgeParent> bridge = new CompositorBridgeParent(
-          this, opt.scale(), opt.vsyncRate(), opt.options(),
+      RefPtr bridge = MakeRefPtr<CompositorBridgeParent>(
+          this, aNamespace, opt.scale(), opt.vsyncRate(), opt.options(),
           opt.useExternalSurfaceSize(), opt.surfaceSize(), opt.innerWindowId());
       return bridge.forget();
     }
@@ -262,6 +277,7 @@ CompositorManagerParent::AllocPCompositorBridgeParent(
       }
 
       RefPtr<CompositorBridgeParent> bridge = mPendingCompositorBridges[0];
+      bridge->SetNamespace(aNamespace);
       mPendingCompositorBridges.RemoveElementAt(0);
       return bridge.forget();
     }

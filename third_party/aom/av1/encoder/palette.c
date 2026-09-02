@@ -304,8 +304,8 @@ static inline void palette_rd_y(
   // Collect mode stats for multiwinner mode processing
   const int txfm_search_done = 1;
   store_winner_mode_stats(
-      &cpi->common, x, mbmi, NULL, NULL, NULL, THR_DC, color_map, bsize,
-      this_rd, cpi->sf.winner_mode_sf.multi_winner_mode_type, txfm_search_done);
+      cpi, x, mbmi, NULL, NULL, NULL, THR_DC, color_map, bsize, this_rd,
+      cpi->sf.winner_mode_sf.multi_winner_mode_type, txfm_search_done);
   if (this_rd < *best_rd) {
     *best_rd = this_rd;
     // Setting beat_best_rd flag because current mode rd is better than best_rd.
@@ -756,9 +756,6 @@ void av1_rd_pick_palette_intra_sby(
   if (best_mbmi->palette_mode_info.palette_size[0] > 0) {
     memcpy(color_map, best_palette_color_map,
            block_width * block_height * sizeof(best_palette_color_map[0]));
-    // Gather the stats to determine whether to use screen content tools in
-    // function av1_determine_sc_tools_with_encoding().
-    x->palette_pixels += (block_width * block_height);
   }
   *mbmi = *best_mbmi;
 }

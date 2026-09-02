@@ -7,8 +7,9 @@
 #ifndef mozilla_Saturate_h
 #define mozilla_Saturate_h
 
-#include <limits>
 #include <stdint.h>
+
+#include <limits>
 #include <type_traits>
 #include <utility>
 
@@ -125,14 +126,9 @@ class Saturate {
 
   // Compare operators
 
-  bool operator==(const Saturate<T>& aRhs) const {
-    return mValue == aRhs.mValue;
-  }
-
-  bool operator!=(const Saturate<T>& aRhs) const { return !operator==(aRhs); }
+  bool operator==(const Saturate& aRhs) const = default;
 
   bool operator==(const T& aRhs) const { return mValue == aRhs; }
-
   bool operator!=(const T& aRhs) const { return !operator==(aRhs); }
 
   // Assignment operators

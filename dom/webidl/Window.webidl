@@ -264,7 +264,9 @@ Window includes WindowLocalStorage;
 
 // http://www.whatwg.org/specs/web-apps/current-work/
 partial interface Window {
+  [Deprecated=UseOfCaptureEvents]
   undefined captureEvents();
+  [Deprecated=UseOfReleaseEvents]
   undefined releaseEvents();
 };
 
@@ -310,8 +312,8 @@ partial interface Window {
   [Throws, ChromeOnly] undefined moveResize(long x, long y, long w, long h);
 
   // viewport
-  [Replaceable, Throws] readonly attribute double innerWidth;
-  [Replaceable, Throws] readonly attribute double innerHeight;
+  [Replaceable, Throws, NeedsCallerType] readonly attribute double innerWidth;
+  [Replaceable, Throws, NeedsCallerType] readonly attribute double innerHeight;
 
   // viewport scrolling
   undefined scroll(unrestricted double x, unrestricted double y);
@@ -511,7 +513,8 @@ partial interface Window {
   [Replaceable, Throws] readonly attribute long   scrollMaxX;
   [Replaceable, Throws] readonly attribute long   scrollMaxY;
 
-  [Throws, Deprecated=FullscreenAttribute] attribute boolean fullScreen;
+  // XXX This should be a ChromeOnly attribute
+  [Throws, NeedsCallerType] attribute boolean fullScreen;
 
   undefined                 updateCommands(DOMString action);
 

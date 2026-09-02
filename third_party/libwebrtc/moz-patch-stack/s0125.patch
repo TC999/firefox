@@ -1,23 +1,39 @@
 From: Michael Froman <mfroman@mozilla.com>
-Date: Wed, 8 Oct 2025 16:39:00 -0500
-Subject: Bug 1993083 - (fix-032f8c223e) add missing stub implementation for
- SSLStreamAdapter static method.
+Date: Mon, 19 Jan 2026 13:10:00 -0600
+Subject: Bug 2010312 - (fix-d167fe9296) fix linux builds for constexpr
+ containing std::string. r?ng!
 
-Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/293f1877fead30723696b8f5cb354bdf819af5d3
+Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/ece87d91b514ab155e600e067b4a99601bddbffc
 ---
- rtc_base/ssl_stream_adapter.h | 2 +-
- 1 file changed, 1 insertion(+), 1 deletion(-)
+ .../linux/wayland/shared_screencast_stream.cc        | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
 
-diff --git a/rtc_base/ssl_stream_adapter.h b/rtc_base/ssl_stream_adapter.h
-index c0e4e30149..c11a850fe8 100644
---- a/rtc_base/ssl_stream_adapter.h
-+++ b/rtc_base/ssl_stream_adapter.h
-@@ -260,7 +260,7 @@ class SSLStreamAdapter : public StreamInterface {
-   static std::set<uint16_t> GetSupportedEphemeralKeyExchangeCipherGroups()
-       { return {}; }
-   static std::optional<std::string> GetEphemeralKeyExchangeCipherGroupName(
--      uint16_t group_id);
-+      uint16_t group_id) { return std::nullopt; }
-   static std::vector<uint16_t> GetDefaultEphemeralKeyExchangeCipherGroups(
-       const FieldTrialsView* field_trials) { return {}; }
+diff --git a/modules/desktop_capture/linux/wayland/shared_screencast_stream.cc b/modules/desktop_capture/linux/wayland/shared_screencast_stream.cc
+index de73bc5412..d79df396b4 100644
+--- a/modules/desktop_capture/linux/wayland/shared_screencast_stream.cc
++++ b/modules/desktop_capture/linux/wayland/shared_screencast_stream.cc
+@@ -86,12 +86,24 @@ constexpr int CursorMetaSize(int w, int h) {
+           w * h * kBytesPerPixel);
+ }
  
++#if defined(__GNUC__) && defined(WEBRTC_MOZILLA_BUILD)
++// Mozilla linux builds are using -std=gnu++20, which doesn't approve
++// of using std::string in a constexpr.  PipewireVersion now contains
++// std::string as of libwebrtc commit d167fe9296.
++static const PipeWireVersion kDmaBufModifierMinVersion = {.major = 0,
++                                                          .minor = 3,
++                                                          .micro = 33};
++static const PipeWireVersion kDropSingleModifierMinVersion = {.major = 0,
++                                                              .minor = 3,
++                                                              .micro = 40};
++#else
+ constexpr PipeWireVersion kDmaBufModifierMinVersion = {.major = 0,
+                                                        .minor = 3,
+                                                        .micro = 33};
+ constexpr PipeWireVersion kDropSingleModifierMinVersion = {.major = 0,
+                                                            .minor = 3,
+                                                            .micro = 40};
++#endif
+ 
+ class SharedScreenCastStreamPrivate {
+  public:

@@ -5,19 +5,16 @@
 #include "Tickler.h"
 
 #ifdef MOZ_USE_WIFI_TICKLER
+#  include "mozilla/java/GeckoAppShellWrappers.h"
+#  include "mozilla/jni/Utils.h"
 #  include "nsComponentManagerUtils.h"
 #  include "nsINamed.h"
+#  include "nsIPrefBranch.h"
 #  include "nsIPrefService.h"
 #  include "nsServiceManagerUtils.h"
 #  include "nsThreadUtils.h"
+#  include "nsXULAppAPI.h"
 #  include "prnetdb.h"
-#  include "nsXULAppAPI.h"
-#  include "nsIPrefService.h"
-#  include "nsIPrefBranch.h"
-
-#  include "mozilla/java/GeckoAppShellWrappers.h"
-#  include "mozilla/jni/Utils.h"
-#  include "nsXULAppAPI.h"
 
 namespace mozilla {
 namespace net {
@@ -53,32 +50,45 @@ nsresult Tickler::Init() {
   }
 
   MOZ_ASSERT(NS_IsMainThread());
-  MOZ_ASSERT(!mTimer);
-  MOZ_ASSERT(!mActive);
-  MOZ_ASSERT(!mThread);
-  MOZ_ASSERT(!mFD);
 
   if (jni::IsAvailable()) {
     java::GeckoAppShell::EnableNetworkNotifications();
   }
 
-  mFD = PR_OpenUDPSocket(PR_AF_INET);
-  if (!mFD) return NS_ERROR_FAILURE;
+  // Allocate resources before acquiring the lock.
+  PRFileDesc* fd = PR_OpenUDPSocket(PR_AF_INET);
+  if (!fd) return NS_ERROR_FAILURE;
 
   // make sure new socket has a ttl of 1
   // failure is not fatal.
   PRSocketOptionData opt;
   opt.option = PR_SockOpt_IpTimeToLive;
   opt.value.ip_ttl = 1;
-  PR_SetSocketOption(mFD, &opt);
+  PR_SetSocketOption(fd, &opt);
 
-  nsresult rv = NS_NewNamedThread("wifi tickler", getter_AddRefs(mThread));
-  if (NS_FAILED(rv)) return rv;
+  nsCOMPtr<nsIThread> thread;
+  nsresult rv = NS_NewNamedThread("wifi tickler", getter_AddRefs(thread));
+  if (NS_FAILED(rv)) {
+    PR_Close(fd);
+    return rv;
+  }
 
-  nsCOMPtr<nsITimer> tmpTimer = NS_NewTimer(mThread);
-  if (!tmpTimer) return NS_ERROR_OUT_OF_MEMORY;
+  nsCOMPtr<nsITimer> timer = NS_NewTimer(thread);
+  if (!timer) {
+    thread->AsyncShutdown();
+    PR_Close(fd);
+    return NS_ERROR_OUT_OF_MEMORY;
+  }
 
-  mTimer.swap(tmpTimer);
+  MutexAutoLock lock(mLock);
+  MOZ_ASSERT(!mTimer);
+  MOZ_ASSERT(!mActive);
+  MOZ_ASSERT(!mThread);
+  MOZ_ASSERT(!mFD);
+
+  mFD = fd;
+  mThread = thread;
+  mTimer.swap(timer);
 
   mAddr.inet.family = PR_AF_INET;
   mAddr.inet.port = PR_htons(4886);

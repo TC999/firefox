@@ -89,7 +89,7 @@ FilePickerParent::IORunnable::Run() {
 
       BlobImplOrString* data = mResults.AppendElement();
       data->mType = BlobImplOrString::eDirectoryPath;
-      data->mDirectoryPath = path;
+      data->mDirectoryPath = std::move(path);
       continue;
     }
 
@@ -264,7 +264,8 @@ bool FilePickerParent::CreateFilePicker() {
     return false;
   }
 
-  return NS_SUCCEEDED(mFilePicker->Init(mBrowsingContext, mTitle, mMode));
+  return NS_SUCCEEDED(
+      mFilePicker->Init(mBrowsingContext, mTitle, mMode, nullptr));
 }
 
 mozilla::ipc::IPCResult FilePickerParent::RecvOpen(
@@ -277,6 +278,10 @@ mozilla::ipc::IPCResult FilePickerParent::RecvOpen(
   if (!CreateFilePicker()) {
     (void)Send__delete__(this, void_t(), nsIFilePicker::returnCancel);
     return IPC_OK();
+  }
+
+  if (aFilters.Length() != aFilterNames.Length()) {
+    return IPC_FAIL(this, "PFilePicker::Open filter arrays lengths mismatch");
   }
 
   mFilePicker->SetAddToRecentDocs(aAddToRecentDocs);
@@ -306,9 +311,12 @@ mozilla::ipc::IPCResult FilePickerParent::RecvOpen(
   }
 
   MOZ_ASSERT(!mCallback);
-  mCallback = new FilePickerShownCallback(this);
+  const RefPtr<FilePickerShownCallback> callback =
+      MakeRefPtr<FilePickerShownCallback>(this);
+  mCallback = callback;
 
-  mFilePicker->Open(mCallback);
+  const nsCOMPtr<nsIFilePicker> filePicker = mFilePicker;
+  filePicker->Open(callback);
   return IPC_OK();
 }
 

@@ -7,14 +7,16 @@
 
 #import <Cocoa/Cocoa.h>
 
+#include "mozilla/UniquePtr.h"
 #include "mozilla/WeakPtr.h"
 
+#include "nsChangeObserver.h"
 #include "nsISupports.h"
 #include "nsMenuParentX.h"
-#include "nsChangeObserver.h"
-#include "nsTArray.h"
 #include "nsString.h"
+#include "nsTArray.h"
 
+class nsAppMenuItemIcon;
 class nsMenuBarX;
 class nsMenuGroupOwnerX;
 class nsMenuX;
@@ -30,9 +32,15 @@ class Element;
 
 // ApplicationMenuDelegate is used to receive Cocoa notifications.
 @interface ApplicationMenuDelegate : NSObject <NSMenuDelegate> {
-  nsMenuBarX* mApplicationMenu;  // weak ref
+  nsMenuBarX* mApplicationMenu;        // weak ref
+  NSMenuItem* mSetAsDefaultMenuItem;   // weak ref
+  NSMenuItem* mReferralsPageMenuItem;  // weak ref
 }
 - (id)initWithApplicationMenu:(nsMenuBarX*)aApplicationMenu;
+- (NSMenuItem*)setAsDefaultMenuItem;
+- (void)setSetAsDefaultMenuItem:(NSMenuItem*)menuItem;
+- (NSMenuItem*)referralsPageMenuItem;
+- (void)setReferralsPageMenuItem:(NSMenuItem*)menuItem;
 @end
 
 // Objective-C class used for menu items to allow Gecko to override their
@@ -87,6 +95,8 @@ class nsMenuBarX : public nsMenuParentX,
   // We save them here for use in command handling.
   RefPtr<nsIContent> mAboutItemContent;
   RefPtr<nsIContent> mPrefItemContent;
+  RefPtr<nsIContent> mSetAsDefaultItemContent;
+  RefPtr<nsIContent> mReferralsPageItemContent;
   RefPtr<nsIContent> mAccountItemContent;
   RefPtr<nsIContent> mQuitItemContent;
 
@@ -151,6 +161,8 @@ class nsMenuBarX : public nsMenuParentX,
   GeckoNSMenu* mNativeMenu;  // root menu, representing entire menu bar
   bool mNeedsRebuild;
   ApplicationMenuDelegate* mApplicationMenuDelegate;
+
+  nsTArray<mozilla::UniquePtr<nsAppMenuItemIcon>> mAppMenuIcons;
 };
 
 #endif  // nsMenuBarX_h_

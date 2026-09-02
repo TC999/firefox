@@ -343,7 +343,7 @@ for (let testData of testCases) {
       });
       if (!testData.isLoggedIn) {
         // Enable Primary Password
-        LoginTestUtils.primaryPassword.enable();
+        await LoginTestUtils.primaryPassword.enable();
       }
       for (let passwordFieldType of ["password", "text"]) {
         info(
@@ -355,7 +355,7 @@ for (let testData of testCases) {
         await testPasswordChange(testData, { passwordFieldType });
       }
       if (!testData.isLoggedIn) {
-        LoginTestUtils.primaryPassword.disable();
+        await LoginTestUtils.primaryPassword.disable();
       }
       await SpecialPowers.popPrefEnv();
     },
@@ -395,7 +395,7 @@ async function testPasswordChange(
     },
     async function (browser) {
       info(`Opened tab with url: ${url}, waiting for focus`);
-      await SimpleTest.promiseFocus(browser.ownerGlobal);
+      await SimpleTest.promiseFocus(browser.documentGlobal);
       info("Waiting for form-processed message");
       await formProcessedPromise;
       await initForm(browser, formDefaults, { passwordFieldType });

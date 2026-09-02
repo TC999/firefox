@@ -150,7 +150,7 @@ export class WebRTCParent extends JSWindowActorParent {
     state.browsingContext = browsingContext;
     state.windowId = aData.windowId;
 
-    let tabbrowser = browser.ownerGlobal.gBrowser;
+    let tabbrowser = browser.documentGlobal.gBrowser;
     if (tabbrowser) {
       tabbrowser.updateBrowserSharing(browser, {
         webRTC: state,
@@ -621,6 +621,7 @@ function prompt(aActor, aBrowser, aRequest) {
     actionL10nIds.push({ id }, { id: "webrtc-action-always-block" });
     secondaryActions = [
       {
+        disableSecurityDelay: true,
         callback() {
           aActor.denyRequest(aRequest);
           if (!isNotNowLabelEnabled) {
@@ -635,6 +636,7 @@ function prompt(aActor, aBrowser, aRequest) {
         },
       },
       {
+        disableSecurityDelay: true,
         callback() {
           aActor.denyRequest(aRequest);
           lazy.SitePermissions.setForPrincipal(
@@ -656,6 +658,7 @@ function prompt(aActor, aBrowser, aRequest) {
     actionL10nIds.push({ id });
     secondaryActions = [
       {
+        disableSecurityDelay: true,
         callback(aState) {
           aActor.denyRequest(aRequest);
 
@@ -747,7 +750,7 @@ function prompt(aActor, aBrowser, aRequest) {
     name: originToShow,
     persistent: true,
     hideClose: true,
-    eventCallback(aTopic, aNewBrowser, isCancel) {
+    eventCallback(aTopic, aNewBrowser, withoutUserResponse) {
       if (aTopic == "swapping") {
         return true;
       }
@@ -784,7 +787,7 @@ function prompt(aActor, aBrowser, aRequest) {
         }
       }
 
-      if (aTopic == "removed" && notification && isCancel) {
+      if (aTopic == "removed" && notification && withoutUserResponse) {
         // The notification has been cancelled (e.g. due to entering
         // full-screen).  Also cancel the webRTC request.
         aActor.denyRequest(aRequest);
@@ -796,7 +799,7 @@ function prompt(aActor, aBrowser, aRequest) {
         let focusElement =
           audioOutputDevices.length > 1
             ? doc.getElementById("webRTC-selectSpeaker-richlistbox") // Focus the list on first show so that arrow keys select the speaker.
-            : doc.querySelector("button.popup-notification-primary-button"); // Or if the list is hidden (only 1 device), focus the primary button.
+            : doc.querySelector("moz-button.popup-notification-primary-button"); // Or if the list is hidden (only 1 device), focus the primary button.
         focusElement.focus();
       }
 
@@ -865,7 +868,7 @@ function prompt(aActor, aBrowser, aRequest) {
               // Allow the chosen speakers via
               // .popup-notification-primary-button so that
               // "security.notification_enable_delay" is checked.
-              event.target.closest("popupnotification").button.doCommand();
+              event.target.closest("popupnotification").button.click();
             });
             if (device.id == aRequest.audioOutputId) {
               defaultIndex = device.deviceIndex;

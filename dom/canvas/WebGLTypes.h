@@ -19,8 +19,7 @@
 #include "gfxTypes.h"
 #include "mozilla/Casting.h"
 #include "mozilla/CheckedInt.h"
-#include "mozilla/EnumTypeTraits.h"
-#include "mozilla/IsEnumCase.h"
+#include "mozilla/DefineEnum.h"
 #include "mozilla/Range.h"
 #include "mozilla/RefCounted.h"
 #include "mozilla/Result.h"
@@ -303,26 +302,11 @@ struct SampleableInfo final {
   bool IsComplete() const { return bool(levels); }
 };
 
-enum class AttribBaseType : uint8_t {
-  Boolean,  // Can convert from anything.
-  Float,    // Also includes NormU?Int
-  Int,
-  Uint,
-};
-}  // namespace webgl
-template <>
-inline constexpr bool IsEnumCase<webgl::AttribBaseType>(
-    const webgl::AttribBaseType v) {
-  switch (v) {
-    case webgl::AttribBaseType::Boolean:
-    case webgl::AttribBaseType::Float:
-    case webgl::AttribBaseType::Int:
-    case webgl::AttribBaseType::Uint:
-      return true;
-  }
-  return false;
-}
-namespace webgl {
+MOZ_DEFINE_ENUM_CLASS_WITH_BASE(AttribBaseType, uint8_t,
+                                (Boolean,  // Can convert from anything.
+                                 Float,    // Also includes NormU?Int
+                                 Int, Uint))
+
 webgl::AttribBaseType ToAttribBaseType(GLenum);
 const char* ToString(AttribBaseType);
 
@@ -455,8 +439,7 @@ struct avec2 {
   avec2() = default;
   avec2(const T _x, const T _y) : x(_x), y(_y) {}
 
-  bool operator==(const avec2& rhs) const { return x == rhs.x && y == rhs.y; }
-  bool operator!=(const avec2& rhs) const { return !(*this == rhs); }
+  bool operator==(const avec2& rhs) const = default;
 
 #define _(OP)                                 \
   avec2 operator OP(const avec2& rhs) const { \
@@ -520,10 +503,7 @@ struct avec3 {
   avec3() = default;
   avec3(const T _x, const T _y, const T _z) : x(_x), y(_y), z(_z) {}
 
-  bool operator==(const avec3& rhs) const {
-    return x == rhs.x && y == rhs.y && z == rhs.z;
-  }
-  bool operator!=(const avec3& rhs) const { return !(*this == rhs); }
+  bool operator==(const avec3& rhs) const = default;
 };
 
 using ivec2 = avec2<int32_t>;
@@ -740,27 +720,10 @@ enum class OptionalRenderableFormatBits : uint8_t {
   RGB8 = (1 << 0),
   SRGB8 = (1 << 1),
 };
-MOZ_MAKE_ENUM_CLASS_BITWISE_OPERATORS(OptionalRenderableFormatBits)
+constexpr auto kAllOptionalRenderableFormatBits =
+    OptionalRenderableFormatBits((1 << 2) - 1);
 
-}  // namespace webgl
-template <>
-inline constexpr bool IsEnumCase<webgl::OptionalRenderableFormatBits>(
-    const webgl::OptionalRenderableFormatBits raw) {
-  auto rawWithoutValidBits = UnderlyingValue(raw);
-  auto bit = decltype(rawWithoutValidBits){1};
-  while (bit) {
-    switch (webgl::OptionalRenderableFormatBits{bit}) {
-      // -Werror=switch ensures exhaustive.
-      case webgl::OptionalRenderableFormatBits::RGB8:
-      case webgl::OptionalRenderableFormatBits::SRGB8:
-        rawWithoutValidBits &= ~bit;
-        break;
-    }
-    bit <<= 1;
-  }
-  return rawWithoutValidBits == 0;
-}
-namespace webgl {
+MOZ_MAKE_ENUM_CLASS_BITWISE_OPERATORS(OptionalRenderableFormatBits)
 
 // -
 
@@ -769,13 +732,12 @@ using GetShaderPrecisionFormatArgs = std::tuple<GLenum, GLenum>;
 template <class Tuple>
 struct TupleStdHash {
   size_t operator()(const Tuple& t) const {
-    size_t ret = 0;
-    mozilla::MapTuple(t, [&](const auto& field) {
-      using FieldT = std::remove_cv_t<std::remove_reference_t<decltype(field)>>;
-      ret ^= std::hash<FieldT>{}(field);
-      return true;  // ignored
-    });
-    return ret;
+    return std::apply(
+        [](const auto&... field) {
+          return (std::hash<std::remove_cvref_t<decltype(field)>>{}(field) ^
+                  ...);
+        },
+        t);
   }
 };
 
@@ -934,7 +896,7 @@ struct TypedQuad final {
 
 /// [1-16]x32-bit primitives, with a type tag.
 struct GetUniformData final {
-  alignas(alignof(float)) uint8_t data[4 * 4 * sizeof(float)] = {};
+  alignas(alignof(float)) std::array<uint8_t, 4 * 4 * sizeof(float)> data = {};
   GLenum type = 0;
 };
 
@@ -1324,21 +1286,6 @@ enum class ProvokingVertex : GLenum {
   FirstVertex = LOCAL_GL_FIRST_VERTEX_CONVENTION,
   LastVertex = LOCAL_GL_LAST_VERTEX_CONVENTION,
 };
-
-}  // namespace webgl
-
-template <>
-inline constexpr bool IsEnumCase<webgl::ProvokingVertex>(
-    const webgl::ProvokingVertex raw) {
-  switch (raw) {
-    case webgl::ProvokingVertex::FirstVertex:
-    case webgl::ProvokingVertex::LastVertex:
-      return true;
-  }
-  return false;
-}
-
-namespace webgl {
 
 // -
 

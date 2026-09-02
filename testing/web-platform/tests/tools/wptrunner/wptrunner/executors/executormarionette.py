@@ -20,7 +20,7 @@ from .base import (CallbackHandler,
                    RefTestImplementation,
                    TestharnessExecutor,
                    TimedRunner,
-                   WdspecExecutor,
+                   PytestExecutor,
                    get_pages,
                    strip_server)
 from .protocol import (AccessibilityProtocolPart,
@@ -822,7 +822,7 @@ class MarionetteWebExtensionsProtocolPart(WebExtensionsProtocolPart):
             extension_path = self.parent.test_dir + path
             extension_id = self.addons.install(extension_path, temp=True)
 
-        return {'extension': extension_id}
+        return extension_id
 
     def uninstall_web_extension(self, extension_id):
         return self.addons.uninstall(extension_id)
@@ -1283,7 +1283,7 @@ class InternalRefTestImplementation(RefTestImplementation):
                 "cacheScreenshots": self.executor.cache_screenshots}
         if self.executor.group_metadata is not None:
             data["urlCount"] = {urljoin(self.executor.server_url(key[0]), key[1]):value
-                                for key, value in self.executor.group_metadata.get("url_count", {}).items()
+                                for key, value in self.executor.group_metadata.extra.get("url_count", {}).items()
                                 if value > 1}
         self.chrome_scope = chrome_scope
         if chrome_scope:
@@ -1355,11 +1355,20 @@ class MarionetteCrashtestExecutor(CrashtestExecutor):
         self.original_pref_values = {}
         self.debug = debug
 
+        self.install_extensions = browser.extensions
+
         with open(os.path.join(here, "test-wait.js")) as f:
             self.wait_script = f.read() % {"classname": "test-wait"}
 
         if marionette is None:
             do_delayed_imports()
+
+    def setup(self, runner, protocol=None):
+        super().setup(runner, protocol)
+        for extension_path in self.install_extensions:
+            self.logger.info("Installing extension from %s" % extension_path)
+            addons = Addons(self.protocol.marionette)
+            addons.install(extension_path)
 
     def is_alive(self):
         return self.protocol.is_alive()
@@ -1469,7 +1478,7 @@ class MarionettePrintRefTestExecutor(MarionetteRefTestExecutor):
         return screenshots
 
 
-class MarionetteWdspecExecutor(WdspecExecutor):
+class MarionettePytestExecutor(PytestExecutor):
     def __init__(self, logger, browser, *args, **kwargs):
         super().__init__(logger, browser, *args, **kwargs)
 

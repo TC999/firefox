@@ -4,7 +4,7 @@
 
 package mozilla.components
 
-import org.junit.Assert.assertNotNull
+import kotlin.test.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 

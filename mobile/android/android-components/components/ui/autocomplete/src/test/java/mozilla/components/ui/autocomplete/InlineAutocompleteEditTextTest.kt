@@ -7,6 +7,7 @@ package mozilla.components.ui.autocomplete
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.os.Build
 import android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
 import android.view.KeyEvent
 import android.view.ViewParent
@@ -32,6 +33,7 @@ import org.mockito.Mockito.never
 import org.mockito.Mockito.spy
 import org.mockito.Mockito.times
 import org.mockito.Mockito.verify
+import org.robolectric.annotation.Config
 
 @RunWith(AndroidJUnit4::class)
 class InlineAutocompleteEditTextTest {
@@ -356,6 +358,34 @@ class InlineAutocompleteEditTextTest {
     }
 
     @Test
+    @Config(sdk = [Build.VERSION_CODES.VANILLA_ICE_CREAM])
+    fun `on android 17, accessibility event reported when text change type is from ime`() {
+        val et = spy(InlineAutocompleteEditText(testContext, null))
+        val icw = et.onCreateInputConnection(mock(EditorInfo::class.java))
+        doReturn(true).`when`(et).isAtLeastCinnamonBun()
+        val pendingTypes = mutableListOf<Int>()
+        et.onPendingTextChangeTypesSet = { pendingTypes += it }
+
+        icw?.commitText("text", 1, null)
+
+        assertEquals(listOf(AccessibilityEvent.TEXT_CHANGE_TYPE_COMMITTED_BY_IME), pendingTypes)
+    }
+
+    @Test
+    @Config(sdk = [Build.VERSION_CODES.VANILLA_ICE_CREAM])
+    fun `on android 17, accessibility event reported when text change type is from text composition`() {
+        val et = spy(InlineAutocompleteEditText(testContext, null))
+        val icw = et.onCreateInputConnection(mock(EditorInfo::class.java))
+        doReturn(true).`when`(et).isAtLeastCinnamonBun()
+        val pendingTypes = mutableListOf<Int>()
+        et.onPendingTextChangeTypesSet = { pendingTypes += it }
+
+        icw?.setComposingText("text", 1, null)
+
+        assertEquals(listOf(AccessibilityEvent.TEXT_CHANGE_TYPE_IN_COMPOSITION), pendingTypes)
+    }
+
+    @Test
     fun removeAutocompleteOnComposing() {
         val et = InlineAutocompleteEditText(testContext, null)
         val ic = et.onCreateInputConnection(mock(EditorInfo::class.java))
@@ -401,11 +431,12 @@ class InlineAutocompleteEditTextTest {
         et.setText("")
         et.onAttachedToWindow()
 
-        et.autocompleteResult = AutocompleteResult(
-            text = "google.com",
-            source = "test-source",
-            totalItems = 100,
-        )
+        et.autocompleteResult =
+            AutocompleteResult(
+                text = "google.com",
+                source = "test-source",
+                totalItems = 100,
+            )
 
         et.setText("g")
         assertEquals("google.com", "${et.text}")
@@ -417,11 +448,12 @@ class InlineAutocompleteEditTextTest {
         et.setText("")
         et.onAttachedToWindow()
 
-        et.autocompleteResult = AutocompleteResult(
-            text = "google.com",
-            source = "test-source",
-            totalItems = 100,
-        )
+        et.autocompleteResult =
+            AutocompleteResult(
+                text = "google.com",
+                source = "test-source",
+                totalItems = 100,
+            )
 
         et.setText("g ")
         assertEquals("g ", "${et.text}")
@@ -433,11 +465,12 @@ class InlineAutocompleteEditTextTest {
         et.setText("google")
         et.onAttachedToWindow()
 
-        et.autocompleteResult = AutocompleteResult(
-            text = "google.com",
-            source = "test-source",
-            totalItems = 100,
-        )
+        et.autocompleteResult =
+            AutocompleteResult(
+                text = "google.com",
+                source = "test-source",
+                totalItems = 100,
+            )
 
         et.setText("googl")
         assertEquals("googl", "${et.text}")
@@ -449,11 +482,12 @@ class InlineAutocompleteEditTextTest {
         et.setText("testestest")
         et.selectAll()
         et.onAttachedToWindow()
-        et.autocompleteResult = AutocompleteResult(
-            text = "google.com",
-            source = "test-source",
-            totalItems = 100,
-        )
+        et.autocompleteResult =
+            AutocompleteResult(
+                text = "google.com",
+                source = "test-source",
+                totalItems = 100,
+            )
 
         et.setText("g")
         assertEquals("google.com", "${et.text}")
@@ -465,11 +499,12 @@ class InlineAutocompleteEditTextTest {
         et.setText("https://www.google.com/")
         et.selectAll()
         et.onAttachedToWindow()
-        et.autocompleteResult = AutocompleteResult(
-            text = "google.com",
-            source = "test-source",
-            totalItems = 100,
-        )
+        et.autocompleteResult =
+            AutocompleteResult(
+                text = "google.com",
+                source = "test-source",
+                totalItems = 100,
+            )
 
         et.setText("g")
         assertEquals("google.com", "${et.text}")
@@ -550,16 +585,18 @@ class InlineAutocompleteEditTextTest {
         assertEquals("test", editText.text.toString())
     }
 
+    @Test
     fun `WHEN committing autocomplete THEN textChangedListener is invoked`() {
         val et = InlineAutocompleteEditText(testContext, null)
         et.setText("")
 
         et.onAttachedToWindow()
-        et.autocompleteResult = AutocompleteResult(
-            text = "google.com",
-            source = "test-source",
-            totalItems = 100,
-        )
+        et.autocompleteResult =
+            AutocompleteResult(
+                text = "google.com",
+                source = "test-source",
+                totalItems = 100,
+            )
         et.setText("g")
         var callbackInvoked = false
         et.setOnTextChangeListener { _, _ ->

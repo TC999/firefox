@@ -5,44 +5,39 @@
 package org.mozilla.fenix.settings.labs.store
 
 import mozilla.components.lib.state.State
-import org.mozilla.fenix.settings.labs.LabsFeature
+import org.mozilla.fenix.settings.labs.LabsItem
 
 /**
  * Value type that represents the state of the Labs screen.
  *
- * @property labsFeatures A list of [LabsFeature]s to display.
+ * @property labsItems A list of [LabsItem]s to display.
  * @property dialogState The current dialog being displayed.
  */
 data class LabsState(
-    val labsFeatures: List<LabsFeature>,
+    val labsItems: List<LabsItem>,
     val dialogState: DialogState,
 ) : State {
     companion object {
-        val INITIAL = LabsState(
-            labsFeatures = emptyList(),
-            dialogState = DialogState.Closed,
-        )
+        val INITIAL =
+            LabsState(
+                labsItems = emptyList(),
+                dialogState = DialogState.Closed,
+            )
     }
 }
 
-/**
- * Represents the dialog state of the Firefox Labs screen.
- */
+/** Represents the dialog state of the Firefox Labs screen. */
 sealed interface DialogState {
     /**
-     * The dialog for toggling a [LabsFeature] on or off.
+     * The confirmation dialog for toggling a [LabsItem] on or off when it requires a restart.
      *
-     * @property feature The [LabsFeature] being toggled.
+     * @property item The [LabsItem] being toggled.
      */
-    data class ToggleFeature(val feature: LabsFeature) : DialogState
+    data class ToggleLabsItem(val item: LabsItem) : DialogState
 
-    /**
-     * The dialog for restoring all [LabsFeature]s to their default disabled state.
-     */
+    /** The dialog for restoring all [LabsItem]s to their default disabled state. */
     object RestoreDefaults : DialogState
 
-    /**
-     * No dialog is being shown.
-     */
+    /** No dialog is being shown. */
     object Closed : DialogState
 }

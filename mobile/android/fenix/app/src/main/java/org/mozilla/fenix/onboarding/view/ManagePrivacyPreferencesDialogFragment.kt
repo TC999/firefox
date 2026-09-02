@@ -13,7 +13,7 @@ import androidx.fragment.compose.content
 import mozilla.components.lib.state.helpers.StoreProvider.Companion.fragmentStore
 import org.mozilla.fenix.components.metrics.installSourcePackage
 import org.mozilla.fenix.ext.application
-import org.mozilla.fenix.ext.settings
+import org.mozilla.fenix.ext.requireComponents
 import org.mozilla.fenix.onboarding.ManagePrivacyPreferencesDialog
 import org.mozilla.fenix.onboarding.store.DefaultPrivacyPreferencesRepository
 import org.mozilla.fenix.onboarding.store.PreferenceType
@@ -26,9 +26,7 @@ import org.mozilla.fenix.settings.SupportUtils
 import org.mozilla.fenix.settings.SupportUtils.launchSandboxCustomTab
 import org.mozilla.fenix.theme.FirefoxTheme
 
-/**
- * Dialog fragment for managing privacy preferences.
- */
+/** Dialog fragment for managing privacy preferences. */
 class ManagePrivacyPreferencesDialogFragment : DialogFragment() {
 
     private val crashReportingUrl by lazy { sumoUrlFor(SupportUtils.SumoTopic.CRASH_REPORTS) }
@@ -39,26 +37,34 @@ class ManagePrivacyPreferencesDialogFragment : DialogFragment() {
         container: ViewGroup?,
         savedInstanceState: Bundle?,
     ): View {
-        val repository = DefaultPrivacyPreferencesRepository(requireContext().settings())
-        val store by fragmentStore(
-            PrivacyPreferencesState(
-                crashReportingEnabled = repository.getPreference(PreferenceType.CrashReporting),
-                usageDataEnabled = repository.getPreference(PreferenceType.UsageData),
-            ),
-        ) {
-            PrivacyPreferencesStore(
-                initialState = it,
-                middlewares = listOf(
-                    PrivacyPreferencesMiddleware(repository),
-                    PrivacyPreferencesTelemetryMiddleware(
-                        installSource = installSourcePackage(
-                            packageManager = requireContext().application.packageManager,
-                            packageName = requireContext().application.packageName,
-                        ),
-                    ),
-                ),
+        val repository =
+            DefaultPrivacyPreferencesRepository(
+                settings = requireComponents.settings,
+                nimbusSdk = requireComponents.nimbus.sdk,
+                crashReporter = requireComponents.analytics.crashReporter,
             )
-        }
+        val store by
+            fragmentStore(
+                PrivacyPreferencesState(
+                    crashReportingEnabled = repository.getPreference(PreferenceType.CrashReporting),
+                    usageDataEnabled = repository.getPreference(PreferenceType.UsageData),
+                )
+            ) {
+                PrivacyPreferencesStore(
+                    initialState = it,
+                    middlewares =
+                        listOf(
+                            PrivacyPreferencesMiddleware(repository),
+                            PrivacyPreferencesTelemetryMiddleware(
+                                installSource =
+                                    installSourcePackage(
+                                        packageManager = requireContext().application.packageManager,
+                                        packageName = requireContext().application.packageName,
+                                    )
+                            ),
+                        ),
+                )
+            }
 
         return content {
             FirefoxTheme {
@@ -78,16 +84,11 @@ class ManagePrivacyPreferencesDialogFragment : DialogFragment() {
         }
     }
 
-    private fun sumoUrlFor(topic: SupportUtils.SumoTopic) =
-        SupportUtils.getSumoURLForTopic(requireContext(), topic)
+    private fun sumoUrlFor(topic: SupportUtils.SumoTopic) = SupportUtils.getSumoURLForTopic(requireContext(), topic)
 
-    /**
-     * Companion object for [ManagePrivacyPreferencesDialogFragment].
-     */
+    /** Companion object for [ManagePrivacyPreferencesDialogFragment]. */
     companion object {
-        /**
-         * Tag for the [ManagePrivacyPreferencesDialogFragment].
-         */
+        /** Tag for the [ManagePrivacyPreferencesDialogFragment]. */
         const val TAG = "Privacy preferences dialog"
     }
 }

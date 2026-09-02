@@ -7,13 +7,13 @@
 #include "AccEvent.h"
 #include "Compatibility.h"
 #include "MsaaAccessible.h"
-#include "nsWinUtils.h"
+#include "ia2AccessibleText.h"
+#include "mozilla/StaticPtr.h"
+#include "mozilla/WinHeaderOnlyUtils.h"
 #include "mozilla/a11y/DocAccessibleParent.h"
 #include "mozilla/a11y/HyperTextAccessibleBase.h"
 #include "mozilla/a11y/RemoteAccessible.h"
-#include "mozilla/StaticPtr.h"
-#include "mozilla/WinHeaderOnlyUtils.h"
-#include "ia2AccessibleText.h"
+#include "nsWinUtils.h"
 
 #if defined(MOZ_TELEMETRY_REPORTING)
 #  include "mozilla/glean/AccessibleMetrics.h"
@@ -61,6 +61,7 @@ static void UpdateSystemCaretFor(Accessible* aAccessible) {
 }
 
 void a11y::PlatformInit() {
+  Compatibility::Init();
   nsWinUtils::MaybeStartWindowEmulation();
   ia2AccessibleText::InitTextChangeData();
 }
@@ -311,6 +312,10 @@ bool a11y::GetInstantiator(nsIFile** aOutInstantiator) {
   }
 
   return NS_SUCCEEDED(gInstantiator->Clone(aOutInstantiator));
+}
+
+void a11y::GetHumanReadableInstantiatorStr(nsAString& aResult) {
+  a11y::Compatibility::GetHumanReadableConsumersStr(aResult);
 }
 
 uint64_t a11y::GetCacheDomainsForKnownClients(uint64_t aCacheDomains) {

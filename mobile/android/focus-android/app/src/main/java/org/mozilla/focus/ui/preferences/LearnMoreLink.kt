@@ -13,9 +13,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment.Companion.Start
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import org.mozilla.focus.R
 import org.mozilla.focus.ui.theme.focusColors
+import org.mozilla.focus.ui.theme.focusDimensions
 import org.mozilla.focus.ui.theme.focusTypography
 
 /**
@@ -33,11 +33,8 @@ fun ColumnScope.LearnMoreLink(
         text = stringResource(R.string.about_screen_learn_more),
         color = focusColors.aboutPageLink,
         style = focusTypography.links,
-        modifier = modifier
-            .padding(10.dp)
-            .fillMaxWidth()
-            .align(Start)
-            .clickable {
+        modifier =
+            modifier.padding(focusDimensions.paddingText).fillMaxWidth().align(Start).clickable {
                 openLearnMore()
             },
     )

@@ -595,7 +595,6 @@ class MOZ_STACK_CLASS ParseContext : public Nestable<ParseContext> {
     return (scriptId() == 0);
   }
 
-#ifdef ENABLE_EXPLICIT_RESOURCE_MANAGEMENT
   bool isUsingSyntaxAllowed() {
     if (innermostStatement() &&
         innermostStatement()->kind() == StatementKind::Switch) {
@@ -604,7 +603,6 @@ class MOZ_STACK_CLASS ParseContext : public Nestable<ParseContext> {
 
     return innermostStatement_ || sc_->isFunction() || sc_->isModule();
   }
-#endif
 
   void setSuperScopeNeedsHomeObject() {
     MOZ_ASSERT(sc_->allowSuperProperty());
@@ -612,10 +610,6 @@ class MOZ_STACK_CLASS ParseContext : public Nestable<ParseContext> {
   }
 
   bool superScopeNeedsHomeObject() const { return superScopeNeedsHomeObject_; }
-
-  bool useAsmOrInsideUseAsm() const {
-    return sc_->isFunctionBox() && sc_->asFunctionBox()->useAsmOrInsideUseAsm();
-  }
 
   // A generator is marked as a generator before its body is parsed.
   GeneratorKind generatorKind() const {

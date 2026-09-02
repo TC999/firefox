@@ -17,10 +17,10 @@
 #include <cstdlib>
 #include <memory>
 #include <optional>
+#include <span>
 #include <utility>
 #include <vector>
 
-#include "api/array_view.h"
 #include "api/field_trials.h"
 #include "api/transport/network_types.h"
 #include "api/units/data_rate.h"
@@ -139,7 +139,7 @@ class MockPacingControllerCallback : public PacingController::PacketSender {
   MOCK_METHOD(size_t, SendPadding, (size_t target_size));
   MOCK_METHOD(void,
               OnAbortedRetransmissions,
-              (uint32_t, ArrayView<const uint16_t>),
+              (uint32_t, std::span<const uint16_t>),
               (override));
   MOCK_METHOD(std::optional<uint32_t>,
               GetRtxSsrcForMedia,
@@ -167,7 +167,7 @@ class MockPacketSender : public PacingController::PacketSender {
               (override));
   MOCK_METHOD(void,
               OnAbortedRetransmissions,
-              (uint32_t, ArrayView<const uint16_t>),
+              (uint32_t, std::span<const uint16_t>),
               (override));
   MOCK_METHOD(std::optional<uint32_t>,
               GetRtxSsrcForMedia,
@@ -205,7 +205,7 @@ class PacingControllerPadding : public PacingController::PacketSender {
     return packets;
   }
 
-  void OnAbortedRetransmissions(uint32_t, ArrayView<const uint16_t>) override {}
+  void OnAbortedRetransmissions(uint32_t, std::span<const uint16_t>) override {}
   std::optional<uint32_t> GetRtxSsrcForMedia(uint32_t) const override {
     return std::nullopt;
   }
@@ -265,7 +265,7 @@ class PacingControllerProbing : public PacingController::PacketSender {
     return packets;
   }
 
-  void OnAbortedRetransmissions(uint32_t, ArrayView<const uint16_t>) override {}
+  void OnAbortedRetransmissions(uint32_t, std::span<const uint16_t>) override {}
   std::optional<uint32_t> GetRtxSsrcForMedia(uint32_t) const override {
     return std::nullopt;
   }
@@ -2482,9 +2482,7 @@ TEST_F(PacingControllerTest, FlushesPacketsOnKeyFrames) {
   const uint32_t kSsrc = 12345;
   const uint32_t kRtxSsrc = 12346;
 
-  const FieldTrials trials =
-      CreateTestFieldTrials("WebRTC-Pacer-KeyframeFlushing/Enabled/");
-  auto pacer = std::make_unique<PacingController>(&clock_, &callback_, trials);
+  auto pacer = std::make_unique<PacingController>(&clock_, &callback_, trials_);
   EXPECT_CALL(callback_, GetRtxSsrcForMedia(kSsrc))
       .WillRepeatedly(Return(kRtxSsrc));
   pacer->SetPacerConfig(

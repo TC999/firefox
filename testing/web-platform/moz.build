@@ -17,6 +17,7 @@ with Files("**"):
         "web-platform-tests",
         "web-platform-tests-reftest",
         "web-platform-tests-wdspec",
+        "web-platform-tests-aam",
     ]
 
 with Files("moz.build"):
@@ -518,6 +519,9 @@ with Files("tests/generic-sensor/**"):
 with Files("tests/geolocation-sensor/**"):
     BUG_COMPONENT = ("Core", "DOM: Geolocation")
 
+with Files("tests/gif/**"):
+    BUG_COMPONENT = ("Core", "Graphics: ImageLib")
+
 with Files("tests/graphics-aam/**"):
     BUG_COMPONENT = ("Core", "Disability Access APIs")
 
@@ -806,7 +810,7 @@ with Files("tests/shadow-dom/**"):
     BUG_COMPONENT = ("Core", "DOM: Core & HTML")
 
 with Files("tests/shape-detection/**"):
-    BUG_COMPONENT = ("Geckoview", "General")
+    BUG_COMPONENT = ("Core", "DOM: Core & HTML")
 
 with Files("tests/speech-api/**"):
     BUG_COMPONENT = ("Core", "Web Speech")
@@ -878,7 +882,7 @@ with Files("tests/wai-aria/**"):
     BUG_COMPONENT = ("Core", "Disability Access APIs")
 
 with Files("tests/wasm/**"):
-    BUG_COMPONENT = ("Core", "Javascript: WebAssembly")
+    BUG_COMPONENT = ("Core", "JavaScript: WebAssembly")
 
 with Files("tests/web-animations/**"):
     BUG_COMPONENT = ("Core", "DOM: Animation")

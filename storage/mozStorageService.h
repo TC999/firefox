@@ -89,11 +89,11 @@ class Service : public mozIStorageService,
   void getConnections(nsTArray<RefPtr<Connection> >& aConnections);
 
  private:
-  Service();
+  Service() = default;
   virtual ~Service();
 
   struct AutoVFSRegistration {
-    int Init(UniquePtr<sqlite3_vfs> aVFS);
+    int Init(UniquePtr<sqlite3_vfs> aVFS, bool aMakeDefault = false);
     ~AutoVFSRegistration();
 
    private:
@@ -112,7 +112,7 @@ class Service : public mozIStorageService,
   /**
    * Protects mConnections.
    */
-  Mutex mRegistrationMutex MOZ_UNANNOTATED;
+  Mutex mRegistrationMutex MOZ_UNANNOTATED{"Service::mRegistrationMutex"};
 
   /**
    * The list of connections we have created.  Modifications to it are

@@ -5,6 +5,8 @@
 package mozilla.components.lib.fetch.okhttp
 
 import android.content.Context
+import java.net.CookieHandler
+import java.net.CookieManager
 import mozilla.components.concept.fetch.BuildConfig
 import mozilla.components.concept.fetch.Client
 import mozilla.components.concept.fetch.Headers
@@ -12,29 +14,26 @@ import mozilla.components.concept.fetch.MutableHeaders
 import mozilla.components.concept.fetch.Request
 import mozilla.components.concept.fetch.Response
 import mozilla.components.concept.fetch.isDataUri
-import mozilla.components.lib.fetch.okhttp.OkHttpClient.Companion.CACHE_MAX_SIZE
+import mozilla.components.lib.fetch.okhttp.OkHttpClient.Companion.getOrCreateCache
 import mozilla.components.lib.fetch.okhttp.OkHttpClient.Companion.getOrCreateCookieManager
 import okhttp3.Cache
 import okhttp3.CacheControl
 import okhttp3.JavaNetCookieJar
 import okhttp3.OkHttpClient
 import okhttp3.RequestBody.Companion.toRequestBody
-import java.net.CookieHandler
-import java.net.CookieManager
 
 typealias RequestBuilder = okhttp3.Request.Builder
 
-/**
- * [Client] implementation using OkHttp.
- */
+/** [Client] implementation using OkHttp. */
 class OkHttpClient(
     private val client: OkHttpClient = OkHttpClient(),
     private val context: Context? = null,
 ) : Client() {
-    private val defaultHeaders: Headers = MutableHeaders(
-        "User-Agent" to "MozacFetch/${BuildConfig.LIBRARY_VERSION}",
-        "Accept-Encoding" to "gzip",
-    )
+    private val defaultHeaders: Headers =
+        MutableHeaders(
+            "User-Agent" to "MozacFetch/${BuildConfig.LIBRARY_VERSION}",
+            "Accept-Encoding" to "gzip",
+        )
 
     override fun fetch(request: Request): Response {
         require(!request.private) {
@@ -54,9 +53,7 @@ class OkHttpClient(
             requestBuilder.cacheControl(CacheControl.FORCE_NETWORK)
         }
 
-        val actualResponse = requestClient.newCall(
-            requestBuilder.build(),
-        ).execute()
+        val actualResponse = requestClient.newCall(requestBuilder.build()).execute()
 
         return actualResponse.toResponse()
     }
@@ -64,21 +61,30 @@ class OkHttpClient(
     companion object {
         internal const val CACHE_MAX_SIZE: Long = 10L * 1024L * 1024L
 
+        private var cache: Cache? = null
+
         fun getOrCreateCookieManager(): CookieManager {
             if (CookieHandler.getDefault() == null) {
                 CookieHandler.setDefault(CookieManager())
             }
             return CookieHandler.getDefault() as CookieManager
         }
+
+        // OkHttp permits only one Cache per directory, so this is process-global
+        // and bound to the first context's cacheDir.
+        @Synchronized
+        internal fun getOrCreateCache(context: Context): Cache =
+            cache ?: Cache(context.cacheDir, CACHE_MAX_SIZE).also { cache = it }
     }
 }
 
 private fun OkHttpClient.rebuildFor(request: Request, context: Context?): OkHttpClient {
     @Suppress("ComplexCondition")
-    if (request.connectTimeout != null ||
-        request.readTimeout != null ||
-        request.redirect != Request.Redirect.FOLLOW ||
-        request.cookiePolicy != Request.CookiePolicy.OMIT
+    if (
+        request.connectTimeout != null ||
+            request.readTimeout != null ||
+            request.redirect != Request.Redirect.FOLLOW ||
+            request.cookiePolicy != Request.CookiePolicy.OMIT
     ) {
         val clientBuilder = newBuilder()
 
@@ -94,7 +100,7 @@ private fun OkHttpClient.rebuildFor(request: Request, context: Context?): OkHttp
         }
 
         context?.let {
-            clientBuilder.cache(Cache(context.cacheDir, CACHE_MAX_SIZE))
+            clientBuilder.cache(getOrCreateCache(it))
         }
 
         return clientBuilder.build()
@@ -116,22 +122,25 @@ private fun okhttp3.Response.toResponse(): Response {
 }
 
 private fun createRequestBuilderWithBody(request: Request): RequestBuilder {
-    val requestBody = request.body?.useStream { it.readBytes() }?.let {
-        it.toRequestBody(null, 0, it.size)
-    }
+    val requestBody =
+        request.body
+            ?.useStream { it.readBytes() }
+            ?.let {
+                it.toRequestBody(null, 0, it.size)
+            }
 
-    return RequestBuilder()
-        .url(request.url)
-        .method(request.method.name, requestBody)
+    return RequestBuilder().url(request.url).method(request.method.name, requestBody)
 }
 
 private fun RequestBuilder.addHeadersFrom(request: Request, defaultHeaders: Headers) {
     defaultHeaders
         .filter { header ->
             request.headers?.contains(header.name) != true
-        }.filter { header ->
+        }
+        .filter { header ->
             header.name != "Accept-Encoding" && header.value != "gzip"
-        }.forEach { header ->
+        }
+        .forEach { header ->
             addHeader(header.name, header.value)
         }
 

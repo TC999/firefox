@@ -7,6 +7,10 @@
 
 #include <cstdint>
 
+#ifndef MOZ_GECKOVIEW_HISTORY
+#  include "mozilla/TimeStamp.h"
+#endif
+
 #include "nsCOMPtr.h"
 #include "nsString.h"
 
@@ -32,6 +36,7 @@ struct PageLoadDomainExtra;
   _(fcpTime, uint32_t)                         \
   _(hasSsd, bool)                              \
   _(httpVer, uint32_t)                         \
+  _(isActiveClient, bool)                      \
   _(jsExecTime, uint32_t)                      \
   _(delazifyTime, uint32_t)                    \
   _(lcpTime, uint32_t)                         \
@@ -55,7 +60,13 @@ struct PageLoadDomainExtra;
   _(networkType, uint32_t)                     \
   _(androidAppLinkLaunchType, uint32_t)        \
   _(androidAppLinkToNavigationStart, uint32_t) \
-  _(androidIsolationCategory, uint32_t)
+  _(androidIsolationCategory, uint32_t)        \
+  _(interactionCount, uint32_t)                \
+  _(inpLongest, uint32_t)                      \
+  _(inpP98, uint32_t)                          \
+  _(inpP75, uint32_t)                          \
+  _(keypressMaxDuration, uint32_t)             \
+  _(mouseClick, uint32_t)
 
 namespace mozilla::performance::pageload_event {
 /*
@@ -84,6 +95,19 @@ enum class PageloadEventType { kNormal, kDomain, kNone };
 // Randomly decides what type of pageload event to send.
 extern PageloadEventType GetPageloadEventType();
 
+#ifndef MOZ_GECKOVIEW_HISTORY
+// Signals derived from the in-process Places history. Parent process only, and
+// desktop only: GeckoView history lives in the embedding app.
+
+// Whether aDomain (an ETLD+1) was unvisited today, until aNavigationStartTime.
+extern bool FirstDailyLoadFromPlaces(const nsACString& aDomain,
+                                     const TimeStamp& aNavigationStartTime);
+
+// Whether this profile looks like it belongs to a legitimate client rather than
+// to automation. Cached, since the answer only ever flips from false to true.
+extern bool IsActiveClient();
+#endif
+
 // Pageload event data is stored in this struct and converted to the
 // glean representation when submitted.
 
@@ -100,6 +124,9 @@ class PageloadEventData {
   // Define ETLD separately since we want a special setter for it.
   mozilla::Maybe<nsCString> mDomain;
 
+  // First load of mDomain today; set in the parent from browsing history.
+  bool mIsFirstDailyLoad = false;
+
   // Number of page loads after which a normal pageload ping is sent.
   static uint32_t sPageLoadEventCounter;
 
@@ -112,6 +139,9 @@ class PageloadEventData {
   bool HasDomain() const {
     return mDomain.isSome() && !mDomain.value().IsEmpty();
   }
+  const nsACString& GetDomain() const { return mDomain.ref(); }
+
+  void SetIsFirstDailyLoad(bool aValue) { mIsFirstDailyLoad = aValue; }
 
   bool HasLoadTime() const { return loadTime.isSome(); }
 

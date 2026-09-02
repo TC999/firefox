@@ -113,6 +113,15 @@ class BaseFile:
     function and/or the path property.
     """
 
+    # True if this file type is safe to skip re-installing via a stamp file.
+    # Only types that are never stale (symlinks, already-existing files) should
+    # set this. File copies can become stale when the source changes.
+    supports_stamp = False
+
+    # True if this file type creates a symlink on disk. Used to spot-check
+    # that the filesystem actually supports symlinks before writing a stamp.
+    is_symlink_backed = False
+
     @staticmethod
     def is_older(first, second):
         """
@@ -333,6 +342,9 @@ class AbsoluteSymlinkFile(File):
     This class only works if the target path is absolute.
     """
 
+    supports_stamp = True
+    is_symlink_backed = True
+
     def __init__(self, path):
         if not os.path.isabs(path):
             raise ValueError("Symlink target not absolute: %s" % path)
@@ -369,7 +381,9 @@ class AbsoluteSymlinkFile(File):
         # so we replace with a proper symlink.
         if st and stat.S_ISLNK(st.st_mode):
             link = os.readlink(dest)
-            if link == self.path:
+            if mozpath.strip_extended_length_prefix(
+                link
+            ) == mozpath.strip_extended_length_prefix(self.path):
                 return False
 
             os.remove(dest)
@@ -484,6 +498,8 @@ class ExistingFile(BaseFile):
     existing file is required, it must exist during copy() or an error is
     raised.
     """
+
+    supports_stamp = True
 
     def __init__(self, required):
         self.required = required

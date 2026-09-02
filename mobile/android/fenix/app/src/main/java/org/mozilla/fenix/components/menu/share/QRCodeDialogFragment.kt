@@ -16,12 +16,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -34,13 +32,12 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.net.toUri
 import androidx.fragment.app.DialogFragment
 import androidx.fragment.compose.content
+import mozilla.components.compose.base.button.IconButton
 import org.mozilla.fenix.R
 import org.mozilla.fenix.components.share.QR_CODE_URI_KEY
 import org.mozilla.fenix.theme.FirefoxTheme
 
-/**
- * A DialogFragment that displays a QR code for sharing a tab. It provides an option to download the QR code image.
- */
+/** A DialogFragment that displays a QR code for sharing a tab. It provides an option to download the QR code image. */
 class QRCodeDialogFragment : DialogFragment() {
 
     private val downloader = QRCodeDownloader()
@@ -78,14 +75,17 @@ class QRCodeDialogFragment : DialogFragment() {
 
         /**
          * Creates a new instance of [QRCodeDialogFragment] with the provided QR code URI.
+         *
          * @param qrCodeUri The URI of the QR code image to be displayed in the dialog.
          * @return A new instance of [QRCodeDialogFragment] with the QR code URI set in the arguments.
          */
-        fun newInstance(qrCodeUri: String) = QRCodeDialogFragment().apply {
-            arguments = Bundle().apply {
-                putString(QR_CODE_URI_KEY, qrCodeUri)
+        fun newInstance(qrCodeUri: String) =
+            QRCodeDialogFragment().apply {
+                arguments =
+                    Bundle().apply {
+                        putString(QR_CODE_URI_KEY, qrCodeUri)
+                    }
             }
-        }
     }
 }
 
@@ -104,9 +104,7 @@ fun QRCodeDisplayScreen(
     onClose: () -> Unit,
 ) {
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
+        modifier = Modifier.fillMaxSize().padding(16.dp),
         verticalArrangement = Arrangement.SpaceBetween,
     ) {
         TopAppBar(
@@ -114,24 +112,23 @@ fun QRCodeDisplayScreen(
                 Text(
                     style = FirefoxTheme.typography.headline5,
                     text = stringResource(R.string.qr_code_display_title),
-                    modifier = Modifier
-                        .padding(8.dp)
-                        .weight(1f),
+                    modifier = Modifier.padding(8.dp).weight(1f),
                 )
             },
             navigationIcon = {
-                IconButton(onClick = { onClose() }) {
+                IconButton(
+                    onClick = { onClose() },
+                    contentDescription = stringResource(R.string.qr_code_display_close),
+                ) {
                     Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = stringResource(R.string.qr_code_display_close),
+                        contentDescription = null,
                     )
                 }
             },
         )
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp),
+            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -154,17 +151,19 @@ fun QRCodeDisplayScreen(
                         scaleType = ImageView.ScaleType.FIT_CENTER
                     }
                 },
-                modifier = Modifier
-                    .size(280.dp, 280.dp)
-                    .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f), RoundedCornerShape(16.dp)),
+                modifier =
+                    Modifier.size(280.dp, 280.dp)
+                        .border(
+                            1.dp,
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
+                            MaterialTheme.shapes.large,
+                        ),
             )
             Text(
                 text = stringResource(R.string.qr_code_display_download),
                 color = MaterialTheme.colorScheme.primary,
                 style = FirefoxTheme.typography.button,
-                modifier = Modifier
-                    .clickable { onDownloadClick() }
-                    .padding(top = 40.dp, start = 48.dp, end = 48.dp),
+                modifier = Modifier.clickable { onDownloadClick() }.padding(top = 40.dp, start = 48.dp, end = 48.dp),
             )
         }
     }

@@ -4,19 +4,19 @@
 
 #include "InProcessWinCompositorWidget.h"
 
+#include <ddraw.h>
+
+#include "HeadlessCompositorWidget.h"
+#include "HeadlessWidget.h"
+#include "VsyncDispatcher.h"
+#include "WinCompositorWindowThread.h"
+#include "gfxPlatform.h"
 #include "mozilla/gfx/Point.h"
 #include "mozilla/layers/Compositor.h"
 #include "mozilla/layers/CompositorThread.h"
 #include "mozilla/widget/PlatformWidgetTypes.h"
-#include "gfxPlatform.h"
-#include "HeadlessCompositorWidget.h"
-#include "HeadlessWidget.h"
 #include "nsIWidget.h"
 #include "nsWindow.h"
-#include "VsyncDispatcher.h"
-#include "WinCompositorWindowThread.h"
-
-#include <ddraw.h>
 
 namespace mozilla::widget {
 
@@ -94,7 +94,7 @@ InProcessWinCompositorWidget::StartRemoteDrawing() {
   uint32_t flags = TransparencyModeIs(TransparencyMode::Opaque)
                        ? 0
                        : gfxWindowsSurface::FLAG_IS_TRANSPARENT;
-  RefPtr<gfxASurface> surf = new gfxWindowsSurface(dc, flags);
+  auto surf = MakeRefPtr<gfxWindowsSurface>(dc, flags);
   IntSize size = surf->GetSize();
   if (size.width <= 0 || size.height <= 0) {
     if (dc) {

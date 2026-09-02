@@ -27,17 +27,21 @@ class FindInPageIntegrationTest {
     private val engineViewTopMargin = 22
     private val engineViewTranslationY = 10f
     private val findInPageHeight = 50
-    private val store: BrowserStore = BrowserStore(
-        initialState = BrowserState(
-            tabs = listOf(createTab("https://www.mozilla.org", id = sessionId)),
-            selectedTabId = sessionId,
-        ),
-    )
+    private val store: BrowserStore =
+        BrowserStore(
+            initialState =
+                BrowserState(
+                    tabs = listOf(createTab("https://www.mozilla.org", id = sessionId)),
+                    selectedTabId = sessionId,
+                )
+        )
     private val appStore: AppStore = mockk(relaxed = true)
     private val findInPageBar: FindInPageBar = mockk(relaxed = true)
     private val engine: EngineView = mockk(relaxed = true)
-    private val toolbarsHideCallback: () -> Unit = mockk(relaxed = true)
-    private val toolbarsResetCallback: () -> Unit = mockk(relaxed = true)
+    private var toolbarsHideCallbackCount = 0
+    private val toolbarsHideCallback: () -> Unit = { toolbarsHideCallbackCount++ }
+    private var toolbarsResetCallbackCount = 0
+    private val toolbarsResetCallback: () -> Unit = { toolbarsResetCallbackCount++ }
     private val engineView: FrameLayout = mockk(relaxed = true)
     private val engineViewLayoutParams
         get() = engineView.layoutParams as FrameLayout.LayoutParams
@@ -54,7 +58,7 @@ class FindInPageIntegrationTest {
         integration.launch()
 
         assertEquals(true, integration.isFeatureActive)
-        verify { toolbarsHideCallback.invoke() }
+        assertEquals(1, toolbarsHideCallbackCount)
         verify { findInPageBar.isVisible = true }
         verify { findInPageBar.layoutParams.height = findInPageHeight }
         assertEquals(findInPageHeight, engineViewLayoutParams.bottomMargin)
@@ -63,17 +67,17 @@ class FindInPageIntegrationTest {
     @Test
     fun `WHEN find in page is requested in a custom tab THEN hide all toolbars, expand the engine view and show the find in page bar`() {
         val customTabId = "customTabId"
-        val store = BrowserStore(
-            initialState = store.state.copy(
-                customTabs = listOf(createCustomTab("https://www.mozilla.org", customTabId)),
-            ),
-        )
+        val store =
+            BrowserStore(
+                initialState =
+                    store.state.copy(customTabs = listOf(createCustomTab("https://www.mozilla.org", customTabId)))
+            )
         val integration = buildFeature(store = store, customSessionId = customTabId)
 
         integration.launch()
 
         assertEquals(true, integration.isFeatureActive)
-        verify { toolbarsHideCallback.invoke() }
+        assertEquals(1, toolbarsHideCallbackCount)
         verify { findInPageBar.isVisible = true }
         verify { findInPageBar.layoutParams.height = findInPageHeight }
         assertEquals(findInPageHeight, engineViewLayoutParams.bottomMargin)
@@ -89,7 +93,7 @@ class FindInPageIntegrationTest {
         assertEquals(false, integration.isFeatureActive)
         verify { appStore.dispatch(FindInPageAction.FindInPageDismissed) }
         verify { findInPageBar.isVisible = false }
-        verify { toolbarsResetCallback.invoke() }
+        assertEquals(1, toolbarsResetCallbackCount)
         assertEquals(0, engineViewLayoutParams.bottomMargin)
     }
 
@@ -108,10 +112,11 @@ class FindInPageIntegrationTest {
         engineViewTranslationY: Float = this.engineViewTranslationY,
     ) {
         every { engine.asView().parent } returns engineView
-        every { engineView.layoutParams } returns FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT).apply {
-            topMargin = engineViewTopMargin
-            bottomMargin = engineViewBottomMargin
-        }
+        every { engineView.layoutParams } returns
+            FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT).apply {
+                topMargin = engineViewTopMargin
+                bottomMargin = engineViewBottomMargin
+            }
         every { engineView.translationY } returns engineViewTranslationY
     }
 

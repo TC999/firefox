@@ -4,7 +4,6 @@
 
 package mozilla.components.feature.accounts.push
 
-import androidx.annotation.WorkerThread
 import mozilla.components.concept.sync.DeviceCommandOutgoing
 import mozilla.components.concept.sync.DeviceCommandQueue
 import mozilla.components.concept.sync.DeviceConstellation
@@ -15,14 +14,11 @@ import mozilla.components.service.fxa.manager.FxaAccountManager
  *
  * The use cases send commands to close tabs using the [FxaAccountManager].
  *
- * See [CloseTabsFeature] for the ability to close tabs on this device from
- * other devices.
+ * See [CloseTabsFeature] for the ability to close tabs on this device from other devices.
  *
  * @param commands The queue used to send "close tab" commands to other devices.
  */
-class CloseTabsUseCases(
-    private val commands: DeviceCommandQueue<DeviceCommandQueue.Type.RemoteTabs>,
-) {
+class CloseTabsUseCases(private val commands: DeviceCommandQueue<DeviceCommandQueue.Type.RemoteTabs>) {
     /**
      * Closes a tab that's currently open on another device.
      *
@@ -30,7 +26,6 @@ class CloseTabsUseCases(
      * @param url The URL of the tab to close.
      * @return An object that can be used to undo this operation.
      */
-    @WorkerThread
     suspend fun close(deviceId: String, url: String): UndoableOperation {
         val command = DeviceCommandOutgoing.CloseTab(listOf(url))
         commands.add(deviceId, command)
@@ -40,7 +35,6 @@ class CloseTabsUseCases(
     /** An operation that can be undone. */
     fun interface UndoableOperation {
         /** Undoes the operation. */
-        @WorkerThread
         suspend fun undo()
     }
 }

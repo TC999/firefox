@@ -95,6 +95,7 @@ var ignoreClasses = {
     "malloc_hook_table_t": true, // replace_malloc
     "mozilla::MallocSizeOf": true,
     "MozMallocSizeOf": true,
+    "chunk_allocator_s": true, // arena chunk allocator
 };
 
 // Ignore calls through TYPE.FIELD, where TYPE is the class or struct name containing

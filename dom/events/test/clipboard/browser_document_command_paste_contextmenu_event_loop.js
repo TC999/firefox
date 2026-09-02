@@ -1,5 +1,3 @@
-/* -*- Mode: JavaScript; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -56,66 +54,45 @@ add_task(async function test_spin_event_loop() {
 
   await BrowserTestUtils.withNewTab(kContentFileUrl, async function (aBrowser) {
     info("Setup test page for paste command test");
-    await SpecialPowers.spawn(aBrowser, [], () => {
-      const textarea = content.document.createElement("textarea");
-      content.document.body.appendChild(textarea);
-      textarea.focus();
+    let promise = SpecialPowers.spawn(
+      aBrowser,
+      [clipboardText],
+      clipboardText => {
+        const textarea = content.document.createElement("textarea");
+        content.document.body.appendChild(textarea);
+        textarea.focus();
 
-      textarea.addEventListener("keydown", e => {
-        info(`Got keydown event with key=${e.key}`);
-        let timerRan = false;
-        content.setTimeout(() => {
-          timerRan = true;
-        }, 0);
-        if (Cu.waiveXrays(content.document).execCommand("paste")) {
-          e.preventDefault();
-        }
-        ok(!timerRan, "timer should not have run yet");
+        textarea.addEventListener("keydown", e => {
+          info(`Got keydown event with key=${e.key}`);
+          let timerRan = false;
+          content.setTimeout(() => {
+            timerRan = true;
+          }, 0);
+          if (Cu.waiveXrays(content.document).execCommand("paste")) {
+            e.preventDefault();
+          }
+          ok(!timerRan, "timer should not have run yet");
+        });
+
+        return new Promise(resolve => {
+          const textarea = content.document.querySelector("textarea");
+          textarea.addEventListener("keyup", e => {
+            info(`Got keyup event with key=${e.key}`);
+            is(textarea.value, clipboardText, "check <textarea> value");
+            resolve();
+          });
+        });
+      }
+    );
+    // Ensure the event listener is registered in remote before synthesizing key event.
+    await SpecialPowers.spawn(aBrowser, [], () => {
+      return new Promise(resolve => {
+        SpecialPowers.executeSoon(resolve);
       });
     });
 
-    let pasteButtonIsShown = promisePasteButtonIsShown();
-
     info(`Synthesize key event to trigger execCommand("paste")`);
     EventUtils.synthesizeKey("v", { accelKey: true });
-
-    info(`Wait for paste context menu is shown`);
-    await pasteButtonIsShown;
-
-    info(`Click paste context menu`);
-    let pasteButtonIsHidden = promisePasteButtonIsHidden();
-    await promiseClickPasteButton();
-    await pasteButtonIsHidden;
-
-    info(`Check textarea value`);
-    await SpecialPowers.spawn(aBrowser, [clipboardText], clipboardText => {
-      const textarea = content.document.querySelector("textarea");
-      is(textarea.value, clipboardText, "check <textarea> value");
-    });
-
-    pasteButtonIsShown = promisePasteButtonIsShown();
-
-    info(`Synthesize key event to trigger execCommand("paste") again`);
-    EventUtils.synthesizeKey("v", { accelKey: true });
-
-    info(`Wait for paste context menu is shown`);
-    await pasteButtonIsShown;
-
-    info(`Dismiss paste context menu`);
-    pasteButtonIsHidden = promisePasteButtonIsHidden();
-    await promiseDismissPasteButton();
-    await pasteButtonIsHidden;
-
-    info(`Check textarea value again`);
-    await SpecialPowers.spawn(aBrowser, [clipboardText], clipboardText => {
-      const textarea = content.document.querySelector("textarea");
-      // Dissmissing paste context menu should make the editor handle the paste event,
-      // so the clipboard text should be pasted into the textarea again.
-      is(
-        textarea.value,
-        clipboardText + clipboardText,
-        "check <textarea> value"
-      );
-    });
+    await promise;
   });
 });

@@ -11,14 +11,14 @@
 #undef LOG_ENABLED
 #define LOG_ENABLED() LOG5_ENABLED()
 
-#include "nsHttpHandler.h"
-#include "nsHttpConnectionMgr.h"
-#include "Http2StreamTunnel.h"
-#include "nsHttpConnectionInfo.h"
-#include "nsQueryObject.h"
-#include "nsProxyRelease.h"
-#include "mozilla/glean/NetwerkProtocolHttpMetrics.h"
 #include "Http2Session.h"
+#include "Http2StreamTunnel.h"
+#include "mozilla/glean/NetwerkProtocolHttpMetrics.h"
+#include "nsHttpConnectionInfo.h"
+#include "nsHttpConnectionMgr.h"
+#include "nsHttpHandler.h"
+#include "nsProxyRelease.h"
+#include "nsQueryObject.h"
 
 namespace mozilla::net {
 
@@ -195,7 +195,6 @@ FWD_TS_T_ADDREF(GetScriptableSelfAddr, nsINetAddr);
 FWD_TS_T_ADDREF(GetTlsSocketControl, nsITLSSocketControl);
 FWD_TS_T_PTR(GetConnectionFlags, uint32_t);
 FWD_TS_T(SetConnectionFlags, uint32_t);
-FWD_TS_T(SetIsPrivate, bool);
 FWD_TS_T(SetIsTRRConnection, bool);
 FWD_TS_T_PTR(GetIsTRRConnection, bool);
 FWD_TS_T_PTR(GetTlsFlags, uint32_t);
@@ -430,13 +429,13 @@ OutputStreamTunnel::AsyncWait(nsIOutputStreamCallback* callback, uint32_t flags,
   LOG(("OutputStreamTunnel::AsyncWait [this=%p]\n", this));
 
   // The following parametr are not used:
-  MOZ_ASSERT(!flags);
-  MOZ_ASSERT(!amount);
+  (void)flags;
+  (void)amount;
   (void)target;
 
   RefPtr<OutputStreamTunnel> self(this);
   if (NS_FAILED(mCondition)) {
-    (void)NS_DispatchToCurrentThread(NS_NewRunnableFunction(
+    (void)DispatchToCurrent(NS_NewRunnableFunction(
         "OutputStreamTunnel::CallOnSocketReady",
         [self{std::move(self)}]() { self->OnSocketReady(NS_OK); }));
   } else if (callback) {
@@ -563,13 +562,13 @@ InputStreamTunnel::AsyncWait(nsIInputStreamCallback* callback, uint32_t flags,
        static_cast<uint32_t>(mCondition)));
 
   // The following parametr are not used:
-  MOZ_ASSERT(!flags);
-  MOZ_ASSERT(!amount);
+  (void)flags;
+  (void)amount;
   (void)target;
 
   RefPtr<InputStreamTunnel> self(this);
   if (NS_FAILED(mCondition)) {
-    (void)NS_DispatchToCurrentThread(NS_NewRunnableFunction(
+    (void)DispatchToCurrent(NS_NewRunnableFunction(
         "InputStreamTunnel::CallOnSocketReady",
         [self{std::move(self)}]() { self->OnSocketReady(NS_OK); }));
   } else if (callback) {
@@ -660,7 +659,7 @@ Http2StreamWebSocket::~Http2StreamWebSocket() {
 
 nsresult Http2StreamWebSocket::GenerateHeaders(nsCString& aCompressedData,
                                                uint8_t& firstFrameFlags) {
-  nsHttpRequestHead* head = mTransaction->RequestHead();
+  const nsHttpRequestHead* head = mTransaction->RequestHead();
 
   nsAutoCString authorityHeader;
   nsresult rv = head->GetHeader(nsHttp::Host, authorityHeader);

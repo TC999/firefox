@@ -15,6 +15,7 @@
 #include "mozilla/RefPtr.h"
 #include "mozilla/SVGContentUtils.h"
 #include "mozilla/SVGUtils.h"
+#include "mozilla/dom/DOMPoint.h"
 #include "mozilla/dom/DOMPointBinding.h"
 #include "mozilla/dom/SVGLengthBinding.h"
 #include "mozilla/gfx/2D.h"
@@ -33,7 +34,7 @@ SVGElement::NumberInfo SVGGeometryElement::sNumberInfo = {nsGkAtoms::pathLength,
 // Implementation
 
 SVGGeometryElement::SVGGeometryElement(
-    already_AddRefed<mozilla::dom::NodeInfo>&& aNodeInfo)
+    already_AddRefed<mozilla::dom::NodeInfo> aNodeInfo)
     : SVGGeometryElementBase(std::move(aNodeInfo)) {}
 
 SVGElement::NumberAttributesInfo SVGGeometryElement::GetNumberInfo() {
@@ -47,7 +48,7 @@ void SVGGeometryElement::AfterSetAttr(int32_t aNamespaceID, nsAtom* aName,
                                       bool aNotify) {
   if (mCachedPath && aNamespaceID == kNameSpaceID_None &&
       AttributeDefinesGeometry(aName)) {
-    mCachedPath = nullptr;
+    ClearAnyCachedPath();
   }
   return SVGGeometryElementBase::AfterSetAttr(
       aNamespaceID, aName, aValue, aOldValue, aSubjectPrincipal, aNotify);
@@ -70,6 +71,23 @@ bool SVGGeometryElement::AttributeDefinesGeometry(const nsAtom* aName) {
 }
 
 bool SVGGeometryElement::GeometryDependsOnCoordCtx() {
+  nsAtom* name = NodeInfo()->NameAtom();
+  Maybe<bool> hasCtxDependentLength;
+  if (name == nsGkAtoms::rect) {
+    hasCtxDependentLength =
+        static_cast<SVGRectElement*>(this)->HasCtxDependentLength();
+  }
+  if (name == nsGkAtoms::circle) {
+    hasCtxDependentLength =
+        static_cast<SVGCircleElement*>(this)->HasCtxDependentLength();
+  }
+  if (name == nsGkAtoms::ellipse) {
+    hasCtxDependentLength =
+        static_cast<SVGEllipseElement*>(this)->HasCtxDependentLength();
+  }
+  if (hasCtxDependentLength) {
+    return *hasCtxDependentLength;
+  }
   // Check the SVGAnimatedLength attribute
   LengthAttributesInfo info =
       const_cast<SVGGeometryElement*>(this)->GetLengthInfo();
@@ -107,11 +125,48 @@ already_AddRefed<Path> SVGGeometryElement::GetOrBuildPath(
   return path.forget();
 }
 
+already_AddRefed<Path> SVGGeometryElement::GetTransformedPath(
+    const Matrix& aPathTransform) {
+  FillRule fillRule = GetFillRule();
+  RefPtr<DrawTarget> tmpDT =
+      gfxPlatform::GetPlatform()->ScreenReferenceDrawTarget();
+
+  RefPtr<Path> path = GetOrBuildPath(tmpDT, fillRule);
+
+  if (path && !aPathTransform.IsIdentity()) {
+    RefPtr<PathBuilder> builder =
+        path->TransformedCopyToBuilder(aPathTransform, fillRule);
+    path = builder->Finish();
+  }
+  return path.forget();
+}
+
+Maybe<Rect> SVGGeometryElement::GetBounds(const Matrix& aPathTransform) {
+  if (RefPtr<Path> path = GetTransformedPath(aPathTransform)) {
+    Rect bbox = path->GetBounds();
+    if (bbox.IsFinite()) {
+      return Some(bbox);
+    }
+  }
+  return Nothing();
+}
+
+Maybe<Rect> SVGGeometryElement::GetStrokedBounds(
+    const StrokeOptions& aStrokeOptions, const Matrix& aPathTransform,
+    const Matrix& aPathToBounds) {
+  if (RefPtr<Path> path = GetTransformedPath(aPathTransform)) {
+    Rect bbox = path->GetStrokedBounds(aStrokeOptions, aPathToBounds);
+    if (bbox.IsFinite()) {
+      return Some(bbox);
+    }
+  }
+  return Nothing();
+}
+
 already_AddRefed<Path> SVGGeometryElement::GetOrBuildPathForMeasuring() {
   RefPtr<DrawTarget> drawTarget =
       gfxPlatform::GetPlatform()->ScreenReferenceDrawTarget();
-  FillRule fillRule = mCachedPath ? mCachedPath->GetFillRule() : GetFillRule();
-  return GetOrBuildPath(drawTarget, fillRule);
+  return GetOrBuildPath(drawTarget, GetFillRule());
 }
 
 // This helper is currently identical to GetOrBuildPathForMeasuring.
@@ -122,8 +177,7 @@ already_AddRefed<Path> SVGGeometryElement::GetOrBuildPathForMeasuring() {
 already_AddRefed<Path> SVGGeometryElement::GetOrBuildPathForHitTest() {
   RefPtr<DrawTarget> drawTarget =
       gfxPlatform::GetPlatform()->ScreenReferenceDrawTarget();
-  FillRule fillRule = mCachedPath ? mCachedPath->GetFillRule() : GetFillRule();
-  return GetOrBuildPath(drawTarget, fillRule);
+  return GetOrBuildPath(drawTarget, GetFillRule());
 }
 
 bool SVGGeometryElement::IsGeometryChangedViaCSS(
@@ -145,6 +199,10 @@ bool SVGGeometryElement::IsGeometryChangedViaCSS(
 }
 
 FillRule SVGGeometryElement::GetFillRule() {
+  if (mCachedPath) {
+    return mCachedPath->GetFillRule();
+  }
+
   FillRule fillRule =
       FillRule::FILL_WINDING;  // Equivalent to StyleFillRule::Nonzero
 
@@ -167,10 +225,6 @@ FillRule SVGGeometryElement::GetFillRule() {
   return fillRule;
 }
 
-static Point GetPointFrom(const DOMPointInit& aPoint) {
-  return Point(aPoint.mX, aPoint.mY);
-}
-
 bool SVGGeometryElement::IsPointInFill(const DOMPointInit& aPoint) {
   FlushIfNeeded();
 
@@ -179,7 +233,8 @@ bool SVGGeometryElement::IsPointInFill(const DOMPointInit& aPoint) {
     return false;
   }
 
-  auto point = GetPointFrom(aPoint);
+  auto point =
+      DOMPointReadOnly::ToPoint(aPoint) * dom::UserSpaceMetrics::GetZoom(this);
   return path->ContainsPoint(point, {});
 }
 
@@ -193,7 +248,8 @@ bool SVGGeometryElement::IsPointInStroke(const DOMPointInit& aPoint) {
     return false;
   }
 
-  auto point = GetPointFrom(aPoint);
+  auto point =
+      DOMPointReadOnly::ToPoint(aPoint) * dom::UserSpaceMetrics::GetZoom(this);
   bool res = false;
   SVGGeometryProperty::DoForComputedStyle(this, [&](const ComputedStyle* s) {
     // Per spec, we should take vector-effect into account.
@@ -219,7 +275,7 @@ bool SVGGeometryElement::IsPointInStroke(const DOMPointInit& aPoint) {
 
 float SVGGeometryElement::GetTotalLengthForBinding() {
   FlushIfNeeded();
-  return GetTotalLength();
+  return GetTotalLength() / dom::UserSpaceMetrics::GetZoom(this);
 }
 
 already_AddRefed<DOMSVGPoint> SVGGeometryElement::GetPointAtLength(
@@ -231,9 +287,11 @@ already_AddRefed<DOMSVGPoint> SVGGeometryElement::GetPointAtLength(
     rv.ThrowInvalidStateError("No path available for measuring");
     return nullptr;
   }
+  float zoom = dom::UserSpaceMetrics::GetZoom(this);
+  gfx::Point point = path->ComputePointAtLength(
+      std::clamp(distance * zoom, 0.f, path->ComputeLength()));
 
-  return do_AddRef(new DOMSVGPoint(path->ComputePointAtLength(
-      std::clamp(distance, 0.f, path->ComputeLength()))));
+  return MakeAndAddRef<DOMSVGPoint>(point / zoom);
 }
 
 gfx::Matrix SVGGeometryElement::LocalTransform() const {

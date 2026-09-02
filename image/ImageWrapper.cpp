@@ -3,11 +3,11 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "ImageWrapper.h"
-#include "mozilla/gfx/2D.h"
-#include "Orientation.h"
-#include "mozilla/image/Resolution.h"
 
+#include "Orientation.h"
 #include "mozilla/MemoryReporting.h"
+#include "mozilla/gfx/2D.h"
+#include "mozilla/image/Resolution.h"
 
 namespace mozilla {
 
@@ -238,7 +238,8 @@ ImageWrapper::RequestDiscard() { return mInnerImage->RequestDiscard(); }
 
 NS_IMETHODIMP_(void)
 ImageWrapper::RequestRefresh(const TimeStamp& aTime) {
-  return mInnerImage->RequestRefresh(aTime);
+  RefPtr<Image> inner = mInnerImage;
+  return inner->RequestRefresh(aTime);
 }
 
 NS_IMETHODIMP

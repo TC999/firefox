@@ -5,9 +5,10 @@
 #ifndef MOZILLA_GFX_DRAWTARGETSKIA_H
 #define MOZILLA_GFX_DRAWTARGETSKIA_H
 
-#include "2D.h"
 #include <sstream>
 #include <vector>
+
+#include "2D.h"
 
 #ifdef XP_DARWIN
 #  include <CoreGraphics/CGColorSpace.h>
@@ -171,7 +172,7 @@ class DrawTargetSkia : public DrawTarget {
                      const StrokeOptions* aStrokeOptions = nullptr,
                      const DrawOptions& aOptions = DrawOptions());
 
-  void AccessibleId(uint64_t aBrowsingContextId, uint64_t aAccId) final;
+  void AccessibleId(uint64_t aInnerWindowId, uint64_t aAccId) final;
 
  private:
   friend class SourceSurfaceSkia;
@@ -187,10 +188,10 @@ class DrawTargetSkia : public DrawTarget {
                   SkShader* aShader = nullptr);
 
   struct PushedLayer {
-    PushedLayer(bool aOldPermitSubpixelAA, SourceSurface* aMask)
-        : mOldPermitSubpixelAA(aOldPermitSubpixelAA), mMask(aMask) {}
-    bool mOldPermitSubpixelAA;
     RefPtr<SourceSurface> mMask;
+    Matrix mMaskToDevice;
+    CompositionOp mCompositionOp = CompositionOp::OP_OVER;
+    bool mOldPermitSubpixelAA = false;
   };
   std::vector<PushedLayer> mPushedLayers;
 

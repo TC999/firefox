@@ -637,7 +637,7 @@ class DevTools extends EventEmitter {
       tab.linkedBrowser.browsingContext.opener &&
       Services.prefs.getBoolPref(POPUP_DEBUG_PREF)
     ) {
-      const openerTab = tab.ownerGlobal.gBrowser.getTabForBrowser(
+      const openerTab = tab.documentGlobal.gBrowser.getTabForBrowser(
         tab.linkedBrowser.browsingContext.opener.embedderElement
       );
       const openerCommands =
@@ -795,19 +795,6 @@ class DevTools extends EventEmitter {
   }
 
   /**
-   * TabDescriptorFront requires a synchronous method and don't have a reference to its
-   * related commands object. So expose something handcrafted just for this.
-   */
-  getToolboxForDescriptorFront(descriptorFront) {
-    for (const [commands, toolbox] of this.#toolboxesPerCommands) {
-      if (commands.descriptorFront == descriptorFront) {
-        return toolbox;
-      }
-    }
-    return null;
-  }
-
-  /**
    * Retrieve an existing toolbox for the provided tab if it was created before.
    * Returns null otherwise.
    *
@@ -844,7 +831,8 @@ class DevTools extends EventEmitter {
 
   /**
    * Compatibility layer for web-extensions. Used by DevToolsShim for
-   * browser/components/extensions/ext-devtools.js
+   * browser/components/extensions/parent/ext-devtools-inspectedWindow.js and
+   * browser/components/extensions/parent/ext-devtools-panels.js
    *
    * web-extensions need to use dedicated instances of Commands and cannot reuse the
    * cached instances managed by DevTools.
@@ -856,18 +844,7 @@ class DevTools extends EventEmitter {
   }
 
   /**
-   * Compatibility layer for web-extensions. Used by DevToolsShim for
-   * toolkit/components/extensions/ext-c-toolkit.js
-   */
-  openBrowserConsole() {
-    const {
-      BrowserConsoleManager,
-    } = require("resource://devtools/client/webconsole/browser-console-manager.js");
-    BrowserConsoleManager.openBrowserConsoleOrFocus();
-  }
-
-  /**
-   * Called from the DevToolsShim, used by nsContextMenu.js.
+   * Called from the DevToolsShim, used by nsContextMenu.sys.mjs.
    *
    * @param {XULTab} tab
    *        The browser tab on which inspect node was used.
@@ -924,7 +901,7 @@ class DevTools extends EventEmitter {
   }
 
   /**
-   * Called from the DevToolsShim, used by nsContextMenu.js.
+   * Called from the DevToolsShim, used by nsContextMenu.sys.mjs.
    *
    * @param {XULTab} tab
    *        The browser tab on which inspect accessibility was used.

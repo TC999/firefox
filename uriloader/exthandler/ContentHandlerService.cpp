@@ -142,7 +142,8 @@ NS_IMPL_ISUPPORTS(RemoteHandlerApp, nsIHandlerApp)
 
 static inline void CopyHandlerInfoTonsIHandlerInfo(
     const HandlerInfo& info, nsIHandlerInfo* aHandlerInfo) {
-  HandlerApp preferredApplicationHandler = info.preferredApplicationHandler();
+  const HandlerApp& preferredApplicationHandler =
+      info.preferredApplicationHandler();
   nsCOMPtr<nsIHandlerApp> preferredApp(
       new RemoteHandlerApp(preferredApplicationHandler));
   aHandlerInfo->SetPreferredApplicationHandler(preferredApp);
@@ -195,8 +196,7 @@ NS_IMETHODIMP ContentHandlerService::GetMIMEInfoFromOS(
     return rv;
   }
 
-  RefPtr<nsChildProcessMIMEInfo> mimeInfo =
-      new nsChildProcessMIMEInfo(returnedInfo.type());
+  RefPtr mimeInfo = MakeRefPtr<nsChildProcessMIMEInfo>(returnedInfo.type());
   CopyHandlerInfoTonsIHandlerInfo(returnedInfo, mimeInfo);
   mimeInfo.forget(aMIMEInfo);
   return NS_OK;

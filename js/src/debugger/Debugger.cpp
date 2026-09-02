@@ -2,8 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "debugger/Debugger-inl.h"
-
 #include "mozilla/Attributes.h"        // for MOZ_STACK_CLASS, MOZ_RAII
 #include "mozilla/DebugOnly.h"         // for DebugOnly
 #include "mozilla/DoublyLinkedList.h"  // for DoublyLinkedList<>::Iterator
@@ -32,6 +30,8 @@
 #include "debugger/DebuggerMemory.h"  // for DebuggerMemory
 #include "debugger/DebugScript.h"     // for DebugScript
 #include "debugger/Environment.h"     // for DebuggerEnvironment
+
+#include "debugger/Debugger-inl.h"
 #ifdef MOZ_EXECUTION_TRACING
 #  include "debugger/ExecutionTracer.h"  // for ExecutionTracer::onEnterFrame, ExecutionTracer::onLeaveFrame
 #endif
@@ -90,7 +90,7 @@
 #include "vm/GlobalObject.h"          // for GlobalObject
 #include "vm/Interpreter.h"           // for Call, ReportIsNotFunction
 #include "vm/Iteration.h"             // for CreateIterResultObject
-#include "vm/JSAtomUtils.h"  // for Atomize, AtomizeUTF8Chars, AtomIsMarked, AtomToId, ClassName
+#include "vm/JSAtomUtils.h"  // for Atomize, AtomizeUTF8Chars, ZoneHasRef, AtomToId, ClassName
 #include "vm/JSContext.h"         // for JSContext
 #include "vm/JSFunction.h"        // for JSFunction
 #include "vm/JSObject.h"          // for JSObject, RequireObject,
@@ -110,6 +110,7 @@
 #include "wasm/WasmInstance.h"    // for Instance
 #include "wasm/WasmJS.h"          // for WasmInstanceObject
 #include "wasm/WasmRealm.h"       // for Realm
+#include "wasm/WasmStacks.h"      // for ContStack
 #include "wasm/WasmTypeDecls.h"   // for WasmInstanceObjectVector
 
 #include "debugger/DebugAPI-inl.h"
@@ -125,12 +126,13 @@
 #include "vm/GeckoProfiler-inl.h"  // for AutoSuppressProfilerSampling
 #include "vm/JSAtomUtils-inl.h"    // for AtomToId, ValueToId
 #include "vm/JSContext-inl.h"      // for JSContext::check
-#include "vm/JSObject-inl.h"  // for JSObject::isCallable, NewTenuredObjectWithGivenProto
-#include "vm/JSScript-inl.h"      // for JSScript::isDebuggee, JSScript
+#include "vm/JSObject-inl.h"       // for JSObject::isCallable
+#include "vm/JSScript-inl.h"       // for JSScript::isDebuggee, JSScript
 #include "vm/NativeObject-inl.h"  // for NativeObject::ensureDenseInitializedLength
 #include "vm/ObjectOperations-inl.h"  // for GetProperty, HasProperty
 #include "vm/Realm-inl.h"             // for AutoRealm::AutoRealm
 #include "vm/Stack-inl.h"             // for AbstractFramePtr::script
+#include "wasm/WasmInstance-inl.h"    // for Instance::codeMeta()
 
 namespace js {
 
@@ -196,7 +198,7 @@ ArrayObject* js::GetFunctionParameterNamesArray(JSContext* cx,
       if (JSAtom* atom = fi.name()) {
         // Skip any internal, non-identifier names, like for example ".args".
         if (IsIdentifier(atom)) {
-          cx->markAtom(atom);
+          cx->recordRef(atom);
           names[i].setString(atom);
         }
       }
@@ -540,7 +542,6 @@ Debugger::Debugger(JSContext* cx, NativeObject* dbg)
     : object(dbg),
       debuggees(cx->zone()),
       uncaughtExceptionHook(nullptr),
-      allowUnobservedAsmJS(false),
       allowUnobservedWasm(false),
       exclusiveDebuggerOnEval(false),
       inspectNativeCallArguments(false),
@@ -554,6 +555,9 @@ Debugger::Debugger(JSContext* cx, NativeObject* dbg)
       allocationsLogOverflowed(false),
       frames(cx->zone()),
       generatorFrames(cx),
+#ifdef ENABLE_WASM_JSPI
+      wasmContFrames(cx->zone()),
+#endif
       scripts(cx),
       sources(cx),
       objects(cx),
@@ -649,6 +653,11 @@ bool Debugger::getFrame(JSContext* cx, const FrameIter& iter,
   AbstractFramePtr referent = iter.abstractFramePtr();
   MOZ_ASSERT_IF(referent.hasScript(), !referent.script()->selfHosted());
 
+  // A generator's resume is finished at JSOp::AfterYield. Before that, the
+  // frame's pc is still the script start and its locals and expression stack
+  // haven't been restored.
+  MOZ_ASSERT(!iter.isResumingGenerator());
+
   FrameMap::AddPtr p = frames.lookupForAdd(referent);
   if (!p) {
     Rooted<AbstractGeneratorObject*> genObj(cx);
@@ -711,6 +720,17 @@ bool Debugger::getFrame(JSContext* cx, const FrameIter& iter,
       ReportOutOfMemory(cx);
       return false;
     }
+
+#ifdef ENABLE_WASM_JSPI
+    if (frame->isWasmContFrame()) {
+      if (!wasmContFrames.append(referent)) {
+        // terminateDebuggerFrameGuard is still armed and will remove the
+        // entry from `frames` on return.
+        ReportOutOfMemory(cx);
+        return false;
+      }
+    }
+#endif
 
     terminateDebuggerFrameGuard.release();
   }
@@ -786,12 +806,6 @@ bool DebugAPI::debuggerObservesAllExecution(GlobalObject* global) {
 bool DebugAPI::debuggerObservesCoverage(GlobalObject* global) {
   return DebuggerExists(global,
                         [=](Debugger* dbg) { return dbg->observesCoverage(); });
-}
-
-/* static */
-bool DebugAPI::debuggerObservesAsmJS(GlobalObject* global) {
-  return DebuggerExists(global,
-                        [=](Debugger* dbg) { return dbg->observesAsmJS(); });
 }
 
 /* static */
@@ -957,6 +971,8 @@ bool DebugAPI::slowPathOnResumeFrame(JSContext* cx, AbstractFramePtr frame) {
   // frame is observable.
   FrameIter iter(cx);
   MOZ_ASSERT(iter.abstractFramePtr() == frame);
+  jsbytecode* pc = iter.pc();
+  MOZ_ASSERT(JSOp(*pc) == JSOp::AfterYield);
   {
     JS::AutoAssertNoGC nogc;
     for (Realm::DebuggerVectorEntry& entry :
@@ -979,7 +995,23 @@ bool DebugAPI::slowPathOnResumeFrame(JSContext* cx, AbstractFramePtr frame) {
 
   terminateDebuggerFramesGuard.release();
 
-  return slowPathOnEnterFrame(cx, frame);
+  if (!slowPathOnEnterFrame(cx, frame)) {
+    return false;
+  }
+
+  // Handle breakpoints/stepping for the JSOp::AfterYield op.
+  if (DebugAPI::stepModeEnabled(frame.script())) {
+    if (!DebugAPI::onSingleStep(cx)) {
+      return false;
+    }
+  }
+  if (DebugAPI::hasBreakpointsAt(frame.script(), pc)) {
+    if (!DebugAPI::onTrap(cx)) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 /* static */
@@ -1217,7 +1249,7 @@ bool DebugAPI::slowPathOnLeaveFrame(JSContext* cx, AbstractFramePtr frame,
         // Debugger's D.Fs in that global. This means that one D.F's onPop can
         // kill the next D.F. So we have to check whether frameobj is still "on
         // the stack".
-        if (frameobj->isOnStack() && frameobj->onPopHandler()) {
+        if (frameobj->isOnStack(cx) && frameobj->onPopHandler()) {
           OnPopHandler* handler = frameobj->onPopHandler();
 
           bool result = dbg->enterDebuggerHook(cx, [&]() -> bool {
@@ -2369,7 +2401,7 @@ bool Debugger::fireNativeCall(JSContext* cx, const CallArgs& args,
       reasonAtom = cx->names().set;
       break;
   }
-  MOZ_ASSERT(AtomIsMarked(cx->zone(), reasonAtom));
+  MOZ_ASSERT(ZoneHasRef(cx->zone(), reasonAtom));
 
   RootedValue reasonval(cx, StringValue(reasonAtom));
 
@@ -2557,35 +2589,79 @@ void DebugAPI::onNewScript(JSContext* cx, HandleScript script) {
       });
 }
 
-/* static */
-void DebugAPI::onSuspendWasmFrame(JSContext* cx, wasm::DebugFrame* debugFrame) {
-  AbstractFramePtr frame = AbstractFramePtr(debugFrame);
-  JS::AutoAssertNoGC nogc;
-  for (Realm::DebuggerVectorEntry& entry : frame.global()->getDebuggers(nogc)) {
-    Debugger* dbg = entry.dbg;
-    if (Debugger::FrameMap::Ptr p = dbg->frames.lookup(frame)) {
-      DebuggerFrame* frameObj = p->value();
-      frameObj->suspendWasmFrame(cx->gcContext());
-    }
+#ifdef ENABLE_WASM_JSPI
+// Returns true if `addr` falls within `resumeBase` or any child stack in the
+// chain that will be freed by ContStack::freeSuspended(resumeBase).
+static bool ContStackChainHasAddress(wasm::ContStack* resumeBase,
+                                     uintptr_t addr) {
+  if (resumeBase->hasStackAddress(addr)) {
+    return true;
   }
-}
-
-/* static */
-void DebugAPI::onResumeWasmFrame(JSContext* cx, const FrameIter& iter) {
-  AbstractFramePtr frame = iter.abstractFramePtr();
-  MOZ_RELEASE_ASSERT(frame.isWasmDebugFrame());
-  JS::AutoAssertNoGC nogc;
-  for (Realm::DebuggerVectorEntry& entry : frame.global()->getDebuggers(nogc)) {
-    Debugger* dbg = entry.dbg;
-    if (Debugger::FrameMap::Ptr p = dbg->frames.lookup(frame)) {
-      DebuggerFrame* frameObj = p->value();
-      AutoEnterOOMUnsafeRegion oomUnsafe;
-      if (!frameObj->resume(iter)) {
-        oomUnsafe.crash("DebugAPI::onResumeWasmFrame");
+  // For nested continuations the intermediate and innermost stacks are still
+  // active (handlers_ set). Starting from the resume target's handlers_ we
+  // traverse the same chain that freeSuspended() walks.
+  wasm::ContStack* resumeTargetStack = resumeBase->resumeTargetStack();
+  if (resumeTargetStack) {
+    for (wasm::Handlers* h = resumeTargetStack->handlers(); h;
+         h = h->self->handlers()) {
+      if (h->child && h->child->hasStackAddress(addr)) {
+        return true;
       }
     }
   }
+  return false;
 }
+
+/* static */
+void DebugAPI::onLeaveWasmCont(JSContext* cx, wasm::ContStack* resumeBase) {
+  JS::GCContext* gcx = cx->gcContext();
+  size_t terminatedFrames = 0;
+  JSRuntime* rt = cx->runtime();
+  for (Debugger* dbg = rt->debuggerList().getFirst(); dbg;
+       dbg = dbg->getNext()) {
+    for (auto iter = dbg->frames.modIter(); !iter.done(); iter.next()) {
+      DebuggerFrame* frameObj = iter.get().value();
+      JS::Value slot =
+          frameObj->getReservedSlot(DebuggerFrame::WASM_CONT_FRAME_PTR_SLOT);
+      if (slot.isUndefined()) {
+        continue;
+      }
+      AbstractFramePtr fp = AbstractFramePtr::fromRaw(slot.toPrivate());
+      if (!fp.isWasmDebugFrame()) {
+        continue;
+      }
+      uintptr_t addr = reinterpret_cast<uintptr_t>(fp.asWasmDebugFrame());
+      if (!ContStackChainHasAddress(resumeBase, addr)) {
+        continue;
+      }
+      Debugger::terminateDebuggerFrame(gcx, dbg, frameObj, fp, &iter, nullptr);
+      terminatedFrames++;
+    }
+  }
+
+  // Also purge the liveEnvs/missingEnvs entries holding frame pointers into
+  // the stacks being freed: a discarded continuation never unwinds, so
+  // DebugEnvironments::onPopWasm never runs for its DebugFrames.
+  //
+  // onDiscardWasmCont cannot reuse onPopWasm's lookup into missingEnvs:
+  // we run from ContObject::finalize, and that lookup needs three barriered
+  // reads of possibly-dying cells: Instance::object(), the
+  // WeakHeapPtr<WasmFunctionScope*> in the instance's function scope map, and
+  // the WeakHeapPtr<DebugEnvironmentProxy*> value of the entry. It scans both
+  // maps by raw frame address instead.
+  //
+  // Such entries are only created through DebuggerFrame, so a frame with one
+  // was in dbg->frames and got terminated above. Unless the dying-instance
+  // pass in DebugAPI::sweepAll terminated it first, in which case traceWeak
+  // dropped the entry too (an entry keeps its WasmInstanceObject alive through
+  // WasmInstanceScope). Nothing terminated means nothing to purge.
+  if (terminatedFrames > 0) {
+    DebugEnvironments::onDiscardWasmCont(rt, [&](uintptr_t addr) {
+      return ContStackChainHasAddress(resumeBase, addr);
+    });
+  }
+}
+#endif  // ENABLE_WASM_JSPI
 
 void DebugAPI::slowPathOnNewWasmInstance(
     JSContext* cx, Handle<WasmInstanceObject*> wasmInstance) {
@@ -2604,6 +2680,11 @@ void DebugAPI::slowPathOnNewWasmInstance(
 /* static */
 bool DebugAPI::onTrap(JSContext* cx) {
   FrameIter iter(cx);
+
+  // Callers must suppress breakpoints while the frame is in the
+  // generator-resume prologue.
+  MOZ_ASSERT(!iter.isResumingGenerator());
+
   JS::AutoSaveExceptionState savedExc(cx);
   Rooted<GlobalObject*> global(cx);
   BreakpointSite* site;
@@ -2712,6 +2793,10 @@ bool DebugAPI::onTrap(JSContext* cx) {
 bool DebugAPI::onSingleStep(JSContext* cx) {
   FrameIter iter(cx);
 
+  // Callers must suppress stepping while the frame is in the generator-resume
+  // prologue.
+  MOZ_ASSERT(!iter.isResumingGenerator());
+
   // We may be stepping over a JSOp::Exception, that pushes the context's
   // pending exception for a 'catch' clause to handle. Don't let the onStep
   // handlers mess with that (other than by returning a resumption value).
@@ -2760,7 +2845,7 @@ bool DebugAPI::onSingleStep(JSContext* cx) {
         MOZ_ASSERT(&frameObj.unwrappedGenerator() == &genObj);
 
         // Live Debugger.Frames were already counted in dbg->frames loop.
-        if (frameObj.isOnStack()) {
+        if (frameObj.isOnStack(cx)) {
           continue;
         }
 
@@ -2774,8 +2859,7 @@ bool DebugAPI::onSingleStep(JSContext* cx) {
         // it had better be suspended.
         MOZ_ASSERT(genObj.isSuspended());
 
-        if (genObj.callee().hasBaseScript() &&
-            genObj.callee().baseScript() == trappingScript &&
+        if (genObj.script() == trappingScript &&
             !frameObj.getReservedSlot(DebuggerFrame::ONSTEP_HANDLER_SLOT)
                  .isUndefined()) {
           suspendedStepperCount++;
@@ -3039,64 +3123,6 @@ bool Debugger::appendAllocationSite(JSContext* cx, HandleObject obj,
   }
 
   return true;
-}
-
-bool Debugger::firePromiseHook(JSContext* cx, Hook hook, HandleObject promise) {
-  MOZ_ASSERT(hook == OnNewPromise || hook == OnPromiseSettled);
-
-  RootedObject hookObj(cx, getHook(hook));
-  MOZ_ASSERT(hookObj);
-  MOZ_ASSERT(hookObj->isCallable());
-
-  RootedValue dbgObj(cx, ObjectValue(*promise));
-  if (!wrapDebuggeeValue(cx, &dbgObj)) {
-    return false;
-  }
-
-  // Like onNewGlobalObject, the Promise hooks are infallible and the comments
-  // in |Debugger::fireNewGlobalObject| apply here as well.
-  RootedValue fval(cx, ObjectValue(*hookObj));
-  RootedValue rv(cx);
-  bool ok = js::Call(cx, fval, object, dbgObj, &rv);
-  if (ok && !rv.isUndefined()) {
-    JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
-                              JSMSG_DEBUG_RESUMPTION_VALUE_DISALLOWED);
-    ok = false;
-  }
-
-  return ok || handleUncaughtException(cx);
-}
-
-/* static */
-void Debugger::slowPathPromiseHook(JSContext* cx, Hook hook,
-                                   Handle<PromiseObject*> promise) {
-  MOZ_ASSERT(hook == OnNewPromise || hook == OnPromiseSettled);
-
-  if (hook == OnPromiseSettled) {
-    // We should be in the right compartment, but for simplicity always enter
-    // the promise's realm below.
-    cx->check(promise);
-  }
-
-  AutoRealm ar(cx, promise);
-
-  Debugger::dispatchQuietHook(
-      cx, [hook](Debugger* dbg) -> bool { return dbg->getHook(hook); },
-      [&](Debugger* dbg) -> bool {
-        return dbg->firePromiseHook(cx, hook, promise);
-      });
-}
-
-/* static */
-void DebugAPI::slowPathOnNewPromise(JSContext* cx,
-                                    Handle<PromiseObject*> promise) {
-  Debugger::slowPathPromiseHook(cx, Debugger::OnNewPromise, promise);
-}
-
-/* static */
-void DebugAPI::slowPathOnPromiseSettled(JSContext* cx,
-                                        Handle<PromiseObject*> promise) {
-  Debugger::slowPathPromiseHook(cx, Debugger::OnPromiseSettled, promise);
 }
 
 /*** Debugger code invalidation for observing execution *********************/
@@ -3368,7 +3394,8 @@ static bool UpdateExecutionObservabilityOfScriptsInZone(
 
   // Iterate through all wasm instances to find ones that need to be updated.
   for (RealmsInZoneIter r(zone); !r.done(); r.next()) {
-    for (wasm::Instance* instance : r->wasm.instances()) {
+    for (auto iter = r->wasm.instances().iter(); !iter.done(); iter.next()) {
+      wasm::Instance* instance = iter.get();
       if (!instance->debugEnabled()) {
         continue;
       }
@@ -3415,7 +3442,7 @@ void Debugger::forEachOnStackDebuggerFrame(AbstractFramePtr frame,
 
 template <typename FrameFn>
 /* static */
-void Debugger::forEachOnStackOrSuspendedDebuggerFrame(
+void Debugger::forEachOnStackOrSuspendedGeneratorDebuggerFrame(
     JSContext* cx, AbstractFramePtr frame, const JS::AutoRequireNoGC& nogc,
     FrameFn fn) {
   Rooted<AbstractGeneratorObject*> genObj(
@@ -3528,13 +3555,6 @@ Debugger::IsObserving Debugger::observesAllExecution() const {
   return NotObserving;
 }
 
-Debugger::IsObserving Debugger::observesAsmJS() const {
-  if (!allowUnobservedAsmJS) {
-    return Observing;
-  }
-  return NotObserving;
-}
-
 Debugger::IsObserving Debugger::observesWasm() const {
   if (!allowUnobservedWasm) {
     return Observing;
@@ -3635,19 +3655,6 @@ bool Debugger::updateObservesCoverageOnDebuggees(JSContext* cx,
   }
 
   return true;
-}
-
-void Debugger::updateObservesAsmJSOnDebuggees(IsObserving observing) {
-  for (auto iter = debuggees.iter(); !iter.done(); iter.next()) {
-    GlobalObject* global = iter.get();
-    Realm* realm = global->realm();
-
-    if (realm->debuggerObservesAsmJS() == observing) {
-      continue;
-    }
-
-    realm->updateDebuggerObservesAsmJS();
-  }
 }
 
 void Debugger::updateObservesWasmOnDebuggees(IsObserving observing) {
@@ -3935,15 +3942,65 @@ void DebugAPI::traceFramesWithLiveHooks(JSTracer* tracer) {
       continue;
     }
 
+#ifdef ENABLE_WASM_JSPI
+    JSContext* cx = tracer->runtime()->mainContextFromOwnThread();
+#endif
     for (auto iter = dbg->frames.iter(); !iter.done(); iter.next()) {
       HeapPtr<DebuggerFrame*>& frameobj = iter.get().value();
       MOZ_ASSERT(frameobj->isOnStackOrSuspendedWasmStack());
+#ifdef ENABLE_WASM_JSPI
+      // Skip suspended wasm stack-switching frames: they are rooted from their
+      // ContObject via traceWasmContFrame, so rooting them here too would trip
+      // checkNoRuntimeRoots at shutdown. Active ones stay on a live stack and
+      // are rooted here.
+      if (!frameobj->isOnStack(cx)) {
+        continue;
+      }
+#endif
       if (frameobj->hasAnyHooks()) {
         TraceEdge(tracer, &frameobj, "Debugger.Frame with live hooks");
       }
     }
   }
 }
+
+#ifdef ENABLE_WASM_JSPI
+void DebugAPI::traceWasmContFrame(JSTracer* tracer, JSObject* src,
+                                  wasm::DebugFrame* debugFrame,
+                                  wasm::Instance* instance) {
+  // Generic tracers (compacting, CompartmentCheck) must skip this inferred
+  // cross-compartment edge, as in slowPathTraceGeneratorFrame; the caller only
+  // invokes us while marking.
+  MOZ_ASSERT(tracer->isMarkingTracer());
+
+  JS::AutoAssertNoGC nogc;
+  AbstractFramePtr fp(debugFrame);
+  // Resolve debuggers via the frame's realm, not rt->debuggerList(): frames on
+  // one chain may span realms, and debuggerList is main-thread-only while this
+  // can run on parallel marking threads.
+  for (Realm::DebuggerVectorEntry& entry :
+       instance->realm()->getDebuggers(nogc)) {
+    Debugger* dbg = entry.dbg.unbarrieredGet();
+    // readonlyThreadsafeLookup returns the same result as lookup(); it only
+    // omits lookup()'s single-threaded ReentrancyGuard. We need that here
+    // because parallel marking threads may run this concurrently, which is
+    // safe: nothing mutates `frames` during marking. Every mutator runs on the
+    // main thread, which is paused for parallel marking, and the sole GC-phase
+    // mutator (DebugAPI::sweepAll) runs only after marking.
+    auto p = dbg->frames.readonlyThreadsafeLookup(fp);
+    if (!p) {
+      continue;
+    }
+    HeapPtr<DebuggerFrame*>& frameobj = p->value();
+    if (frameobj->hasAnyHooks()) {
+      // Cross-compartment edge (ContObject in the debuggee, Debugger.Frame in
+      // the debugger), so it can't use plain TraceEdge.
+      TraceCrossCompartmentEdge(tracer, src, &frameobj,
+                                "wasm cont Debugger.Frame with live hooks");
+    }
+  }
+}
+#endif
 
 void DebugAPI::slowPathTraceGeneratorFrame(JSTracer* tracer,
                                            AbstractGeneratorObject* generator) {
@@ -4050,7 +4107,7 @@ void Debugger::traceObject(JSTracer* trc, JSObject* obj) {
 void Debugger::trace(JSTracer* trc) {
   TraceEdge(trc, &object, "Debugger Object");
 
-  TraceNullableEdge(trc, &uncaughtExceptionHook, "hooks");
+  TraceEdge(trc, &uncaughtExceptionHook, "hooks");
 
   // Mark Debugger.Frame objects. Since the Debugger is reachable, JS could call
   // getNewestFrame and then walk the stack, so these are all reachable from JS.
@@ -4114,6 +4171,34 @@ void DebugAPI::sweepAll(JS::GCContext* gcx) {
                                            nullptr, &iter);
         }
       }
+
+#ifdef ENABLE_WASM_JSPI
+      // Wasm continuation frames whose wasm instance is dying must be
+      // terminated here, before finalization. Without this,
+      // ContObject::finalize would call onLeaveWasmCont ->
+      // DebuggerFrame::terminate, which would call
+      // IsAboutToBeFinalizedUnbarriered on the instance object - forbidden
+      // during finalization. Terminating those frames now removes them from
+      // dbg->frames so that onLeaveWasmCont will skip them.
+      for (size_t i = 0; i < dbg->wasmContFrames.length();) {
+        AbstractFramePtr fp = dbg->wasmContFrames[i];
+        wasm::Instance* inst = fp.asWasmDebugFrame()->instance();
+        if (!IsAboutToBeFinalizedUnbarriered(inst->objectUnbarriered())) {
+          i++;
+          continue;
+        }
+        auto p = dbg->frames.lookup(fp);
+        MOZ_ASSERT(p);
+        // terminateDebuggerFrame erases fp from wasmContFrames, shifting any
+        // later entries down into index i, so we don't advance i here. Assert
+        // it removed exactly the entry at i so the loop makes progress and
+        // cannot spin forever.
+        mozilla::DebugOnly<size_t> lengthBefore = dbg->wasmContFrames.length();
+        Debugger::terminateDebuggerFrame(gcx, dbg, p->value(), fp, nullptr,
+                                         nullptr);
+        MOZ_ASSERT(dbg->wasmContFrames.length() == lengthBefore - 1);
+      }
+#endif
     }
 
     // Detach dying debuggers and debuggees from each other. Since this
@@ -4188,16 +4273,7 @@ bool DebuggerWeakMap<UnbarrieredKey, Wrapper,
 }
 
 const JSClassOps DebuggerInstanceObject::classOps_ = {
-    nullptr,                // addProperty
-    nullptr,                // delProperty
-    nullptr,                // enumerate
-    nullptr,                // newEnumerate
-    nullptr,                // resolve
-    nullptr,                // mayResolve
-    nullptr,                // finalize
-    nullptr,                // call
-    nullptr,                // construct
-    Debugger::traceObject,  // trace
+    .trace = Debugger::traceObject,
 };
 
 const JSClass DebuggerInstanceObject::class_ = {
@@ -4255,14 +4331,8 @@ struct MOZ_STACK_CLASS Debugger::CallData {
   bool setShouldAvoidSideEffects();
   bool getOnNewGlobalObject();
   bool setOnNewGlobalObject();
-  bool getOnNewPromise();
-  bool setOnNewPromise();
-  bool getOnPromiseSettled();
-  bool setOnPromiseSettled();
   bool getUncaughtExceptionHook();
   bool setUncaughtExceptionHook();
-  bool getAllowUnobservedAsmJS();
-  bool setAllowUnobservedAsmJS();
   bool getAllowUnobservedWasm();
   bool setAllowUnobservedWasm();
   bool getExclusiveDebuggerOnEval();
@@ -4426,22 +4496,6 @@ bool Debugger::CallData::setOnNewScript() {
   return setHookImpl(cx, args, *dbg, OnNewScript);
 }
 
-bool Debugger::CallData::getOnNewPromise() {
-  return getHookImpl(cx, args, *dbg, OnNewPromise);
-}
-
-bool Debugger::CallData::setOnNewPromise() {
-  return setHookImpl(cx, args, *dbg, OnNewPromise);
-}
-
-bool Debugger::CallData::getOnPromiseSettled() {
-  return getHookImpl(cx, args, *dbg, OnPromiseSettled);
-}
-
-bool Debugger::CallData::setOnPromiseSettled() {
-  return setHookImpl(cx, args, *dbg, OnPromiseSettled);
-}
-
 bool Debugger::CallData::getOnEnterFrame() {
   return getHookImpl(cx, args, *dbg, OnEnterFrame);
 }
@@ -4527,27 +4581,6 @@ bool Debugger::CallData::setUncaughtExceptionHook() {
     return false;
   }
   dbg->uncaughtExceptionHook = args[0].toObjectOrNull();
-  args.rval().setUndefined();
-  return true;
-}
-
-bool Debugger::CallData::getAllowUnobservedAsmJS() {
-  args.rval().setBoolean(dbg->allowUnobservedAsmJS);
-  return true;
-}
-
-bool Debugger::CallData::setAllowUnobservedAsmJS() {
-  if (!args.requireAtLeast(cx, "Debugger.set allowUnobservedAsmJS", 1)) {
-    return false;
-  }
-  dbg->allowUnobservedAsmJS = ToBoolean(args[0]);
-
-  for (auto iter = dbg->debuggees.iter(); !iter.done(); iter.next()) {
-    GlobalObject* global = iter.get();
-    Realm* realm = global->realm();
-    realm->updateDebuggerObservesAsmJS();
-  }
-
   args.rval().setUndefined();
   return true;
 }
@@ -4917,7 +4950,8 @@ bool Debugger::construct(JSContext* cx, unsigned argc, Value* vp) {
   // Debugger.{Frame,Object,Script,Memory}.prototype in reserved slots. The
   // rest of the reserved slots are for hooks; they default to undefined.
   Rooted<DebuggerInstanceObject*> obj(
-      cx, NewTenuredObjectWithGivenProto<DebuggerInstanceObject>(cx, proto));
+      cx, NewObjectWithGivenProto<DebuggerInstanceObject>(
+              cx, proto, {.newKind = TenuredObject}));
   if (!obj) {
     return false;
   }
@@ -5083,7 +5117,6 @@ bool Debugger::addDebuggeeGlobal(JSContext* cx, Handle<GlobalObject*> global) {
   // (5)
   AutoRestoreRealmDebugMode debugModeGuard(debuggeeRealm);
   debuggeeRealm->setIsDebuggee();
-  debuggeeRealm->updateDebuggerObservesAsmJS();
   debuggeeRealm->updateDebuggerObservesWasm();
   debuggeeRealm->updateDebuggerObservesCoverage();
   if (observesAllExecution() &&
@@ -5205,7 +5238,6 @@ void Debugger::removeDebuggeeGlobal(JS::GCContext* gcx, GlobalObject* global,
     global->realm()->unsetIsDebuggee();
   } else {
     global->realm()->updateDebuggerObservesAllExecution();
-    global->realm()->updateDebuggerObservesAsmJS();
     global->realm()->updateDebuggerObservesWasm();
     global->realm()->updateDebuggerObservesCoverage();
   }
@@ -5632,7 +5664,12 @@ class MOZ_STACK_CLASS Debugger::ScriptQuery : public Debugger::QueryBase {
     // TODO: Until such time that wasm modules are real ES6 modules,
     // unconditionally consider all wasm toplevel instance scripts.
     for (auto iter = debugger->allDebuggees(); !iter.done(); iter.next()) {
-      for (wasm::Instance* instance : iter.get()->realm()->wasm.instances()) {
+      for (auto instIter = iter.get()->realm()->wasm.instances().iter();
+           !instIter.done(); instIter.next()) {
+        wasm::Instance* instance = instIter.get();
+        if (instance->codeMeta().isSelfHostedModule()) {
+          continue;
+        }
         consider(instance->object());
         if (oom) {
           ReportOutOfMemory(cx);
@@ -6071,10 +6108,31 @@ class MOZ_STACK_CLASS Debugger::SourceQuery : public Debugger::QueryBase {
       return false;
     }
 
+    // IterateScripts only finds sources reachable via a live BaseScript.
+    // For JS modules, onTopLevelEvaluationFinished clears ScriptSlot so the
+    // BaseScript can be GC'd while the ScriptSourceObject is kept alive by
+    // CyclicModuleFields. Collect those SSOs here.
+    for (auto iter = debugger->allDebuggees(); !iter.done(); iter.next()) {
+      auto siter = ObjectRealm::get(iter.get()).moduleScriptSources.iter();
+      for (; !siter.done(); siter.next()) {
+        if (ScriptSourceObject* sso = siter.get().get()) {
+          if (!sources.put(sso)) {
+            ReportOutOfMemory(cx);
+            return false;
+          }
+        }
+      }
+    }
+
     // TODO: Until such time that wasm modules are real ES6 modules,
     // unconditionally consider all wasm toplevel instance scripts.
     for (auto iter = debugger->allDebuggees(); !iter.done(); iter.next()) {
-      for (wasm::Instance* instance : iter.get()->realm()->wasm.instances()) {
+      for (auto instIter = iter.get()->realm()->wasm.instances().iter();
+           !instIter.done(); instIter.next()) {
+        wasm::Instance* instance = instIter.get();
+        if (instance->codeMeta().isSelfHostedModule()) {
+          continue;
+        }
         consider(instance->object());
         if (oom) {
           ReportOutOfMemory(cx);
@@ -6570,7 +6628,7 @@ bool Debugger::CallData::findSourceURLs() {
         // in another zone and the atom must be marked when we create a
         // reference in this zone.
         MOZ_ASSERT(v.isString() && v.toString()->isAtom());
-        cx->markAtomValue(v);
+        cx->recordRefToValue(v);
 
         if (!NewbornArrayPush(cx, result, v)) {
           return false;
@@ -6745,7 +6803,7 @@ bool Debugger::CallData::adoptFrame() {
   }
 
   Rooted<DebuggerFrame*> adoptedFrame(cx);
-  if (frameObj->isOnStack()) {
+  if (frameObj->isOnStack(cx)) {
     FrameIter iter = frameObj->getFrameIter(cx);
     if (!dbg->observesFrame(iter)) {
       JS_ReportErrorASCII(cx, "Debugger.Frame's global is not a debuggee");
@@ -6754,7 +6812,7 @@ bool Debugger::CallData::adoptFrame() {
     if (!dbg->getFrame(cx, iter, &adoptedFrame)) {
       return false;
     }
-  } else if (frameObj->isSuspended()) {
+  } else if (frameObj->isSuspendedGeneratorFrame()) {
     Rooted<AbstractGeneratorObject*> gen(cx, &frameObj->unwrappedGenerator());
     if (!dbg->observesGlobal(&gen->global())) {
       JS_ReportErrorASCII(cx, "Debugger.Frame's global is not a debuggee");
@@ -6874,8 +6932,6 @@ const JSPropertySpec Debugger::properties[] = {
     JS_DEBUG_PSGS("onExceptionUnwind", getOnExceptionUnwind,
                   setOnExceptionUnwind),
     JS_DEBUG_PSGS("onNewScript", getOnNewScript, setOnNewScript),
-    JS_DEBUG_PSGS("onNewPromise", getOnNewPromise, setOnNewPromise),
-    JS_DEBUG_PSGS("onPromiseSettled", getOnPromiseSettled, setOnPromiseSettled),
     JS_DEBUG_PSGS("onEnterFrame", getOnEnterFrame, setOnEnterFrame),
     JS_DEBUG_PSGS("onNativeCall", getOnNativeCall, setOnNativeCall),
     JS_DEBUG_PSGS("shouldAvoidSideEffects", getShouldAvoidSideEffects,
@@ -6884,8 +6940,6 @@ const JSPropertySpec Debugger::properties[] = {
                   setOnNewGlobalObject),
     JS_DEBUG_PSGS("uncaughtExceptionHook", getUncaughtExceptionHook,
                   setUncaughtExceptionHook),
-    JS_DEBUG_PSGS("allowUnobservedAsmJS", getAllowUnobservedAsmJS,
-                  setAllowUnobservedAsmJS),
     JS_DEBUG_PSGS("allowUnobservedWasm", getAllowUnobservedWasm,
                   setAllowUnobservedWasm),
     JS_DEBUG_PSGS("collectCoverageInfo", getCollectCoverageInfo,
@@ -7135,7 +7189,7 @@ void Debugger::suspendGeneratorDebuggerFrames(JSContext* cx,
         MOZ_ASSERT(p->value() == dbgFrame);
 #endif
 
-        dbgFrame->suspend(gcx);
+        dbgFrame->suspendGeneratorFrame(gcx);
       });
 }
 
@@ -7144,7 +7198,7 @@ void Debugger::terminateDebuggerFrames(JSContext* cx, AbstractFramePtr frame) {
   JS::GCContext* gcx = cx->gcContext();
 
   JS::AutoAssertNoGC nogc;
-  forEachOnStackOrSuspendedDebuggerFrame(
+  forEachOnStackOrSuspendedGeneratorDebuggerFrame(
       cx, frame, nogc, [&](Debugger* dbg, DebuggerFrame* dbgFrame) {
         Debugger::terminateDebuggerFrame(gcx, dbg, dbgFrame, frame);
       });
@@ -7176,6 +7230,10 @@ void Debugger::terminateDebuggerFrame(
     } else {
       dbg->frames.remove(frame);
     }
+#ifdef ENABLE_WASM_JSPI
+    dbg->wasmContFrames.eraseIf(
+        [&frame](const AbstractFramePtr& fp) { return fp == frame; });
+#endif
   }
 
   if (dbgFrame->hasGeneratorInfo()) {
@@ -7314,7 +7372,7 @@ extern JS_PUBLIC_API bool JS_DefineDebuggerObject(JSContext* cx,
                                                   HandleObject obj) {
   Rooted<NativeObject*> debugCtor(cx), debugProto(cx), frameProto(cx),
       scriptProto(cx), sourceProto(cx), objectProto(cx), envProto(cx),
-      memoryProto(cx);
+      memoryProto(cx), privateNameProto(cx);
   RootedObject debuggeeWouldRunProto(cx);
   RootedValue debuggeeWouldRunCtor(cx);
   Handle<GlobalObject*> global = obj.as<GlobalObject>();
@@ -7359,6 +7417,11 @@ extern JS_PUBLIC_API bool JS_DefineDebuggerObject(JSContext* cx,
     return false;
   }
 
+  privateNameProto = DebuggerPrivateName::initClass(cx, global, debugCtor);
+  if (!privateNameProto) {
+    return false;
+  }
+
   debuggeeWouldRunProto = GlobalObject::getOrCreateCustomErrorPrototype(
       cx, global, JSEXN_DEBUGGEEWOULDRUN);
   if (!debuggeeWouldRunProto) {
@@ -7385,6 +7448,8 @@ extern JS_PUBLIC_API bool JS_DefineDebuggerObject(JSContext* cx,
                               ObjectValue(*envProto));
   debugProto->setReservedSlot(Debugger::JSSLOT_DEBUG_MEMORY_PROTO,
                               ObjectValue(*memoryProto));
+  debugProto->setReservedSlot(Debugger::JSSLOT_DEBUG_PRIVATE_NAME_PROTO,
+                              ObjectValue(*privateNameProto));
   return true;
 }
 
@@ -7588,14 +7653,25 @@ JS_PUBLIC_API bool FireOnGarbageCollectionHook(
     }
   }
 
+  // Preserve the debuggee's microtask event queue while we run the hooks, so
+  // the debugger's microtask checkpoints don't run from the debuggee's
+  // microtasks, and vice versa.
+  JS::AutoDebuggerJobQueueInterruption adjqi;
+  if (!adjqi.init(cx)) {
+    cx->clearPendingException();
+    return false;
+  }
+
   for (; !triggered.empty(); triggered.popBack()) {
     Debugger* dbg = Debugger::fromJSObject(triggered.back());
+    EnterDebuggeeNoExecute nx(cx, *dbg, adjqi);
 
     if (dbg->getHook(Debugger::OnGarbageCollection)) {
       (void)dbg->enterDebuggerHook(cx, [&]() -> bool {
         return dbg->fireOnGarbageCollectionHook(cx, data);
       });
       MOZ_ASSERT(!cx->isExceptionPending());
+      adjqi.runJobs();
     }
   }
 

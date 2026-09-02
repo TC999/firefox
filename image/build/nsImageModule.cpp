@@ -5,17 +5,16 @@
 
 #include "nsImageModule.h"
 
-#include "mozilla/ModuleUtils.h"
-#include "mozilla/Preferences.h"
-#include "mozilla/StaticPrefs_image.h"
-
 #include "DecodePool.h"
 #include "ImageFactory.h"
-#include "nsICategoryManager.h"
-#include "nsServiceManagerUtils.h"
 #include "ShutdownTracker.h"
 #include "SurfaceCache.h"
 #include "imgLoader.h"
+#include "mozilla/ModuleUtils.h"
+#include "mozilla/Preferences.h"
+#include "mozilla/StaticPrefs_image.h"
+#include "nsICategoryManager.h"
+#include "nsServiceManagerUtils.h"
 
 using namespace mozilla::image;
 
@@ -36,7 +35,7 @@ static void UpdateDocumentViewerRegistration(const char* aPref, void* aData) {
 
   static nsLiteralCString kCategory = "Gecko-Content-Viewers"_ns;
   static nsLiteralCString kContractId =
-      "@mozilla.org/content/plugin/document-loader-factory;1"_ns;
+      "@mozilla.org/content/document-loader-factory;1"_ns;
 
   if (cookie->mIsEnabled()) {
     catMan->AddCategoryEntry(kCategory, cookie->mMimeType, kContractId,

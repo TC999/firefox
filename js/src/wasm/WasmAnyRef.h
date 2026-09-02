@@ -269,10 +269,7 @@ class AnyRef {
   // Box a JS Value that needs boxing.
   static JSObject* boxValue(JSContext* cx, JS::HandleValue value);
 
-  bool operator==(const AnyRef& rhs) const {
-    return this->value_ == rhs.value_;
-  }
-  bool operator!=(const AnyRef& rhs) const { return !(*this == rhs); }
+  bool operator==(const AnyRef& rhs) const = default;
 
   // Check if this AnyRef is the invalid value.
   bool isInvalid() const { return *this == AnyRef::invalid(); }
@@ -353,6 +350,14 @@ class AnyRef {
   // Get the raw value for diagnostics.
   uintptr_t rawValue() const { return value_; }
 
+  // Relaxed atomic load and store operations on an AnyRef.
+  AnyRef atomicGet() const {
+    return AnyRef(__atomic_load_n(&value_, __ATOMIC_RELAXED));
+  }
+  void atomicSet(const AnyRef& other) {
+    __atomic_store_n(&value_, other.value_, __ATOMIC_RELAXED);
+  }
+
   // Internal details of the boxing format used by WasmStubs.cpp
   static const JSClass* valueBoxClass();
   static size_t valueBoxOffsetOfValue();
@@ -375,6 +380,7 @@ class WrappedPtrOperations<wasm::AnyRef, Wrapper> {
   bool isI31() const { return value().isI31(); }
   bool isJSObject() const { return value().isJSObject(); }
   bool isJSString() const { return value().isJSString(); }
+  JS::Value toJSValue() const { return value().toJSValue(); }
   JSObject& toJSObject() const { return value().toJSObject(); }
   JSString* toJSString() const { return value().toJSString(); }
 };

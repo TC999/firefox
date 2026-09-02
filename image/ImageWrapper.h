@@ -5,8 +5,8 @@
 #ifndef mozilla_image_ImageWrapper_h
 #define mozilla_image_ImageWrapper_h
 
-#include "mozilla/MemoryReporting.h"
 #include "Image.h"
+#include "mozilla/MemoryReporting.h"
 
 namespace mozilla {
 namespace image {
@@ -55,7 +55,7 @@ class ImageWrapper : public Image {
     MOZ_ASSERT(aInnerImage, "Need an image to wrap");
   }
 
-  virtual ~ImageWrapper() {}
+  virtual ~ImageWrapper() = default;
 
   /**
    * Returns a weak reference to the inner image wrapped by this ImageWrapper.

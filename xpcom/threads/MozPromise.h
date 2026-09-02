@@ -404,7 +404,7 @@ class MozPromise : public MozPromiseBase {
           CopyableTArray<ResolveValueType>(), __func__);
     }
 
-    RefPtr<AllPromiseHolder> holder = new AllPromiseHolder(aPromises.Length());
+    RefPtr holder = MakeRefPtr<AllPromiseHolder>(aPromises.Length());
     RefPtr<AllPromiseType> promise = holder->Promise();
     for (size_t i = 0; i < aPromises.Length(); ++i) {
       aPromises[i]->Then(
@@ -427,8 +427,7 @@ class MozPromise : public MozPromiseBase {
           CopyableTArray<ResolveOrRejectValue>(), __func__);
     }
 
-    RefPtr<AllSettledPromiseHolder> holder =
-        new AllSettledPromiseHolder(aPromises.Length());
+    RefPtr holder = MakeRefPtr<AllSettledPromiseHolder>(aPromises.Length());
     RefPtr<AllSettledPromiseType> promise = holder->Promise();
     for (size_t i = 0; i < aPromises.Length(); ++i) {
       aPromises[i]->Then(aProcessingTarget, __func__,
@@ -683,14 +682,19 @@ class MozPromise : public MozPromiseBase {
     }
   }
 
-  template <typename PromiseType>
+  template <bool SupportChaining, typename PromiseType>
   static void MaybeChain(PromiseType* aFrom,
                          RefPtr<typename PromiseType::Private>&& aTo) {
-    if (aTo) {
+    if constexpr (SupportChaining) {
+      if (aTo) {
+        MOZ_RELEASE_ASSERT(
+            aFrom,
+            "Can't do promise chaining for a non-promise-returning method.");
+        aFrom->ChainTo(aTo.forget(), "<chained completion promise>");
+      }
+    } else {
       MOZ_DIAGNOSTIC_ASSERT(
-          aFrom,
-          "Can't do promise chaining for a non-promise-returning method.");
-      aFrom->ChainTo(aTo.forget(), "<chained completion promise>");
+          !aTo, "A completion promise requires a promise-returning callback.");
     }
   }
 
@@ -755,7 +759,8 @@ class MozPromise : public MozPromiseBase {
       // which may or may not be ok.
       mThisVal = nullptr;
 
-      MaybeChain<PromiseType>(result, std::move(mCompletionPromise));
+      MaybeChain<SupportChaining, PromiseType>(result,
+                                               std::move(mCompletionPromise));
     }
 
    private:
@@ -811,7 +816,8 @@ class MozPromise : public MozPromiseBase {
       // which may or may not be ok.
       mThisVal = nullptr;
 
-      MaybeChain<PromiseType>(result, std::move(mCompletionPromise));
+      MaybeChain<SupportChaining, PromiseType>(result,
+                                               std::move(mCompletionPromise));
     }
 
    private:
@@ -883,7 +889,8 @@ class MozPromise : public MozPromiseBase {
       mResolveFunction.reset();
       mRejectFunction.reset();
 
-      MaybeChain<PromiseType>(result, std::move(mCompletionPromise));
+      MaybeChain<SupportChaining, PromiseType>(result,
+                                               std::move(mCompletionPromise));
     }
 
    private:
@@ -945,7 +952,8 @@ class MozPromise : public MozPromiseBase {
       // ThenValue, which may or may not be ok.
       mResolveRejectFunction.reset();
 
-      MaybeChain<PromiseType>(result, std::move(mCompletionPromise));
+      MaybeChain<SupportChaining, PromiseType>(result,
+                                               std::move(mCompletionPromise));
     }
 
    private:
@@ -1742,7 +1750,7 @@ class ProxyRunnable : public CancelableRunnable {
 
 template <typename... Storages, typename PromiseType, typename ThisType,
           typename... ArgTypes, typename... ActualArgTypes>
-static RefPtr<PromiseType> InvokeAsyncImpl(
+RefPtr<PromiseType> InvokeAsyncImpl(
     nsISerialEventTarget* aTarget, ThisType* aThisVal, StaticString aCallerName,
     RefPtr<PromiseType> (ThisType::*aMethod)(ArgTypes...),
     ActualArgTypes&&... aArgs) {
@@ -1782,7 +1790,7 @@ constexpr bool Any(T1 a, Ts... aOthers) {
 template <typename... Storages, typename PromiseType, typename ThisType,
           typename... ArgTypes, typename... ActualArgTypes,
           std::enable_if_t<sizeof...(Storages) != 0, int> = 0>
-static RefPtr<PromiseType> InvokeAsync(
+RefPtr<PromiseType> InvokeAsync(
     nsISerialEventTarget* aTarget, ThisType* aThisVal, StaticString aCallerName,
     RefPtr<PromiseType> (ThisType::*aMethod)(ArgTypes...),
     ActualArgTypes&&... aArgs) {
@@ -1801,7 +1809,7 @@ static RefPtr<PromiseType> InvokeAsync(
 template <typename... Storages, typename PromiseType, typename ThisType,
           typename... ArgTypes, typename... ActualArgTypes,
           std::enable_if_t<sizeof...(Storages) == 0, int> = 0>
-static RefPtr<PromiseType> InvokeAsync(
+RefPtr<PromiseType> InvokeAsync(
     nsISerialEventTarget* aTarget, ThisType* aThisVal, StaticString aCallerName,
     RefPtr<PromiseType> (ThisType::*aMethod)(ArgTypes...),
     ActualArgTypes&&... aArgs) {
@@ -1856,8 +1864,8 @@ constexpr static bool IsRefPtrMozPromise<RefPtr<MozPromise<T, U, B>>> = true;
 // Invoke a function object (e.g., lambda) asynchronously.
 // Return a promise that the function should eventually resolve or reject.
 template <typename Function>
-static auto InvokeAsync(nsISerialEventTarget* aTarget, StaticString aCallerName,
-                        Function&& aFunction) -> decltype(aFunction()) {
+auto InvokeAsync(nsISerialEventTarget* aTarget, StaticString aCallerName,
+                 Function&& aFunction) -> decltype(aFunction()) {
   static_assert(!std::is_lvalue_reference_v<Function>,
                 "Function object must not be passed by lvalue-ref (to avoid "
                 "unplanned copies); Consider move()ing the object.");

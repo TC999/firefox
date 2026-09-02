@@ -3,13 +3,14 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "mozilla/image/ImageUtils.h"
+
 #include "DecodePool.h"
 #include "Decoder.h"
 #include "DecoderFactory.h"
 #include "IDecodingTask.h"
 #include "mozilla/AppShutdown.h"
-#include "mozilla/gfx/2D.h"
 #include "mozilla/Logging.h"
+#include "mozilla/gfx/2D.h"
 #include "nsNetUtil.h"
 #include "nsStreamUtils.h"
 
@@ -27,7 +28,9 @@ class AnonymousDecoderTask : public IDecodingTask {
 
   AnonymousDecoderTask(RefPtr<Decoder>&& aDecoder,
                        ThreadSafeWeakPtr<AnonymousDecoder>&& aOwner)
-      : mDecoder(std::move(aDecoder)), mOwner(std::move(aOwner)) {}
+      : mOwner(std::move(aOwner)),
+        mDecoderMutex("AnonymousDecoderTask::mDecoderMutex"),
+        mDecoder(std::move(aDecoder)) {}
 
   bool ShouldPreferSyncRun() const final { return false; }
 
@@ -62,17 +65,22 @@ class AnonymousDecoderTask : public IDecodingTask {
   void Run() final {
     bool resume = true;
     while (!mOwner.IsDead() && resume) {
-      LexerResult result = mDecoder->Decode(WrapNotNull(this));
-      if (result == LexerResult(Yield::NEED_MORE_DATA)) {
-        MOZ_LOG(sLog, LogLevel::Debug,
-                ("[%p] AnonymousDecoderTask::Run -- need more data", this));
-        MOZ_ASSERT(result == LexerResult(Yield::NEED_MORE_DATA));
-        OnNeedMoreData();
-        return;
+      LexerResult result(TerminalState::FAILURE);
+      RefPtr<imgFrame> frame;
+      {
+        MutexAutoLock lock(mDecoderMutex);
+        PrepareDecoder();
+        result = mDecoder->Decode(WrapNotNull(this));
+        if (result == LexerResult(Yield::NEED_MORE_DATA)) {
+          MOZ_LOG(sLog, LogLevel::Debug,
+                  ("[%p] AnonymousDecoderTask::Run -- need more data", this));
+          OnNeedMoreData();
+          return;
+        }
+        frame = mDecoder->GetCurrentFrame();
       }
 
       // Check if we have a new frame to process.
-      RefPtr<imgFrame> frame = mDecoder->GetCurrentFrame();
       if (frame) {
         RefPtr<gfx::SourceSurface> surface = frame->GetSourceSurface();
         if (surface) {
@@ -88,7 +96,10 @@ class AnonymousDecoderTask : public IDecodingTask {
       if (result.is<TerminalState>()) {
         MOZ_LOG(sLog, LogLevel::Debug,
                 ("[%p] AnonymousDecoderTask::Run -- complete", this));
-        OnComplete(result == LexerResult(TerminalState::SUCCESS));
+        {
+          MutexAutoLock lock(mDecoderMutex);
+          OnComplete(result == LexerResult(TerminalState::SUCCESS));
+        }
         break;
       }
 
@@ -99,7 +110,9 @@ class AnonymousDecoderTask : public IDecodingTask {
  protected:
   virtual ~AnonymousDecoderTask() = default;
 
-  virtual void OnNeedMoreData() {}
+  virtual void PrepareDecoder() MOZ_REQUIRES(mDecoderMutex) {}
+
+  virtual void OnNeedMoreData() MOZ_REQUIRES(mDecoderMutex) {}
 
   // Returns true if the caller should continue decoding more frames if
   // possible.
@@ -109,10 +122,11 @@ class AnonymousDecoderTask : public IDecodingTask {
     return true;
   }
 
-  virtual void OnComplete(bool aSuccess) = 0;
+  virtual void OnComplete(bool aSuccess) MOZ_REQUIRES(mDecoderMutex) = 0;
 
-  RefPtr<Decoder> mDecoder;
   ThreadSafeWeakPtr<AnonymousDecoder> mOwner;
+  Mutex mDecoderMutex;
+  RefPtr<Decoder> mDecoder MOZ_GUARDED_BY(mDecoderMutex);
 };
 
 class AnonymousMetadataDecoderTask final : public AnonymousDecoderTask {
@@ -122,7 +136,7 @@ class AnonymousMetadataDecoderTask final : public AnonymousDecoderTask {
       : AnonymousDecoderTask(std::move(aDecoder), std::move(aOwner)) {}
 
  protected:
-  void OnComplete(bool aSuccess) override {
+  void OnComplete(bool aSuccess) override MOZ_REQUIRES(mDecoderMutex) {
     RefPtr<AnonymousDecoder> owner(mOwner);
     if (!owner) {
       return;
@@ -145,7 +159,7 @@ class AnonymousFrameCountDecoderTask final : public AnonymousDecoderTask {
       : AnonymousDecoderTask(std::move(aDecoder), std::move(aOwner)) {}
 
  protected:
-  void UpdateFrameCount(bool aComplete) {
+  void UpdateFrameCount(bool aComplete) MOZ_REQUIRES(mDecoderMutex) {
     RefPtr<AnonymousDecoder> owner(mOwner);
     if (!owner) {
       return;
@@ -156,9 +170,11 @@ class AnonymousFrameCountDecoderTask final : public AnonymousDecoderTask {
     owner->OnFrameCount(frameCount, aComplete);
   }
 
-  void OnNeedMoreData() override { UpdateFrameCount(/* aComplete */ false); }
+  void OnNeedMoreData() override MOZ_REQUIRES(mDecoderMutex) {
+    UpdateFrameCount(/* aComplete */ false);
+  }
 
-  void OnComplete(bool aSuccess) override {
+  void OnComplete(bool aSuccess) override MOZ_REQUIRES(mDecoderMutex) {
     UpdateFrameCount(/* aComplete */ true);
   }
 };
@@ -170,12 +186,17 @@ class AnonymousFramesDecoderTask final : public AnonymousDecoderTask {
       : AnonymousDecoderTask(std::move(aDecoder), std::move(aOwner)) {}
 
   void SetOutputSize(const OrientedIntSize& aSize) {
-    if (mDecoder) {
-      mDecoder->SetOutputSize(aSize);
-    }
+    mPendingOutputSize = Some(aSize);
   }
 
  protected:
+  void PrepareDecoder() override MOZ_REQUIRES(mDecoderMutex) {
+    if (mPendingOutputSize) {
+      mDecoder->SetOutputSize(*mPendingOutputSize);
+      mPendingOutputSize = Nothing();
+    }
+  }
+
   bool OnFrameAvailable(RefPtr<imgFrame>&& aFrame,
                         RefPtr<gfx::SourceSurface>&& aSurface) override {
     RefPtr<AnonymousDecoder> owner(mOwner);
@@ -186,7 +207,7 @@ class AnonymousFramesDecoderTask final : public AnonymousDecoderTask {
     return owner->OnFrameAvailable(std::move(aFrame), std::move(aSurface));
   }
 
-  void OnComplete(bool aSuccess) override {
+  void OnComplete(bool aSuccess) override MOZ_REQUIRES(mDecoderMutex) {
     RefPtr<AnonymousDecoder> owner(mOwner);
     if (!owner) {
       return;
@@ -194,6 +215,9 @@ class AnonymousFramesDecoderTask final : public AnonymousDecoderTask {
 
     owner->OnFramesComplete();
   }
+
+ private:
+  Maybe<OrientedIntSize> mPendingOutputSize;
 };
 
 class AnonymousDecoderImpl final : public AnonymousDecoder {
@@ -305,7 +329,8 @@ class AnonymousDecoderImpl final : public AnonymousDecoder {
              this, size.width, size.height, mMetadataResult.mRepetitions,
              mMetadataResult.mAnimated));
 
-    if (mOutputSize && !mMetadataResult.mAnimated && mFramesTask) {
+    if (mOutputSize && !mMetadataResult.mAnimated && mFramesTask &&
+        !mFramesTaskRunning) {
       if (mOutputSize->width <= size.width &&
           mOutputSize->height <= size.height) {
         MOZ_LOG(
@@ -322,12 +347,7 @@ class AnonymousDecoderImpl final : public AnonymousDecoder {
       }
     }
 
-    if (!mMetadataResult.mAnimated) {
-      mMetadataResult.mFrameCount = 1;
-      mMetadataResult.mFrameCountComplete = true;
-      mMetadataTask = nullptr;
-      mFrameCountTask = nullptr;
-    } else if (mFrameCountTask && !mFrameCountTaskRunning) {
+    if (mFrameCountTask && !mFrameCountTaskRunning) {
       MOZ_LOG(
           sLog, LogLevel::Debug,
           ("[%p] AnonymousDecoderImpl::OnMetadata -- start frame count task",
@@ -365,6 +385,17 @@ class AnonymousDecoderImpl final : public AnonymousDecoder {
     if (mFrameCount < aFrameCount) {
       mFrameCount = aFrameCount;
       resolve = true;
+    }
+
+    // If the frame count task discovered more than one frame, the image is
+    // actually animated even if the metadata decoder missed it (e.g. a GIF
+    // whose first frame has delay_time=0).
+    if (mFrameCount > 1 && !mMetadataResult.mAnimated) {
+      MOZ_LOG(sLog, LogLevel::Debug,
+              ("[%p] AnonymousDecoderImpl::OnFrameCount -- discovered "
+               "animation, frameCount %u",
+               this, mFrameCount));
+      mMetadataResult.mAnimated = true;
     }
 
     // If metadata completing is waiting on an updated frame count, resolve it.

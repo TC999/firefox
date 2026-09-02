@@ -121,6 +121,10 @@ bool jit::InitializeJit() {
   RVFlags::Init();
 #endif
 
+#ifdef JS_CODEGEN_LOONG64
+  LOONG64Flags::Init();
+#endif
+
 #ifndef JS_CODEGEN_NONE
   MOZ_ASSERT(js::jit::CPUFlagsHaveBeenComputed());
 #endif
@@ -131,8 +135,10 @@ bool jit::InitializeJit() {
   if (!MacroAssembler::SupportsFloatingPoint()) {
     JitOptions.disableJitBackend = true;
   }
-  JitOptions.supportsUnalignedAccesses =
-      MacroAssembler::SupportsUnalignedAccesses();
+
+  bool supportsUnaligned = MacroAssembler::SupportsUnalignedAccesses();
+  JitOptions.supportsUnalignedAccesses = supportsUnaligned;
+  JitOptions.enable_regexp_unaligned_accesses = supportsUnaligned;
 
   if (HasJitBackend()) {
     if (!InitProcessExecutableMemory()) {

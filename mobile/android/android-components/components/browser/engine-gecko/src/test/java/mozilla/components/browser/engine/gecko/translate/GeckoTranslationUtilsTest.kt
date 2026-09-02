@@ -5,6 +5,8 @@
 package mozilla.components.browser.engine.gecko.translate
 
 import android.os.Looper
+import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlinx.coroutines.test.runTest
 import mozilla.components.browser.engine.gecko.translate.GeckoTranslationUtils.intoTranslationError
 import mozilla.components.concept.engine.translate.LanguageSetting
@@ -16,22 +18,22 @@ import mozilla.components.concept.engine.translate.TranslationError
 import org.junit.Assert
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.mozilla.geckoview.GeckoResult
 import org.mozilla.geckoview.TranslationsController.Language
+import org.mozilla.geckoview.TranslationsController.RuntimeTranslation.LanguageModel as GeckoViewLanguageModel
+import org.mozilla.geckoview.TranslationsController.RuntimeTranslation.TranslationSupport as GeckoViewTranslationSupport
 import org.mozilla.geckoview.TranslationsController.TranslationsException
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
-import org.mozilla.geckoview.TranslationsController.RuntimeTranslation.LanguageModel as GeckoViewLanguageModel
-import org.mozilla.geckoview.TranslationsController.RuntimeTranslation.TranslationSupport as GeckoViewTranslationSupport
 
 /**
- * Creates a successfully completed [GeckoResult] for any type [T].
- * This is a convenience wrapper around GeckoResult.fromValue() for use in tests.
+ * Creates a successfully completed [GeckoResult] for any type [T]. This is a convenience wrapper around
+ * GeckoResult.fromValue() for use in tests.
+ *
  * @param T The type of the value in the GeckoResult.
  * @param value The value to wrap in the successful GeckoResult. Can be null if T is nullable.
  * @return A successfully completed GeckoResult.
@@ -41,8 +43,9 @@ fun <T> successGeckoResult(value: T): GeckoResult<T> {
 }
 
 /**
- * Creates an exceptionally completed [GeckoResult] for any type [T].
- * This is a convenience wrapper around GeckoResult.fromException() for use in tests.
+ * Creates an exceptionally completed [GeckoResult] for any type [T]. This is a convenience wrapper around
+ * GeckoResult.fromException() for use in tests.
+ *
  * @param T The type the GeckoResult would have held if successful.
  * @param exception The throwable to wrap in the exceptional GeckoResult.
  * @return An exceptionally completed GeckoResult.
@@ -55,9 +58,9 @@ fun <T> exceptionalGeckoResult(exception: Throwable): GeckoResult<T> {
 class GeckoTranslationUtilsTest {
 
     /**
-     * Awaits the completion of a [GeckoResult] and executes provided callbacks for success or error.
-     * This helper is intended for use in Robolectric tests within a coroutine scope (e.g., `runTest`).
-     * It ensures that Robolectric's main looper is idled to process GeckoResult's callbacks.
+     * Awaits the completion of a [GeckoResult] and executes provided callbacks for success or error. This helper is
+     * intended for use in Robolectric tests within a coroutine scope (e.g., `runTest`). It ensures that Robolectric's
+     * main looper is idled to process GeckoResult's callbacks.
      *
      * @param T The type of the value in the GeckoResult.
      * @param onSuccess A lambda to execute if the GeckoResult completes successfully. Receives the result value.
@@ -89,23 +92,21 @@ class GeckoTranslationUtilsTest {
     @Test
     fun `intoTranslationError maps TranslationsException correctly`() {
         val unknownCode = 999
-        val geckoException =
-            TranslationsException(TranslationsException.ERROR_MODEL_COULD_NOT_DOWNLOAD)
-        val unknownGeckoException =
-            TranslationsException(unknownCode) // A code not explicitly mapped
+        val geckoException = TranslationsException(TranslationsException.ERROR_MODEL_COULD_NOT_DOWNLOAD)
+        val unknownGeckoException = TranslationsException(unknownCode) // A code not explicitly mapped
         val genericException = RuntimeException("Some other error")
 
         val error1 = geckoException.intoTranslationError()
-        assertTrue(error1 is TranslationError.ModelCouldNotDownloadError)
-        assertEquals(geckoException, (error1 as TranslationError.ModelCouldNotDownloadError).cause)
+        assertIs<TranslationError.ModelCouldNotDownloadError>(error1)
+        assertEquals(geckoException, error1.cause)
 
         val error2 = unknownGeckoException.intoTranslationError()
-        assertTrue(error2 is TranslationError.UnknownError)
-        assertEquals(unknownGeckoException, (error2 as TranslationError.UnknownError).cause)
+        assertIs<TranslationError.UnknownError>(error2)
+        assertEquals(unknownGeckoException, error2.cause)
 
         val error3 = genericException.intoTranslationError()
-        assertTrue(error3 is TranslationError.UnknownError)
-        assertEquals(genericException, (error3 as TranslationError.UnknownError).cause)
+        assertIs<TranslationError.UnknownError>(error3)
+        assertEquals(genericException, error3.cause)
     }
 
     @Test
@@ -119,18 +120,18 @@ class GeckoTranslationUtilsTest {
             var onErrorCalled = false
 
             val geckoResult: GeckoResult<List<GeckoViewLanguageModel>> =
-            GeckoResult.allOf(
-                GeckoResult.fromValue(english),
-                GeckoResult.fromValue(deutsch),
-                GeckoResult.fromValue(french),
-            )
+                GeckoResult.allOf(
+                    GeckoResult.fromValue(english),
+                    GeckoResult.fromValue(deutsch),
+                    GeckoResult.fromValue(french),
+                )
 
             val mappingResult = GeckoTranslationUtils.mapGeckoViewLanguageModels(geckoResult)
 
             mappingResult.awaitAndProcess(
                 onSuccess = { languageList ->
                     onSuccessCalled = true
-                    assertNotNull(languageList!!)
+                    assertNotNull(languageList)
                     assertEquals(3, languageList.size)
                     assertEquals("en", languageList[0].language?.code)
                     assertEquals("de", languageList[1].language?.code)
@@ -170,9 +171,7 @@ class GeckoTranslationUtilsTest {
                 GeckoResult.allOf(
                     successGeckoResult(english),
                     successGeckoResult(deutsch),
-                    exceptionalGeckoResult(
-                        RuntimeException("Some error"),
-                    ),
+                    exceptionalGeckoResult(RuntimeException("Some error")),
                     successGeckoResult(french),
                 )
 
@@ -185,7 +184,7 @@ class GeckoTranslationUtilsTest {
                 },
                 onError = { throwable ->
                     onErrorCalled = true
-                    assertTrue(throwable is RuntimeException)
+                    assertIs<RuntimeException>(throwable)
                     assertEquals("Some error", throwable.message)
                     GeckoResult<Void>()
                 },
@@ -197,10 +196,11 @@ class GeckoTranslationUtilsTest {
 
     @Test
     fun `mapGeckoTranslationSupport maps successfully`() = runTest {
-        val gvSupport = GeckoViewTranslationSupport(
-            listOf(Language("en", "English"), Language("es", "Español")),
-            listOf(Language("de", "Deutsch"), Language("fr", "Français")),
-        )
+        val gvSupport =
+            GeckoViewTranslationSupport(
+                listOf(Language("en", "English"), Language("es", "Español")),
+                listOf(Language("de", "Deutsch"), Language("fr", "Français")),
+            )
         val sourceResult = successGeckoResult(gvSupport)
         val mappingResult = GeckoTranslationUtils.mapGeckoTranslationSupport(sourceResult)
 
@@ -211,7 +211,7 @@ class GeckoTranslationUtilsTest {
             onSuccess = { translationSupport ->
                 onSuccessCalled = true
 
-                assertNotNull(translationSupport!!)
+                assertNotNull(translationSupport)
 
                 assertEquals(2, translationSupport.fromLanguages?.size)
                 assertEquals("en", translationSupport.fromLanguages?.get(0)?.code)
@@ -243,7 +243,7 @@ class GeckoTranslationUtilsTest {
         mappingResult.awaitAndProcess(
             onSuccess = { translationSupport ->
                 onSuccessCalled = true
-                assertNotNull(translationSupport!!)
+                assertNotNull(translationSupport)
                 assertTrue(translationSupport.fromLanguages?.isEmpty() == true)
                 assertTrue(translationSupport.toLanguages?.isEmpty() == true)
             },
@@ -257,38 +257,37 @@ class GeckoTranslationUtilsTest {
     }
 
     @Test
-    fun `mapGeckoTranslationSupport propagates error when input GeckoResult is exceptional`() =
-        runTest {
-            val underlyingException = RuntimeException("Source GeckoResult failed")
-            val exceptionalSourceResult: GeckoResult<GeckoViewTranslationSupport> =
-                exceptionalGeckoResult(underlyingException)
-            val mappingResult =
-                GeckoTranslationUtils.mapGeckoTranslationSupport(exceptionalSourceResult)
+    fun `mapGeckoTranslationSupport propagates error when input GeckoResult is exceptional`() = runTest {
+        val underlyingException = RuntimeException("Source GeckoResult failed")
+        val exceptionalSourceResult: GeckoResult<GeckoViewTranslationSupport> =
+            exceptionalGeckoResult(underlyingException)
+        val mappingResult = GeckoTranslationUtils.mapGeckoTranslationSupport(exceptionalSourceResult)
 
-            var onSuccessCalled = false
-            var onErrorCalled = false
+        var onSuccessCalled = false
+        var onErrorCalled = false
 
-            mappingResult.awaitAndProcess(
-                onSuccess = {
-                    onSuccessCalled = true
-                    fail("onSuccess should not be called")
-                },
-                onError = { error ->
-                    onErrorCalled = true
-                    assertEquals(underlyingException, error)
-                },
-            )
-            assertFalse("onSuccessCalled should be false", onSuccessCalled)
-            assertTrue("onErrorCalled should be true", onErrorCalled)
-        }
+        mappingResult.awaitAndProcess(
+            onSuccess = {
+                onSuccessCalled = true
+                fail("onSuccess should not be called")
+            },
+            onError = { error ->
+                onErrorCalled = true
+                assertEquals(underlyingException, error)
+            },
+        )
+        assertFalse("onSuccessCalled should be false", onSuccessCalled)
+        assertTrue("onErrorCalled should be true", onErrorCalled)
+    }
 
     @Test
     fun `buildGeckoModelManagementOptions builds correctly`() {
-        val options = ModelManagementOptions(
-            languageToManage = "en",
-            operation = ModelOperation.DELETE,
-            operationLevel = OperationLevel.ALL,
-        )
+        val options =
+            ModelManagementOptions(
+                languageToManage = "en",
+                operation = ModelOperation.DELETE,
+                operationLevel = OperationLevel.ALL,
+            )
         val gvOptions = GeckoTranslationUtils.buildGeckoModelManagementOptions(options)
 
         assertEquals("delete", gvOptions.operation)
@@ -298,10 +297,11 @@ class GeckoTranslationUtilsTest {
 
     @Test
     fun `buildGeckoModelManagementOptions builds correctly without languageToManage`() {
-        val options = ModelManagementOptions(
-            operation = ModelOperation.DELETE,
-            operationLevel = OperationLevel.CACHE,
-        )
+        val options =
+            ModelManagementOptions(
+                operation = ModelOperation.DELETE,
+                operationLevel = OperationLevel.CACHE,
+            )
         val gvOptions = GeckoTranslationUtils.buildGeckoModelManagementOptions(options)
 
         assertEquals("delete", gvOptions.operation)
@@ -366,7 +366,7 @@ class GeckoTranslationUtilsTest {
             },
             onError = { error ->
                 onErrorCalled = true
-                assertTrue(error is IllegalArgumentException)
+                assertIs<IllegalArgumentException>(error)
                 assertTrue(error.message!!.contains("The language setting $invalidSettingString is not mapped"))
             },
         )
@@ -399,10 +399,11 @@ class GeckoTranslationUtilsTest {
     // --- Tests for mapToLanguageSettingMap ---
     @Test
     fun `mapToLanguageSettingMap maps valid map successfully`() = runTest {
-        val stringMap = mapOf(
-            "en" to "always",
-            "es" to "never",
-        )
+        val stringMap =
+            mapOf(
+                "en" to "always",
+                "es" to "never",
+            )
 
         val sourceResult = successGeckoResult(stringMap)
         val mappingResult = GeckoTranslationUtils.mapToLanguageSettingMap(sourceResult)
@@ -413,7 +414,7 @@ class GeckoTranslationUtilsTest {
             onSuccess = { settingMap ->
                 onSuccessCalled = true
                 assertNotNull(settingMap)
-                assertEquals(2, settingMap!!.size)
+                assertEquals(2, settingMap.size)
                 assertEquals(LanguageSetting.ALWAYS, settingMap["en"])
                 assertEquals(LanguageSetting.NEVER, settingMap["es"])
             },
@@ -430,10 +431,11 @@ class GeckoTranslationUtilsTest {
     fun `mapToLanguageSettingMap results in error for map with one invalid setting string`() = runTest {
         val invalidSettingString = "invalid_setting_string"
 
-        val stringMap = mapOf(
-            "en" to invalidSettingString,
-            "es" to "never",
-        )
+        val stringMap =
+            mapOf(
+                "en" to invalidSettingString,
+                "es" to "never",
+            )
 
         val sourceResult = successGeckoResult(stringMap)
         val mappingResult = GeckoTranslationUtils.mapToLanguageSettingMap(sourceResult)
@@ -447,7 +449,7 @@ class GeckoTranslationUtilsTest {
             },
             onError = { error ->
                 onErrorCalled = true
-                assertTrue(error is IllegalArgumentException)
+                assertIs<IllegalArgumentException>(error)
                 assertTrue(error.message!!.contains("The language setting $invalidSettingString is not mapped"))
             },
         )
@@ -458,8 +460,7 @@ class GeckoTranslationUtilsTest {
     @Test
     fun `mapToLanguageSettingMap propagates error when input GeckoResult is exceptional`() = runTest {
         val underlyingException = RuntimeException("Source failed")
-        val exceptionalSource: GeckoResult<Map<String, String>> =
-            exceptionalGeckoResult(underlyingException)
+        val exceptionalSource: GeckoResult<Map<String, String>> = exceptionalGeckoResult(underlyingException)
         val mappingResult = GeckoTranslationUtils.mapToLanguageSettingMap(exceptionalSource)
         var onSuccessCalled = false
         var onErrorCalled = false

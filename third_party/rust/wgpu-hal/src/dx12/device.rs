@@ -418,7 +418,11 @@ impl super::Device {
 
         let source_name = stage.module.raw_name.as_deref();
 
-        let full_stage = format!("{}_{}", naga_stage.to_hlsl_str(), key.shader_model.to_str());
+        let full_stage = format!(
+            "{}_{}",
+            naga::back::hlsl::shader_stage_to_hlsl_str(naga_stage),
+            key.shader_model.to_str()
+        );
 
         let compiled_shader = self.compiler_container.compile(
             self,
@@ -477,6 +481,7 @@ impl super::Device {
                 suballocation::AllocationType::Texture,
                 format.theoretical_memory_footprint(size),
             ),
+            plane_slice_override: None,
         }
     }
 
@@ -598,6 +603,7 @@ impl crate::Device for super::Device {
             mip_level_count: desc.mip_level_count,
             sample_count: desc.sample_count,
             allocation,
+            plane_slice_override: None,
         })
     }
 
@@ -629,7 +635,7 @@ impl crate::Device for super::Device {
             subresource_index: texture.calc_subresource(
                 desc.range.base_mip_level,
                 desc.range.base_array_layer,
-                0,
+                view_desc.plane_slice(),
             ),
             mip_slice: desc.range.base_mip_level,
             handle_srv: if desc.usage.intersects(wgt::TextureUses::RESOURCE) {
@@ -936,7 +942,7 @@ impl crate::Device for super::Device {
         let mut bind_uav = hlsl::BindTarget::default();
         let mut parameters = Vec::new();
         let mut immediates_target = None;
-        let mut root_constant_info = None;
+        let mut immediates_info = None;
 
         if desc.immediate_size != 0 {
             let parameter_index = parameters.len();
@@ -954,9 +960,9 @@ impl crate::Device for super::Device {
             });
             let binding = bind_cbv;
             bind_cbv.register += 1;
-            root_constant_info = Some(super::RootConstantInfo {
+            immediates_info = Some(super::ImmediatesInfo {
                 root_index: parameter_index as u32,
-                range: 0..size,
+                size,
             });
             immediates_target = Some(binding);
 
@@ -1400,45 +1406,7 @@ impl crate::Device for super::Device {
                         },
                     },
                 };
-                let special_constant_buffer_args_len = {
-                    // Hack: construct a dummy value of the special constants buffer value we need to
-                    // fill, and calculate the size of each member.
-                    let super::RootElement::SpecialConstantBuffer {
-                        first_vertex,
-                        first_instance,
-                        other,
-                    } = (super::RootElement::SpecialConstantBuffer {
-                        first_vertex: 0,
-                        first_instance: 0,
-                        other: 0,
-                    })
-                    else {
-                        unreachable!();
-                    };
-                    size_of_val(&first_vertex) + size_of_val(&first_instance) + size_of_val(&other)
-                };
-
-                let draw_mesh = if self
-                    .features
-                    .features_wgpu
-                    .contains(wgt::FeaturesWGPU::EXPERIMENTAL_MESH_SHADER)
-                {
-                    Some(Self::create_command_signature(
-                        &self.raw,
-                        Some(&raw),
-                        special_constant_buffer_args_len + size_of::<wgt::DispatchIndirectArgs>(),
-                        &[
-                            constant_indirect_argument_desc,
-                            Direct3D12::D3D12_INDIRECT_ARGUMENT_DESC {
-                                Type: Direct3D12::D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_MESH,
-                                ..Default::default()
-                            },
-                        ],
-                        0,
-                    )?)
-                } else {
-                    None
-                };
+                let special_constant_buffer_args_len = size_of::<super::SpecialConstants>();
 
                 Some(super::CommandSignatures {
                     draw: Self::create_command_signature(
@@ -1468,7 +1436,8 @@ impl crate::Device for super::Device {
                         ],
                         0,
                     )?,
-                    draw_mesh,
+                    // Mesh pipelines don't support updating special constants.
+                    draw_mesh: None,
                     dispatch: Self::create_command_signature(
                         &self.raw,
                         Some(&raw),
@@ -1505,7 +1474,7 @@ impl crate::Device for super::Device {
                 signature: Some(raw),
                 total_root_elements: parameters.len() as super::RootIndex,
                 special_constants,
-                root_constant_info,
+                immediates_info,
                 sampler_heap_root_index,
             },
             bind_group_infos,
@@ -1523,8 +1492,8 @@ impl crate::Device for super::Device {
                 external_texture_binding_map,
                 force_loop_bounding: true,
                 task_dispatch_limits: Some(naga::back::TaskDispatchLimits {
-                    max_mesh_workgroups_per_dim: self.limits.max_task_mesh_workgroups_per_dimension,
-                    max_mesh_workgroups_total: self.limits.max_task_mesh_workgroup_total_count,
+                    max_mesh_workgroups_per_dim: self.limits.max_mesh_workgroups_per_dimension,
+                    max_mesh_workgroups_total: self.limits.max_mesh_workgroup_total_count,
                 }),
                 mesh_shader_primitive_indices_clamp: true,
                 ray_query_initialization_tracking: true,
@@ -1669,6 +1638,33 @@ impl crate::Device for super::Device {
                         let handle = data.view.handle_srv.unwrap();
                         cpu_views.as_mut().unwrap().stage.push(handle.raw);
                     }
+                    // The table range reserves the full `layout.count`, so pad a
+                    // partially-bound array with null SRVs to keep later bindings aligned.
+                    let array_size = layout.count.map_or(1, NonZeroU32::get);
+                    for _ in entry.count..array_size {
+                        let inner = cpu_views.as_mut().unwrap();
+                        let cpu_index = inner.stage.len() as u32;
+                        let handle = desc.layout.cpu_heap_views.as_ref().unwrap().at(cpu_index);
+                        let raw_desc = Direct3D12::D3D12_SHADER_RESOURCE_VIEW_DESC {
+                            Format: Dxgi::Common::DXGI_FORMAT_R8G8B8A8_UNORM,
+                            ViewDimension: Direct3D12::D3D12_SRV_DIMENSION_TEXTURE2D,
+                            Shader4ComponentMapping:
+                                Direct3D12::D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+                            Anonymous: Direct3D12::D3D12_SHADER_RESOURCE_VIEW_DESC_0 {
+                                Texture2D: Direct3D12::D3D12_TEX2D_SRV {
+                                    MostDetailedMip: 0,
+                                    MipLevels: 1,
+                                    PlaneSlice: 0,
+                                    ResourceMinLODClamp: 0.0,
+                                },
+                            },
+                        };
+                        unsafe {
+                            self.raw
+                                .CreateShaderResourceView(None, Some(&raw_desc), handle)
+                        };
+                        inner.stage.push(handle);
+                    }
                 }
                 wgt::BindingType::StorageTexture { .. } => {
                     let start = entry.resource_index as usize;
@@ -1676,6 +1672,29 @@ impl crate::Device for super::Device {
                     for data in &desc.textures[start..end] {
                         let handle = data.view.handle_uav.unwrap();
                         cpu_views.as_mut().unwrap().stage.push(handle.raw);
+                    }
+                    // Same partial-binding-array padding as the `Texture` branch above, but
+                    // with null UAVs so that bindings following the array keep their offsets.
+                    let array_size = layout.count.map_or(1, NonZeroU32::get);
+                    for _ in entry.count..array_size {
+                        let inner = cpu_views.as_mut().unwrap();
+                        let cpu_index = inner.stage.len() as u32;
+                        let handle = desc.layout.cpu_heap_views.as_ref().unwrap().at(cpu_index);
+                        let raw_desc = Direct3D12::D3D12_UNORDERED_ACCESS_VIEW_DESC {
+                            Format: Dxgi::Common::DXGI_FORMAT_R8G8B8A8_UNORM,
+                            ViewDimension: Direct3D12::D3D12_UAV_DIMENSION_TEXTURE2D,
+                            Anonymous: Direct3D12::D3D12_UNORDERED_ACCESS_VIEW_DESC_0 {
+                                Texture2D: Direct3D12::D3D12_TEX2D_UAV {
+                                    MipSlice: 0,
+                                    PlaneSlice: 0,
+                                },
+                            },
+                        };
+                        unsafe {
+                            self.raw
+                                .CreateUnorderedAccessView(None, None, Some(&raw_desc), handle)
+                        };
+                        inner.stage.push(handle);
                     }
                 }
                 wgt::BindingType::Sampler { .. } => {
@@ -1860,24 +1879,16 @@ impl crate::Device for super::Device {
                 raw_name,
                 runtime_checks: desc.runtime_checks,
             }),
-            crate::ShaderInput::Dxil {
-                shader,
-                num_workgroups,
-            } => Ok(super::ShaderModule {
+            crate::ShaderInput::Dxil { shader } => Ok(super::ShaderModule {
                 source: super::ShaderModuleSource::DxilPassthrough(super::DxilPassthroughShader {
                     shader: shader.to_vec(),
-                    num_workgroups,
                 }),
                 raw_name,
                 runtime_checks: desc.runtime_checks,
             }),
-            crate::ShaderInput::Hlsl {
-                shader,
-                num_workgroups,
-            } => Ok(super::ShaderModule {
+            crate::ShaderInput::Hlsl { shader } => Ok(super::ShaderModule {
                 source: super::ShaderModuleSource::HlslPassthrough(super::HlslPassthroughShader {
                     shader: shader.to_owned(),
-                    num_workgroups,
                 }),
                 raw_name,
                 runtime_checks: desc.runtime_checks,
@@ -2064,6 +2075,9 @@ impl crate::Device for super::Device {
 
                 for (i, (stride, vbuf)) in vertex_strides.iter_mut().zip(vertex_buffers).enumerate()
                 {
+                    let Some(vbuf) = vbuf else {
+                        continue;
+                    };
                     *stride = Some(vbuf.array_stride as u32);
                     let (slot_class, step_rate) = match vbuf.step_mode {
                         wgt::VertexStepMode::Vertex => {
@@ -2227,6 +2241,29 @@ impl crate::Device for super::Device {
 
     unsafe fn destroy_compute_pipeline(&self, _pipeline: super::ComputePipeline) {
         self.counters.compute_pipelines.sub(1);
+    }
+
+    unsafe fn create_ray_tracing_pipeline(
+        &self,
+        _desc: &crate::RayTracingPipelineDescriptor<
+            super::PipelineLayout,
+            super::ShaderModule,
+            super::PipelineCache,
+        >,
+    ) -> Result<<Self::A as crate::Api>::RayTracingPipeline, crate::PipelineError> {
+        unreachable!("ray tracing pipelines not yet implemented")
+    }
+
+    unsafe fn destroy_ray_tracing_pipeline(&self, _pipeline: super::RayTracingPipeline) {
+        unreachable!("ray tracing pipelines not yet implemented")
+    }
+
+    unsafe fn get_raytracing_pipeline_group_data(
+        &self,
+        _pipeline: &super::RayTracingPipeline,
+        _groups: core::ops::Range<u32>,
+    ) -> Result<Vec<u8>, crate::DeviceError> {
+        unimplemented!("ray tracing pipelines not yet implemented")
     }
 
     unsafe fn create_pipeline_cache(
@@ -2612,7 +2649,7 @@ impl crate::Device for super::Device {
         let temp = Direct3D12::D3D12_RAYTRACING_INSTANCE_DESC {
             Transform: instance.transform,
             _bitfield1: (instance.custom_data & MAX_U24) | (u32::from(instance.mask) << 24),
-            _bitfield2: 0,
+            _bitfield2: (instance.pipeline_intersection_data_offset & MAX_U24),
             AccelerationStructure: instance.blas_address,
         };
 

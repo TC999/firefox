@@ -10,7 +10,10 @@
 
 #include "mozilla/LoggingCore.h"
 
+#include <stdarg.h>
+
 #include "jstypes.h"
+
 #include "fmt/format.h"
 #include "js/GCAPI.h"
 

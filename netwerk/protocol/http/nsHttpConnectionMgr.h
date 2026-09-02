@@ -5,23 +5,22 @@
 #ifndef nsHttpConnectionMgr_h_
 #define nsHttpConnectionMgr_h_
 
+#include "ARefBase.h"
+#include "ConnectionEntry.h"
 #include "DnsAndConnectSocket.h"
 #include "HttpConnectionMgrShell.h"
-#include "nsHttpConnection.h"
-#include "nsHttpTransaction.h"
-#include "nsTArray.h"
-#include "nsTHashSet.h"
-#include "nsThreadUtils.h"
-#include "nsClassHashtable.h"
 #include "mozilla/DataMutex.h"
 #include "mozilla/TimeStamp.h"
-#include "ARefBase.h"
-#include "nsWeakReference.h"
-#include "ConnectionEntry.h"
-
+#include "nsClassHashtable.h"
+#include "nsHttpConnection.h"
+#include "nsHttpTransaction.h"
 #include "nsINamed.h"
 #include "nsIObserver.h"
 #include "nsITimer.h"
+#include "nsTArray.h"
+#include "nsTHashSet.h"
+#include "nsThreadUtils.h"
+#include "nsWeakReference.h"
 
 class nsIHttpUpgradeListener;
 
@@ -221,6 +220,7 @@ class nsHttpConnectionMgr final : public HttpConnectionMgrShell,
   friend class ConnectionAttemptPool;
   friend class DnsAndConnectSocket;
   friend class HappyEyeballsConnectionAttempt;
+  friend class DefaultHappyEyeballsConnMgrDelegate;
   friend class PendingTransactionInfo;
   friend class ConnectionEstablisher;
   friend class TCPConnectionEstablisher;
@@ -273,7 +273,8 @@ class nsHttpConnectionMgr final : public HttpConnectionMgrShell,
   // depending whether the proxy is used.
   uint32_t MaxPersistConnections(ConnectionEntry* ent) const;
 
-  bool AtActiveConnectionLimit(ConnectionEntry*, uint32_t caps);
+  bool AtActiveConnectionLimit(ConnectionEntry*, uint32_t caps,
+                               bool forInnerConn = false);
   [[nodiscard]] nsresult TryDispatchTransaction(
       ConnectionEntry* ent, bool onlyReusedConnection,
       PendingTransactionInfo* pendingTransInfo);
@@ -304,17 +305,23 @@ class nsHttpConnectionMgr final : public HttpConnectionMgrShell,
       ConnectionEntry* ent, PendingTransactionInfo* pendingTransInfo);
 
   // Manage h2/3 connection coalescing
-  // The hashtable contains arrays of weak pointers to HttpConnectionBases
-  nsClassHashtable<nsUint32HashKey, nsTArray<nsWeakPtr>> mCoalescingHash;
+  // The hashtable is indexed by the coalescing key's 32-bit hash and holds a
+  // weak pointer to each coalescable HttpConnectionBase together with the full
+  // key string it was registered under. Since distinct keys can share a hash,
+  // the string is used to confirm a bucket hit with an exact comparison.
+  struct CoalescedConnection {
+    nsWeakPtr mConn;
+    nsCString mKey;
+  };
+  nsClassHashtable<nsUint32HashKey, nsTArray<CoalescedConnection>>
+      mCoalescingHash;
 
   HttpConnectionBase* FindCoalescableConnection(ConnectionEntry* ent,
                                                 bool justKidding, bool aNoHttp2,
                                                 bool aNoHttp3);
-  HttpConnectionBase* FindCoalescableConnectionByHashKey(ConnectionEntry* ent,
-                                                         HashNumber key,
-                                                         bool justKidding,
-                                                         bool aNoHttp2,
-                                                         bool aNoHttp3);
+  HttpConnectionBase* FindCoalescableConnectionByHashKey(
+      ConnectionEntry* ent, const CoalescingKey& key, bool justKidding,
+      bool aNoHttp2, bool aNoHttp3);
   void UpdateCoalescingForNewConn(HttpConnectionBase* conn,
                                   ConnectionEntry* ent, bool aNoHttp3);
 

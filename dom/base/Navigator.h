@@ -14,6 +14,7 @@
 #include "mozilla/dom/Nullable.h"
 #include "nsHashKeys.h"
 #include "nsInterfaceHashtable.h"
+#include "nsPIDOMWindowInlines.h"  // FIXME: Stop including inline definitions!
 #include "nsString.h"
 #include "nsTArray.h"
 #include "nsWrapperCache.h"
@@ -30,8 +31,10 @@ class ErrorResult;
 
 namespace dom {
 class AddonManager;
+class AudioSession;
 class BodyExtractorBase;
 class Geolocation;
+class Serial;
 class systemMessageCallback;
 class MediaDevices;
 struct MediaStreamConstraints;
@@ -42,7 +45,6 @@ class Clipboard;
 class LockManager;
 class ModelContext;
 class NavigatorLogin;
-class PrivateAttribution;
 class HTMLMediaElement;
 class AudioContext;
 class WakeLockJS;
@@ -94,7 +96,7 @@ class Navigator final : public nsISupports, public nsWrapperCache {
  public:
   explicit Navigator(nsPIDOMWindowInner* aInnerWindow);
 
-  NS_DECL_CYCLE_COLLECTING_ISUPPORTS
+  NS_DECL_CYCLE_COLLECTING_ISUPPORTS_FINAL
   NS_DECL_CYCLE_COLLECTION_WRAPPERCACHE_CLASS(Navigator)
 
   void Invalidate();
@@ -129,6 +131,8 @@ class Navigator final : public nsISupports, public nsWrapperCache {
   void GetDoNotTrack(nsAString& aResult);
   bool GlobalPrivacyControl();
   Geolocation* GetGeolocation(ErrorResult& aRv);
+  dom::Serial* GetSerial(ErrorResult& aRv);
+  dom::Serial* GetExistingSerial() { return mSerial; }
   Promise* GetBattery(ErrorResult& aRv);
   dom::WakeLockJS* WakeLock();
 
@@ -217,8 +221,6 @@ class Navigator final : public nsISupports, public nsWrapperCache {
   dom::LockManager* Locks();
   NavigatorLogin* Login();
   dom::ModelContext* ModelContext();
-  dom::PrivateAttribution* PrivateAttribution();
-
   static bool Webdriver();
 
   void GetLanguages(nsTArray<nsString>& aLanguages);
@@ -230,6 +232,7 @@ class Navigator final : public nsISupports, public nsWrapperCache {
 
   dom::MediaCapabilities* MediaCapabilities();
   dom::MediaSession* MediaSession();
+  dom::AudioSession* AudioSession();
 
   AddonManager* GetMozAddonManager(ErrorResult& aRv);
 
@@ -244,8 +247,8 @@ class Navigator final : public nsISupports, public nsWrapperCache {
 
   nsPIDOMWindowInner* GetParentObject() const { return GetWindow(); }
 
-  virtual JSObject* WrapObject(JSContext* cx,
-                               JS::Handle<JSObject*> aGivenProto) override;
+  JSObject* WrapObject(JSContext* cx,
+                       JS::Handle<JSObject*> aGivenProto) override;
 
   // GetWindowFromGlobal returns the inner window for this global, if
   // any, else null.
@@ -279,7 +282,7 @@ class Navigator final : public nsISupports, public nsWrapperCache {
   bool TestTrialGatedAttribute() const { return true; }
 
  private:
-  virtual ~Navigator();
+  ~Navigator();
 
   // This enum helps SendBeaconInternal to apply different behaviors to body
   // types.
@@ -295,6 +298,7 @@ class Navigator final : public nsISupports, public nsWrapperCache {
   RefPtr<nsPluginArray> mPlugins;
   RefPtr<Permissions> mPermissions;
   RefPtr<Geolocation> mGeolocation;
+  RefPtr<dom::Serial> mSerial;
   RefPtr<battery::BatteryManager> mBatteryManager;
   RefPtr<Promise> mBatteryPromise;
   RefPtr<network::Connection> mConnection;
@@ -311,13 +315,13 @@ class Navigator final : public nsISupports, public nsWrapperCache {
   RefPtr<StorageManager> mStorageManager;
   RefPtr<dom::MediaCapabilities> mMediaCapabilities;
   RefPtr<dom::MediaSession> mMediaSession;
+  RefPtr<dom::AudioSession> mAudioSession;
   RefPtr<AddonManager> mAddonManager;
   RefPtr<webgpu::Instance> mWebGpu;
   RefPtr<Promise> mSharePromise;  // Web Share API related
   RefPtr<LockManager> mLocks;
   RefPtr<NavigatorLogin> mLogin;
   RefPtr<dom::ModelContext> mModelContext;
-  RefPtr<dom::PrivateAttribution> mPrivateAttribution;
   RefPtr<dom::UserActivation> mUserActivation;
   RefPtr<dom::WakeLockJS> mWakeLock;
 };

@@ -12,8 +12,6 @@ ChromeUtils.defineESModuleGetters(lazy, {
   ContentTaskUtils: "resource://testing-common/ContentTaskUtils.sys.mjs",
   MockColorPicker: "resource://testing-common/MockColorPicker.sys.mjs",
   MockFilePicker: "resource://testing-common/MockFilePicker.sys.mjs",
-  MockPermissionPrompt:
-    "resource://testing-common/MockPermissionPrompt.sys.mjs",
   MockPromptCollection:
     "resource://testing-common/MockPromptCollection.sys.mjs",
   MockSound: "resource://testing-common/MockSound.sys.mjs",
@@ -449,10 +447,6 @@ export class SpecialPowersChild extends JSWindowActorChild {
     return lazy.MockPromptCollection;
   }
 
-  get MockPermissionPrompt() {
-    return lazy.MockPermissionPrompt;
-  }
-
   get MockSound() {
     return lazy.MockSound;
   }
@@ -869,6 +863,13 @@ export class SpecialPowersChild extends JSWindowActorChild {
     if (requiresRefresh) {
       await this._promiseEarlyRefresh();
     }
+  }
+
+  async prefEnv(inPrefs) {
+    await this.pushPrefEnv(inPrefs);
+    return {
+      [Symbol.asyncDispose]: () => this.popPrefEnv(),
+    };
   }
 
   /*
@@ -2138,12 +2139,19 @@ export class SpecialPowersChild extends JSWindowActorChild {
       case "cmd_fontColor":
       case "cmd_fontFace":
       case "cmd_fontSize":
+      case "cmd_formatBlock":
       case "cmd_highlight":
       case "cmd_insertImageNoUI":
       case "cmd_insertLinkNoUI":
       case "cmd_paragraphState": {
         const params = Cu.createCommandParams();
         params.setStringValue("state_attribute", param);
+        return window.docShell.doCommandWithParams(cmd, params);
+      }
+      case "cmd_insertHTML":
+      case "cmd_insertText": {
+        const params = Cu.createCommandParams();
+        params.setStringValue("state_data", param);
         return window.docShell.doCommandWithParams(cmd, params);
       }
       case "cmd_pasteTransferable": {
@@ -2248,6 +2256,21 @@ export class SpecialPowersChild extends JSWindowActorChild {
       win = win.parent;
     }
     return Promise.resolve();
+  }
+
+  /**
+   * Gets the privileged button inside an <input> element
+   * (clear / reveal / number spinner).
+   *
+   * @param {HTMLInputElement} input
+   * @returns {HTMLButtonElement?} the privileged button, if any.
+   */
+  getInputButton(input) {
+    if (ChromeUtils.getClassName(input) != "HTMLInputElement") {
+      throw new Error("Not an <input> element");
+    }
+    let children = InspectorUtils.getChildrenForNode(input, true, false);
+    return children.find(e => e.localName == "button");
   }
 }
 

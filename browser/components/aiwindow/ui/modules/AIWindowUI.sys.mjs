@@ -9,7 +9,21 @@ import {
   AIWindow,
 } from "moz-src:///browser/components/aiwindow/ui/modules/AIWindow.sys.mjs";
 
+const lazy = {};
+
+ChromeUtils.defineESModuleGetters(lazy, {
+  AutoTabGrouping:
+    "moz-src:///browser/components/aiwindow/ui/modules/AutoTabGrouping.sys.mjs",
+  URILoadingHelper: "resource:///modules/URILoadingHelper.sys.mjs",
+});
+
 const gFadingWindows = new WeakSet();
+const gSidebarAnimations = new WeakMap();
+const gSidebarWidthHandlers = new WeakMap();
+
+/**
+ * @typedef {import("../components/ai-window/ai-window.mjs").SmartbarInputState} SmartbarInputState
+ */
 
 export const AIWindowUI = {
   BOX_ID: "ai-window-box",
@@ -19,6 +33,7 @@ export const AIWindowUI = {
   AI_WINDOW_ELEMENT_TIMEOUT: 1500,
   TAB_FADE_MS: 200,
   TAB_FADE_TIMEOUT_MS: 200 * 2 + 50,
+  SIDEBAR_ANIMATION_MS: 200,
 
   /**
    * @param {Window} win
@@ -36,6 +51,46 @@ export const AIWindowUI = {
       return null;
     }
     return { chromeDoc, box, splitter };
+  },
+
+  /**
+   * Sets a max width for the draggable sidebar.
+   *
+   * @param {Window} win
+   */
+  updateSidebarMaxWidth(win) {
+    const nodes = this._getSidebarElements(win);
+    if (!nodes) {
+      return;
+    }
+    const maxWidthRatio = parseFloat(
+      win
+        .getComputedStyle(win.document.documentElement)
+        .getPropertyValue("--ai-window-sidebar-max-width-ratio")
+    );
+    nodes.box.style.setProperty(
+      "--ai-window-sidebar-max-width",
+      `${Math.round(win.innerWidth * maxWidthRatio)}px`
+    );
+
+    if (!gSidebarWidthHandlers.has(win)) {
+      const sidebarResizeHandler = () => this.updateSidebarMaxWidth(win);
+      gSidebarWidthHandlers.set(win, sidebarResizeHandler);
+      win.addEventListener("resize", sidebarResizeHandler);
+    }
+  },
+
+  /**
+   * Stop tracking the sidebar width for a window.
+   *
+   * @param {Window} win
+   */
+  _removeSidebarWidthHandler(win) {
+    const handler = gSidebarWidthHandlers.get(win);
+    if (handler) {
+      win.removeEventListener("resize", handler);
+      gSidebarWidthHandlers.delete(win);
+    }
   },
 
   /**
@@ -93,13 +148,160 @@ export const AIWindowUI = {
     if (!nodes) {
       return false;
     }
-    return !nodes.box.collapsed;
+    // While closing, the box stays uncollapsed until the slide finishes, so
+    // rely on the intended state recorded by _setSidebarCollapsed.
+    return nodes.box._aiWindowOpen ?? !nodes.box.collapsed;
   },
 
-  _showSidebarElements(box, splitter) {
+  /**
+   * Open or close the sidebar, animating the slide when possible. The box slides
+   * with a transform and the content area's apparent width with a clip-path, both
+   * compositor-driven, so the content area isn't reflowed on every frame; the real
+   * layout flips once, when the slide finishes. See the "Animating the content area"
+   * performance best practice.
+   *
+   * The slide is reserved for explicit user toggles (the Ask/Close button, which
+   * animate); every other path (tab switch, session restore, mode changes) passes
+   * `animate: false` so the sidebar doesn't slide on navigation.
+   *
+   * @param {Window} win
+   * @param {Element} box
+   * @param {Element} splitter
+   * @param {boolean} collapse
+   * @param {object} [options]
+   * @param {boolean} [options.animate=true] Whether to slide instead of committing instantly.
+   */
+  _setSidebarCollapsed(win, box, splitter, collapse, { animate = true } = {}) {
+    box._aiWindowOpen = !collapse;
+
+    // Give the content area its minimum width while the sidebar is open.
+    win.document
+      .getElementById("tabbrowser-tabbox")
+      .toggleAttribute("ai-window-open", !collapse);
+
+    if (!collapse) {
+      this.updateSidebarMaxWidth(win);
+    } else {
+      this._removeSidebarWidthHandler(win);
+    }
+
+    const reduceMotion = win.matchMedia(
+      "(prefers-reduced-motion: reduce)"
+    ).matches;
+    if (!animate || reduceMotion) {
+      this._cancelSidebarAnimation(box);
+      this._commitSidebarCollapsed(box, splitter, collapse);
+      return;
+    }
+
+    this._animateSidebarToggle(win, box, splitter, collapse);
+  },
+
+  _commitSidebarCollapsed(box, splitter, collapse) {
+    this._clearSidebarAnimationStyles(box);
+    box.collapsed = collapse;
+    splitter.collapsed = collapse;
+    if (!collapse) {
+      box.parentElement.collapsed = false;
+    }
+  },
+
+  _clearSidebarAnimationStyles(box) {
+    box.style.position =
+      box.style.top =
+      box.style.bottom =
+      box.style.left =
+      box.style.right =
+      box.style.width =
+        "";
+    box.parentElement.style.overflow = "";
+  },
+
+  _cancelSidebarAnimation(box) {
+    const animations = gSidebarAnimations.get(box);
+    if (animations) {
+      gSidebarAnimations.delete(box);
+      animations.forEach(animation => animation.cancel());
+    }
+  },
+
+  _animateSidebarToggle(win, box, splitter, collapse) {
+    const browserEl = box.parentElement;
+    const tabbox = win.document.getElementById("tabbrowser-tabbox");
+
+    this._cancelSidebarAnimation(box);
+    this._clearSidebarAnimationStyles(box);
+
     box.collapsed = false;
     splitter.collapsed = false;
-    box.parentElement.collapsed = false;
+    browserEl.collapsed = false;
+
+    const browserStyle = win.getComputedStyle(browserEl);
+    const boxRect = box.getBoundingClientRect();
+    const browserRect = browserEl.getBoundingClientRect();
+    const tabboxRect = tabbox.getBoundingClientRect();
+    const onRight = boxRect.left >= tabboxRect.right;
+    const paddingLeft = parseFloat(browserStyle.paddingLeft);
+    const paddingRight = parseFloat(browserStyle.paddingRight);
+
+    // Distance from the box's outer edge to #browser's matching edge.
+    const edgeGap = onRight
+      ? browserRect.right - boxRect.right
+      : boxRect.left - browserRect.left;
+
+    const clipAmount = onRight
+      ? browserRect.right - paddingRight - tabboxRect.right
+      : tabboxRect.left - (browserRect.left + paddingLeft);
+
+    if (boxRect.width <= 0 || clipAmount <= 0) {
+      this._commitSidebarCollapsed(box, splitter, collapse);
+      return;
+    }
+
+    // Take the box out of flow, pinned where it sits, so the content area can
+    // fill the full width regardless of Nova vs. non-Nova space calculations. The
+    // splitter stays hidden until the slide settles, and #browser is clipped so
+    // the box can slide past its edge.
+    box.style.position = "absolute";
+    box.style.top = `${boxRect.top - browserRect.top}px`;
+    box.style.bottom = `${browserRect.bottom - boxRect.bottom}px`;
+    box.style.width = `${boxRect.width}px`;
+    box.style[onRight ? "right" : "left"] = `${edgeGap}px`;
+    splitter.collapsed = true;
+    browserEl.style.overflow = "clip";
+
+    const slide = `${(onRight ? 1 : -1) * (boxRect.width + edgeGap)}px 0 0`;
+    const clipped = onRight
+      ? `inset(0 ${clipAmount}px 0 0)`
+      : `inset(0 0 0 ${clipAmount}px)`;
+    const full = "inset(0 0 0 0)";
+
+    const options = {
+      duration: this.SIDEBAR_ANIMATION_MS,
+      easing: "ease-in-out",
+    };
+    const boxFrames = collapse
+      ? [{ translate: "0" }, { translate: slide }]
+      : [{ translate: slide }, { translate: "0" }];
+    const contentFrames = collapse
+      ? [{ clipPath: clipped }, { clipPath: full }]
+      : [{ clipPath: full }, { clipPath: clipped }];
+
+    const animations = [
+      box.animate(boxFrames, options),
+      tabbox.animate(contentFrames, options),
+    ];
+    gSidebarAnimations.set(box, animations);
+
+    Promise.allSettled(animations.map(animation => animation.finished)).then(
+      () => {
+        if (gSidebarAnimations.get(box) !== animations) {
+          return;
+        }
+        gSidebarAnimations.delete(box);
+        this._commitSidebarCollapsed(box, splitter, collapse);
+      }
+    );
   },
 
   /**
@@ -109,7 +311,7 @@ export const AIWindowUI = {
    * @param {ChatConversation} conversation The conversation to open
    */
   openInFullWindow(browser, conversation) {
-    this.closeSidebar(browser.ownerGlobal);
+    this.closeSidebar(browser.documentGlobal);
 
     browser.setAttribute("data-conversation-id", conversation.id);
 
@@ -122,7 +324,34 @@ export const AIWindowUI = {
   },
 
   /**
+   * Reopens a conversation in a tab: loads the page it was last about (or the
+   * new tab page) and restores the conversation there once the browser exists.
+   *
+   * @param {Window} win
+   * @param {ChatConversation} conversation
+   * @param {string} [where="tab"] Destination, as for openTrustedLinkIn.
+   */
+  reopenConversationInTab(win, conversation, where = "tab") {
+    const mostRecentPage = conversation.getMostRecentPageVisited();
+    const url = mostRecentPage?.href ?? win.BROWSER_NEW_TAB_URL;
+    lazy.URILoadingHelper.openTrustedLinkIn(win, url, where, {
+      resolveOnContentBrowserCreated: async targetBrowser => {
+        if (url === win.BROWSER_NEW_TAB_URL) {
+          this.openInFullWindow(targetBrowser, conversation);
+        } else {
+          AIWindow.restoreTabConversation(targetBrowser, conversation);
+          this.openSidebar(targetBrowser.documentGlobal, conversation);
+        }
+      },
+    });
+  },
+
+  /**
    * Open the AI Window sidebar
+   *
+   * The slide is reserved for the Ask button, which opens via toggleSidebar; every
+   * other opener (tab switch, restore, menus, mode changes) routes through here and
+   * commits instantly.
    *
    * @param {Window} win
    * @param {ChatConversation} conversation The conversation to open in the sidebar
@@ -137,8 +366,8 @@ export const AIWindowUI = {
     const aiBrowser = this.ensureBrowserIsAppended(win.document, box);
 
     if (!this.isSidebarOpen(win)) {
-      this._showSidebarElements(box, splitter);
-      this._setAskButtonStyle(win, true);
+      this._setSidebarCollapsed(win, box, splitter, false, { animate: false });
+      this._updateAskButtonChecked(win, true);
     }
 
     Glean.smartWindow.sidebarOpen.record({
@@ -165,6 +394,13 @@ export const AIWindowUI = {
 
     const aiWindowElement = await this.getAiWindowElement(win, aiBrowser);
     if (!aiWindowElement) {
+      return;
+    }
+
+    // Return early if the sidebar was closed while we were waiting for the
+    // content element to load, prevents opening a conversation or creating
+    // a new one if the sidebar is closed anyway.
+    if (!this.isSidebarOpen(win)) {
       return;
     }
 
@@ -196,20 +432,42 @@ export const AIWindowUI = {
     return null;
   },
 
+  async focusSidebar(win, aiBrowser = null) {
+    aiBrowser ??= win.document.getElementById(this.BROWSER_ID);
+    if (!aiBrowser || !this.isSidebarOpen(win)) {
+      return false;
+    }
+
+    aiBrowser.focus();
+
+    const aiWindowElement = await this.getAiWindowElement(win, aiBrowser);
+    if (!aiWindowElement || !this.isSidebarOpen(win)) {
+      return false;
+    }
+
+    aiWindowElement.focusSmartbar?.();
+    return true;
+  },
+
   /**
    * Close the AI Window sidebar.
    *
+   * Only the Close button animates the slide; it is the sole caller that passes
+   * `source === "toggle"`. Tab switches and mode changes close instantly.
+   *
    * @param {Window} win
+   * @param {string} source
    */
-  closeSidebar(win) {
+  closeSidebar(win, source = null) {
     if (!this.isSidebarOpen(win)) {
       return;
     }
     const { box, splitter } = this._getSidebarElements(win);
 
-    box.collapsed = true;
-    splitter.collapsed = true;
-    this._setAskButtonStyle(win, false);
+    this._setSidebarCollapsed(win, box, splitter, true, {
+      animate: source === "toggle",
+    });
+    this._updateAskButtonChecked(win, false);
 
     // Dispatch event to notify tab state manager that sidebar was toggled
     win.dispatchEvent(
@@ -217,6 +475,7 @@ export const AIWindowUI = {
         detail: {
           tab: win.gBrowser?.selectedTab,
           isOpen: false,
+          ...(source && { source }),
         },
       })
     );
@@ -229,46 +488,47 @@ export const AIWindowUI = {
   },
 
   /**
+   * Toggle the "Organize Tabs" panel anchored to its toolbar button.
+   *
+   * @param {Window} win
+   * @param {object} [options] - Passed through to AutoTabGrouping, which uses
+   *   options.source to record what asked for the panel.
+   */
+  toggleGroupTabsPanel(win, options) {
+    lazy.AutoTabGrouping.toggleGroupTabsPanel(win, options);
+  },
+
+  /**
+   * Toggle the monitor creation panel anchored to its toolbar button.
+   *
+   * @param {Window} _win
+   */
+  toggleMonitorPanel(_win) {
+    // TODO(bug https://bugzilla.mozilla.org/show_bug.cgi?id=2062112): Open the monitor panel.
+    console.warn("TODO open panel");
+  },
+
+  /**
    * Toggle the AI Window sidebar
    *
    * @param {Window} win
    * @returns {boolean} true if now open, false if now closed
    */
   toggleSidebar(win) {
+    if (this.isSidebarOpen(win)) {
+      this.closeSidebar(win, "toggle");
+      return false;
+    }
+
     const nodes = this._getSidebarElements(win);
     if (!nodes) {
       return false;
     }
     const { chromeDoc, box, splitter } = nodes;
 
-    if (!box.collapsed) {
-      box.collapsed = true;
-      splitter.collapsed = true;
-      this._setAskButtonStyle(win, false);
-
-      // Dispatch event to notify tab state manager that sidebar was toggled
-      win.dispatchEvent(
-        new win.CustomEvent("ai-window:sidebar-toggle", {
-          detail: {
-            tab: win.gBrowser?.selectedTab,
-            isOpen: false,
-            source: "toggle",
-          },
-        })
-      );
-
-      const { chatId, messageSeq } = this._getConversationFromSidebar(win);
-      Glean.smartWindow.sidebarClose.record({
-        chat_id: chatId,
-        message_seq: messageSeq,
-      });
-
-      return false;
-    }
-
     this.ensureBrowserIsAppended(chromeDoc, box);
-    this._showSidebarElements(box, splitter);
-    this._setAskButtonStyle(win, true);
+    this._setSidebarCollapsed(win, box, splitter, false);
+    this._updateAskButtonChecked(win, true);
 
     // Dispatch event to notify tab state manager that sidebar was toggled
     win.dispatchEvent(
@@ -281,11 +541,7 @@ export const AIWindowUI = {
       })
     );
 
-    const { chatId, messageSeq } = this._getConversationFromSidebar(win);
-    Glean.smartWindow.sidebarOpen.record({
-      chat_id: chatId,
-      message_seq: messageSeq,
-    });
+    this.focusSidebar(win);
 
     return true;
   },
@@ -311,12 +567,12 @@ export const AIWindowUI = {
    * @param {Window} win
    * @param {boolean} sidebarIsOpen
    */
-  _setAskButtonStyle(win, sidebarIsOpen) {
+  _updateAskButtonChecked(win, sidebarIsOpen) {
     const askBtn = win.document.querySelector("#smartwindow-ask-button-inner");
     if (!askBtn) {
       return;
     }
-    askBtn.classList.toggle("sidebar-is-open", sidebarIsOpen);
+    askBtn.setAttribute("aria-expanded", String(sidebarIsOpen));
   },
 
   /**
@@ -350,19 +606,26 @@ export const AIWindowUI = {
         await AIWindow.chatStore.findConversationById(conversationId);
     }
 
-    this.openSidebar(win, conversation);
+    await this.openSidebar(win, conversation);
 
     const nodes = this._getSidebarElements(win);
-    return nodes ? nodes.chromeDoc.getElementById(this.BROWSER_ID) : null;
+    if (!nodes) {
+      return null;
+    }
+    const aiBrowser = nodes.chromeDoc.getElementById(this.BROWSER_ID);
+    await this.focusSidebar(win, aiBrowser);
+    return aiBrowser;
   },
 
   /**
-   * Updates the sidebar input with the specified value.
+   * Updates the sidebar input with the specified state.
    *
    * @param {Window} win
-   * @param {string} value The new input value
+   * @param {SmartbarInputState} state
+   *   The structured input state to restore: plain text plus the list of
+   *   inline mention chips with their text-character offsets.
    */
-  updateSidebarInput(win, value) {
+  updateSidebarInput(win, state) {
     if (!this.isSidebarOpen(win)) {
       return;
     }
@@ -372,22 +635,72 @@ export const AIWindowUI = {
       return;
     }
 
-    aiWindowEl.updateInput(value);
+    aiWindowEl.updateInput(state);
   },
 
   /**
-   * Triggers updating the starter prompts in the sidebar window if it
-   * is already opened.
+   * Restores the per-tab model selection on the sidebar ai-window. A null
+   * modelChoiceId falls back to the global default model.
    *
    * @param {Window} win
+   * @param {?string} modelChoiceId
    */
-  updateStarterPrompts(win) {
-    const sidebarAiWindow = this._getSidebarAiWindow(win);
-    if (!sidebarAiWindow) {
+  updateSidebarModel(win, modelChoiceId) {
+    if (!this.isSidebarOpen(win)) {
       return;
     }
 
-    sidebarAiWindow.loadStarterPrompts(true, win.gBrowser.selectedTab);
+    const aiWindowEl = this._getSidebarAiWindow(win);
+    if (!aiWindowEl?.restoreModelChoiceOverride) {
+      return;
+    }
+
+    aiWindowEl.restoreModelChoiceOverride(modelChoiceId);
+  },
+
+  /**
+   * Restores the per-tab context chips on the sidebar ai-window.
+   *
+   * @param {Window} win
+   * @param {ContextWebsite[]} [contextChips] - The user-added chips to restore.
+   * @param {boolean} [removedImplicitContextChip] - Restored dismissal of the
+   *   implicit current-tab chip.
+   */
+  updateSidebarContextChips(
+    win,
+    contextChips = [],
+    removedImplicitContextChip = false
+  ) {
+    if (!this.isSidebarOpen(win)) {
+      return;
+    }
+
+    const aiWindowEl = this._getSidebarAiWindow(win);
+    if (!aiWindowEl?.restoreContextChips) {
+      return;
+    }
+
+    aiWindowEl.restoreContextChips(contextChips, removedImplicitContextChip);
+  },
+
+  /**
+   * Triggers updating the starter prompts on the active ai-window
+   * for the given chrome window. The target is resolved by mode:
+   * sidebar uses the chrome window's sidebar ai-window, fullpage
+   * uses the ai-window inside the owning tab's browser.
+   *
+   * @param {Window} win
+   * @param {boolean} [clear=true] Clear current starter prompts first
+   * @param {"sidebar"|"fullpage"} [mode="sidebar"]
+   * @param {MozTabbrowserTab|null} [tab=null] Owner tab for fullpage mode
+   */
+  updateStarterPrompts(win, clear = true, mode = "sidebar", tab = null) {
+    const aiWindow = this._getActiveAiWindow(win, mode, tab);
+    if (!aiWindow) {
+      return;
+    }
+
+    aiWindow.loadStarterPrompts(clear, win.gBrowser.selectedTab);
   },
 
   /**
@@ -404,6 +717,31 @@ export const AIWindowUI = {
 
     const aiWindowBrowser = win.document.getElementById(this.BROWSER_ID);
     return aiWindowBrowser?.contentDocument?.querySelector("ai-window:defined");
+  },
+
+  /**
+   * Resolves the ai-window instance relevant to a dispatched event,
+   * routed by mode. Sidebar and fullpage are mutually exclusive for
+   * a given tab — an AIWINDOW_URL tab always closes the sidebar.
+   *
+   * @param {Window} win
+   * @param {"sidebar"|"fullpage"} mode
+   * @param {MozTabbrowserTab|null} tab Owner tab for fullpage mode
+   *
+   * @private
+   */
+  _getActiveAiWindow(win, mode, tab) {
+    if (mode === "sidebar") {
+      return this._getSidebarAiWindow(win);
+    }
+
+    if (mode === "fullpage" && tab) {
+      return tab.linkedBrowser.contentDocument.querySelector(
+        "ai-window:defined"
+      );
+    }
+
+    return null;
   },
 
   _getFadeTarget(win) {

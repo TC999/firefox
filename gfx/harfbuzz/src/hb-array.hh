@@ -32,8 +32,6 @@
 #include "hb-iter.hh"
 #include "hb-null.hh"
 
-#include <algorithm>
-
 
 template <typename Type>
 struct hb_sorted_array_t;
@@ -227,11 +225,14 @@ struct hb_array_t : hb_iter_with_fallback_t<hb_array_t<Type>, Type&>
       hb_qsort (arrayZ, length, this->get_item_size (), cmp);
     return hb_sorted_array_t<Type> (*this);
   }
+
+  /* Comparator follows the C qsort convention: returns
+   * negative / zero / positive int. */
   template <typename Compar>
   hb_sorted_array_t<Type> qsort (Compar compar)
   {
     if (likely (length))
-      std::sort (arrayZ, arrayZ + length, compar);
+      hb_qsort_inline (arrayZ, length, compar);
     return hb_sorted_array_t<Type> (*this);
   }
 
@@ -240,7 +241,7 @@ struct hb_array_t : hb_iter_with_fallback_t<hb_array_t<Type>, Type&>
 	    hb_enable_if (std::is_move_assignable<T>::value)>
   hb_sorted_array_t<Type> _qsort (hb_priority<1>)
   {
-    return qsort ([] (const Type &a, const Type &b) { return Type::cmp (&a, &b) < 0; });
+    return qsort ([] (const Type &a, const Type &b) { return Type::cmp (&a, &b); });
   }
   hb_sorted_array_t<Type> _qsort (hb_priority<0>)
   {
@@ -257,7 +258,7 @@ struct hb_array_t : hb_iter_with_fallback_t<hb_array_t<Type>, Type&>
    * Other methods.
    */
 
-  unsigned int get_size () const { return length * this->get_item_size (); }
+  size_t get_size () const { return length * this->get_item_size (); }
 
   /*
    * Reverse the order of items in this array in the range [start, end).

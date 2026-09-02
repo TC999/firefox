@@ -7,11 +7,11 @@ package org.mozilla.fenix.components.metrics
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import kotlin.test.assertNotNull
 import mozilla.components.browser.state.search.SearchEngine
 import mozilla.components.support.test.robolectric.testContext
 import mozilla.telemetry.glean.testing.GleanTestRule
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Rule
 import org.junit.Test
@@ -28,8 +28,7 @@ import org.robolectric.RobolectricTestRunner
 @RunWith(RobolectricTestRunner::class) // for gleanTestRule
 class MetricsUtilsTestRobolectric {
 
-    @get:Rule
-    val gleanTestRule = GleanTestRule(testContext)
+    @get:Rule val gleanTestRule = GleanTestRule(testContext)
 
     @Test
     fun `given a CUSTOM engine, when the search source is a ACTION the proper labeled metric is recorded`() {

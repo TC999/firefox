@@ -17,8 +17,8 @@ ChromeUtils.defineESModuleGetters(lazy, {
     "moz-src:///toolkit/components/uniffi-bindgen-gecko-js/components/generated/RustSuggest.sys.mjs",
   Region: "resource://gre/modules/Region.sys.mjs",
   UrlbarPrefs: "moz-src:///browser/components/urlbar/UrlbarPrefs.sys.mjs",
-  UrlbarResult: "moz-src:///browser/components/urlbar/UrlbarResult.sys.mjs",
-  UrlbarUtils: "moz-src:///browser/components/urlbar/UrlbarUtils.sys.mjs",
+  UrlbarResult: "chrome://browser/content/urlbar/UrlbarResult.mjs",
+  UrlbarShared: "chrome://browser/content/urlbar/UrlbarShared.mjs",
 });
 
 const TIMESTAMP_TEMPLATE = "%YYYYMMDDHH%";
@@ -83,16 +83,22 @@ export class AmpSuggestions extends SuggestProvider {
   }
 
   enable(enabled) {
+    // NOTE: The lines below related to the deletion-request ping are
+    // intentionally commented out so that the ping is never enabled. The ping
+    // should be removed at the same time the `context_id` metric is removed.
+    // See bug 2056936, bug 2056943, and bug 2059566.
+
     if (enabled) {
       GleanPings.quickSuggest.setEnabled(true);
-      GleanPings.quickSuggestDeletionRequest.setEnabled(true);
+      // GleanPings.quickSuggestDeletionRequest.setEnabled(true);
     } else {
       // Submit the `deletion-request` ping. Both it and the `quick-suggest`
       // ping must remain enabled in order for it to be successfully submitted
       // and uploaded. That's fine: It's harmless for both pings to remain
       // enabled until shutdown, and they won't be submitted again since AMP
       // suggestions are now disabled. On restart they won't be enabled again.
-      this.#submitQuickSuggestDeletionRequestPing();
+      //
+      // this.#submitQuickSuggestDeletionRequestPing();
     }
   }
 
@@ -117,21 +123,40 @@ export class AmpSuggestions extends SuggestProvider {
       normalized.iabCategory = suggestion.iab_category;
       normalized.requestId = suggestion.request_id;
 
+      if (suggestion.custom_details?.amp) {
+        let { amp } = suggestion.custom_details;
+        normalized.suggestionId = amp.suggestion_id;
+        if (typeof amp.header_text == "string") {
+          normalized.fullKeyword = amp.header_text;
+        }
+      }
+
       // Replace URL timestamp templates inline. This isn't necessary for Rust
       // AMP suggestions because the Rust component handles it.
       this.#replaceSuggestionTemplates(normalized);
     }
 
-    let isTopPick =
-      (lazy.UrlbarPrefs.get("quickSuggestAmpTopPickCharThreshold") &&
-        lazy.UrlbarPrefs.get("quickSuggestAmpTopPickCharThreshold") <=
-          queryContext.trimmedLowerCaseSearchString.length) ||
-      lazy.UrlbarPrefs.get("quickSuggestSponsoredPriority");
+    let isTopPick;
+    if (
+      suggestion.source == "merino" &&
+      typeof suggestion.is_top_pick == "boolean"
+    ) {
+      // Defer entirely to Merino.
+      isTopPick = suggestion.is_top_pick;
+    } else {
+      isTopPick =
+        (lazy.UrlbarPrefs.get("quickSuggestAmpTopPickCharThreshold") &&
+          lazy.UrlbarPrefs.get("quickSuggestAmpTopPickCharThreshold") <=
+            queryContext.trimmedLowerCaseSearchString.length) ||
+        lazy.UrlbarPrefs.get("quickSuggestSponsoredPriority");
+    }
 
     let richSuggestionIconSize;
     if (!isTopPick) {
       richSuggestionIconSize = 16;
-    } else if (!lazy.UrlbarPrefs.get("quickSuggestAmpTopPickUseNovaIconSize")) {
+    } else if (
+      !lazy.UrlbarPrefs.get("quicksuggest.ampTopPickUseNovaIconSize")
+    ) {
       // Use the standard rich-suggestion size.
       richSuggestionIconSize = 28;
     }
@@ -139,9 +164,9 @@ export class AmpSuggestions extends SuggestProvider {
     // `UrlbarProviderQuickSuggest` uses the standard Nova size.
 
     return new lazy.UrlbarResult({
-      type: lazy.UrlbarUtils.RESULT_TYPE.URL,
-      source: lazy.UrlbarUtils.RESULT_SOURCE.SEARCH,
-      isNovaSuggestion: true,
+      type: lazy.UrlbarShared.RESULT_TYPE.URL,
+      source: lazy.UrlbarShared.RESULT_SOURCE.SEARCH,
+      isBottomUrlSuggestion: true,
       isBestMatch: isTopPick,
       richSuggestionIconSize,
       payload: {
@@ -153,6 +178,7 @@ export class AmpSuggestions extends SuggestProvider {
           id: "urlbar-result-action-sponsored",
         },
         requestId: normalized.requestId,
+        suggestionId: normalized.suggestionId,
         urlTimestampIndex: normalized.urlTimestampIndex,
         sponsoredImpressionUrl: normalized.impressionUrl,
         sponsoredClickUrl: normalized.clickUrl,
@@ -171,7 +197,7 @@ export class AmpSuggestions extends SuggestProvider {
       commands.push({
         name: "show_less_frequently",
         l10n: {
-          id: "urlbar-result-menu-show-less-frequently",
+          id: "urlbar-result-menu-show-less-frequently2",
         },
       });
     }
@@ -180,20 +206,20 @@ export class AmpSuggestions extends SuggestProvider {
       {
         name: "dismiss",
         l10n: {
-          id: "urlbar-result-menu-dismiss-suggestion",
+          id: "urlbar-result-menu-dismiss-suggestion2",
         },
       },
       { name: "separator" },
       {
         name: "manage",
         l10n: {
-          id: "urlbar-result-menu-manage-firefox-suggest",
+          id: "urlbar-result-menu-manage-firefox-suggest2",
         },
       },
       {
         name: "help",
         l10n: {
-          id: "urlbar-result-menu-learn-more",
+          id: "urlbar-result-menu-learn-more2",
         },
       }
     );
@@ -233,11 +259,7 @@ export class AmpSuggestions extends SuggestProvider {
         break;
       }
       case "show_less_frequently": {
-        controller.view.acknowledgeFeedback(result);
-        this.incrementShowLessFrequentlyCount();
-        if (!this.canShowLessFrequently) {
-          controller.view.invalidateResultMenuCommands();
-        }
+        this.handleShowLessFrequently(controller, result);
         lazy.UrlbarPrefs.set("amp.minKeywordLength", searchString.length + 1);
         break;
       }
@@ -365,6 +387,7 @@ export class AmpSuggestions extends SuggestProvider {
         suggestedIndex: result.suggestedIndex.toString(),
         suggestedIndexRelativeToGroup: !!result.isSuggestedIndexRelativeToGroup,
         requestId: result.payload.requestId,
+        suggestionId: result.payload.suggestionId,
         source: result.payload.source,
         contextId: await lazy.ContextId.request(),
       };
@@ -390,12 +413,15 @@ export class AmpSuggestions extends SuggestProvider {
       pingType: lazy.CONTEXTUAL_SERVICES_PING_TYPES.QS_IMPRESSION,
       isClicked:
         // `selType` == "quicksuggest" if the result itself was clicked. It will
-        // be a command name if a command was clicked, e.g., "dismiss".
-        result == details.result && details.selType == "quicksuggest",
+        // be a command name if a command was clicked, e.g., "dismiss". Match by
+        // id: the visible result and the picked result aren't necessarily the
+        // same object.
+        result.id == details.result?.id && details.selType == "quicksuggest",
       reportingUrl: result.payload.sponsoredImpressionUrl,
     });
   }
 
+  // eslint-disable-next-line no-unused-private-class-members
   async #submitQuickSuggestDeletionRequestPing() {
     if (lazy.ContextId.rotationEnabled) {
       // The ContextId module will take care of sending the appropriate

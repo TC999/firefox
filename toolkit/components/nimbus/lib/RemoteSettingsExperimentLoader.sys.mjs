@@ -62,7 +62,18 @@ const SECURE_EXPERIMENTS_COLLECTION = "secureExperiments";
 const IS_MAIN_PROCESS =
   Services.appinfo.processType === Services.appinfo.PROCESS_TYPE_DEFAULT;
 
-const SECURE_FEATURE_IDS = new Set(["prefFlips", "newtabTrainhopAddon"]);
+// IMPORTANT: This list of feature IDs will *only* be accepted if they come from
+// the secure collection (nimbus-secure-experiments).
+//
+// All new features to this list *must* be added to the corresponding list in
+// Experimenter:
+// https://github.com/mozilla/experimenter/blob/cca860ba06f07874800423bed616b9f51166d9e0/experimenter/experimenter/experiments/constants.py#L280-L283
+const SECURE_FEATURE_IDS = new Set([
+  "prefFlips",
+  "newtabTrainhopAddon",
+  "newtabTrainhopAddonDeployment",
+]);
+
 const RS_COLLECTION_OPTIONS = {
   [EXPERIMENTS_COLLECTION]: {
     // None of these features can be present to accept an experiment from the
@@ -310,9 +321,10 @@ export class RemoteSettingsExperimentLoader {
         this.#shutdownBlocker
       );
 
-      this.setTimer();
-
       this._enabled = true;
+
+      // The timer must be set *after* we are enabled, otherwise it is a no-op.
+      this.setTimer();
     }
 
     await this.updateRecipes("enabled", { forceSync });
@@ -391,6 +403,8 @@ export class RemoteSettingsExperimentLoader {
 
     await this.withUpdateLock(() => this.#updateImpl(trigger, options));
 
+    Services.prefs.setBoolPref("nimbus.firstUpdateComplete", true);
+
     this._hasUpdatedOnce = true;
     this._updating = false;
     this._updatingDeferred.resolve();
@@ -420,7 +434,7 @@ export class RemoteSettingsExperimentLoader {
   ) {
     lazy.log.debug(`Updating recipes with trigger "${trigger ?? ""}"`);
 
-    this.manager.optInRecipes = [];
+    this.manager._clearOptIns(this.SOURCE, { onlyFeatureIds });
 
     // The targeting context metrics do not work in artifact builds.
     // See-also: https://bugzilla.mozilla.org/show_bug.cgi?id=1936317
@@ -667,12 +681,19 @@ export class RemoteSettingsExperimentLoader {
       recipes = await client.get({
         forceSync,
         emptyListFallback: false, // Throw instead of returning an empty list.
+        verifySignature: true,
       });
     } catch (e) {
-      const reason =
-        e instanceof lazy.RemoteSettingsClient.EmptyDatabaseError
-          ? lazy.NimbusTelemetry.RemoteSettingsSyncErrorReason.NOT_YET_SYNCED
-          : lazy.NimbusTelemetry.RemoteSettingsSyncErrorReason.GET_EXCEPTION;
+      const { RemoteSettingsSyncErrorReason } = lazy.NimbusTelemetry;
+      let reason;
+
+      if (e instanceof lazy.RemoteSettingsClient.EmptyDatabaseError) {
+        reason = RemoteSettingsSyncErrorReason.NOT_YET_SYNCED;
+      } else if (e instanceof lazy.RemoteSettingsClient.MissingSignatureError) {
+        reason = RemoteSettingsSyncErrorReason.MISSING_SIGNATURE;
+      } else {
+        reason = RemoteSettingsSyncErrorReason.GET_EXCEPTION;
+      }
 
       throw new RemoteSettingsSyncError(client.collectionName, reason, {
         cause: e,
@@ -845,12 +866,7 @@ export class RemoteSettingsExperimentLoader {
       throw new Error(`Recipe ${recipe.slug} did not match targeting`);
     }
 
-    const branch = recipe.branches.find(b => b.slug === branchSlug);
-    if (!branch) {
-      throw new Error(`Could not find branch slug ${branchSlug} in ${slug}`);
-    }
-
-    await this.manager.forceEnroll(recipe, branch);
+    this.manager.forceEnroll(recipe, branchSlug);
   }
 
   /**
@@ -858,9 +874,9 @@ export class RemoteSettingsExperimentLoader {
    * and vice versa.
    */
   async onEnabledPrefChange() {
-    if (lazy.ExperimentAPI.enabled) {
+    if (!this._enabled && lazy.ExperimentAPI.enabled) {
       await this.enable();
-    } else {
+    } else if (this._enabled && !lazy.ExperimentAPI.enabled) {
       this.disable();
     }
   }

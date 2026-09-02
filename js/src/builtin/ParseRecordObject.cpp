@@ -4,7 +4,6 @@
 
 #include "builtin/ParseRecordObject.h"
 
-#include "jsapi.h"  // JS_ValueToId, JS_IdToValue
 #include "builtin/Object.h"
 #include "js/PropertyAndElement.h"  // JS_SetPropertyById
 #include "vm/PlainObject.h"
@@ -17,7 +16,7 @@ using namespace js;
 
 const JSClass ParseRecordObject::class_ = {
     "ParseRecordObject",
-    JSCLASS_HAS_RESERVED_SLOTS(SlotCount),
+    JSCLASS_HAS_RESERVED_SLOTS(SLOT_COUNT),
 };
 
 /* static */
@@ -36,31 +35,14 @@ ParseRecordObject* ParseRecordObject::create(JSContext* cx,
   }
 
   if (parseNode) {
-    obj->initSlot(ParseNodeSlot, StringValue(parseNode));
+    obj->initReservedSlotTyped(PARSE_NODE_SLOT, StringValue(parseNode));
   }
-  obj->initSlot(ValueSlot, val);
+  obj->initReservedSlot(VALUE_SLOT, val);
   return obj;
-}
-
-JS::PropertyKey ParseRecordObject::getKey(JSContext* cx) const {
-  Rooted<Value> slot(cx, getSlot(KeySlot));
-  Rooted<JS::PropertyKey> key(cx);
-  MOZ_ALWAYS_TRUE(JS_ValueToId(cx, slot, &key));
-  return key;
-};
-
-bool ParseRecordObject::setKey(JSContext* cx, const JS::PropertyKey& key) {
-  Rooted<Value> val(cx);
-  if (!JS_IdToValue(cx, key, &val)) {
-    return false;
-  }
-  setSlot(KeySlot, val);
-  return true;
 }
 
 bool ParseRecordObject::addEntries(JSContext* cx, Handle<JS::PropertyKey> key,
                                    Handle<ParseRecordObject*> parseRecord) {
-  parseRecord->setKey(cx, key.get());
   Rooted<Value> pro(cx, ObjectValue(*parseRecord));
   Rooted<JSObject*> obj(cx, this);
   return JS_SetPropertyById(cx, obj, key, pro);

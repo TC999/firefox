@@ -15,9 +15,10 @@ use crate::properties::longhands::position::computed_value::T as Position;
 use crate::properties::longhands::{
     contain::computed_value::T as Contain, container_type::computed_value::T as ContainerType,
     content_visibility::computed_value::T as ContentVisibility,
-    overflow_x::computed_value::T as Overflow,
 };
-use crate::properties::{ComputedValues, LonghandId, LonghandIdSet, StyleBuilder};
+#[cfg(feature = "gecko")]
+use crate::properties::LonghandId;
+use crate::properties::{ComputedValues, LonghandIdSet, StyleBuilder};
 use crate::values::computed::position::{
     PositionTryFallbacksTryTactic, PositionTryFallbacksTryTacticKeyword, TryTacticAdjustment,
 };
@@ -165,14 +166,19 @@ impl<'a, 'b: 'a> StyleAdjuster<'a, 'b> {
         use crate::properties::longhands::_moz_box_orient::computed_value::T as BoxOrient;
         use crate::values::specified::box_::{DisplayInside, DisplayOutside};
         let box_style = self.style.get_box();
-        if box_style.clone__webkit_line_clamp().is_none() {
+        if box_style.clone_line_clamp().is_none() {
             return;
         }
+        let line_clamp = box_style.clone_line_clamp();
         let disp = box_style.clone_display();
-        if disp.inside() != DisplayInside::WebkitBox {
+        if disp.inside() != DisplayInside::WebkitBox && line_clamp.webkit_legacy
+            || disp.inside() == DisplayInside::WebkitBox
+                && self.style.get_xul().clone__moz_box_orient() != BoxOrient::Vertical
+        {
             return;
         }
-        if self.style.get_xul().clone__moz_box_orient() != BoxOrient::Vertical {
+        // Inline elements should not have line-clamp applied.
+        if disp.inside() == DisplayInside::Flow && disp.outside() == DisplayOutside::Inline {
             return;
         }
         let new_display = if disp.outside() == DisplayOutside::Block {
@@ -560,20 +566,6 @@ impl<'a, 'b: 'a> StyleAdjuster<'a, 'b> {
                 .mutate_inherited_text()
                 .set_white_space_collapse(new_collapse);
         }
-
-        let box_style = self.style.get_box();
-        let overflow_x = box_style.clone_overflow_x();
-        let overflow_y = box_style.clone_overflow_y();
-
-        // If at least one is scrollable we'll adjust the other one in
-        // adjust_for_overflow if needed.
-        if overflow_x.is_scrollable() || overflow_y.is_scrollable() {
-            return;
-        }
-
-        let box_style = self.style.mutate_box();
-        box_style.set_overflow_x(Overflow::Auto);
-        box_style.set_overflow_y(Overflow::Auto);
     }
 
     /// If a <fieldset> has grid/flex display type, we need to inherit
@@ -654,7 +646,7 @@ impl<'a, 'b: 'a> StyleAdjuster<'a, 'b> {
             // line break suppression flag while they shouldn't. However, it is
             // generally fine as far as they can't break the line inside them.
             Display::RubyBaseContainer | Display::RubyTextContainer
-                if element.map_or(true, |e| e.is_html_element()) =>
+                if element.is_none_or(|e| e.is_html_element()) =>
             {
                 false
             },
@@ -732,7 +724,7 @@ impl<'a, 'b: 'a> StyleAdjuster<'a, 'b> {
             return;
         }
 
-        let is_link_element = self.style.pseudo.is_none() && element.map_or(false, |e| e.is_link());
+        let is_link_element = self.style.pseudo.is_none() && element.is_some_and(|e| e.is_link());
 
         if !is_link_element {
             return;
@@ -779,7 +771,6 @@ impl<'a, 'b: 'a> StyleAdjuster<'a, 'b> {
     /// the computed value of 'line-height' is 'normal'.
     ///
     /// https://github.com/w3c/csswg-drafts/issues/3257
-    #[cfg(feature = "gecko")]
     fn adjust_for_appearance<E>(&mut self, element: Option<E>)
     where
         E: TElement,
@@ -800,9 +791,8 @@ impl<'a, 'b: 'a> StyleAdjuster<'a, 'b> {
             if self.style.pseudo.is_some() {
                 return;
             }
-            let is_html_select_element = element.map_or(false, |e| {
-                e.is_html_element() && e.local_name() == &*atom!("select")
-            });
+            let is_html_select_element =
+                element.is_some_and(|e| e.is_html_element() && e.local_name() == &*atom!("select"));
             if !is_html_select_element {
                 return;
             }
@@ -828,7 +818,7 @@ impl<'a, 'b: 'a> StyleAdjuster<'a, 'b> {
         use crate::values::computed::font::{FontFamily, FontSynthesis, FontSynthesisStyle};
         use crate::values::computed::text::{LetterSpacing, WordSpacing};
 
-        let is_legacy_marker = self.style.pseudo.map_or(false, |p| p.is_marker())
+        let is_legacy_marker = self.style.pseudo.is_some_and(|p| p.is_marker())
             && self.style.get_list().clone_list_style_type().is_bullet()
             && self.style.get_counters().clone_content() == Content::Normal;
         if !is_legacy_marker {
@@ -1034,6 +1024,7 @@ impl<'a, 'b: 'a> StyleAdjuster<'a, 'b> {
     }
 
     /// Adjusts the style to account for various fixups that don't fit naturally into the cascade.
+    #[allow(unused_variables)]
     pub fn adjust<E>(
         &mut self,
         layout_parent_style: &ComputedValues,
@@ -1070,8 +1061,6 @@ impl<'a, 'b: 'a> StyleAdjuster<'a, 'b> {
         {
             self.adjust_for_prohibited_display_contents(element);
             self.adjust_for_fieldset_content();
-            // NOTE: It's important that this happens before
-            // adjust_for_overflow.
             self.adjust_for_text_control_editing_root();
         }
         self.adjust_for_top_layer();
@@ -1089,11 +1078,10 @@ impl<'a, 'b: 'a> StyleAdjuster<'a, 'b> {
         self.adjust_for_table_text_align();
         self.adjust_for_writing_mode(layout_parent_style);
         #[cfg(feature = "gecko")]
-        {
-            self.adjust_for_ruby(element);
-            self.adjust_for_appearance(element);
-            self.adjust_for_marker_pseudo(author_specified_properties);
-        }
+        self.adjust_for_ruby(element);
+        self.adjust_for_appearance(element);
+        #[cfg(feature = "gecko")]
+        self.adjust_for_marker_pseudo(author_specified_properties);
         if !try_tactic.is_empty() {
             self.adjust_for_try_tactic(try_tactic);
         }

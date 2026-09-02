@@ -23,18 +23,22 @@ import {
   getOpenedSources,
   getBlackBoxRanges,
   getProjectDirectoryRoot,
+  getStyleSheetAtRules,
 } from "../selectors/index";
 import { memoizeLast } from "../utils/memoizeLast";
 import { searchKeys } from "../constants";
 import {
+  formatAtRule,
   formatSymbol,
   parseLineColumn,
   formatShortcutResults,
   formatSourceForList,
 } from "../utils/quick-open";
 import Modal from "./shared/Modal";
-import SearchInput from "./shared/SearchInput";
 import ResultList from "./shared/ResultList";
+
+import SearchInput from "devtools/client/shared/components/SearchInput";
+import DebuggerImage from "devtools/client/shared/components/DebuggerImage";
 
 const maxResults = 100;
 
@@ -166,19 +170,26 @@ export class QuickOpenModal extends Component {
   };
 
   searchSymbols = async query => {
-    const { getFunctionSymbols, selectedLocation } = this.props;
+    const { getFunctionSymbols, selectedLocation, atRules } = this.props;
     if (!selectedLocation) {
       return this.setResults([]);
     }
-    let results = await getFunctionSymbols(selectedLocation, maxResults);
+    let results;
+    if (selectedLocation.source.isStyleSheet) {
+      results = atRules;
+      if (query === "@") {
+        return this.setResults(results.map(formatAtRule));
+      }
 
-    if (query === "@" || query === "#") {
-      results = results.map(formatSymbol);
+      results = filter(results.map(formatAtRule), query);
       return this.setResults(results);
     }
+    results = await getFunctionSymbols(selectedLocation, maxResults);
+    if (query === "@" || query === "#") {
+      return this.setResults(results.map(formatSymbol));
+    }
     results = filter(results, query.slice(1), "name");
-    results = results.map(formatSymbol);
-    return this.setResults(results);
+    return this.setResults(results.map(formatSymbol));
   };
 
   searchShortcuts = query => {
@@ -476,6 +487,9 @@ export class QuickOpenModal extends Component {
         showSearchModifiers: false,
         selectedItemId:
           expanded && items[selectedIndex] ? items[selectedIndex].id : "",
+        searchOptions: {},
+        setSearchOptions: () => {},
+        DebuggerImage,
         ...(this.isSourceSearch() ? SIZE_BIG : SIZE_DEFAULT),
       }),
       results &&
@@ -499,6 +513,10 @@ function mapStateToProps(state) {
   const openedSources = getOpenedSources(state);
 
   return {
+    atRules:
+      selectedLocation && selectedLocation.source.isStyleSheet
+        ? getStyleSheetAtRules(state, selectedLocation.sourceActor.id)
+        : [],
     displayedSources,
     blackBoxRanges: getBlackBoxRanges(state),
     projectDirectoryRoot: getProjectDirectoryRoot(state),

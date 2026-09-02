@@ -4,8 +4,8 @@
 
 package org.mozilla.focus.telemetry
 
+import kotlin.test.assertNotNull
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -85,11 +85,12 @@ internal class GleanUsageReportingMetricsServiceTest {
         assertTrue(fakeGleanUsageReporting.dataDeletionRequested!!)
     }
 
-    private fun createGleanUsageReportingMetricsService() = GleanUsageReportingMetricsService(
-        lifecycleOwner = fakeLifecycleOwner,
-        gleanUsageReportingLifecycleObserver = fakeLifecycleEventObserver,
-        gleanUsageReporting = fakeGleanUsageReporting,
-        gleanProfileId = FakeGleanProfileId(),
-        gleanProfileIdStore = FakeGleanProfileIdStore(),
-    )
+    private fun createGleanUsageReportingMetricsService() =
+        GleanUsageReportingMetricsService(
+            lifecycleOwner = fakeLifecycleOwner,
+            gleanUsageReportingLifecycleObserver = fakeLifecycleEventObserver,
+            gleanUsageReporting = fakeGleanUsageReporting,
+            gleanProfileId = FakeGleanProfileId(),
+            gleanProfileIdStore = FakeGleanProfileIdStore(),
+        )
 }

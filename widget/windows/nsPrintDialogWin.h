@@ -5,25 +5,24 @@
 #ifndef nsPrintDialog_h_
 #define nsPrintDialog_h_
 
-#include "nsIPrintDialogService.h"
+#include <windef.h>
 
 #include "nsCOMPtr.h"
+#include "nsIPrintDialogService.h"
 #include "nsIWindowWatcher.h"
-
-#include <windef.h>
 
 class nsIPrintSettings;
 class nsIDialogParamBlock;
 
 class nsPrintDialogServiceWin final : public nsIPrintDialogService {
  public:
-  nsPrintDialogServiceWin();
+  nsPrintDialogServiceWin() = default;
 
   NS_DECL_ISUPPORTS
   NS_DECL_NSIPRINTDIALOGSERVICE
 
  private:
-  virtual ~nsPrintDialogServiceWin();
+  virtual ~nsPrintDialogServiceWin() = default;
 
   nsresult DoDialog(mozIDOMWindowProxy* aParent,
                     nsIDialogParamBlock* aParamBlock, nsIPrintSettings* aPS,

@@ -9,16 +9,16 @@
 
 #import <Carbon/Carbon.h>
 #import <Cocoa/Cocoa.h>
+#include "WritingModes.h"
 #include "mozView.h"
-#include "nsString.h"
-#include "nsCOMPtr.h"
-#include "nsITimer.h"
-#include "nsTArray.h"
 #include "mozilla/BasicEvents.h"
 #include "mozilla/EventForwards.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/TextEventDispatcherListener.h"
-#include "WritingModes.h"
+#include "nsCOMPtr.h"
+#include "nsITimer.h"
+#include "nsString.h"
+#include "nsTArray.h"
 
 class nsCocoaWindow;
 
@@ -451,7 +451,7 @@ class TextInputHandlerBase : public TextEventDispatcherListener {
    */
   nsresult SynthesizeNativeKeyEvent(int32_t aNativeKeyboardLayout,
                                     int32_t aNativeKeyCode,
-                                    uint32_t aModifierFlags,
+                                    nsIWidget::NativeModifiers aModifierFlags,
                                     const nsAString& aCharacters,
                                     const nsAString& aUnmodifiedCharacters);
 
@@ -666,9 +666,11 @@ class TextInputHandlerBase : public TextEventDispatcherListener {
           return keyNameIndex == KEY_NAME_INDEX_ArrowRight &&
                  modifiers == (MODIFIER_ALT | MODIFIER_SHIFT);
         case Command::EndLine:
+        case Command::MoveRight3:
           return keyNameIndex == KEY_NAME_INDEX_ArrowRight &&
                  modifiers == MODIFIER_META;
         case Command::SelectEndLine:
+        case Command::SelectRight3:
           return keyNameIndex == KEY_NAME_INDEX_ArrowRight &&
                  modifiers == (MODIFIER_META | MODIFIER_SHIFT);
         case Command::CharPrevious:
@@ -684,9 +686,11 @@ class TextInputHandlerBase : public TextEventDispatcherListener {
           return keyNameIndex == KEY_NAME_INDEX_ArrowLeft &&
                  modifiers == (MODIFIER_ALT | MODIFIER_SHIFT);
         case Command::BeginLine:
+        case Command::MoveLeft3:
           return keyNameIndex == KEY_NAME_INDEX_ArrowLeft &&
                  modifiers == MODIFIER_META;
         case Command::SelectBeginLine:
+        case Command::SelectLeft3:
           return keyNameIndex == KEY_NAME_INDEX_ArrowLeft &&
                  modifiers == (MODIFIER_META | MODIFIER_SHIFT);
         case Command::LinePrevious:

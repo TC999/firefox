@@ -22,10 +22,17 @@ LOCAL_INCLUDES += [
 
 UNIFIED_SOURCES += [
     "MockMediaResource.cpp",
+    "TestADTSDemuxer.cpp",
+    "TestAOMDecoder.cpp",
+    "TestAsyncLogger.cpp",
     "TestAudioBuffer.cpp",
+    "TestAudioBufferAddWithScale.cpp",
     "TestAudioBuffers.cpp",
     "TestAudioCallbackDriver.cpp",
+    "TestAudioClock.cpp",
     "TestAudioCompactor.cpp",
+    "TestAudioConfig.cpp",
+    "TestAudioData.cpp",
     "TestAudioDecoderInputTrack.cpp",
     "TestAudioInputSource.cpp",
     "TestAudioMixer.cpp",
@@ -45,10 +52,15 @@ UNIFIED_SOURCES += [
     "TestDecodedStream.cpp",
     "TestDeviceInputTrack.cpp",
     "TestDriftCompensation.cpp",
+    "TestFFmpegDecodeStats.cpp",
     "TestGMPUtils.cpp",
+    "TestGMPVideoEncodedFrame.cpp",
+    "TestGMPVideoi420Frame.cpp",
     "TestGroupId.cpp",
+    "TestHDRUtils.cpp",
     "TestImageConversion.cpp",
     "TestIntervalSet.cpp",
+    "TestMediaCapabilities.cpp",
     "TestMediaCodecsSupport.cpp",
     "TestMediaDataDecoder.cpp",
     "TestMediaDataEncoder.cpp",
@@ -65,10 +77,15 @@ UNIFIED_SOURCES += [
     "TestOfflineClockDriver.cpp",
     "TestOggWriter.cpp",
     "TestOpusParser.cpp",
+    "TestPDMFactorySupport.cpp",
+    "TestQuantizableBuffer.cpp",
+    "TestRemoteImageHolder.cpp",
     "TestRust.cpp",
     "TestSimpleMap.cpp",
+    "TestTelemetryProbesReporter.cpp",
     "TestTimeUnit.cpp",
     "TestUnboundedMPSCQueue.cpp",
+    "TestVideoData.cpp",
     "TestVideoFrameContainer.cpp",
     "TestVideoSegment.cpp",
     "TestVideoSink.cpp",
@@ -76,7 +93,9 @@ UNIFIED_SOURCES += [
     "TestVideoUtils.cpp",
     "TestVPXDecoding.cpp",
     "TestWebMBuffered.cpp",
+    "TestWebMDemuxer.cpp",
     "TestWebMWriter.cpp",
+    "TestYUVBufferGenerator.cpp",
     "YUVBufferGenerator.cpp",
 ]
 
@@ -88,7 +107,9 @@ if CONFIG["MOZ_WEBRTC"]:
     UNIFIED_SOURCES += [
         "TestAudioInputProcessing.cpp",
         "TestCamerasParent.cpp",
+        "TestH264FmtpParser.cpp",
         "TestRTCStatsTimestampMaker.cpp",
+        "TestWebrtcCodecFactory.cpp",
         "TestWebrtcTaskQueueWrapper.cpp",
     ]
 
@@ -96,7 +117,18 @@ if CONFIG["OS_TARGET"] != "Android":
     UNIFIED_SOURCES += [
         "TestCDMStorage.cpp",
         "TestGMPCrossOrigin.cpp",
+        "TestGMPPluginScan.cpp",
         "TestGMPRemoveAndDelete.cpp",
+    ]
+
+if CONFIG["OS_TARGET"] == "WINNT":
+    LOCAL_INCLUDES += [
+        "/dom/media/platforms/wmf",
+    ]
+    # Not in UNIFIED_SOURCES: WMF.h pulls in <windows.h> which defines a
+    # StrCat macro that conflicts with absl::StrCat in WebRTC unified units.
+    SOURCES += [
+        "TestWMFDeadlock.cpp",
     ]
 
 if CONFIG["MOZ_WEBRTC"] and CONFIG["OS_TARGET"] != "Android":
@@ -104,10 +136,14 @@ if CONFIG["MOZ_WEBRTC"] and CONFIG["OS_TARGET"] != "Android":
         "TestAudioDeviceEnumerator.cpp",
         "TestPacer.cpp",
         "TestVideoFrameConverter.cpp",
+        "TestWebRTCCodecInfo.cpp",
         "TestWebrtcGmpCodec.cpp",
     ]
 
 TEST_HARNESS_FILES.gtest += [
+    "../mediasource/test/bug1341228_init.webm",
+    "../mediasource/test/bug2065262_init.webm",
+    "../test/adts.aac",
     "../test/av1.mp4",
     "../test/gizmo-frag.mp4",
     "../test/gizmo.mp4",
@@ -126,6 +162,7 @@ TEST_HARNESS_FILES.gtest += [
     "test_case_1224361.vp8.ivf",
     "test_case_1224363.vp8.ivf",
     "test_case_1224369.vp8.ivf",
+    "test_hevc_open_gop.mp4",
     "test_InvalidElementId.webm",
     "test_InvalidElementSize.webm",
     "test_InvalidLargeEBMLMaxIdLength.webm",
@@ -134,6 +171,8 @@ TEST_HARNESS_FILES.gtest += [
     "test_ValidLargeEBMLMaxIdLength.webm",
     "test_ValidSmallEBMLMaxSizeLength.webm",
     "test_vbri.mp3",
+    "tos-vp9-hdr-cll.webm",
+    "truncated-xing-placeholder.mp3",
 ]
 
 TEST_DIRS += [
@@ -146,9 +185,13 @@ LOCAL_INCLUDES += [
     "/dom/media",
     "/dom/media/encoder",
     "/dom/media/gmp",
+    "/dom/media/mediacapabilities",
     "/dom/media/mp4",
     "/dom/media/platforms",
     "/dom/media/platforms/agnostic",
+    "/dom/media/platforms/ffmpeg",
+    "/dom/media/webaudio",
+    "/dom/media/webm",
     "/dom/media/webrtc",
     "/gfx/2d/",
     "/security/certverifier",

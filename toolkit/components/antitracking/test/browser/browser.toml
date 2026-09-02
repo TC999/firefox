@@ -1,7 +1,4 @@
 [DEFAULT]
-skip-if = [
-  "debug", # bug 1884982 - takes 20+ minutes to run on debug
-]
 prefs = [
   "dom.storage_access.prompt.testing=true", # Disable the Storage Access API prompts for all of the tests in this directory
   "dom.storage_access.prompt.testing.allow=true",
@@ -94,6 +91,8 @@ support-files = [
 
 ["browser_fixed_ABA_partitionKey.js"]
 
+["browser_flushOnQuery.js"]
+
 ["browser_foreignWorker_eventSource.js"]
 support-files= [
   "eventsource_worker.js",
@@ -115,8 +114,6 @@ support-files= [
 ["browser_nimbus_3pcb.js"]
 
 ["browser_nimbus_etp_features.js"]
-
-["browser_nimbus_thirdPartyTrackerCookieBlocking.js"]
 
 ["browser_noStorageAccessAutoGrant_thirdPartyTracker.js"]
 
@@ -166,11 +163,11 @@ support-files = ["localStorageEvents.html"]
 ["browser_partitionedLockManager.js"]
 
 ["browser_partitionedMessaging.js"]
-skip-if = [
-  "true", # Bug 1588241
-]
 
 ["browser_partitionedServiceWorkers.js"]
+skip-if = [
+  "debug", # Bug 2046514 - currently crashing on debug
+]
 support-files = [
   "dedicatedWorker.js",
   "matchAll.js",
@@ -192,9 +189,6 @@ support-files = [
 ["browser_permissionInPrivateWindows.js"]
 
 ["browser_permissionPropagation.js"]
-skip-if = [
-  "os == 'win' && debug", # Bug 1645505
-]
 
 ["browser_referrerDefaultPolicy.js"]
 support-files = ["referrer.sjs"]
@@ -319,9 +313,6 @@ support-files = [
 ["browser_subResources.js"]
 support-files = ["subResources.sjs"]
 
-["browser_subResourcesPartitioned.js"]
-support-files = ["subResources.sjs"]
-
 ["browser_thirdPartyChecks_sandboxed_context.js"]
 support-files = [
   "sandboxedWithImg.html",
@@ -360,9 +351,6 @@ skip-if = [
 support-files = ["file_stripping.html"]
 
 ["browser_urlQueryStringStripping_allowList.js"]
-support-files = ["file_stripping.html"]
-
-["browser_urlQueryStringStripping_nimbus.js"]
 support-files = ["file_stripping.html"]
 
 ["browser_urlQueryStringStripping_pbmode.js"]

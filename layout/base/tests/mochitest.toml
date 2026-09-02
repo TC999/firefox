@@ -260,6 +260,8 @@ skip-if = [
   "os == 'android'",
 ]
 
+["test_caret_browsing_focus_move.html"]
+
 ["test_dynamic_toolbar_max_height.html"]
 support-files = ["file_dynamic_toolbar_max_height.html"]
 
@@ -268,6 +270,8 @@ support-files = ["file_dynamic_toolbar_max_height.html"]
 ["test_emulate_color_scheme.html"]
 
 ["test_emulate_forced_colors.html"]
+
+["test_emulate_prefers_reduced_motion.html"]
 
 ["test_event_target_radius.html"]
 support-files = ["helper_bug1733509.html"]
@@ -294,9 +298,19 @@ support-files = [
   "file_getBoxQuads_convertPointRectQuad_frame2.html",
 ]
 
+["test_hit_test_no_display_list_build.html"]
+
 ["test_interactive_widget.html"]
 run-if = [
   "os == 'android'",
+]
+
+["test_keyboard_scroll_handoff.html"]
+
+["test_keyboard_scroll_handoff_oopif.html"]
+support-files = [
+  "window_keyboard_scroll_handoff_oopif.html",
+  "file_keyboard_scroll_handoff_oopif.html",
 ]
 
 ["test_mozPaintCount.html"]
@@ -625,6 +639,11 @@ support-files = [
 ]
 
 ["test_synthmousemove_after_dnd.html"]
+
+["test_synthmousemove_after_navigation.html"]
+support-files = [
+  "file_synthmousemove_after_navigation.html",
+]
 
 ["test_transformed_scrolling_repaints.html"]
 

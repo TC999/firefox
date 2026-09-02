@@ -12,6 +12,7 @@ task-defaults:
         by-platform:
             linux2404-64.*: t-linux-docker-amd
             macosx1470-64.*: t-osx-1400-r8
+            macosx1500-aarch64.*: t-osx-1500-m4
             windows11-64.*: win11-64-25h2-source
     worker:
         by-platform:
@@ -36,8 +37,8 @@ task-defaults:
     treeherder:
         kind: test
         tier: 1
-    run-on-repo-type: [hg]
     run:
+        clone-with: hg
         using: mach
         use-caches: [checkout, pip, uv]
     when:
@@ -105,6 +106,7 @@ marionette-harness:
         subsuite: marionette-harness
     when:
         files-changed:
+            - 'testing/marionette/client/**'
             - 'testing/marionette/harness/**'
             - 'testing/mozbase/mozlog/mozlog/**'
             - 'testing/mozbase/mozlog/setup.py'
@@ -214,12 +216,15 @@ mozlint:
                 linux2404-64/opt:
                     - linux64-node
                     - linux64-rust
+                    - linux64-mozcheck
                 macosx1470-64/opt:
                     - macosx64-node
                     - macosx64-rust
+                    - macosx64-mozcheck
                 windows11-64/opt:
                     - win64-node
                     - win64-rust
+                    - win64-mozcheck
         clang-tidy:
             - artifact: clang-tidy.tar.zst
               dest: clang-tools
@@ -374,6 +379,19 @@ tryselect:
             - 'taskcluster/requirements.txt'
             - 'tools/tryselect/**'
 
+update-packaging:
+    description: tools/update-packaging unit tests
+    platform:
+        - linux2404-64/opt
+    treeherder:
+        symbol: update-packaging
+    run:
+        using: python-test
+        subsuite: update-packaging
+    when:
+        files-changed:
+            - 'tools/update-packaging/**'
+
 mozbuild:
     matrix:
         python: ['3.9', '3.11']
@@ -438,6 +456,7 @@ mozperftest:
     platform:
         - linux2404-64/opt
         - macosx1470-64/opt
+        - macosx1500-aarch64/opt
         - windows11-64/opt
     treeherder:
         symbol: mpu
@@ -451,6 +470,9 @@ mozperftest:
                     - browsertime
                 macosx1470-64/opt:
                     - macosx64-node
+                    - browsertime
+                macosx1500-aarch64/opt:
+                    - macosx64-aarch64-node
                     - browsertime
                 windows11-64/opt:
                     - win64-node
@@ -611,6 +633,8 @@ telemetry-python:
     when:
         files-changed:
             - 'toolkit/components/telemetry/**'
+            - '**/*metrics.yaml'
+            - '**/pings.yaml'
 
 verify-decision:
     description: verifications on Decision task output

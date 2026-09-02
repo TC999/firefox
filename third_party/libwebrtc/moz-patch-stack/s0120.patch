@@ -1,41 +1,25 @@
-From: Michael Froman <mfroman@mozilla.com>
-Date: Thu, 11 Sep 2025 14:17:00 -0500
-Subject: Bug 1988042 - add BSD support to new version of libwebrtc's
- cpu_info.cc r?ng!
+From: Andreas Pehrson <apehrson@mozilla.com>
+Date: Fri, 5 Dec 2025 11:12:00 +0000
+Subject: Bug 1931210 - Log SCK startCaptureWithCompletionHandler error code.
+ r=jib
 
-Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/e3b37acb8816aefb9134a68cafad8c7d5e145179
+Differential Revision: https://phabricator.services.mozilla.com/D268351
+Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/330a55d5a7ff5e7c694772810697fde59f0c742b
 ---
- rtc_base/cpu_info.cc | 7 +++++--
- 1 file changed, 5 insertions(+), 2 deletions(-)
+ modules/desktop_capture/mac/screen_capturer_sck.mm | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
 
-diff --git a/rtc_base/cpu_info.cc b/rtc_base/cpu_info.cc
-index 0ce48a02f1..f0bff56911 100644
---- a/rtc_base/cpu_info.cc
-+++ b/rtc_base/cpu_info.cc
-@@ -29,14 +29,14 @@
- #include <unistd.h>
- #elif defined(WEBRTC_FUCHSIA)
- #include <zircon/syscalls.h>
--#elif defined(WEBRTC_LINUX)
-+#elif defined(WEBRTC_LINUX) || defined(WEBRTC_BSD)
- #include <unistd.h>
- #endif  // WEBRTC_LINUX
- 
- #if defined(WEBRTC_ARCH_X86_FAMILY) && defined(_MSC_VER)
- #include <intrin.h>
- #endif
--#if defined(WEBRTC_ARCH_ARM_FAMILY) && defined(WEBRTC_LINUX)
-+#if defined(WEBRTC_ARCH_ARM_FAMILY) && (defined(WEBRTC_LINUX) || defined(WEBRTC_BSD))
- #include <asm/hwcap.h>
- #include <sys/auxv.h>
- #endif
-@@ -176,6 +176,9 @@ bool Supports(ISA instruction_set_architecture) {
-   if (instruction_set_architecture == ISA::kNeon) {
- #if defined(WEBRTC_ANDROID)
-     return 0 != (android_getCpuFeatures() & ANDROID_CPU_ARM_FEATURE_NEON);
-+#elif defined(WEBRTC_BSD)
-+    // OpenBSD does not have getauxval() and does not have /proc reading
-+    return false;
- #elif defined(WEBRTC_LINUX)
-     uint64_t hwcap = 0;
-     hwcap = getauxval(AT_HWCAP);
+diff --git a/modules/desktop_capture/mac/screen_capturer_sck.mm b/modules/desktop_capture/mac/screen_capturer_sck.mm
+index 0691aba3e4..e429f2c635 100644
+--- a/modules/desktop_capture/mac/screen_capturer_sck.mm
++++ b/modules/desktop_capture/mac/screen_capturer_sck.mm
+@@ -588,7 +588,8 @@ void ScreenCapturerSck::StartWithFilter(SCContentFilter* __strong filter) {
+         // this handler.
+         permanent_error_ = true;
+         RTC_LOG(LS_ERROR) << "ScreenCapturerSck " << this
+-                          << " Starting failed.";
++                          << " Starting failed with error code " << error.code
++                          << ".";
+       } else {
+         RTC_LOG(LS_INFO) << "ScreenCapturerSck " << this << " Capture started.";
+       }

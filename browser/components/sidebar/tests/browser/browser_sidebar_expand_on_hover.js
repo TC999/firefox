@@ -3,6 +3,8 @@
 
 "use strict";
 
+const novaEnabled = Services.prefs.getBoolPref("browser.nova.enabled", false);
+
 add_setup(async () => {
   await SpecialPowers.pushPrefEnv({
     set: [
@@ -39,7 +41,7 @@ async function mouseOverSidebarToExpand() {
           "absolute"
       );
     },
-    "The sidebar launcher is expanded"
+    { msg: "The sidebar launcher is expanded" }
   );
 
   info("The sidebar launcher is expanded on mouse over");
@@ -66,11 +68,12 @@ async function mouseOutSidebarToCollapse() {
         ) &&
         !SidebarController.sidebarMain.expanded &&
         !SidebarController._state.launcherExpanded &&
-        window.getComputedStyle(SidebarController.sidebarContainer).position ===
-          "relative"
+        (novaEnabled ||
+          window.getComputedStyle(SidebarController.sidebarContainer)
+            .position === "relative")
       );
     },
-    "The sidebar launcher is collapsed"
+    { msg: "The sidebar launcher is collapsed" }
   );
 
   info("The sidebar launcher is collapsed on mouse out");
@@ -93,10 +96,17 @@ add_task(async function test_enable_expand_on_hover() {
     () =>
       BrowserTestUtils.isVisible(sidebarBox) &&
       panel.expandOnHoverInput?.shadowRoot.querySelector("input"),
-    "Sidebar panel is visible and input is displayed"
+    { msg: "Sidebar panel is visible and input is displayed" }
   );
 
   info("Sidebar panel is visible and input is displayed");
+
+  // The click below toggles expand-on-hover, so it must start disabled; assert
+  // that to fail fast instead of timing out if a previous test leaked it on.
+  ok(
+    !panel.expandOnHoverInput.checked,
+    "Expand-on-hover should be disabled before this test enables it"
+  );
 
   // Enable expand on hover
   panel.expandOnHoverInput.click();
@@ -113,10 +123,11 @@ add_task(async function test_enable_expand_on_hover() {
       ) &&
       !SidebarController._state.launcherExpanded &&
       SidebarController.sidebarRevampVisibility === "expand-on-hover" &&
-      window.getComputedStyle(SidebarController.sidebarContainer).position ===
-        "relative" &&
+      (novaEnabled ||
+        window.getComputedStyle(SidebarController.sidebarContainer).position ===
+          "relative") &&
       panel.expandOnHoverInput.checked,
-    "Expand on hover has been enabled"
+    { msg: "Expand on hover has been enabled" }
   );
 
   info("Expand on hover has been enabled");
@@ -136,7 +147,7 @@ add_task(async function test_enable_expand_on_hover() {
     { attributes: true },
     () =>
       SidebarController.sidebarContainer.hasAttribute("sidebar-positionend"),
-    "The sidebar is positioned on the right"
+    { msg: "The sidebar is positioned on the right" }
   );
 
   await mouseOverSidebarToExpand();
@@ -149,7 +160,7 @@ add_task(async function test_enable_expand_on_hover() {
     { attributes: true },
     () =>
       !SidebarController.sidebarContainer.hasAttribute("sidebar-positionend"),
-    "The sidebar is positioned on the left"
+    { msg: "The sidebar is positioned on the left" }
   );
 
   await mouseOutSidebarToCollapse();
@@ -163,7 +174,7 @@ add_task(async function test_enable_expand_on_hover() {
       window.getComputedStyle(SidebarController.sidebarContainer).position !==
         "relative" &&
       !panel.expandOnHoverInput.checked,
-    "Expand on hover has been disabled"
+    { msg: "Expand on hover has been disabled" }
   );
 });
 
@@ -176,7 +187,7 @@ add_task(async function test_expand_on_hover_context_menu() {
     SidebarController.sidebarContainer,
     { attributes: true },
     () => SidebarController._state.launcherExpanded,
-    "The launcher is expanded"
+    { msg: "The launcher is expanded" }
   );
 
   const toolbarContextMenu = document.getElementById("toolbar-context-menu");
@@ -227,7 +238,7 @@ add_task(async function test_expand_on_hover_pinned_tabs() {
     () =>
       SidebarController._state.launcherExpanded &&
       SidebarController.sidebarMain.hasAttribute("expanded"),
-    "The launcher is expanded"
+    { msg: "The launcher is expanded" }
   );
   let pinnedTabsContainer = document.getElementById("pinned-tabs-container");
   let verticalTabsWidth = pinnedTabsContainer.clientWidth;
@@ -246,4 +257,286 @@ add_task(async function test_expand_on_hover_pinned_tabs() {
   await mouseOutSidebarToCollapse();
   await SidebarController.toggleExpandOnHover(false);
   await SidebarController.waitUntilStable();
+});
+
+add_task(
+  async function test_expand_on_hover_persists_through_vertical_tabs_toggle() {
+    await SpecialPowers.pushPrefEnv({
+      set: [
+        [VERTICAL_TABS_PREF, true],
+        ["sidebar.visibility", "expand-on-hover"],
+      ],
+    });
+    is(
+      SidebarController.sidebarRevampVisibility,
+      "expand-on-hover",
+      "Expand on hover is enabled before toggling vertical tabs"
+    );
+    await SpecialPowers.pushPrefEnv({ set: [[VERTICAL_TABS_PREF, false]] });
+    await SpecialPowers.pushPrefEnv({ set: [[VERTICAL_TABS_PREF, true]] });
+    is(
+      SidebarController.sidebarRevampVisibility,
+      "expand-on-hover",
+      "Expand on hover is restored after re-enabling vertical tabs"
+    );
+    await SpecialPowers.popPrefEnv();
+    await SpecialPowers.popPrefEnv();
+    await SpecialPowers.popPrefEnv();
+  }
+);
+
+/* bug2023350: Prior to the fix for this bug, the sidebar could get stuck open
+ * if it received a popupshowing event without ever receiving the corresponding
+ * popuphidden event (mainly on Linux).
+ */
+
+async function waitForLauncherExpandedState(isExpanded, message) {
+  await TestUtils.waitForCondition(async () => {
+    await SidebarController.waitUntilStable();
+    return SidebarController._state.launcherExpanded === isExpanded;
+  }, message);
+}
+
+// Test that the sidebar is capable from recovering from this failure scenario
+// by artificially forcing a popupshown event without firing a corresponding
+// popuphidden.
+add_task(
+  async function test_bug2023350_expand_on_hover_recovers_from_leaked_popup() {
+    await SidebarController.toggleExpandOnHover(true);
+    await SidebarController.waitUntilStable();
+    window.windowUtils.disableNonTestMouseEvents(true);
+
+    EventUtils.synthesizeMouse(SidebarController.sidebarContainer, 1, 150, {
+      type: "mousemove",
+    });
+    await waitForLauncherExpandedState(true, "Launcher expands on hover");
+
+    // Deliver "popupshown" for a menupopup but never deliver the corresponding "popuphidden".
+    const menupopup = document.getElementById("toolbar-context-menu");
+    menupopup.dispatchEvent(new Event("popupshown", { bubbles: true }));
+
+    EventUtils.synthesizeMouseAtCenter(SidebarController.contentArea, {
+      type: "mousemove",
+    });
+    await waitForLauncherExpandedState(
+      false,
+      "Launcher collapses despite a leaked popup-suppression source"
+    );
+
+    ok(
+      !SidebarController._state.launcherExpanded,
+      "Launcher recovered and collapsed after a leaked popupshown"
+    );
+
+    window.windowUtils.disableNonTestMouseEvents(false);
+    await SidebarController.toggleExpandOnHover(false);
+    await SidebarController.waitUntilStable();
+  }
+);
+
+// Verify that opening a real context menu while the launcher is open does not
+// affect the behaviour of the sidebar, and that it continues to work correctly
+// after the context menu is closed.
+add_task(
+  async function test_bug2023350_expand_on_hover_keeps_hover_tracking_during_popup() {
+    await SidebarController.toggleExpandOnHover(true);
+    await SidebarController.waitUntilStable();
+    window.windowUtils.disableNonTestMouseEvents(true);
+
+    EventUtils.synthesizeMouse(SidebarController.sidebarContainer, 1, 150, {
+      type: "mousemove",
+    });
+    await waitForLauncherExpandedState(true, "Launcher expands on hover");
+
+    const toolbarContextMenu = document.getElementById("toolbar-context-menu");
+    await openAndWaitForContextMenu(
+      toolbarContextMenu,
+      SidebarController.sidebarMain,
+      () => {
+        ok(
+          MousePosTracker._listeners.has(SidebarController),
+          "Hover tracking stays registered while a context menu is open"
+        );
+        ok(
+          SidebarController._state.launcherExpanded,
+          "Launcher stays expanded while the context menu is open"
+        );
+      }
+    );
+
+    const menuHidden = BrowserTestUtils.waitForPopupEvent(
+      toolbarContextMenu,
+      "hidden"
+    );
+    toolbarContextMenu.hidePopup();
+    await menuHidden;
+
+    EventUtils.synthesizeMouseAtCenter(SidebarController.contentArea, {
+      type: "mousemove",
+    });
+    await waitForLauncherExpandedState(
+      false,
+      "Launcher collapses after the popup closes"
+    );
+
+    EventUtils.synthesizeMouse(SidebarController.sidebarContainer, 1, 150, {
+      type: "mousemove",
+    });
+    await waitForLauncherExpandedState(true, "Launcher expands again on hover");
+
+    EventUtils.synthesizeMouseAtCenter(SidebarController.contentArea, {
+      type: "mousemove",
+    });
+    await waitForLauncherExpandedState(
+      false,
+      "Launcher collapses again on leave"
+    );
+
+    window.windowUtils.disableNonTestMouseEvents(false);
+    await SidebarController.toggleExpandOnHover(false);
+    await SidebarController.waitUntilStable();
+  }
+);
+
+const UI_DENSITY_PREF = "browser.uidensity";
+
+registerCleanupFunction(() => {
+  Services.prefs.clearUserPref(UI_DENSITY_PREF);
+  gUIDensity.update();
+});
+
+function getReservedLauncherWidth() {
+  return parseFloat(
+    document
+      .getElementById("browser")
+      .style.getPropertyValue("--sidebar-launcher-collapsed-width")
+  );
+}
+
+async function setDensity(mode) {
+  if (mode === null) {
+    Services.prefs.clearUserPref(UI_DENSITY_PREF);
+  } else {
+    Services.prefs.setIntPref(UI_DENSITY_PREF, mode);
+  }
+  await SidebarController.waitUntilStable();
+  await new Promise(resolve =>
+    requestAnimationFrame(() => requestAnimationFrame(resolve))
+  );
+}
+
+function launcherReservationIsExact() {
+  return (
+    Math.abs(
+      getReservedLauncherWidth() -
+        SidebarController.sidebarContainer.getBoundingClientRect().width
+    ) <= 1
+  );
+}
+
+async function assertLauncherReservationExact(label) {
+  await TestUtils.waitForCondition(
+    launcherReservationIsExact,
+    `${label}: reserved launcher width converges on the launcher's actual width`
+  );
+  const reserved = getReservedLauncherWidth();
+  const actual =
+    SidebarController.sidebarContainer.getBoundingClientRect().width;
+  Assert.lessOrEqual(
+    Math.abs(reserved - actual),
+    1,
+    `${label}: reserved launcher width (${reserved}) matches the launcher (${actual})`
+  );
+}
+
+add_task(async function test_collapsed_width_tracks_uidensity() {
+  await SidebarTestUtils.showPanel(window, "viewCustomizeSidebar");
+  await SidebarController.toggleExpandOnHover(true);
+  await SidebarController.waitUntilStable();
+
+  await setDensity(gUIDensity.MODE_COMPACT);
+  is(
+    document.documentElement.getAttribute("uidensity"),
+    "compact",
+    "Compact density is applied"
+  );
+  await assertLauncherReservationExact("compact density");
+
+  await setDensity(null);
+  ok(
+    !document.documentElement.hasAttribute("uidensity"),
+    "Normal density is applied"
+  );
+  await assertLauncherReservationExact("back to normal density");
+
+  await setDensity(gUIDensity.MODE_COMPACT);
+  await assertLauncherReservationExact("compact density again");
+
+  await setDensity(null);
+  await SidebarController.toggleExpandOnHover(false);
+  SidebarController.hide();
+  await SidebarController.waitUntilStable();
+});
+
+add_task(async function test_density_change_leaves_expanded_launcher_alone() {
+  await SidebarController.show("viewCustomizeSidebar");
+  await SidebarController.toggleExpandOnHover(true);
+  await SidebarController.waitUntilStable();
+
+  SidebarController._state.launcherExpanded = true;
+  await SidebarController.waitUntilStable();
+  const reservedWhileExpanded = getReservedLauncherWidth();
+
+  await setDensity(gUIDensity.MODE_COMPACT);
+  is(
+    getReservedLauncherWidth(),
+    reservedWhileExpanded,
+    "Reserved width is left alone while the launcher is expanded"
+  );
+
+  SidebarController._state.launcherExpanded = false;
+  await SidebarController.waitUntilStable();
+  await assertLauncherReservationExact("after collapsing in the new density");
+
+  await setDensity(null);
+  await SidebarController.toggleExpandOnHover(false);
+  SidebarController.hide();
+  await SidebarController.waitUntilStable();
+});
+
+// The collapsed launcher relies on the tools list shrinking away so that only
+// the overflow chevron remains in view. See bug 2049659.
+add_task(async function test_overflow_chevron_visible_while_collapsed() {
+  await SpecialPowers.pushPrefEnv({
+    set: [[SIDEBAR_VISIBILITY_PREF, "expand-on-hover"]],
+  });
+
+  const main = SidebarController.sidebarMain;
+  main.expanded = false;
+  await main.updateComplete;
+  await waitForRepaint();
+
+  Assert.ok(
+    main.shouldShowOverflowButton,
+    "The collapsed launcher shows the overflow chevron."
+  );
+
+  // isVisible() only reports CSS visibility, so it stays true for a button its
+  // container has clipped out of view. Compare geometry instead.
+  const wrapper = main.buttonsWrapper.getBoundingClientRect();
+  const chevron = main.moreToolsButton.getBoundingClientRect();
+
+  Assert.greater(chevron.height, 0, "The chevron has been laid out.");
+  Assert.lessOrEqual(
+    Math.round(chevron.bottom),
+    Math.round(wrapper.bottom),
+    "The chevron is not clipped below the buttons wrapper."
+  );
+  Assert.greaterOrEqual(
+    Math.round(chevron.top),
+    Math.round(wrapper.top),
+    "The chevron is not clipped above the buttons wrapper."
+  );
+
+  await SpecialPowers.popPrefEnv();
 });

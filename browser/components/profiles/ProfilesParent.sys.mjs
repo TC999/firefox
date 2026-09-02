@@ -20,6 +20,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
   PlacesDBUtils: "resource://gre/modules/PlacesDBUtils.sys.mjs",
   PlacesUtils: "resource://gre/modules/PlacesUtils.sys.mjs",
   AddonManager: "resource://gre/modules/AddonManager.sys.mjs",
+  getThemesList: "moz-src:///browser/themes/ThemesList.sys.mjs",
 });
 
 /**
@@ -46,6 +47,7 @@ export class ProfilesParent extends JSWindowActorParent {
       profiles: await Promise.all(profiles.map(p => p.toContentSafeObject())),
       profileCreated: await profileAge.created,
       themes,
+      novaEnabled: Services.prefs.getBoolPref("browser.nova.enabled", false),
     };
   }
 
@@ -74,9 +76,7 @@ export class ProfilesParent extends JSWindowActorParent {
 
         // Since this profile will be deleted, let's make sure to update any prefs
         // that depended on its existence
-        await lazy.BackupService.removeFromEnabledListPref(
-          SelectableProfileService.currentProfile.id
-        );
+        await lazy.BackupService.maybeRemoveFromEnabledListPref();
 
         try {
           await SelectableProfileService.deleteCurrentProfile();
@@ -101,14 +101,15 @@ export class ProfilesParent extends JSWindowActorParent {
       }
       case "Profiles:GetNewProfileContent": {
         Glean.profilesNew.displayed.record();
-        let isDark = gBrowser.selectedBrowser.ownerGlobal.matchMedia(
+        let isDark = gBrowser.selectedBrowser.documentGlobal.matchMedia(
           "(-moz-system-dark-theme)"
         ).matches;
         return this.#getProfileContent(isDark);
       }
       case "Profiles:GetEditProfileContent": {
         Glean.profilesExisting.displayed.record();
-        let isDark = gBrowser.selectedBrowser.ownerGlobal.matchMedia(
+        await lazy.BackupService.init().postRecoveryComplete;
+        let isDark = gBrowser.selectedBrowser.documentGlobal.matchMedia(
           "(-moz-system-dark-theme)"
         ).matches;
         return this.#getProfileContent(isDark);
@@ -247,6 +248,16 @@ export class ProfilesParent extends JSWindowActorParent {
         // theme is up to date at this point.
         return SelectableProfileService.currentProfile.toContentSafeObject();
       }
+      case "Profiles:RecordThemeTelemetry": {
+        // Record telemetry when theme is updated via theme-picker (Nova mode)
+        let themeId = message.data;
+        if (source === "about:editprofile") {
+          Glean.profilesExisting.theme.record({ value: themeId });
+        } else if (source === "about:newprofile") {
+          Glean.profilesNew.theme.record({ value: themeId });
+        }
+        break;
+      }
       case "Profiles:CloseProfileTab": {
         if (source === "about:editprofile") {
           Glean.profilesExisting.closed.record({ value: "done_editing" });
@@ -280,6 +291,15 @@ export class ProfilesParent extends JSWindowActorParent {
   }
 
   async getSafeForContentThemes(isDark) {
+    let novaEnabled = Services.prefs.getBoolPref("browser.nova.enabled", false);
+
+    if (novaEnabled) {
+      let themesList = await lazy.getThemesList({
+        installSource: "about:newprofile",
+      });
+      return themesList.getThemesInfo();
+    }
+
     let lightDark = isDark ? "dark" : "light";
     let themes = [];
     for (let [themeId, themeObj] of PROFILE_THEMES_MAP) {

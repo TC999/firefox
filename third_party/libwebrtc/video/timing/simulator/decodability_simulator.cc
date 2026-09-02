@@ -20,6 +20,7 @@
 #include "api/environment/environment.h"
 #include "api/sequence_checker.h"
 #include "api/units/data_size.h"
+#include "api/units/time_delta.h"
 #include "api/units/timestamp.h"
 #include "api/video/encoded_frame.h"
 #include "logging/rtc_event_log/rtc_event_log_parser.h"
@@ -47,7 +48,7 @@ class DecodableFrameCollector : public AssemblerEvents,
       : env_(env), ssrc_(ssrc) {
     RTC_DCHECK_NE(ssrc_, 0);
   }
-  ~DecodableFrameCollector() override = default;
+  ~DecodableFrameCollector() override { RTC_DCHECK_RUN_ON(&sequence_checker_); }
 
   DecodableFrameCollector(const DecodableFrameCollector&) = delete;
   DecodableFrameCollector& operator=(const DecodableFrameCollector&) = delete;
@@ -139,13 +140,20 @@ class DecodabilitySimulatorStream : public RtcEventLogDriver::StreamInterface {
     RTC_DCHECK_RUN_ON(&sequence_checker_);
     tracker_.SetDecodedFrameIdCallback(&assembler_);
   }
-  ~DecodabilitySimulatorStream() override = default;
+  ~DecodabilitySimulatorStream() override {
+    RTC_DCHECK_RUN_ON(&sequence_checker_);
+  }
 
   // Implements `RtcEventLogDriver::StreamInterface`.
   void InsertSimulatedPacket(
       const RtpPacketSimulator::SimulatedPacket& simulated_packet) override {
     RTC_DCHECK_RUN_ON(&sequence_checker_);
     receiver_.InsertSimulatedPacket(simulated_packet);
+  }
+
+  void UpdateMaxRtt(TimeDelta max_rtt) override {
+    RTC_DCHECK_RUN_ON(&sequence_checker_);
+    assembler_.UpdateMaxRtt(max_rtt);
   }
 
   void Close() override {
@@ -186,7 +194,9 @@ DecodabilitySimulator::Results DecodabilitySimulator::Simulate(
   // Decodability should not be a function of any field trials, so we pass the
   // empty string here.
   RtcEventLogDriver rtc_event_log_simulator(
-      {.reuse_streams = config_.reuse_streams}, &parsed_log,
+      {.reuse_streams = config_.reuse_streams,
+       .ssrc_filter = config_.ssrc_filter},
+      &parsed_log,
       /*field_trials_string=*/"", std::move(stream_factory));
   rtc_event_log_simulator.Simulate();
 

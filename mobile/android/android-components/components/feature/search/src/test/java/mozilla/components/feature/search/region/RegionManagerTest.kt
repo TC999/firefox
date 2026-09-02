@@ -4,44 +4,44 @@
 
 package mozilla.components.feature.search.region
 
+import kotlin.test.assertNotNull
 import kotlinx.coroutines.test.runTest
 import mozilla.components.service.location.LocationService
 import mozilla.components.support.test.fakes.FakeClock
 import mozilla.components.support.test.fakes.android.FakeContext
 import mozilla.components.support.test.fakes.android.FakeSharedPreferences
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
 
 class RegionManagerTest {
     @Test
     fun `Initial state`() {
-        val regionManager = RegionManager(
-            context = FakeContext(),
-            locationService = FakeLocationService(),
-            currentTime = FakeClock()::time,
-            preferences = lazy { FakeSharedPreferences() },
-        )
+        val regionManager =
+            RegionManager(
+                context = FakeContext(),
+                locationService = FakeLocationService(),
+                currentTime = FakeClock()::time,
+                preferences = lazy { FakeSharedPreferences() },
+            )
 
         assertNull(regionManager.region())
     }
 
     @Test
     fun `First update`() = runTest {
-        val locationService = FakeLocationService(
-            region = LocationService.Region("DE", "Germany"),
-        )
+        val locationService = FakeLocationService(region = LocationService.Region("DE", "Germany"))
 
-        val regionManager = RegionManager(
-            context = FakeContext(),
-            locationService = locationService,
-            currentTime = FakeClock()::time,
-            preferences = lazy { FakeSharedPreferences() },
-        )
+        val regionManager =
+            RegionManager(
+                context = FakeContext(),
+                locationService = locationService,
+                currentTime = FakeClock()::time,
+                preferences = lazy { FakeSharedPreferences() },
+            )
 
         val updatedRegion = regionManager.update()
-        assertNotNull(updatedRegion!!)
+        assertNotNull(updatedRegion)
         assertEquals("DE", updatedRegion.current)
         assertEquals("DE", updatedRegion.home)
     }
@@ -50,16 +50,15 @@ class RegionManagerTest {
     fun `Updating to new home region`() = runTest {
         val clock = FakeClock()
 
-        val locationService = FakeLocationService(
-            region = LocationService.Region("DE", "Germany"),
-        )
+        val locationService = FakeLocationService(region = LocationService.Region("DE", "Germany"))
 
-        val regionManager = RegionManager(
-            context = FakeContext(),
-            locationService = locationService,
-            currentTime = clock::time,
-            preferences = lazy { FakeSharedPreferences() },
-        )
+        val regionManager =
+            RegionManager(
+                context = FakeContext(),
+                locationService = locationService,
+                currentTime = clock::time,
+                preferences = lazy { FakeSharedPreferences() },
+            )
 
         regionManager.update()
 
@@ -82,7 +81,7 @@ class RegionManagerTest {
         clock.advanceBy(60L * 60L * 24L * 8L * 1000L)
 
         val updatedRegion = (regionManager.update())
-        assertNotNull(updatedRegion!!)
+        assertNotNull(updatedRegion)
         assertEquals("FR", updatedRegion.home)
         assertEquals("FR", updatedRegion.current)
         assertEquals("FR", regionManager.region()?.home)
@@ -93,16 +92,15 @@ class RegionManagerTest {
     fun `Switching back to home region after staying in different region shortly`() = runTest {
         val clock = FakeClock()
 
-        val locationService = FakeLocationService(
-            region = LocationService.Region("DE", "Germany"),
-        )
+        val locationService = FakeLocationService(region = LocationService.Region("DE", "Germany"))
 
-        val regionManager = RegionManager(
-            context = FakeContext(),
-            locationService = locationService,
-            currentTime = clock::time,
-            preferences = lazy { FakeSharedPreferences() },
-        )
+        val regionManager =
+            RegionManager(
+                context = FakeContext(),
+                locationService = locationService,
+                currentTime = clock::time,
+                preferences = lazy { FakeSharedPreferences() },
+            )
 
         regionManager.update()
 
@@ -142,5 +140,6 @@ class FakeLocationService(
     private val hasRegionCached: Boolean = false,
 ) : LocationService {
     override suspend fun fetchRegion(readFromCache: Boolean): LocationService.Region? = region
+
     override fun hasRegionCached(): Boolean = hasRegionCached
 }

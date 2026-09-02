@@ -16,8 +16,7 @@ class OwningElementOrText;
 
 class HTMLSlotElement final : public nsGenericHTMLElement {
  public:
-  explicit HTMLSlotElement(
-      already_AddRefed<mozilla::dom::NodeInfo>&& aNodeInfo);
+  explicit HTMLSlotElement(already_AddRefed<mozilla::dom::NodeInfo> aNodeInfo);
   NS_IMPL_FROMNODE_HTML_WITH_TAG(HTMLSlotElement, slot)
 
   NS_DECL_ISUPPORTS_INHERITED
@@ -58,13 +57,17 @@ class HTMLSlotElement final : public nsGenericHTMLElement {
   void RemoveAssignedNode(nsIContent&);
   void ClearAssignedNodes();
 
+  // Common bookkeeping when a node becomes (un)assigned to this slot.
+  void AddedAssignedNode(nsIContent&);
+  void RemovedAssignedNode(nsIContent&);
+
   void EnqueueSlotChangeEvent();
   void RemovedFromSignalSlotList() {
     MOZ_ASSERT(mInSignalSlotList);
     mInSignalSlotList = false;
   }
 
-  void FireSlotChangeEvent();
+  MOZ_CAN_RUN_SCRIPT void FireSlotChangeEvent();
 
   void RemoveManuallyAssignedNode(nsIContent&);
 

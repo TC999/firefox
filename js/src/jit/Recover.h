@@ -131,18 +131,20 @@ namespace jit {
   _(ToFloat32)                    \
   _(ToFloat16)                    \
   _(TruncateToInt32)              \
+  _(CanonicalizeNaN)              \
   _(NewObject)                    \
   _(NewPlainObject)               \
   _(NewArrayObject)               \
   _(NewTypedArray)                \
   _(NewArray)                     \
   _(NewIterator)                  \
+  _(NewBoundFunction)             \
+  _(NewDateObject)                \
   _(NewCallObject)                \
   _(Lambda)                       \
   _(FunctionWithProto)            \
   _(Callee)                       \
   _(FunctionEnvironment)          \
-  _(ObjectKeys)                   \
   _(ObjectKeysFromIterator)       \
   _(ObjectState)                  \
   _(ArrayState)                   \
@@ -191,9 +193,9 @@ class MOZ_NON_PARAM RInstruction {
 
   // Decode an RInstruction on top of the reserved storage space, based on the
   // tag written by the writeRecoverData function of the corresponding MIR
-  // instruction.
-  static void readRecoverData(CompactBufferReader& reader,
-                              RInstructionStorage* raw);
+  // instruction. Returns the decoded instruction's number of operands.
+  static uint32_t readRecoverData(CompactBufferReader& reader,
+                                  RInstructionStorage* raw);
 };
 
 #define RINSTRUCTION_HEADER_(op)                                        \
@@ -894,6 +896,14 @@ class RTruncateToInt32 final : public RInstruction {
                              SnapshotIterator& iter) const override;
 };
 
+class RCanonicalizeNaN final : public RInstruction {
+ public:
+  RINSTRUCTION_HEADER_NUM_OP_(CanonicalizeNaN, 1)
+
+  [[nodiscard]] bool recover(JSContext* cx,
+                             SnapshotIterator& iter) const override;
+};
+
 class RNewObject final : public RInstruction {
  public:
   RINSTRUCTION_HEADER_NUM_OP_(NewObject, 1)
@@ -956,6 +966,22 @@ class RNewIterator final : public RInstruction {
                              SnapshotIterator& iter) const override;
 };
 
+class RNewBoundFunction final : public RInstruction {
+ public:
+  RINSTRUCTION_HEADER_NUM_OP_(NewBoundFunction, 1)
+
+  [[nodiscard]] bool recover(JSContext* cx,
+                             SnapshotIterator& iter) const override;
+};
+
+class RNewDateObject final : public RInstruction {
+ public:
+  RINSTRUCTION_HEADER_NUM_OP_(NewDateObject, 1)
+
+  [[nodiscard]] bool recover(JSContext* cx,
+                             SnapshotIterator& iter) const override;
+};
+
 class RLambda final : public RInstruction {
  public:
   RINSTRUCTION_HEADER_NUM_OP_(Lambda, 2)
@@ -991,14 +1017,6 @@ class RFunctionEnvironment final : public RInstruction {
 class RNewCallObject final : public RInstruction {
  public:
   RINSTRUCTION_HEADER_NUM_OP_(NewCallObject, 1)
-
-  [[nodiscard]] bool recover(JSContext* cx,
-                             SnapshotIterator& iter) const override;
-};
-
-class RObjectKeys final : public RInstruction {
- public:
-  RINSTRUCTION_HEADER_NUM_OP_(ObjectKeys, 1)
 
   [[nodiscard]] bool recover(JSContext* cx,
                              SnapshotIterator& iter) const override;

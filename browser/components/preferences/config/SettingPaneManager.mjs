@@ -76,6 +76,7 @@ export const SettingPaneManager = {
     settingPane.name = subPane;
     settingPane.config = fullConfig;
     settingPane.isSubPane = !!config.parent;
+
     document.getElementById("mainPrefPane").append(settingPane);
     window.register_module(subPane, {
       init() {

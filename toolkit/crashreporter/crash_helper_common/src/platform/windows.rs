@@ -2,15 +2,16 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use crate::{Pid, IO_TIMEOUT};
+use crate::{AsProcessReaderHandle, Pid, IO_TIMEOUT};
 use std::{
-    ffi::CString,
+    ffi::{CStr, CString, OsString},
     mem::{zeroed, MaybeUninit},
     os::windows::io::{
         AsHandle, AsRawHandle, BorrowedHandle, FromRawHandle, OwnedHandle, RawHandle,
     },
     ptr::{null, null_mut},
     rc::Rc,
+    str::FromStr,
 };
 use thiserror::Error;
 use windows_sys::Win32::{
@@ -26,9 +27,43 @@ use windows_sys::Win32::{
     },
 };
 
-pub(crate) const CHILD_RENDEZVOUS_ANCILLARY_DATA_LEN: usize = 0;
+pub(crate) const PROCESS_RENDEZVOUS_ANCILLARY_DATA_LEN: usize = 1;
 
-pub type ProcessHandle = OwnedHandle;
+#[repr(transparent)]
+pub struct ProcessHandle(pub OwnedHandle);
+
+impl ProcessHandle {
+    /// Serialize this process handle into a string that can be passed on the
+    /// command-line to a child process. The handle must be inheritable for
+    /// this to work.
+    pub fn serialize(&self) -> Result<OsString, PlatformError> {
+        let raw_handle = self.0.as_raw_handle() as usize;
+        OsString::from_str(raw_handle.to_string().as_ref())
+            .map_err(|_e| PlatformError::InvalidString)
+    }
+
+    /// Deserialize a process handle from an argument passed on the command-line
+    pub fn deserialize(string: &CStr) -> Result<ProcessHandle, PlatformError> {
+        let string = string.to_str().map_err(|_e| PlatformError::ParseHandle)?;
+        let handle = usize::from_str(string).map_err(|_e| PlatformError::ParseHandle)?;
+
+        Ok(ProcessHandle(unsafe {
+            OwnedHandle::from_raw_handle(handle as RawHandle)
+        }))
+    }
+}
+
+impl AsProcessReaderHandle for ProcessHandle {
+    fn as_handle(&self) -> process_reader::ProcessHandle {
+        self.0.as_raw_handle() as process_reader::ProcessHandle
+    }
+}
+
+impl Clone for ProcessHandle {
+    fn clone(&self) -> Self {
+        ProcessHandle(self.0.try_clone().unwrap())
+    }
+}
 
 #[derive(Error, Debug)]
 pub enum PlatformError {
@@ -36,14 +71,16 @@ pub enum PlatformError {
     AcceptFailed(WIN32_ERROR),
     #[error("Broken pipe")]
     BrokenPipe,
-    #[error("Failed to duplicate handle: {0}")]
-    DuplicateHandleFailed(WIN32_ERROR),
     #[error("Could not create event: {0}")]
     CreateEventFailed(WIN32_ERROR),
     #[error("Could not create or add an I/O completion port: {0}")]
     CreateIoCompletionPortFailed(WIN32_ERROR),
     #[error("Could not create a pipe: {0}")]
     CreatePipeFailure(WIN32_ERROR),
+    #[error("Failed to duplicate handle: {0}")]
+    DuplicateHandleFailed(WIN32_ERROR),
+    #[error("Attempted to duplicate a pseudo-handle")]
+    DuplicatePseudoHandle,
     #[error("Malformed string cannot be converted")]
     InvalidString,
     #[error("I/O error: {0}")]
@@ -131,7 +168,7 @@ fn cancel_overlapped_io(handle: BorrowedHandle, overlapped: &OVERLAPPED) -> bool
         return false;
     }
 
-    if overlapped.hEvent == 0 {
+    if overlapped.hEvent.is_null() {
         // No associated event, don't wait
         return true;
     }
@@ -395,7 +432,7 @@ impl OverlappedOperation {
         // operation from generating completion events. The event handle will
         // be notified instead when it completes.
         Ok(Box::new(OVERLAPPED {
-            hEvent: event.as_raw_handle() as HANDLE | 1,
+            hEvent: (event.as_raw_handle() as usize | 1) as HANDLE,
             ..unsafe { zeroed() }
         }))
     }
@@ -443,7 +480,7 @@ impl Drop for OverlappedOperation {
         let overlapped = self.overlapped.take();
         let buffer = self.buffer.take();
         if let Some(overlapped) = overlapped {
-            if overlapped.hEvent == 0 {
+            if overlapped.hEvent.is_null() {
                 return; // This operation should have already been cancelled.
             }
 

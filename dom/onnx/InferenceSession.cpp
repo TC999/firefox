@@ -15,6 +15,7 @@
 #include "mozilla/Logging.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/ScopeExit.h"
+#include "mozilla/StaticMutex.h"
 #include "mozilla/dom/BindingDeclarations.h"
 #include "mozilla/dom/ContentChild.h"
 #include "mozilla/dom/ONNXBinding.h"
@@ -38,18 +39,39 @@ namespace mozilla::dom {
 static OrtEnv* sEnv = nullptr;
 static OrtApi* sAPI = nullptr;
 
+static StaticMutex sOrtAPIMutex;
+
+// RAII wrapper over OrtStatus.
+// Takes ownership of a externally allocated OrtStatus* passed at construction.
+// Move-only. OrtStatus released through OrtApi::ReleaseStatus.
 class AutoOrtStatus {
  public:
   MOZ_IMPLICIT AutoOrtStatus(OrtStatus* aStatus = nullptr) : mStatus(aStatus) {
     MOZ_ASSERT(sAPI);
   }
-  ~AutoOrtStatus() {
-    if (mStatus) {
-      sAPI->ReleaseStatus(mStatus);
+  // Prevent copies
+  AutoOrtStatus(const AutoOrtStatus&) = delete;
+  AutoOrtStatus& operator=(const AutoOrtStatus&) = delete;
+  // Move semantics
+  AutoOrtStatus(AutoOrtStatus&& aOther) noexcept
+      : mStatus(std::exchange(aOther.mStatus, nullptr)) {}
+  AutoOrtStatus& operator=(AutoOrtStatus&& aOther) noexcept {
+    if (this != &aOther) {
+      Release();
+      mStatus = std::exchange(aOther.mStatus, nullptr);
     }
+    return *this;
   }
+  ~AutoOrtStatus() { Release(); }
   explicit operator bool() const { return !!mStatus; }
   const char* Message() const { return sAPI->GetErrorMessage(mStatus); }
+  void Release() {
+    if (mStatus) {
+      sAPI->ReleaseStatus(mStatus);
+      mStatus = nullptr;
+    }
+  }
+
   OrtStatus* mStatus;
 };
 
@@ -109,8 +131,8 @@ OrtSessionOptions* ToOrtSessionOption(
 
   LOGD("Inter op num threads: {}", aOptions.mInterOpNumThreads);
   CALL_API(SetInterOpNumThreads, aOptions.mInterOpNumThreads);
-  LOGD("Inter op num threads: {}", aOptions.mIntraOpNumThreads);
-  CALL_API(SetInterOpNumThreads, aOptions.mIntraOpNumThreads);
+  LOGD("Intra op num threads: {}", aOptions.mIntraOpNumThreads);
+  CALL_API(SetIntraOpNumThreads, aOptions.mIntraOpNumThreads);
   CALL_API(SetSessionLogId, aOptions.mLogId.get());
   CALL_API(SetSessionLogSeverityLevel, aOptions.mLogSeverityLevel);
   CALL_API(SetSessionLogVerbosityLevel, aOptions.mLogVerbosityLevel);
@@ -147,6 +169,11 @@ OrtSessionOptions* ToOrtSessionOption(
 }  // namespace mozilla::dom
 
 OrtApi* GetOrtAPI() {
+  StaticMutexAutoLock lock(sOrtAPIMutex);
+  if (sAPI) {
+    return sAPI;
+  }
+
 #ifdef XP_WIN
   PathString path = GetLibraryFilePathname(LXUL_DLL, (PRFuncPtr)&GetOrtAPI);
 #else
@@ -205,6 +232,7 @@ OrtApi* GetOrtAPI() {
     return nullptr;
   }
 
+  sAPI = ortAPI;
   return ortAPI;
 }
 
@@ -212,8 +240,11 @@ bool InferenceSession::InInferenceProcess(JSContext*, JSObject*) {
   if (!ContentChild::GetSingleton()) {
     return false;
   }
-  return ContentChild::GetSingleton()->GetRemoteType().Equals(
-      INFERENCE_REMOTE_TYPE);
+  return ContentChild::GetSingleton()->GetRemoteType().IsInference();
+}
+
+bool InferenceSession::IsAvailable(const GlobalObject&) {
+  return GetOrtAPI() != nullptr;
 }
 
 nsCString InferenceSessionSessionOptionsToString(
@@ -291,10 +322,15 @@ void InferenceSession::Init(const RefPtr<Promise>& aPromise,
        aUriOrBuffer.IsUTF8String() ? "string" : "buffer");
 
   if (!sEnv) {
-    sAPI = GetOrtAPI();
-    if (!sAPI) {
+    if (!GetOrtAPI()) {
       LOGD("Couldn't get ahold of ORT API");
-      aPromise->MaybeReject(NS_ERROR_FAILURE);
+      // Use a distinguishable error so JS callers can recognize that the
+      // native runtime is unavailable on this machine and fall back to the
+      // wasm onnx backend (see MLEngineChild's best-onnx handling).
+      // KEEP IN SYNC: MLEngineChild.sys.mjs matches this message string to
+      // cache the wasm fallback decision.
+      aPromise->MaybeRejectWithNotSupportedError(
+          "onnxruntime shared library could not be loaded");
       return;
     }
     OrtThreadingOptions* threadingOptions;
@@ -380,7 +416,8 @@ void InferenceSession::Init(const RefPtr<Promise>& aPromise,
       });
   if (status) {
     LOGD("CreateSession error: {}", status.Message());
-    MOZ_CRASH("CreateSession error");
+    aPromise->MaybeRejectWithUnknownError(nsDependentCString(status.Message()));
+    return;
   }
   LOGD("Successfully created ONNX Runtime session.");
   mSession = session;

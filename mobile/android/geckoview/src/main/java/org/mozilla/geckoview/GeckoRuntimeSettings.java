@@ -376,18 +376,6 @@ public final class GeckoRuntimeSettings extends RuntimeSettings {
     }
 
     /**
-     * Sets whether Session History in Parent (SHIP) should be disabled or not. As SHIP can no
-     * longer be disabled this is a no-op.
-     *
-     * @param value A flag determining whether SHIP should be disabled or not.
-     * @return The builder instance.
-     */
-    public @Deprecated @DeprecationSchedule(id = "disable-ship-removal", version = 153) @NonNull
-    Builder disableShip(final boolean value) {
-      return this;
-    }
-
-    /**
      * When set, the specified {@link android.app.Service} will be started by an {@link
      * android.content.Intent} with action {@link GeckoRuntime#ACTION_CRASHED} when a crash is
      * encountered. Crash details can be found in the Intent extras, such as {@link
@@ -776,6 +764,8 @@ public final class GeckoRuntimeSettings extends RuntimeSettings {
       new Pref<Boolean>("signon.autofillForms", true);
   /* package */ final PrefWithoutDefault<String> mFirefoxRelay =
       new PrefWithoutDefault<>("signon.firefoxRelay.feature");
+  /* package */ final PrefWithoutDefault<String> mIpProtectionAuthProvider =
+      new PrefWithoutDefault<>("toolkit.ipProtection.android.authProvider");
   /* package */ final Pref<Boolean> mAutomaticallyOfferPopup =
       new Pref<Boolean>("browser.translations.automaticallyPopup", true);
   /* package */ final Pref<Boolean> mHttpsOnly =
@@ -2080,6 +2070,46 @@ public final class GeckoRuntimeSettings extends RuntimeSettings {
     return this;
   }
 
+  /** IP Protection auth provider definitions. */
+  @Retention(RetentionPolicy.SOURCE)
+  @StringDef(value = {IP_PROTECTION_AUTH_PROVIDER_FXA, IP_PROTECTION_AUTH_PROVIDER_GPI})
+  public @interface IpProtectionAuthProvider {}
+
+  /** IP Protection authenticates via a Mozilla account (Firefox Accounts). */
+  public static final String IP_PROTECTION_AUTH_PROVIDER_FXA = "fxa";
+
+  /** IP Protection authenticates via Google Play Integrity (GPI). */
+  public static final String IP_PROTECTION_AUTH_PROVIDER_GPI = "gpi";
+
+  /**
+   * Get the IP Protection auth provider.
+   *
+   * <p>This API is experimental because it relies on an exposed pref and will be removed once IP
+   * Protection auth selection no longer depends on it.
+   *
+   * @return The IP Protection auth provider, or null if undefined.
+   */
+  @ExperimentalGeckoViewApi
+  public @Nullable @IpProtectionAuthProvider String getIpProtectionAuthProvider() {
+    return mIpProtectionAuthProvider.get();
+  }
+
+  /**
+   * Set the IP Protection auth provider.
+   *
+   * <p>This API is experimental because it relies on an exposed pref and will be removed once IP
+   * Protection auth selection no longer depends on it.
+   *
+   * @param provider The IP Protection auth provider.
+   * @return This GeckoRuntimeSettings instance.
+   */
+  @ExperimentalGeckoViewApi
+  public @NonNull GeckoRuntimeSettings setIpProtectionAuthProvider(
+      @NonNull final @IpProtectionAuthProvider String provider) {
+    mIpProtectionAuthProvider.commit(provider);
+    return this;
+  }
+
   /**
    * Sets whether or not the request blocking feature of Local Network / Device Access is enabled
    *
@@ -2389,22 +2419,6 @@ public final class GeckoRuntimeSettings extends RuntimeSettings {
   public @NonNull GeckoRuntimeSettings setUserCharacteristicPingCurrentVersion(final int version) {
     mUserCharacteristicPingCurrentVersion.commit(version);
     return this;
-  }
-
-  /**
-   * Retrieve the status of the disable session history in parent (SHIP) preference. Since SHIP can
-   * no longer be disabled this is always false.
-   *
-   * <p>Note, there is no conventional setter because this may only be set before Gecko is
-   * initialized.
-   *
-   * <p>Set before initialization using {@link Builder#disableShip(boolean)}.
-   *
-   * @return True if SHIP is disabled, false if SHIP is enabled.
-   */
-  public @Deprecated @DeprecationSchedule(id = "disable-ship-removal", version = 153) @Nullable
-  Boolean getDisableShip() {
-    return false;
   }
 
   /**

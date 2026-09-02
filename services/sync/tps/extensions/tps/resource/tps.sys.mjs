@@ -41,7 +41,8 @@ ChromeUtils.defineESModuleGetters(lazy, {
   Preference: "resource://tps/modules/prefs.sys.mjs",
   STATUS_OK: "resource://services-sync/constants.sys.mjs",
   Separator: "resource://tps/modules/bookmarks.sys.mjs",
-  SessionStore: "resource:///modules/sessionstore/SessionStore.sys.mjs",
+  SessionStore:
+    "moz-src:///browser/components/sessionstore/SessionStore.sys.mjs",
   Svc: "resource://services-sync/util.sys.mjs",
   SyncTelemetry: "resource://services-sync/telemetry.sys.mjs",
   WEAVE_VERSION: "resource://services-sync/constants.sys.mjs",
@@ -108,6 +109,8 @@ export var TPS = {
   shouldValidatePasswords: false,
   shouldValidateForms: false,
   _placesInitDeferred: Promise.withResolvers(),
+  SYNC_WIPE_CLIENT,
+  SYNC_WIPE_REMOTE,
   ACTIONS: [
     ACTION_ADD,
     ACTION_DELETE,
@@ -326,7 +329,7 @@ export var TPS = {
             "profile must be defined when verifying tabs"
           );
           lazy.Logger.AssertTrue(
-            await !lazy.BrowserTabs.Find(tab.uri, tab.title, tab.profile),
+            !(await lazy.BrowserTabs.Find(tab.uri, tab.title, tab.profile)),
             "tab found which was expected to be absent"
           );
           break;
@@ -1043,7 +1046,10 @@ export var TPS = {
     try {
       this.config = JSON.parse(Services.prefs.getStringPref("tps.config"));
       // parse the test file
-      Services.scriptloader.loadSubScript(file, this);
+      Services.scriptloader.loadSubScriptWithOptions(file, {
+        target: this,
+        allowUnsafeURL: true,
+      });
       this._currentPhase = phase;
       // cleanup phases are in the format `cleanup-${profileName}`.
       if (this._currentPhase.startsWith("cleanup-")) {

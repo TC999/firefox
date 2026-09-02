@@ -44,7 +44,6 @@
 #include "threading/ExclusiveData.h"
 #include "util/Memory.h"
 #include "vm/MutexIDs.h"
-#include "wasm/AsmJS.h"  // CodeMetadataForAsmJS::SeenSet
 #include "wasm/WasmBuiltinModule.h"
 #include "wasm/WasmBuiltins.h"
 #include "wasm/WasmCodegenConstants.h"
@@ -617,7 +616,6 @@ class CodeBlock {
   bool initialize(const Code& code, size_t codeBlockIndex);
   void sendToProfiler(const CodeMetadata& codeMeta,
                       const CodeTailMetadata& codeTailMeta,
-                      const CodeMetadataForAsmJS* codeMetaForAsmJS,
                       FuncIonPerfSpewerSpan ionSpewers,
                       FuncBaselinePerfSpewerSpan baselineSpewers) const;
 
@@ -881,10 +879,10 @@ class ThreadSafeCodeBlockMap {
 class JumpTables {
   using TablePointer = mozilla::UniquePtr<void*[], JS::FreePolicy>;
 
-  CompileMode mode_;
+  CompileMode mode_ = CompileMode::Once;
   TablePointer tiering_;
   TablePointer jit_;
-  size_t numFuncs_;
+  size_t numFuncs_ = 0;
 
   static_assert(
       JumpTableJitEntryOffset == 0,
@@ -950,6 +948,10 @@ using MutableCode = RefPtr<Code>;
 using MetadataAnalysisHashMap =
     HashMap<const char*, uint32_t, mozilla::CStringHasher, SystemAllocPolicy>;
 
+// Maps a cont type's type index to the code offset of its base frame stub.
+using ContBaseFrameOffsetMap =
+    HashMap<uint32_t, uint32_t, DefaultHasher<uint32_t>, SystemAllocPolicy>;
+
 class Code : public ShareableBase<Code> {
   struct ProtectedData {
     // A vector of all of the code blocks owned by this code. Each code block
@@ -992,8 +994,6 @@ class Code : public ShareableBase<Code> {
   // only available after the whole module has been decoded. This is always
   // non-null.
   SharedCodeTailMetadata codeTailMeta_;
-  // This is null for a wasm module, non-null for asm.js
-  SharedCodeMetadataForAsmJS codeMetaForAsmJS_;
 
   const CodeBlock* sharedStubs_;
   const CodeBlock* completeTier1_;
@@ -1041,6 +1041,11 @@ class Code : public ShareableBase<Code> {
   // CodeBlock.
   uint32_t updateCallRefMetricsStubOffset_;
 
+#ifdef ENABLE_WASM_JSPI
+  // Per-type offsets of continuation base frame stubs, keyed by type index.
+  ContBaseFrameOffsetMap contBaseFrameOffsets_;
+#endif
+
   // Methods for getting complete tiers, private while we're moving to partial
   // tiering.
   Tiers completeTiers() const;
@@ -1079,8 +1084,7 @@ class Code : public ShareableBase<Code> {
 
  public:
   Code(CompileMode mode, const CodeMetadata& codeMeta,
-       const CodeTailMetadata& codeTailMeta,
-       const CodeMetadataForAsmJS* codeMetaForAsmJS);
+       const CodeTailMetadata& codeTailMeta);
   ~Code();
 
   [[nodiscard]] bool initialize(FuncImportVector&& funcImports,
@@ -1103,6 +1107,16 @@ class Code : public ShareableBase<Code> {
       uint32_t* codeLengthOut) const;
 
   bool requestTierUp(uint32_t funcIndex) const;
+
+  // Atomically claim the right to tier up `funcIndex`.
+  // Returns true if the claim was acquired, false if a tier-up was already
+  // requested.
+  bool tryClaimTierUp(uint32_t funcIndex) const {
+    MOZ_ASSERT(mode_ == CompileMode::LazyTiering);
+    FuncState& state = funcStates_[funcIndex - codeMeta_->numFuncImports];
+    return state.tierUpState.compareExchange(TierUpState::NotRequested,
+                                             TierUpState::Requested);
+  }
 
   CompileMode mode() const { return mode_; }
 
@@ -1135,6 +1149,22 @@ class Code : public ShareableBase<Code> {
     updateCallRefMetricsStubOffset_ = offs;
   }
 
+#ifdef ENABLE_WASM_JSPI
+  void setContBaseFrameOffsets(ContBaseFrameOffsetMap&& offsets) {
+    contBaseFrameOffsets_ = std::move(offsets);
+  }
+  const ContBaseFrameOffsetMap& contBaseFrameOffsets() const {
+    return contBaseFrameOffsets_;
+  }
+  mozilla::Maybe<uint32_t> contBaseFrameOffset(uint32_t typeIndex) const {
+    auto p = contBaseFrameOffsets_.lookup(typeIndex);
+    if (!p) {
+      return mozilla::Nothing();
+    }
+    return mozilla::Some(p->value());
+  }
+#endif
+
   const FuncImport& funcImport(uint32_t funcIndex) const {
     return funcImports_[funcIndex];
   }
@@ -1149,9 +1179,6 @@ class Code : public ShareableBase<Code> {
   bool hasSerializableCode() const { return hasCompleteTier(Tier::Serialized); }
 
   const CodeMetadata& codeMeta() const { return *codeMeta_; }
-  const CodeMetadataForAsmJS* codeMetaForAsmJS() const {
-    return codeMetaForAsmJS_;
-  }
   const CodeTailMetadata& codeTailMeta() const { return *codeTailMeta_; }
   bool debugEnabled() const { return codeTailMeta_->debugEnabled; }
 
@@ -1255,10 +1282,10 @@ class Code : public ShareableBase<Code> {
 
   // about:memory reporting:
 
-  void addSizeOfMiscIfNotSeen(
-      mozilla::MallocSizeOf mallocSizeOf, CodeMetadata::SeenSet* seenCodeMeta,
-      CodeMetadataForAsmJS::SeenSet* seenCodeMetaForAsmJS,
-      Code::SeenSet* seenCode, size_t* code, size_t* data) const;
+  void addSizeOfMiscIfNotSeen(mozilla::MallocSizeOf mallocSizeOf,
+                              CodeMetadata::SeenSet* seenCodeMeta,
+                              Code::SeenSet* seenCode, size_t* code,
+                              size_t* data) const;
 
   size_t tier1CodeMemoryUsed() const {
     return completeTier1_->segment->capacityBytes();

@@ -49,10 +49,6 @@
 //
 // Arithmetic overflows/underflows to +/- infinity and saturates.
 
-#if defined(_MSC_VER)
-#include <winsock2.h>  // for timeval
-#endif
-
 #include <algorithm>
 #include <cassert>
 #include <chrono>  // NOLINT(build/c++11)
@@ -72,6 +68,10 @@
 #include "absl/strings/string_view.h"
 #include "absl/strings/strip.h"
 #include "absl/time/time.h"
+
+#if defined(_MSC_VER)
+#include <winsock2.h>  // for timeval
+#endif
 
 namespace absl {
 ABSL_NAMESPACE_BEGIN
@@ -469,7 +469,7 @@ Duration& Duration::operator*=(int64_t r) {
 
 Duration& Duration::operator*=(double r) {
   if (time_internal::IsInfiniteDuration(*this) || !IsFinite(r)) {
-    const bool is_neg = std::signbit(r) != (rep_hi_.Get() < 0);
+    const bool is_neg = std::isnan(r) || std::signbit(r) != (rep_hi_.Get() < 0);
     return *this = is_neg ? -InfiniteDuration() : InfiniteDuration();
   }
   return *this = ScaleDouble<std::multiplies>(*this, r);
@@ -485,7 +485,7 @@ Duration& Duration::operator/=(int64_t r) {
 
 Duration& Duration::operator/=(double r) {
   if (time_internal::IsInfiniteDuration(*this) || !IsValidDivisor(r)) {
-    const bool is_neg = std::signbit(r) != (rep_hi_.Get() < 0);
+    const bool is_neg = std::isnan(r) || std::signbit(r) != (rep_hi_.Get() < 0);
     return *this = is_neg ? -InfiniteDuration() : InfiniteDuration();
   }
   return *this = ScaleDouble<std::divides>(*this, r);
@@ -834,7 +834,7 @@ bool ConsumeDurationUnit(const char** start, const char* end, Duration* unit) {
         default:
           break;
       }
-      ABSL_FALLTHROUGH_INTENDED;
+      [[fallthrough]];
     case 1:
       switch (**start) {
         case 's':

@@ -3,21 +3,21 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "nsMenuGroupOwnerX.h"
-#include "nsMenuBarX.h"
-#include "nsMenuX.h"
-#include "nsMenuItemX.h"
-#include "nsMenuUtilsX.h"
 #include "nsCocoaUtils.h"
 #include "nsCocoaWindow.h"
+#include "nsMenuBarX.h"
+#include "nsMenuItemX.h"
+#include "nsMenuUtilsX.h"
+#include "nsMenuX.h"
 
 #include "nsCOMPtr.h"
-#include "nsString.h"
 #include "nsObjCExceptions.h"
+#include "nsString.h"
 #include "nsThreadUtils.h"
 
+#include "mozilla/dom/Document.h"
 #include "mozilla/dom/Element.h"
 #include "nsIWidget.h"
-#include "mozilla/dom/Document.h"
 
 #include "nsINode.h"
 
@@ -144,12 +144,6 @@ void nsMenuGroupOwnerX::ContentInserted(nsIContent* aChild,
 }
 
 void nsMenuGroupOwnerX::ParentChainChanged(nsIContent* aContent) {}
-
-void nsMenuGroupOwnerX::ARIAAttributeDefaultWillChange(mozilla::dom::Element*,
-                                                       nsAtom*, AttrModType) {}
-
-void nsMenuGroupOwnerX::ARIAAttributeDefaultChanged(mozilla::dom::Element*,
-                                                    nsAtom*, AttrModType) {}
 
 // For change management, we don't use a |nsSupportsHashtable| because
 // we know that the lifetime of all these items is bounded by the

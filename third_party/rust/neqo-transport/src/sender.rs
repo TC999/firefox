@@ -13,8 +13,9 @@ use neqo_common::{qdebug, qlog::Qlog};
 use crate::{
     ConnectionParameters, SlowStart, Stats,
     cc::{
-        ClassicCongestionController, ClassicSlowStart, CongestionControl, CongestionController,
-        Cubic, HyStart, NewReno,
+        ClassicCongestionController, ClassicSlowStart, CongestionControl,
+        CongestionControlImplementation, CongestionController as _, Cubic, HyStart, NewReno,
+        Search,
     },
     pace::Pacer,
     pmtud::Pmtud,
@@ -29,7 +30,7 @@ pub const PACING_BURST_SIZE: usize = 2;
 
 #[derive(Debug)]
 pub struct PacketSender {
-    cc: Box<dyn CongestionController>,
+    cc: CongestionControlImplementation,
     pacer: Pacer,
     qlog: Qlog,
 }
@@ -38,37 +39,70 @@ impl PacketSender {
     #[must_use]
     pub fn new(conn_params: &ConnectionParameters, pmtud: Pmtud, now: Instant) -> Self {
         let mtu = pmtud.plpmtu();
+        let spurious_recovery = conn_params.spurious_recovery_enabled();
         Self {
             cc: match (
                 conn_params.get_congestion_control(),
                 conn_params.get_slow_start(),
             ) {
                 (CongestionControl::NewReno, SlowStart::Classic) => {
-                    Box::new(ClassicCongestionController::new(
-                        ClassicSlowStart::default(),
-                        NewReno::default(),
-                        pmtud,
-                    ))
+                    CongestionControlImplementation::ClassicNewReno(
+                        ClassicCongestionController::new(
+                            ClassicSlowStart::default(),
+                            NewReno::default(),
+                            pmtud,
+                            spurious_recovery,
+                        ),
+                    )
                 }
                 (CongestionControl::NewReno, SlowStart::HyStart) => {
-                    Box::new(ClassicCongestionController::new(
-                        HyStart::new(conn_params.pacing_enabled()),
-                        NewReno::default(),
-                        pmtud,
-                    ))
+                    CongestionControlImplementation::HyStartNewReno(
+                        ClassicCongestionController::new(
+                            HyStart::new(
+                                conn_params.pacing_enabled(),
+                                conn_params.get_hystart_css_baseline(),
+                            ),
+                            NewReno::default(),
+                            pmtud,
+                            spurious_recovery,
+                        ),
+                    )
+                }
+                (CongestionControl::NewReno, SlowStart::Search) => {
+                    CongestionControlImplementation::SearchNewReno(
+                        ClassicCongestionController::new(
+                            Search::new(),
+                            NewReno::default(),
+                            pmtud,
+                            spurious_recovery,
+                        ),
+                    )
                 }
                 (CongestionControl::Cubic, SlowStart::Classic) => {
-                    Box::new(ClassicCongestionController::new(
+                    CongestionControlImplementation::ClassicCubic(ClassicCongestionController::new(
                         ClassicSlowStart::default(),
                         Cubic::default(),
                         pmtud,
+                        spurious_recovery,
                     ))
                 }
                 (CongestionControl::Cubic, SlowStart::HyStart) => {
-                    Box::new(ClassicCongestionController::new(
-                        HyStart::new(conn_params.pacing_enabled()),
+                    CongestionControlImplementation::HyStartCubic(ClassicCongestionController::new(
+                        HyStart::new(
+                            conn_params.pacing_enabled(),
+                            conn_params.get_hystart_css_baseline(),
+                        ),
                         Cubic::default(),
                         pmtud,
+                        spurious_recovery,
+                    ))
+                }
+                (CongestionControl::Cubic, SlowStart::Search) => {
+                    CongestionControlImplementation::SearchCubic(ClassicCongestionController::new(
+                        Search::new(),
+                        Cubic::default(),
+                        pmtud,
+                        spurious_recovery,
                     ))
                 }
             },
@@ -203,5 +237,122 @@ impl PacketSender {
     #[must_use]
     pub fn recovery_packet(&self) -> bool {
         self.cc.recovery_packet()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        net::{IpAddr, Ipv4Addr},
+        time::Duration,
+    };
+
+    use neqo_common::to_u64;
+    use test_fixture::now;
+
+    use super::PacketSender;
+    use crate::{
+        ConnectionParameters, SlowStart, cc::CongestionControl, pmtud::Pmtud, recovery::sent,
+        rtt::RttEstimate, stats::Stats,
+    };
+
+    #[test]
+    fn packet_sender_creation_and_display() {
+        let now = now();
+        let cases = [
+            (
+                CongestionControl::NewReno,
+                SlowStart::Classic,
+                "ClassicSlowStart/NewReno",
+            ),
+            (
+                CongestionControl::NewReno,
+                SlowStart::HyStart,
+                "HyStart++/NewReno",
+            ),
+            (
+                CongestionControl::NewReno,
+                SlowStart::Search,
+                "SEARCH/NewReno",
+            ),
+            (
+                CongestionControl::Cubic,
+                SlowStart::Classic,
+                "ClassicSlowStart/Cubic",
+            ),
+            (
+                CongestionControl::Cubic,
+                SlowStart::HyStart,
+                "HyStart++/Cubic",
+            ),
+            (CongestionControl::Cubic, SlowStart::Search, "SEARCH/Cubic"),
+        ];
+        for (cc, ss, expected_prefix) in cases {
+            let params = ConnectionParameters::default()
+                .congestion_control(cc)
+                .slow_start(ss);
+            let sender = PacketSender::new(
+                &params,
+                Pmtud::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), Some(1500)),
+                now,
+            );
+            let description = sender.cc.to_string();
+            assert!(
+                description.starts_with(expected_prefix),
+                "expected prefix {expected_prefix:?}, got {description:?}",
+            );
+        }
+    }
+
+    const RTT: Duration = Duration::from_millis(100);
+
+    fn make_sender(pacing: bool) -> PacketSender {
+        let params = ConnectionParameters::default().pacing(pacing);
+        PacketSender::new(
+            &params,
+            Pmtud::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), Some(1500)),
+            now(),
+        )
+    }
+
+    /// Send `n` packets at once, ACK them one RTT later, return (`cwnd_before`, `cwnd_after`).
+    fn send_and_ack(pacing: bool, n: usize) -> (usize, usize) {
+        let mut sender = make_sender(pacing);
+        let now = now();
+        let mtu = sender.pmtud().plpmtu();
+        let cwnd_before = sender.cwnd();
+
+        let pkts: Vec<_> = (0..n)
+            .map(|pn| {
+                let p = sent::make_packet(to_u64(pn), now, mtu);
+                sender.on_packet_sent(&p, RTT, now);
+                p
+            })
+            .collect();
+        sender.on_packets_acked(
+            &pkts,
+            &RttEstimate::new(RTT),
+            now + RTT,
+            &mut Stats::default(),
+        );
+
+        (cwnd_before, sender.cwnd())
+    }
+
+    #[test]
+    fn app_limited_suppresses_cwnd_growth_without_pacing() {
+        // Sending PACING_BURST_SIZE + 1 packets is not filling the initial congestion window, thus
+        // should leave us genuinely app-limited, thus the congestion window shouldn't grow.
+        let (before, after) = send_and_ack(false, super::PACING_BURST_SIZE + 1);
+        assert_eq!(after, before, "cwnd should not grow when app-limited");
+    }
+
+    #[test]
+    fn app_limited_suppresses_cwnd_growth_with_pacing() {
+        // Sending PACING_BURST_SIZE + 1 packets is not filling the initial congestion window, thus
+        // should leave us genuinely app-limited, thus the congestion window shouldn't grow, even
+        // though we are pacing delayed.
+        let (before, after) = send_and_ack(true, super::PACING_BURST_SIZE + 1);
+        assert_eq!(after, before, "cwnd should not grow when app limited");
     }
 }

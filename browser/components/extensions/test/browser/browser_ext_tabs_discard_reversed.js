@@ -1,5 +1,3 @@
-/* -*- Mode: indent-tabs-mode: nil; js-indent-level: 2 -*- */
-/* vim: set sts=2 sw=2 et tw=80: */
 "use strict";
 
 add_task(async function tabs_discarded_load_and_discard() {
@@ -14,7 +12,7 @@ add_task(async function tabs_discarded_load_and_discard() {
       const PAGE_URL =
         "http://example.com/browser/browser/components/extensions/test/browser/file_dummy.html";
       // Tabs without titles default to URLs without scheme, according to the
-      // logic of tabbrowser.js's setTabTitle/_setTabLabel.
+      // logic of Tabbrowser.sys.mjs's setTabTitle/#setTabLabel.
       // TODO bug 1695512: discarded tabs should also follow this logic instead
       // of using the unmodified original URL.
       const PAGE_TITLE_BEFORE = PAGE_URL_BEFORE;

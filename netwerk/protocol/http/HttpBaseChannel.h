@@ -5,15 +5,16 @@
 #ifndef mozilla_net_HttpBaseChannel_h
 #define mozilla_net_HttpBaseChannel_h
 
+#include <mozilla/Maybe.h>
+
 #include <utility>
 
 #include "OpaqueResponseUtils.h"
 #include "mozilla/AtomicBitfields.h"
 #include "mozilla/Atomics.h"
 #include "mozilla/CompactPair.h"
-#include "mozilla/dom/DOMTypes.h"
 #include "mozilla/DataMutex.h"
-#include <mozilla/Maybe.h>
+#include "mozilla/dom/DOMTypes.h"
 #include "mozilla/net/DNS.h"
 #include "mozilla/net/NeckoChannelParams.h"
 #include "mozilla/net/NeckoCommon.h"
@@ -58,6 +59,7 @@ namespace mozilla {
 namespace dom {
 class PerformanceStorage;
 class ContentParent;
+enum class NoCorsMediaRequestState : uint8_t;
 }  // namespace dom
 
 class LogCollector;
@@ -161,6 +163,10 @@ class HttpBaseChannel : public nsHashPropertyBag,
   NS_IMETHOD GetBlockAuthPrompt(bool* aValue) override;
   NS_IMETHOD SetBlockAuthPrompt(bool aValue) override;
   NS_IMETHOD GetCanceled(bool* aCanceled) override;
+  NS_IMETHOD GetParentProcessChannelHandle(
+      mozilla::dom::ParentProcessChannelHandle** aValue) override;
+  NS_IMETHOD SetParentProcessChannelHandle(
+      mozilla::dom::ParentProcessChannelHandle* aValue) override;
 
   // nsIEncodedChannel
   NS_IMETHOD GetApplyConversion(bool* value) override;
@@ -274,6 +280,8 @@ class HttpBaseChannel : public nsHashPropertyBag,
   NS_IMETHOD GetBypassProxy(bool* aBypassProxy) override;
   NS_IMETHOD SetBypassProxy(bool aBypassProxy) override;
   bool BypassProxy();
+  NS_IMETHOD GetProxyDNSStrategy(
+      nsIHttpChannelInternal::ProxyDNSStrategy* aStrategy) override;
 
   NS_IMETHOD GetIsTRRServiceChannel(bool* aTRR) override;
   NS_IMETHOD SetIsTRRServiceChannel(bool aTRR) override;
@@ -467,6 +475,7 @@ class HttpBaseChannel : public nsHashPropertyBag,
   nsHttpResponseHead* GetResponseHead() const { return mResponseHead.get(); }
   nsHttpRequestHead* GetRequestHead() { return &mRequestHead; }
   nsHttpHeaderArray* GetResponseTrailers() const {
+    MOZ_DIAGNOSTIC_ASSERT(NS_IsMainThread());
     return mResponseTrailers.get();
   }
 
@@ -523,10 +532,6 @@ class HttpBaseChannel : public nsHashPropertyBag,
                                    int64_t aContentLength = -1,
                                    bool aSetContentLengthHeader = false);
 
-  void SetUploadStreamHasHeaders(bool hasHeaders) {
-    StoreUploadStreamHasHeaders(hasHeaders);
-  }
-
   virtual nsresult SetReferrerHeader(const nsACString& aReferrer,
                                      bool aRespectBeforeConnect = true) {
     if (aRespectBeforeConnect) {
@@ -562,7 +567,6 @@ class HttpBaseChannel : public nsHashPropertyBag,
     Maybe<dom::TimedChannelInfo> timedChannelInfo;
     nsCOMPtr<nsIInputStream> uploadStream;
     uint64_t uploadStreamLength = 0;
-    bool uploadStreamHasHeaders = false;
     Maybe<nsCString> contentType;
     Maybe<nsCString> contentLength;
 
@@ -613,6 +617,12 @@ class HttpBaseChannel : public nsHashPropertyBag,
   }
 
  protected:
+  nsCString GetSecPurpose() const {
+    nsCString secPurpose;
+    (void)mRequestHead.GetHeader(nsHttp::Sec_Purpose, secPurpose);
+    return secPurpose;
+  }
+
   nsresult GetTopWindowURI(nsIURI* aURIBeingLoaded, nsIURI** aTopWindowURI);
 
   // Handle notifying listener, removing from loadgroup if request failed.
@@ -702,12 +712,18 @@ class HttpBaseChannel : public nsHashPropertyBag,
   OpaqueResponse PerformOpaqueResponseSafelistCheckAfterSniff(
       const nsACString& aContentType, bool aNoSniff);
 
+  dom::NoCorsMediaRequestState NoCorsMediaRequestState();
+  void RecordSubsequentNoCorsRequestState();
+
   bool NeedOpaqueResponseAllowedCheckAfterSniff() const;
   void BlockOpaqueResponseAfterSniff(
       const nsAString& aReason,
       const OpaqueResponseBlockedTelemetryReason aTelemetryReason);
   void AllowOpaqueResponseAfterSniff();
   void SetChannelBlockedByOpaqueResponse();
+  // Called when ORB allows a response after its asynchronous validation.
+  // Subclasses that retained state pending the validation can release it here.
+  virtual void OnOpaqueResponseAllowed() {}
   bool Http3Allowed() const;
 
   virtual void ExplicitSetUploadStreamLength(uint64_t aContentLength,
@@ -742,6 +758,8 @@ class HttpBaseChannel : public nsHashPropertyBag,
   nsCOMPtr<nsIEventTarget> mCurrentThread;
 
   RefPtr<OpaqueResponseBlocker> mORB;
+
+  RefPtr<mozilla::dom::ParentProcessChannelHandle> mParentProcessChannelHandle;
 
  private:
   // Proxy release all members above on main thread.
@@ -861,7 +879,7 @@ class HttpBaseChannel : public nsHashPropertyBag,
 
   UniquePtr<ProfileChunkedBuffer> mSource;
 
-  uint32_t mLoadFlags{LOAD_NORMAL};
+  Atomic<uint32_t, Relaxed> mLoadFlags{LOAD_NORMAL};
   uint32_t mCaps{0};
 
   ClassOfService mClassOfService;
@@ -905,7 +923,6 @@ class HttpBaseChannel : public nsHashPropertyBag,
     (uint32_t, ResponseHeadersModified, 1),
     (uint32_t, AllowSTS, 1),
     (uint32_t, ThirdPartyFlags, 3),
-    (uint32_t, UploadStreamHasHeaders, 1),
     (uint32_t, ChannelIsForDownload, 1),
     (uint32_t, TracingEnabled, 1),
     (uint32_t, ReportTiming, 1),
@@ -925,6 +942,12 @@ class HttpBaseChannel : public nsHashPropertyBag,
     (uint32_t, ResponseTimeoutEnabled, 1),
     // A flag that should be false only if a cross-domain redirect occurred
     (uint32_t, AllRedirectsSameOrigin, 1),
+
+    // Like AllRedirectsSameOrigin, but internal redirects (e.g. a service
+    // worker substituting a response from a different URL) do not count as
+    // cross-origin. Used for canvas/CSS/media tainting, which must only treat a
+    // real cross-origin *network* redirect as a trust-boundary crossing.
+    (uint32_t, AllRedirectsSameOriginIgnoringInternal, 1),
 
     // Is 1 if no redirects have occured or if all redirects
     // pass the Resource Timing timing-allow-check
@@ -1191,7 +1214,7 @@ nsresult HttpAsyncAborter<T>::AsyncCall(void (T::*funcPtr)(),
 
   RefPtr<nsRunnableMethod<T>> event =
       NewRunnableMethod("net::HttpAsyncAborter::AsyncCall", mThis, funcPtr);
-  rv = NS_DispatchToCurrentThread(event);
+  rv = DispatchToCurrent(event);
   if (NS_SUCCEEDED(rv) && retval) {
     *retval = event;
   }

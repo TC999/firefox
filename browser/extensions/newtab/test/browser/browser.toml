@@ -29,7 +29,7 @@ skip-if = [
   "os == 'win' && os_version == '11.26200' && verify-standalone",
 ]
 
-["browser_WallpaperThemeWorker.js"]
+["browser_WallpaperThemeUtils.js"]
 
 ["browser_activation_window.js"]
 
@@ -68,6 +68,7 @@ skip-if = [
 
 ["browser_newtab_last_LinkMenu.js"]
 skip-if = [
+  "os == 'linux' && os_version == '22.04' && arch == 'x86_64' && nova", # Bug 2057871
   "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && display == 'x11' && opt && socketprocess_networking", # Bug 1945649
 ]
 
@@ -77,6 +78,12 @@ skip-if = [
 skip-if = [
   "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && display == 'x11' && opt && socketprocess_networking", # Bug 1945649
 ]
+
+["browser_newtab_side_by_side_layout.js"]
+
+["browser_newtab_spaces.js"]
+
+["browser_newtab_sticky_search.js"]
 
 ["browser_newtab_towindow.js"]
 skip-if = [
@@ -96,5 +103,6 @@ run-if = [
 ["browser_topsites_contextMenu_options.js"]
 
 ["browser_topsites_section.js"]
+tags = "urlbar"
 
 ["browser_topsites_sponsored.js"]

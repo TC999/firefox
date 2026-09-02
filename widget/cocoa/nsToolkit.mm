@@ -4,29 +4,26 @@
 
 #include "nsToolkit.h"
 
-#include <ctype.h>
 #include <stdlib.h>
 
-#include <mach/mach_port.h>
-#include <mach/mach_interface.h>
 #include <mach/mach_init.h>
+#include <mach/mach_interface.h>
+#include <mach/mach_port.h>
 
 extern "C" {
 #include <mach-o/getsect.h>
 }
-#include <unistd.h>
 #include <dlfcn.h>
+#include <unistd.h>
 
 #import <Cocoa/Cocoa.h>
-#import <IOKit/pwr_mgt/IOPMLib.h>
 #import <IOKit/IOMessage.h>
+#import <IOKit/pwr_mgt/IOPMLib.h>
 
 #include "nsCocoaUtils.h"
 #include "nsObjCExceptions.h"
 
-#include "nsGkAtoms.h"
 #include "nsIRollupListener.h"
-#include "nsIWidget.h"
 #include "nsIWidget.h"
 
 #include "nsIObserverService.h"
@@ -101,7 +98,7 @@ nsresult nsToolkit::RegisterForSleepWakeNotifications() {
   NS_ASSERTION(!mSleepWakeNotificationRLS, "Already registered for sleep/wake");
 
   gRootPort = ::IORegisterForSystemPower(
-      0, &notifyPortRef, ToolkitSleepWakeCallback, &mPowerNotifier);
+      nullptr, &notifyPortRef, ToolkitSleepWakeCallback, &mPowerNotifier);
   if (gRootPort == MACH_PORT_NULL) {
     NS_ERROR("IORegisterForSystemPower failed");
     return NS_ERROR_FAILURE;

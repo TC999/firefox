@@ -29,15 +29,12 @@ class LocalAccessible;
 struct TextPoint final {
   TextPoint(Accessible* aContainer, int32_t aOffset)
       : mContainer(aContainer), mOffset(aOffset) {}
-  TextPoint(const TextPoint& aPoint)
-      : mContainer(aPoint.mContainer), mOffset(aPoint.mOffset) {}
+  TextPoint(const TextPoint& aPoint) = default;
 
   Accessible* mContainer;
   int32_t mOffset;
 
-  bool operator==(const TextPoint& aPoint) const {
-    return mContainer == aPoint.mContainer && mOffset == aPoint.mOffset;
-  }
+  bool operator==(const TextPoint& aPoint) const = default;
   bool operator<(const TextPoint& aPoint) const;
 
   /**
@@ -82,6 +79,9 @@ class TextRange final {
     mEndOffset = aRange.mEndOffset;
     return *this;
   }
+
+  TextRange(const TextRange& aRange) = delete;
+  TextRange& operator=(const TextRange& aRange) = delete;
 
   Accessible* Root() { return mRoot; }
   Accessible* StartContainer() const { return mStartContainer; }
@@ -145,9 +145,6 @@ class TextRange final {
                                       nsTArray<TextRange>* aRanges);
 
  private:
-  TextRange(const TextRange& aRange) = delete;
-  TextRange& operator=(const TextRange& aRange) = delete;
-
   friend class HyperTextAccessible;
   friend class xpcAccessibleTextRange;
 

@@ -4,17 +4,18 @@
 
 #include "PrintTargetSkPDF.h"
 
+#include "ImageOps.h"
 #include "imgIEncoder.h"
 #include "include/codec/SkCodec.h"
 #include "include/codec/SkEncodedImageFormat.h"
 #include "include/codec/SkEncodedOrigin.h"
 #include "include/core/SkStream.h"
 #include "include/private/SkEncodedInfo.h"
-#include "mozilla/gfx/2D.h"
-#include "mozilla/image/SourceBuffer.h"
-#include "mozilla/image/ImageUtils.h"
+#include "mozilla/AppShutdown.h"
 #include "mozilla/StaticPrefs_print.h"
-#include "ImageOps.h"
+#include "mozilla/gfx/2D.h"
+#include "mozilla/image/ImageUtils.h"
+#include "mozilla/image/SourceBuffer.h"
 #include "nsJPEGEncoder.h"
 #include "nsString.h"
 #include "skia/src/pdf/SkPDFUtils.h"
@@ -52,7 +53,7 @@ Maybe<SkEncodedInfo::Color> SurfaceFormatToSkEncodedColor(
 // Minimal SkCodec subclass used to decode jpeg data for skia.
 class JpegSkCodec final : public SkCodec {
  public:
-  static std::unique_ptr<SkCodec> Make(sk_sp<SkData> aData) {
+  static std::unique_ptr<SkCodec> Make(sk_sp<const SkData> aData) {
     RefPtr<SourceBuffer> buffer = MakeRefPtr<SourceBuffer>();
     buffer->AdoptData(
         const_cast<char*>(reinterpret_cast<const char*>(aData->bytes())),
@@ -74,10 +75,7 @@ class JpegSkCodec final : public SkCodec {
       return nullptr;
     }
     auto alpha = SkEncodedInfo::kOpaque_Alpha;  // JPEG is always opaque
-    auto info =
-        SkEncodedInfo::Make(size.width, size.height, *color, alpha,
-                            /* bitsPerComponent= */ 8, /* colorDepth= */ 8,
-                            nullptr, skhdr::Metadata{});
+    auto info = SkEncodedInfo::Make(size.width, size.height, *color, alpha, 8);
     return std::unique_ptr<JpegSkCodec>(
         new JpegSkCodec(std::move(info), std::move(aData), std::move(surface)));
   }
@@ -94,18 +92,18 @@ class JpegSkCodec final : public SkCodec {
   }
 
  private:
-  JpegSkCodec(SkEncodedInfo&& aInfo, sk_sp<SkData> aData,
+  JpegSkCodec(SkEncodedInfo&& aInfo, sk_sp<const SkData> aData,
               RefPtr<gfx::SourceSurface> aSurface)
       : SkCodec(std::move(aInfo), skcms_PixelFormat_RGB_888,
                 SkMemoryStream::Make(aData), kTopLeft_SkEncodedOrigin),
         mData(std::move(aData)),
         mSurface(std::move(aSurface)) {}
 
-  sk_sp<SkData> mData;
+  sk_sp<const SkData> mData;
   RefPtr<gfx::SourceSurface> mSurface;
 };
 
-static std::unique_ptr<SkCodec> DecodeJpeg(sk_sp<SkData> aData) {
+static std::unique_ptr<SkCodec> DecodeJpeg(sk_sp<const SkData> aData) {
   return JpegSkCodec::Make(std::move(aData));
 }
 
@@ -171,6 +169,11 @@ class GkSkWStream final : public SkWStream {
   explicit GkSkWStream(nsIOutputStream* aStream) : mStream(aStream) {
     MOZ_ASSERT(mStream);
   }
+  ~GkSkWStream() override {
+    // Close the stream so that its file handle is released. This matches
+    // cairo's handling.
+    (void)NS_WARN_IF(NS_FAILED(mStream->Close()));
+  }
   bool write(const void* aBuf, size_t aSize) override {
     const auto* data = reinterpret_cast<const char*>(aBuf);
     do {
@@ -210,7 +213,7 @@ static SkPDF::Metadata GetDefaultMetadata() {
 
 nsresult PrintTargetSkPDF::BeginPrinting(const nsAString& aTitle,
                                          const nsAString& aPrintToFileName,
-                                         uint64_t aBrowsingContextId,
+                                         uint64_t aInnerWindowId,
                                          int32_t aStartPage, int32_t aEndPage) {
   // We need to create the SkPDFDocument here rather than in CreateOrNull
   // because it's only now that we are given aTitle which we want for the
@@ -232,7 +235,7 @@ nsresult PrintTargetSkPDF::BeginPrinting(const nsAString& aTitle,
   // structRoot needs to survive until SkPDF::MakeDocument returns.
   SkPDF::StructureElementNode structRoot = {};
   if (auto* builder =
-          mozilla::a11y::PdfStructTreeBuilder::Get(aBrowsingContextId)) {
+          mozilla::a11y::PdfStructTreeBuilder::Get(aInnerWindowId)) {
     if (builder->BuildStructTree(structRoot)) {
       metadata.fStructureElementTreeRoot = &structRoot;
       metadata.fOutline = SkPDF::Metadata::Outline::StructureElementHeaders;
@@ -270,7 +273,9 @@ nsresult PrintTargetSkPDF::EndPrinting() {
 }
 
 void PrintTargetSkPDF::Finish() {
-  if (mIsFinished) {
+  if (mIsFinished ||
+      AppShutdown::IsInOrBeyond(ShutdownPhase::AppShutdownConfirmed)) {
+    // See PrintTargetPDF::Finish().
     return;
   }
   mOStream->flush();

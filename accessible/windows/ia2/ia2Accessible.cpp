@@ -2,27 +2,24 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "AccessibleWrap.h"
-
-#include "Accessible2_i.c"
+#include "AccAttributes.h"
 #include "Accessible2_2_i.c"
+#include "Accessible2_i.c"
 #include "AccessibleRole.h"
 #include "AccessibleStates.h"
-
-#include "AccAttributes.h"
+#include "AccessibleWrap.h"
 #include "ApplicationAccessible.h"
 #include "Compatibility.h"
-#include "ia2AccessibleRelation.h"
 #include "IUnknownImpl.h"
-#include "nsAccUtils.h"
-#include "nsCoreUtils.h"
-#include "nsIAccessibleTypes.h"
-#include "mozilla/a11y/PDocAccessible.h"
 #include "Relation.h"
 #include "TextRange-inl.h"
-#include "nsAccessibilityService.h"
-
+#include "ia2AccessibleRelation.h"
 #include "mozilla/PresShell.h"
+#include "mozilla/a11y/PDocAccessible.h"
+#include "nsAccUtils.h"
+#include "nsAccessibilityService.h"
+#include "nsCoreUtils.h"
+#include "nsIAccessibleTypes.h"
 #include "nsISimpleEnumerator.h"
 
 using namespace mozilla;
@@ -103,8 +100,7 @@ ia2Accessible::get_relation(long aRelationIndex,
 
     RelationType relationType = sRelationTypePairs[idx].first;
     Relation rel = acc->RelationByType(relationType);
-    RefPtr<ia2AccessibleRelation> ia2Relation =
-        new ia2AccessibleRelation(relationType, &rel);
+    auto ia2Relation = MakeRefPtr<ia2AccessibleRelation>(relationType, &rel);
     if (ia2Relation->HasTargets()) {
       if (relIdx == aRelationIndex) {
         ia2Relation.forget(aRelation);
@@ -137,8 +133,7 @@ ia2Accessible::get_relations(long aMaxRelations,
 
     RelationType relationType = sRelationTypePairs[idx].first;
     Relation rel = acc->RelationByType(relationType);
-    RefPtr<ia2AccessibleRelation> ia2Rel =
-        new ia2AccessibleRelation(relationType, &rel);
+    auto ia2Rel = MakeRefPtr<ia2AccessibleRelation>(relationType, &rel);
     if (ia2Rel->HasTargets()) {
       ia2Rel.forget(aRelation + (*aNRelations));
       (*aNRelations)++;

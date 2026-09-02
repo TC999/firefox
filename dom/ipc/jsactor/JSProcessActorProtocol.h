@@ -31,7 +31,7 @@ class JSProcessActorProtocol final : public JSActorProtocol,
                                      public nsIObserver {
  public:
   NS_DECL_NSIOBSERVER
-  NS_DECL_CYCLE_COLLECTING_ISUPPORTS
+  NS_DECL_CYCLE_COLLECTING_ISUPPORTS_FINAL
   NS_DECL_CYCLE_COLLECTION_CLASS_AMBIGUOUS(JSProcessActorProtocol, nsIObserver)
 
   static already_AddRefed<JSProcessActorProtocol> FromIPC(
@@ -53,7 +53,7 @@ class JSProcessActorProtocol final : public JSActorProtocol,
 
   void AddObservers();
   void RemoveObservers();
-  bool Matches(const nsACString& aRemoteType, ErrorResult& aRv);
+  bool Matches(const RemoteType& aRemoteType, ErrorResult& aRv);
 
  private:
   explicit JSProcessActorProtocol(const nsACString& aName)

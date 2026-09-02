@@ -15,7 +15,11 @@ prefs = [
   "security.allow_eval_with_system_principal=true",
 ]
 
+["browser_accSelection.js"]
+
 ["browser_action.js"]
+
+["browser_forceEnabled.js"]
 
 ["browser_groupPosition.js"]
 

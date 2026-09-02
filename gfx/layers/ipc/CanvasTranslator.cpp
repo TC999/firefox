@@ -4,18 +4,26 @@
 
 #include "CanvasTranslator.h"
 
+#include "GLContext.h"
+#include "HostWebGLContext.h"
+#include "RecordedCanvasEventImpl.h"
+#include "SharedSurface.h"
+#include "WebGLParent.h"
 #include "gfxGradientCache.h"
 #include "mozilla/DataMutex.h"
+#include "mozilla/StaticPrefs_gfx.h"
+#include "mozilla/SyncRunnable.h"
+#include "mozilla/TaskQueue.h"
 #include "mozilla/gfx/2D.h"
 #include "mozilla/gfx/CanvasManagerParent.h"
 #include "mozilla/gfx/CanvasRenderThread.h"
 #include "mozilla/gfx/DataSourceSurfaceWrapper.h"
 #include "mozilla/gfx/DrawTargetWebgl.h"
-#include "mozilla/gfx/gfxVars.h"
 #include "mozilla/gfx/GPUParent.h"
 #include "mozilla/gfx/GPUProcessManager.h"
 #include "mozilla/gfx/Logging.h"
 #include "mozilla/gfx/Swizzle.h"
+#include "mozilla/gfx/gfxVars.h"
 #include "mozilla/ipc/Endpoint.h"
 #include "mozilla/ipc/SharedMemoryHandle.h"
 #include "mozilla/layers/BufferTexture.h"
@@ -24,14 +32,6 @@
 #include "mozilla/layers/SharedSurfacesParent.h"
 #include "mozilla/layers/TextureClient.h"
 #include "mozilla/layers/VideoBridgeParent.h"
-#include "mozilla/StaticPrefs_gfx.h"
-#include "mozilla/SyncRunnable.h"
-#include "mozilla/TaskQueue.h"
-#include "GLContext.h"
-#include "HostWebGLContext.h"
-#include "SharedSurface.h"
-#include "WebGLParent.h"
-#include "RecordedCanvasEventImpl.h"
 
 #if defined(XP_WIN)
 #  include "mozilla/gfx/DeviceManagerDx.h"
@@ -525,6 +525,11 @@ already_AddRefed<gfx::SourceSurface> CanvasTranslator::WaitForSurface(
     if (surf->mSharedSurface) {
       surf->mSharedSurface->BeginRead();
       *aDesc = surf->mSharedSurface->ToSurfaceDescriptor();
+      if (*aDesc && aDesc->ref().type() ==
+                        SurfaceDescriptor::TSurfaceDescriptorMacIOSurface) {
+        aDesc->ref().get_SurfaceDescriptorMacIOSurface().gpuFence() =
+            surf->mSharedSurface->TakeGpuFence();
+      }
       surf->mSharedSurface->EndRead();
     }
   }
@@ -794,7 +799,7 @@ bool CanvasTranslator::TranslateRecording() {
     }
 
     if (!success && !HandleExtensionEvent(eventType)) {
-      gfxCriticalNote << "Failed to play canvas event type: " << eventType;
+      gfxCriticalNoteOnce << "Failed to play canvas event type: " << eventType;
 
       if (!mCurrentMemReader.good()) {
         mHeader->readerState = State::Failed;
@@ -1644,7 +1649,6 @@ CanvasTranslator::LookupSourceSurfaceFromSurfaceDescriptor(
   RefPtr<VideoBridgeParent> parent =
       VideoBridgeParent::GetSingleton(sdrd.source());
   if (!parent) {
-    MOZ_ASSERT_UNREACHABLE("unexpected to be called");
     gfxCriticalNote << "TexUnpackSurface failed to get VideoBridgeParent";
     return nullptr;
   }
@@ -1750,30 +1754,31 @@ mozilla::ipc::IPCResult CanvasTranslator::RecvSnapshotExternalCanvas(
   ExternalSnapshot snapshot;
   if (auto* actor = gfx::CanvasManagerParent::GetCanvasActor(
           mContentId, aManagerId, aCanvasId)) {
-    switch (actor->GetProtocolId()) {
-      case ProtocolId::PWebGLMsgStart:
-        if (auto* hostContext =
-                static_cast<dom::WebGLParent*>(actor)->GetHostWebGLContext()) {
-          if (auto* webgl = hostContext->GetWebGLContext()) {
-            if (mWebglTextureType != TextureType::Unknown) {
-              snapshot.mSharedSurface =
-                  webgl->GetBackBufferSnapshotSharedSurface(mWebglTextureType,
-                                                            true, true, true);
-              if (snapshot.mSharedSurface) {
-                snapshot.mWebgl = webgl;
-                snapshot.mDescriptor =
-                    snapshot.mSharedSurface->ToSurfaceDescriptor();
+    if (dom::WebGLParent* webglActor = ActorDynCast<dom::WebGLParent>(actor)) {
+      if (auto* hostContext = webglActor->GetHostWebGLContext()) {
+        if (auto* webgl = hostContext->GetWebGLContext()) {
+          if (mWebglTextureType != TextureType::Unknown) {
+            snapshot.mSharedSurface = webgl->GetBackBufferSnapshotSharedSurface(
+                mWebglTextureType, true, true, true);
+            if (snapshot.mSharedSurface) {
+              snapshot.mWebgl = webgl;
+              snapshot.mDescriptor =
+                  snapshot.mSharedSurface->ToSurfaceDescriptor();
+              if (snapshot.mDescriptor &&
+                  snapshot.mDescriptor->type() ==
+                      SurfaceDescriptor::TSurfaceDescriptorMacIOSurface) {
+                snapshot.mDescriptor->get_SurfaceDescriptorMacIOSurface()
+                    .gpuFence() = snapshot.mSharedSurface->TakeGpuFence();
               }
             }
-            if (!snapshot.mDescriptor) {
-              snapshot.mData = webgl->GetBackBufferSnapshot(true);
-            }
+          }
+          if (!snapshot.mDescriptor) {
+            snapshot.mData = webgl->GetBackBufferSnapshot(true);
           }
         }
-        break;
-      default:
-        MOZ_ASSERT_UNREACHABLE("Unsupported protocol");
-        break;
+      }
+    } else {
+      MOZ_ASSERT_UNREACHABLE("Unsupported protocol");
     }
   }
 

@@ -4,13 +4,13 @@
 
 package org.mozilla.fenix.components
 
+import kotlin.test.assertIs
 import mozilla.components.lib.state.Action
 import mozilla.components.lib.state.Middleware
 import mozilla.components.lib.state.Reducer
 import mozilla.components.lib.state.State
 import mozilla.components.lib.state.Store
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChangeDetectionMiddlewareTest {
@@ -19,28 +19,30 @@ class ChangeDetectionMiddlewareTest {
         var capturedAction: TestAction? = null
         var preCount = 0
         var postCount = 0
-        val middleware: Middleware<TestState, TestAction> = ChangeDetectionMiddleware(
-            selector = { it.counter },
-            onChange = { action, pre, post ->
-                capturedAction = action
-                preCount = pre
-                postCount = post
-            },
-        )
+        val middleware: Middleware<TestState, TestAction> =
+            ChangeDetectionMiddleware(
+                selector = { it.counter },
+                onChange = { action, pre, post ->
+                    capturedAction = action
+                    preCount = pre
+                    postCount = post
+                },
+            )
 
-        val store = TestStore(
-            TestState(counter = preCount, enabled = false),
-            ::reducer,
-            listOf(middleware),
-        )
+        val store =
+            TestStore(
+                TestState(counter = preCount, enabled = false),
+                ::reducer,
+                listOf(middleware),
+            )
 
         store.dispatch(TestAction.IncrementAction)
-        assertTrue(capturedAction is TestAction.IncrementAction)
+        assertIs<TestAction.IncrementAction>(capturedAction)
         assertEquals(0, preCount)
         assertEquals(1, postCount)
 
         store.dispatch(TestAction.DecrementAction)
-        assertTrue(capturedAction is TestAction.DecrementAction)
+        assertIs<TestAction.DecrementAction>(capturedAction)
         assertEquals(1, preCount)
         assertEquals(0, postCount)
     }
@@ -50,28 +52,30 @@ class ChangeDetectionMiddlewareTest {
         var capturedAction: TestAction? = null
         var preState = listOf<Any>()
         var postState = listOf<Any>()
-        val middleware: Middleware<TestState, TestAction> = ChangeDetectionMiddleware(
-            selector = { listOf(it.counter, it.enabled) },
-            onChange = { action, pre, post ->
-                capturedAction = action
-                preState = pre
-                postState = post
-            },
-        )
+        val middleware: Middleware<TestState, TestAction> =
+            ChangeDetectionMiddleware(
+                selector = { listOf(it.counter, it.enabled) },
+                onChange = { action, pre, post ->
+                    capturedAction = action
+                    preState = pre
+                    postState = post
+                },
+            )
 
-        val store = TestStore(
-            TestState(counter = 0, enabled = false),
-            ::reducer,
-            listOf(middleware),
-        )
+        val store =
+            TestStore(
+                TestState(counter = 0, enabled = false),
+                ::reducer,
+                listOf(middleware),
+            )
 
         store.dispatch(TestAction.SetEnabled(true))
-        assertTrue(capturedAction is TestAction.SetEnabled)
+        assertIs<TestAction.SetEnabled>(capturedAction)
         assertEquals(false, preState[1])
         assertEquals(true, postState[1])
 
         store.dispatch(TestAction.SetEnabled(false))
-        assertTrue(capturedAction is TestAction.SetEnabled)
+        assertIs<TestAction.SetEnabled>(capturedAction)
         assertEquals(true, preState[1])
         assertEquals(false, postState[1])
     }
@@ -89,13 +93,16 @@ class ChangeDetectionMiddlewareTest {
 
     private sealed class TestAction : Action {
         object IncrementAction : TestAction()
+
         object DecrementAction : TestAction()
+
         data class SetEnabled(val enabled: Boolean) : TestAction()
     }
 
-    private fun reducer(state: TestState, action: TestAction): TestState = when (action) {
-        is TestAction.IncrementAction -> state.copy(counter = state.counter + 1)
-        is TestAction.DecrementAction -> state.copy(counter = state.counter - 1)
-        is TestAction.SetEnabled -> state.copy(enabled = action.enabled)
-    }
+    private fun reducer(state: TestState, action: TestAction): TestState =
+        when (action) {
+            is TestAction.IncrementAction -> state.copy(counter = state.counter + 1)
+            is TestAction.DecrementAction -> state.copy(counter = state.counter - 1)
+            is TestAction.SetEnabled -> state.copy(enabled = action.enabled)
+        }
 }

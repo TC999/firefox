@@ -283,6 +283,21 @@ add_task(async function test_relativeArgv0() {
   sandbox.restore();
 });
 
+add_task(async function test_pathLookup_nonPathArgv0() {
+  let name = "argv0";
+  await checkPathLookup([name], "anything", name, { argv0: name });
+
+  name = AppConstants.MOZ_APP_NAME;
+  await checkPathLookup([name], "anything", name, { argv0: name });
+
+  name = AppConstants.MOZ_APP_NAME + "-" + AppConstants.MOZ_UPDATE_CHANNEL;
+  await checkPathLookup([name], "anything", name, { argv0: name });
+});
+
+add_task(async function test_pathLookup_nonPathArgv0_notInPath() {
+  await checkPathLookup([], "anything", gBrowserExe, { argv0: "argv0" });
+});
+
 add_task(async function test_pathLookup_notInPath() {
   await checkPathLookup([], "argv0", kAbsoluteArgv0);
 });

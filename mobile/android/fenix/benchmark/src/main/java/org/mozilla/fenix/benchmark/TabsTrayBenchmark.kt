@@ -78,7 +78,7 @@ class TabsTrayBenchmark {
     fun switchTabsAnimationOff() =
         switchTabsBenchmark(
             compilationMode = CompilationMode.Partial(baselineProfileMode = BaselineProfileMode.Require),
-            animationsEnabled = true,
+            animationsEnabled = false,
         )
 
     @OptIn(ExperimentalMetricApi::class)
@@ -121,6 +121,7 @@ class TabsTrayBenchmark {
 
         device.openTabsTray()
         device.openNewTabOnTabsTray()
+        device.enterSearchMode()
         device.loadSite(url = mockRule.url(HtmlAsset.LONG))
     }
 }

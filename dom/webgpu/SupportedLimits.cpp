@@ -31,9 +31,7 @@ uint64_t GetLimit(const ffi::WGPULimits& limits, const Limit limit) {
     case Limit::MaxBindGroups:
       return limits.max_bind_groups;
     case Limit::MaxBindGroupsPlusVertexBuffers:
-      // Not in ffi::WGPULimits, so synthesize:
-      return GetLimit(limits, Limit::MaxBindGroups) +
-             GetLimit(limits, Limit::MaxVertexBuffers);
+      return limits.max_bind_groups_plus_vertex_buffers;
     case Limit::MaxBindingsPerBindGroup:
       return limits.max_bindings_per_bind_group;
     case Limit::MaxDynamicUniformBuffersPerPipelineLayout:
@@ -115,7 +113,7 @@ void SetLimit(ffi::WGPULimits* const limits, const Limit limit,
       limits->max_bind_groups = val;
       return;
     case Limit::MaxBindGroupsPlusVertexBuffers:
-      // TODO(bug 1967020, sort of): Not in ffi::WGPULimits.
+      limits->max_bind_groups_plus_vertex_buffers = val;
       return;
     case Limit::MaxBindingsPerBindGroup:
       limits->max_bindings_per_bind_group = val;

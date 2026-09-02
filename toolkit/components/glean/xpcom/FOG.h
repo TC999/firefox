@@ -1,4 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
@@ -9,6 +8,7 @@
 #include "nsIFOG.h"
 #include "nsIObserver.h"
 #include "nsIMemoryReporter.h"
+#include "mozilla/Atomics.h"
 
 namespace mozilla {
 class FOG final : public nsIFOG, public nsIObserver, public nsIMemoryReporter {
@@ -34,6 +34,8 @@ class FOG final : public nsIFOG, public nsIObserver, public nsIMemoryReporter {
   ~FOG() = default;
   static bool ApplyInterestingServerKnobs();
   void Shutdown();
+
+  mozilla::Atomic<bool> mIsShutdown;
 };
 
 };  // namespace mozilla

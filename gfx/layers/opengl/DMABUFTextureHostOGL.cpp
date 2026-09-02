@@ -3,12 +3,13 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "DMABUFTextureHostOGL.h"
-#include "mozilla/widget/DMABufSurface.h"
-#include "mozilla/widget/DMABufFormats.h"
+
+#include "GLContextEGL.h"
 #include "mozilla/webrender/RenderDMABUFTextureHost.h"
 #include "mozilla/webrender/RenderThread.h"
 #include "mozilla/webrender/WebRenderAPI.h"
-#include "GLContextEGL.h"
+#include "mozilla/widget/DMABufFormats.h"
+#include "mozilla/widget/DMABufSurface.h"
 
 namespace mozilla::layers {
 
@@ -76,8 +77,7 @@ void DMABUFTextureHostOGL::CreateRenderTexture(
   if (!mSurface) {
     return;
   }
-  RefPtr<wr::RenderTextureHost> texture =
-      new wr::RenderDMABUFTextureHost(mSurface);
+  RefPtr texture = MakeRefPtr<wr::RenderDMABUFTextureHost>(mSurface);
   wr::RenderThread::Get()->RegisterExternalImage(aExternalImageId,
                                                  texture.forget());
 }
@@ -106,7 +106,12 @@ void DMABUFTextureHostOGL::PushResourceUpdates(
       }
       // XXX Add RGBA handling. Temporary hack to avoid crash
       // With BGRA format setting, rendering works without problem.
-      wr::ImageDescriptor descriptor(GetSize(), mSurface->GetFormat());
+      auto format = wr::SurfaceFormatToImageFormat(mSurface->GetFormat());
+      if (NS_WARN_IF(!format)) {
+        return;
+      }
+      wr::ImageDescriptor descriptor(GetSize(), *format,
+                                     wr::ToOpacityType(mSurface->GetFormat()));
       (aResources.*method)(aImageKeys[0], descriptor, aExtID, imageType, 0,
                            /* aNormalizedUvs */ false);
       break;
@@ -118,10 +123,10 @@ void DMABUFTextureHostOGL::PushResourceUpdates(
       }
       wr::ImageDescriptor descriptor0(
           gfx::IntSize(mSurface->GetWidth(0), mSurface->GetHeight(0)),
-          gfx::SurfaceFormat::A8);
+          wr::ImageFormat::R8, wr::OpacityType::HasAlphaChannel);
       wr::ImageDescriptor descriptor1(
           gfx::IntSize(mSurface->GetWidth(1), mSurface->GetHeight(1)),
-          gfx::SurfaceFormat::R8G8);
+          wr::ImageFormat::RG8, wr::OpacityType::Opaque);
       (aResources.*method)(aImageKeys[0], descriptor0, aExtID, imageType, 0,
                            /* aNormalizedUvs */ false);
       (aResources.*method)(aImageKeys[1], descriptor1, aExtID, imageType, 1,
@@ -135,10 +140,10 @@ void DMABUFTextureHostOGL::PushResourceUpdates(
       }
       wr::ImageDescriptor descriptor0(
           gfx::IntSize(mSurface->GetWidth(0), mSurface->GetHeight(0)),
-          gfx::SurfaceFormat::A8);
+          wr::ImageFormat::R8, wr::OpacityType::HasAlphaChannel);
       wr::ImageDescriptor descriptor1(
           gfx::IntSize(mSurface->GetWidth(1), mSurface->GetHeight(1)),
-          gfx::SurfaceFormat::A8);
+          wr::ImageFormat::R8, wr::OpacityType::HasAlphaChannel);
       (aResources.*method)(aImageKeys[0], descriptor0, aExtID, imageType, 0,
                            /* aNormalizedUvs */ false);
       (aResources.*method)(aImageKeys[1], descriptor1, aExtID, imageType, 1,
@@ -155,10 +160,10 @@ void DMABUFTextureHostOGL::PushResourceUpdates(
       }
       wr::ImageDescriptor descriptor0(
           gfx::IntSize(mSurface->GetWidth(0), mSurface->GetHeight(0)),
-          gfx::SurfaceFormat::A16);
+          wr::ImageFormat::R16, wr::OpacityType::HasAlphaChannel);
       wr::ImageDescriptor descriptor1(
           gfx::IntSize(mSurface->GetWidth(1), mSurface->GetHeight(1)),
-          gfx::SurfaceFormat::R16G16);
+          wr::ImageFormat::RG16, wr::OpacityType::HasAlphaChannel);
       (aResources.*method)(aImageKeys[0], descriptor0, aExtID, imageType, 0,
                            /* aNormalizedUvs */ false);
       (aResources.*method)(aImageKeys[1], descriptor1, aExtID, imageType, 1,

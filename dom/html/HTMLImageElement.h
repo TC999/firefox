@@ -22,8 +22,7 @@ class HTMLImageElement final : public nsGenericHTMLElement,
   friend class HTMLPictureElement;
 
  public:
-  explicit HTMLImageElement(
-      already_AddRefed<mozilla::dom::NodeInfo>&& aNodeInfo);
+  explicit HTMLImageElement(already_AddRefed<mozilla::dom::NodeInfo> aNodeInfo);
 
   static already_AddRefed<HTMLImageElement> Image(
       const GlobalObject& aGlobal, const Optional<uint32_t>& aWidth,
@@ -95,7 +94,7 @@ class HTMLImageElement final : public nsGenericHTMLElement,
   uint32_t NaturalHeight() { return NaturalSize().height; }
   uint32_t NaturalWidth() { return NaturalSize().width; }
 
-  bool Complete();
+  bool Complete() const;
   uint32_t Hspace() {
     return GetDimensionAttrAsUnsignedInt(nsGkAtoms::hspace, 0);
   }
@@ -200,9 +199,7 @@ class HTMLImageElement final : public nsGenericHTMLElement,
     SetHTMLAttr(nsGkAtoms::lowsrc, aLowsrc, aError);
   }
 
-#ifdef DEBUG
-  HTMLFormElement* GetFormInternal() const;
-#endif
+  HTMLFormElement* GetFormInternal() const { return mForm; }
   void SetForm(HTMLFormElement* aForm);
   void ClearForm(bool aRemoveFromForm);
 
@@ -392,8 +389,7 @@ class HTMLImageElement final : public nsGenericHTMLElement,
   void SetLazyLoading();
 
   bool IsInPicture() const {
-    return GetParentElement() &&
-           GetParentElement()->IsHTMLElement(nsGkAtoms::picture);
+    return mParent && mParent->IsHTMLElement(nsGkAtoms::picture);
   }
 
   void InvalidateAttributeMapping();

@@ -6,16 +6,15 @@
 #define nsCoreUtils_h_
 
 #include "AttrArray.h"
+#include "Units.h"
 #include "mozilla/EventForwards.h"
+#include "mozilla/FlushType.h"
+#include "mozilla/PresShellForwards.h"
 #include "nsCaseTreatment.h"
 #include "nsIAccessibleEvent.h"
 #include "nsIContent.h"
-#include "mozilla/FlushType.h"
-#include "mozilla/PresShellForwards.h"
-
 #include "nsPoint.h"
 #include "nsTArray.h"
-#include "Units.h"
 
 class nsAttrValue;
 class nsGenericHTMLElement;
@@ -164,8 +163,8 @@ class nsCoreUtils {
    * and when.
    */
   MOZ_CAN_RUN_SCRIPT_BOUNDARY static nsresult ScrollSubstringTo(
-      nsIFrame* aFrame, nsRange* aRange, mozilla::ScrollAxis aVertical,
-      mozilla::ScrollAxis aHorizontal);
+      nsIFrame* aFrame, nsRange* aRange, mozilla::AxisScrollParams aVertical,
+      mozilla::AxisScrollParams aHorizontal);
 
   /**
    * Scrolls the given frame to the point, used for implememntation of
@@ -183,9 +182,9 @@ class nsCoreUtils {
    * Converts scroll type constant defined in nsIAccessibleScrollType to
    * vertical and horizontal parameters.
    */
-  static void ConvertScrollTypeToPercents(uint32_t aScrollType,
-                                          mozilla::ScrollAxis* aVertical,
-                                          mozilla::ScrollAxis* aHorizontal);
+  static void ConvertScrollTypeToPercents(
+      uint32_t aScrollType, mozilla::AxisScrollParams* aVertical,
+      mozilla::AxisScrollParams* aHorizontal);
 
   /**
    * Return document shell for the given DOM node.

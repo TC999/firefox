@@ -141,7 +141,7 @@ events:
           add_bookmark, add_to_homescreen, add_to_top_sites, addon_details, addons_manager,
           back, back_long_press, bookmark, bookmarks, custom_back, custom_back_long_press,
           custom_desktop_view_off, custom_desktop_view_on, custom_find_in_page,
-          custom_forward, custom_forward_long_press, custom_share, desktop_view_off,
+          custom_forward, custom_forward_long_press, custom_share, customize_homepage, desktop_view_off,
           desktop_view_on, discover_more_extensions, dismiss_menu_banner, downloads,
           edit_bookmark, find_in_page, forward, forward_long_press, history, install_addon,
           installed_addon_details, menu_banner, new_tab, open_in_app, open_in_fenix, print_content,
@@ -154,6 +154,7 @@ events:
       - https://github.com/mozilla-mobile/fenix/issues/19923
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1808689
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1836780
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2042794
     data_reviews:
       - https://github.com/mozilla-mobile/fenix/pull/1214#issue-264756708
       - https://github.com/mozilla-mobile/fenix/pull/5098#issuecomment-529658996
@@ -165,6 +166,7 @@ events:
       - https://github.com/mozilla-mobile/fenix/pull/27295
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1837517#c3
       - https://github.com/mozilla-mobile/firefox-android/pull/4039
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2042794
     data_sensitivity:
       - interaction
     notification_emails:
@@ -269,7 +271,7 @@ events:
           open_links_in_a_private_tab, pref_key_sync_logins,
           pref_key_sync_bookmarks, pref_key_sync_history, pref_key_show_voice_search,
           pref_key_show_search_suggestions_in_private, pref_key_show_trending_search_suggestions,
-          pref_key_show_recent_search_suggestions.
+          pref_key_show_recent_search_suggestions, privacy_report.
         type: string
       enabled:
         description: "Whether or not the preference is *now* enabled"
@@ -284,6 +286,7 @@ events:
       - https://github.com/mozilla-mobile/fenix/issues/19923
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1945634
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1950208
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2044067
     data_reviews:
       - https://github.com/mozilla-mobile/fenix/pull/1896
       - https://github.com/mozilla-mobile/fenix/pull/5704
@@ -297,6 +300,7 @@ events:
       - https://github.com/mozilla-mobile/fenix/pull/21038#issuecomment-906757301
       - https://phabricator.services.mozilla.com/D239200
       - https://phabricator.services.mozilla.com/D240680
+      - https://phabricator.services.mozilla.com/D304862
     data_sensitivity:
       - technical
       - interaction
@@ -470,6 +474,22 @@ events:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1862096
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1862096
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Toolbar
+  toolbar_tabstray_swipe:
+    type: event
+    description: |
+      A user swiped the toolbar up or down to open the tabs tray.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2020810
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D286900
     data_sensitivity:
       - interaction
     notification_emails:
@@ -1598,48 +1618,6 @@ onboarding:
     send_in_pings:
       - onboarding
       - events
-  theme_selection_card:
-    type: event
-    description: |
-      User viewed the pick a theme card.
-    extra_keys:
-      element_type:
-        type: string
-        description: |
-          Type of element that was viewed.
-      action:
-        type: string
-        description: |
-          Type of action taken by the user.
-      sequence_position:
-        type: string
-        description: |
-          Position of the onboarding card in the onboarding flow.
-      sequence_id:
-        type: string
-        description: |
-          Identifier for the sequence.
-      onboarding_reason:
-        type: string
-        description: The reason the user is being onboarded.
-      install_source:
-        type: string
-        description: The source of installation.
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1926955
-    data_reviews:
-      - https://phabricator.services.mozilla.com/D229448
-    data_sensitivity:
-      - interaction
-    notification_emails:
-      - android-probes@mozilla.com
-    expires: never
-    metadata:
-      tags:
-        - Onboarding
-    send_in_pings:
-      - onboarding
-      - events
   set_to_default:
     type: event
     description: |
@@ -2073,91 +2051,6 @@ onboarding:
     send_in_pings:
       - onboarding
       - events
-  select_theme:
-    type: event
-    description: |
-      User selected a theme option (dark, light, or system) and tapped on the save button during onboarding.
-    extra_keys:
-      theme_option:
-        type: string
-        description: |
-          The selected theme option. Possible values are "dark", "light", or "system".
-      action:
-        type: string
-        description: |
-          Type of action taken by the user.
-      sequence_position:
-        type: string
-        description: |
-          Position of the onboarding card in the onboarding flow.
-      sequence_id:
-        type: string
-        description: |
-          Identifier for the sequence.
-      onboarding_reason:
-        type: string
-        description: The reason the user is being onboarded.
-      install_source:
-        type: string
-        description: The source of installation.
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1935222
-    data_reviews:
-      - https://phabricator.services.mozilla.com/D231443
-    data_sensitivity:
-      - interaction
-    notification_emails:
-      - android-probes@mozilla.com
-    expires: never
-    metadata:
-      tags:
-        - Onboarding
-    send_in_pings:
-      - onboarding
-      - events
-  privacy_policy:
-    type: event
-    description: |
-      User tapped on privacy policy link in onboarding.
-    extra_keys:
-      element_type:
-        type: string
-        description: |
-          Type of element that was viewed.
-      action:
-        type: string
-        description: |
-          Type of action taken by the user.
-      sequence_position:
-        type: string
-        description: |
-          Position of the onboarding card in the onboarding flow.
-      sequence_id:
-        type: string
-        description: |
-          Identifier for the sequence.
-      onboarding_reason:
-        type: string
-        description: The reason the user is being onboarded.
-      install_source:
-        type: string
-        description: The source of installation.
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1821726
-    data_reviews:
-      - https://github.com/mozilla-mobile/firefox-android/pull/1554
-      - https://github.com/mozilla-mobile/firefox-android/pull/4039
-    data_sensitivity:
-      - interaction
-    notification_emails:
-      - android-probes@mozilla.com
-    expires: never
-    metadata:
-      tags:
-        - Onboarding
-    send_in_pings:
-      - onboarding
-      - events
   completed:
     type: event
     description: |
@@ -2296,6 +2189,30 @@ onboarding:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1930758
     data_reviews:
       - https://phabricator.services.mozilla.com/D228921
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
+  marketing_data_skip_clicked:
+    type: event
+    description:
+      The user clicked skip on the marketing data opt out screen
+    extra_keys:
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2037795
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D299320
     notification_emails:
       - android-probes@mozilla.com
     expires: never
@@ -2984,13 +2901,15 @@ context_menu:
 
           ```
           open_in_new_tab, open_in_private_tab, open_image_in_new_tab,
-          save_image, share_link, copy_link, copy_image_location, share_image
+          save_image, share_link, copy_link, copy_image_location, share_image,
+          open_with_google_lens
           ```
         type: string
     bugs:
       - https://github.com/mozilla-mobile/fenix/issues/957
       - https://github.com/mozilla-mobile/fenix/issues/16076
       - https://github.com/mozilla-mobile/fenix/issues/19923
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2053250
     data_reviews:
       - https://github.com/mozilla-mobile/fenix/pull/1344#issuecomment-479285010
       - https://github.com/mozilla-mobile/fenix/pull/13958#issuecomment-676857877
@@ -2998,6 +2917,7 @@ context_menu:
       - https://github.com/mozilla-mobile/fenix/pull/18143
       - https://github.com/mozilla-mobile/fenix/pull/19924#issuecomment-861423789
       - https://github.com/mozilla-mobile/fenix/pull/21038#issuecomment-906757301
+      - https://phabricator.services.mozilla.com/D310944
     data_sensitivity:
       - interaction
     notification_emails:
@@ -4047,6 +3967,25 @@ metrics:
     metadata:
       tags:
         - Experiments
+  tab_group_creation_mode:
+    type: labeled_counter
+    description: |
+      Tracks how users initiated group creation
+    labels:
+      - drag_and_drop
+      - menu
+      - fab
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2029221
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2047039
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2029221
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2047039
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
 
 customize_home:
   most_visited_sites:
@@ -4203,8 +4142,8 @@ customize_home:
           toggled.
 
           We currently track: most_visited_sites, jump_back_in,
-          recently_visited, bookmarks, pocket, and contile.
-          We previously tracked bookmarks as recently_saved.
+          recently_visited, bookmarks, pocket, contile, privacy_report, and
+          weather. We previously tracked bookmarks as recently_saved.
       enabled:
         type: boolean
         description: "Whether or not the preference is *now* enabled"
@@ -4241,6 +4180,26 @@ customize_home:
     expires: never
 
 preferences:
+  google_lens_enabled:
+    type: boolean
+    lifetime: application
+    description: |
+      Whether the Google Lens search feature is both available to the user and
+      enabled by them in the settings.
+    send_in_pings:
+      - metrics
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2053250
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D310944
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Search
   studies_enabled:
     type: boolean
     lifetime: application
@@ -4694,6 +4653,26 @@ preferences:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2002636
     data_reviews:
       - https://phabricator.services.mozilla.com/D274608
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Toolbar
+        - Settings
+  toolbar_tab_strip_shortcut:
+    type: string
+    description: |
+      The toolbar shortcut used when the tab strip is enabled.
+      Possible values are: share, bookmark, translate, homepage, back, summarize or none.
+    send_in_pings:
+      - metrics
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2019946
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2019946
     data_sensitivity:
       - interaction
     notification_emails:
@@ -5513,7 +5492,110 @@ bookmarks_management:
     metadata:
       tags:
         - Bookmarks
+  import_from_file_menu_click:
+    type: event
+    description: |
+      The user clicks the menu entry point to import bookmarks from a file
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2037185
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D299395
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Bookmarks
+  import_started:
+    type: event
+    description: |
+      The bookmarks import started
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2040323
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D306161
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Bookmarks
+  import_successful:
+    type: event
+    description: |
+      The user successfully imports bookmarks from a file
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2037185
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D299395
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    extra_keys:
+      bookmarks_count:
+        description: The number of bookmarks imported.
+        type: quantity
+    metadata:
+      tags:
+        - Bookmarks
+  import_cancelled:
+    type: event
+    description: |
+      The user cancelled an import operation
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2048941
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D307770
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Bookmarks
+  import_failed:
+    type: event
+    description: |
+      The user fails to import bookmarks from a file
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2037185
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D299395
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    extra_keys:
+      error_code:
+        description: |
+          The error code describing what occurred during import.
+          Current values are:
+            1xxx - errors imply a file reading error
+            1001 - file read error
 
+            2xxx - errors imply an error encountered during parsing
+            2001 - parsing error - unsupported content type (like an html file that is not netscape
+          format)
+            2002 - parsing error - invalid format (content type is supported, but has a bad format)
+            2003 - parsing error - an unexpected error related to parsing
+
+            3xxx - errors imply an error encountered during bookmark insertion
+            3001 - bookmarks save error
+
+            4xxx - other errors not yet handled/classified
+            4001 - general unknown error
+        type: string
+    metadata:
+      tags:
+        - Bookmarks
 activation:
   identifier:
     type: string
@@ -5587,6 +5669,58 @@ error_page:
       - https://github.com/mozilla-mobile/fenix/pull/21316#issuecomment-944615938
       - https://github.com/mozilla-mobile/fenix/pull/27295
       - https://github.com/mozilla-mobile/firefox-android/pull/4039
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - ErrorMessages
+  archived_version_opened:
+    type: event
+    description: |
+      Recorded when a user opens an archived version of an unreachable page from
+      an error page, via the Wayback Machine "View archived version" action.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2049844
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D308394
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - ErrorMessages
+  archive_search_web_selected:
+    type: event
+    description: |
+      Recorded when a user chooses to search the web for an unreachable page from
+      an error page, after no archived version of it was found.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2049844
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D308394
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - ErrorMessages
+  archive_button_clicked:
+    type: event
+    description: |
+      Recorded when a user clicks the "View archived version" button on an error
+      page to look up an archived copy, regardless of the lookup outcome. Measures
+      overall usage of the archive action.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2049844
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D308394
     data_sensitivity:
       - interaction
     notification_emails:
@@ -6004,6 +6138,204 @@ settings:
     metadata:
       tags:
         - Settings
+  firefox_labs:
+    type: event
+    description: |
+      User has tapped Firefox Labs in settings menu.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2032172
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D305371
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Settings
+firefox_labs:
+  toggle_button_pressed:
+    type: event
+    description: |
+      The user toggled a Firefox Labs item switch. Recorded after Nimbus
+      processes the toggle.
+    extra_keys:
+      slug_id:
+        type: string
+        description: |
+          The Nimbus slug identifying the Labs item whose switch was tapped,
+          e.g., "homepage-as-new-tab". This is defined in the experimenter
+          setup and is not unique on a user basis.
+      enabled:
+        type: boolean
+        description: |
+          The new enabled state the user attempted to set.
+      status:
+        type: string
+        description: |
+          The Nimbus enroll/unenroll status, lowercased. One of: "enrolled",
+          "already_enrolled", "unenrolled", "already_unenrolled", "no_experiment",
+          "not_firefox_labs_opt_in", "feature_conflict", "error", or "exception"
+          when the Nimbus call threw.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2035830
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2046556
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D305929
+      - https://phabricator.services.mozilla.com/D309436
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+  toggled_dialog:
+    type: event
+    description: |
+      The user resolved the requires restart confirmation dialog for a Firefox Labs item (by confirming or cancelling).
+    extra_keys:
+      slug_id:
+        type: string
+        description: |
+          The Nimbus slug identifying the Labs item for the dialog,
+          e.g., "homepage-as-new-tab". This is defined in the experimenter
+          setup and is not unique on a user basis.
+      did_user_confirm:
+        type: boolean
+        description: |
+          True if the user confirmed the dialog to restart, false if the user dismissed it without restarting.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2035830
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D305929
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+  share_feedback_opened:
+    type: event
+    description: |
+      The user opened the share feedback link for a Firefox Labs item.
+    extra_keys:
+      slug_id:
+        type: string
+        description: |
+          The Nimbus slug identifying the Labs item whose feedback link
+          was tapped, e.g., "homepage-as-new-tab". This is defined in the experimenter
+          setup and is not unique on a user basis.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2035830
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D305730
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+  restore_defaults_button_pressed:
+    type: event
+    description: |
+      The user pressed the restore defaults button on the Firefox Labs screen.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2035830
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D305929
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+  restore_defaults_dialog:
+    type: event
+    description: |
+      The user resolved the restore defaults dialog on the Firefox Labs screen (by confirming or cancelling).
+      When confirmed, recorded after Nimbus processes the request.
+    extra_keys:
+      slug_ids:
+        type: string
+        description: |
+          Comma delimited Nimbus slugs of the Labs items that were enrolled when
+          defaults were restored (and so were toggled off), e.g.
+          "homepage-as-new-tab,reader-view". Empty if the user cancelled the dialog.
+      count:
+        type: quantity
+        description: |
+          Number of items flipped from on to off. Zero if the user cancelled the dialog.
+        unit: items
+      did_user_confirm:
+        type: boolean
+        description: |
+          True if the user confirmed the dialog to restore defaults, false if the user dismissed it without restoring.
+      succeeded:
+        type: boolean
+        description: |
+          Whether unenrolling from all Firefox Labs completed without error. False
+          when the user cancelled the dialog without restoring or an issue occurred.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2035830
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2046556
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D305929
+      - https://phabricator.services.mozilla.com/D309436
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+  empty_state_shown:
+    type: event
+    description: |
+      The Firefox Labs screen showed the empty state (no items available).
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2035830
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D305730
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+  initial_labs_fetch:
+    type: event
+    description: |
+      Recorded when the Firefox Labs screen is populated with the available Labs
+      fetched from Nimbus.
+    extra_keys:
+      slug_ids:
+        type: string
+        description: |
+          Comma delimited Nimbus slugs of the available Labs, e.g.
+          "homepage-as-new-tab,reader-view". These are defined in the experimenter
+          setup and are not unique on a user basis.
+      count:
+        type: quantity
+        description: |
+          The number of available Labs fetched from Nimbus.
+        unit: labs
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2046556
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D309436
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+  fetch_failed:
+    type: event
+    description: |
+      Fetching the available Firefox Labs from Nimbus threw an error, so the
+      Firefox Labs screen could not load or refresh its list of features.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2046556
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D309436
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
 settings_search:
   opened:
     type: event
@@ -6219,9 +6551,7 @@ history:
       time_group:
         type: string
         description: |
-          What time group does the history item belongs to.
-          Possible values: [Today], [Yesterday], [ThisWeek], [ThisMonth],
-          [Older].
+          The exact date of the history item in ISO 8601 format (YYYY-MM-DD).
       is_private:
         type: boolean
         description: |
@@ -6816,6 +7146,22 @@ tabs_tray:
     metadata:
       tags:
         - Tabs
+  tab_group_mode_tapped:
+    type: event
+    description: |
+      A user switched to tab group mode
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2026038
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D292785
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Tabs
   synced_mode_tapped:
     type: event
     description: |
@@ -6916,6 +7262,23 @@ tabs_tray:
       tags:
         - Tabs
         - Collections
+  select_all_normal_tabs:
+    type: event
+    description: |
+      A user tapped the select all normal tabs button in the
+      three dot menu within the tabs tray
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1812735
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D300739
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Tabs
   share_all_tabs:
     type: event
     description: |
@@ -6958,6 +7321,222 @@ tabs_tray:
     metadata:
       tags:
         - Tabs
+  tab_group_created:
+    type: event
+    description: |
+      Fired when a user saves a newly created tab group. Does NOT fire when
+      a user edits and saves an existing tab group.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2029221
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2029221
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+
+  tab_group_deleted:
+    type: event
+    description: |
+      Fired when a tab group is deleted.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2029221
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2029221
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+
+  tab_group_ungrouped:
+    type: event
+    description: |
+      Fired when a user confirms ungrouping a tab group, which deletes the
+      group but keeps its tabs.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064425
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064425
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+
+  ungroup_confirmation_disabled:
+    type: event
+    description: |
+      Fired when a user checks "Don't ask again" in the ungroup confirmation
+      dialog. Only fires for the interaction in which the user opts out, not for
+      later ungroup actions that skip the dialog as a result.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064425
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064425
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+
+  tab_group_closed:
+    type: event
+    description: |
+      Fired when a user closes or collapses a tab group in the tabs tray.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2029226
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2029226
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+
+  tab_added_to_group:
+    type: event
+    description: |
+      Fired when a tab is added to an existing tab group.
+    extra_keys:
+      tab_count:
+        description: The number of tabs added to the group.
+        type: quantity
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2029221
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2029221
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+
+  tab_group_opened:
+    type: event
+    description: |
+      Fired when user opens/expands a tab group
+    extra_keys:
+      source:
+        description: The screen where the group was opened from (tab screen or group screen).
+        type: string
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2029221
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2029221
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+
+  tab_group_named:
+    type: event
+    description: |
+      Fired when a user assigns a name to a tab group.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2029227
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D301300
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+
+  tab_group_name_changed:
+    type: event
+    description: |
+      Fired when a user changes an existing tab group's name.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2029227
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D301300
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+
+  tab_group_color_assigned:
+    type: event
+    description: |
+      Fired when a user assigns a color to a tab group.
+    extra_keys:
+      color:
+        description: The color name of the tab group.
+        type: string
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2029221
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D301300
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+
+  tab_group_color_changed:
+    type: event
+    description: |
+      Fired when a user changes an existing tab group's color.
+    extra_keys:
+      tab_group_color_changed:
+        description: The new color name of the tab group.
+        type: string
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2029221
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D301300
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+
+  tab_group_edited:
+    type: event
+    description: |
+      Fired when a user clicks on the edit button of an existing tab group.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2029221
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D301300
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+
+  tab_group_create_cancel:
+    type: event
+    description: |
+      Fired when user cancels out of group creation flow
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2029221
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2029221
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+
+  tab_group_screen_opened:
+    type: event
+    description: |
+      Fired when the user navigates to the Tab Groups screen within the tabs tray.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2029226
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2029226
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+
   inactive_tabs_expanded:
     type: event
     description: |
@@ -7195,6 +7774,26 @@ tabs_tray:
       tab_count:
         description: The number of selected tabs shared.
         type: quantity
+  share_tab_group:
+    type: event
+    description: |
+      User has chosen to share a tab group from the tabs tray.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2047731
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D314984
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Tabs
+    extra_keys:
+      tab_count:
+        description: The number of tabs in the shared tab group.
+        type: quantity
   bookmark_selected_tabs:
     type: event
     description: |
@@ -7275,6 +7874,60 @@ tabs_tray:
     data_sensitivity:
       - interaction
     expires: never
+  tab_long_press:
+    type: event
+    description: |
+      A user long-pressed on a tab in the tabs tray.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2038021
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D301419
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Tabs
+  tab_long_press_drag:
+    type: event
+    description: |
+      A user dragged a tab in the tabs tray after long-pressing it.
+    extra_keys:
+      item_type:
+        description: |
+          The type of item dragged. One of "tab", "tab_group", or "unknown".
+        type: string
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2038021
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D301419
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Tabs
+  tab_long_press_drag_rearranged_position:
+    type: event
+    description: |
+      A user rearranged the position of a tab in the tabs tray by dragging
+      and dropping it after long-pressing it.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2038021
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D301419
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Tabs
 
 tab_search:
   tab_search_icon_clicked:
@@ -7622,27 +8275,6 @@ collections:
     metadata:
       tags:
         - Collections
-  long_press:
-    type: event
-    description: |
-      A user long pressed on a tab, triggering the collection creation screen
-    bugs:
-      - https://github.com/mozilla-mobile/fenix/issues/969
-      - https://github.com/mozilla-mobile/fenix/issues/19923
-    data_reviews:
-      - https://github.com/mozilla-mobile/fenix/pull/4358
-      - https://github.com/mozilla-mobile/fenix/pull/13958#issuecomment-676857877
-      - https://github.com/mozilla-mobile/fenix/pull/18143
-      - https://github.com/mozilla-mobile/fenix/pull/19924#issuecomment-861423789
-      - https://github.com/mozilla-mobile/fenix/pull/21038#issuecomment-906757301
-    data_sensitivity:
-      - interaction
-    notification_emails:
-      - android-probes@mozilla.com
-    expires: never
-    metadata:
-      tags:
-        - Collections
   save_button:
     type: event
     description: |
@@ -7758,8 +8390,114 @@ search_widget:
     metadata:
       tags:
         - Search
+  lens_button:
+    type: event
+    description: |
+      A user pressed the Google Lens icon, opening the Google Lens image search flow.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2048722
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D308320
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Search
 
 tracking_protection:
+  privacy_report_tapped:
+    type: event
+    description: |
+      A user tapped the privacy report / trackers blocked card to open the
+      privacy dashboard.
+    extra_keys:
+      source:
+        description: |
+          The surface the user opened the privacy dashboard from. Possible
+          values are: `home`, `tabs_tray`, `trust_panel`, `deeplink` or
+          `privacy_report_notification`.
+        type: string
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2044067
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2051483
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D304862
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - TrackingProtection
+  privacy_report_tracking_cookies_tapped:
+    type: event
+    description: |
+      A user tapped the tracking cookies category row in the privacy dashboard.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2044067
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D304862
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - TrackingProtection
+  privacy_report_social_tapped:
+    type: event
+    description: |
+      A user tapped the social media trackers category row in the privacy
+      dashboard.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2044067
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D304862
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - TrackingProtection
+  privacy_report_fingerprints_tapped:
+    type: event
+    description: |
+      A user tapped the fingerprinters category row in the privacy dashboard.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2044067
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D304862
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - TrackingProtection
+  privacy_report_tracking_content_tapped:
+    type: event
+    description: |
+      A user tapped the tracking content category row in the privacy dashboard.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2044067
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D304862
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - TrackingProtection
   exception_added:
     type: event
     description: |
@@ -7986,8 +8724,6 @@ tab:
     notification_emails:
       - android-probes@mozilla.com
     expires: never
-    no_lint:
-      - COMMON_PREFIX
     metadata:
       tags:
         - Media
@@ -8051,6 +8787,38 @@ media_notification:
       - https://github.com/mozilla-mobile/fenix/pull/23453#issuecomment-1024694220
       - https://github.com/mozilla-mobile/fenix/pull/28502
       - https://github.com/mozilla-mobile/firefox-android/pull/4039
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Media
+  next:
+    type: event
+    description: |
+      A user pressed the next track icon on the media notification
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2047284
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2047284
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Media
+  previous:
+    type: event
+    description: |
+      A user pressed the previous track icon on the media notification
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2047284
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2047284
     data_sensitivity:
       - interaction
     notification_emails:
@@ -8680,6 +9448,12 @@ top_sites:
     type: event
     description: |
       A user opened a default top site
+    extra_keys:
+      source: &top_sites_source
+        type: string
+        description: |
+          The surface where the top site interaction occurred.
+          One of "homepage" or "shortcuts_library".
     bugs:
       - https://github.com/mozilla-mobile/fenix/issues/8125
     data_reviews:
@@ -8696,10 +9470,46 @@ top_sites:
     metadata:
       tags:
         - Shortcuts
+  show_more:
+    type: event
+    description: |
+      A user tapped the control that expands the shortcuts section to show all
+      of their shortcuts on the homepage.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2063302
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2063302
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Shortcuts
+  show_less:
+    type: event
+    description: |
+      A user tapped the control that collapses the shortcuts section back to the
+      default number of shortcuts on the homepage.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2063302
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2063302
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Shortcuts
   open_google_search_attribution:
     type: event
     description: |
       A user opened the google top site
+    extra_keys:
+      source: *top_sites_source
     bugs:
       - https://github.com/mozilla-mobile/fenix/issues/17418
     data_reviews:
@@ -8740,6 +9550,8 @@ top_sites:
     type: event
     description: |
       A user opened a frecency top site
+    extra_keys:
+      source: *top_sites_source
     bugs:
       - https://github.com/mozilla-mobile/fenix/issues/14565
     data_reviews:
@@ -8760,6 +9572,8 @@ top_sites:
     type: event
     description: |
       A user opened a pinned top site
+    extra_keys:
+      source: *top_sites_source
     bugs:
       - https://github.com/mozilla-mobile/fenix/issues/14565
     data_reviews:
@@ -8811,6 +9625,7 @@ top_sites:
         description: |
           The type of top site. Options are: "FRECENCY", "DEFAULT",
           "PINNED", or "PROVIDED"
+      source: *top_sites_source
     bugs:
       - https://github.com/mozilla-mobile/fenix/issues/14565
       - https://github.com/mozilla-mobile/fenix/issues/23526
@@ -8833,6 +9648,8 @@ top_sites:
     type: event
     description: |
       A user opens a new tab based on a top site item
+    extra_keys:
+      source: *top_sites_source
     bugs:
       - https://github.com/mozilla-mobile/fenix/issues/6757
     data_reviews:
@@ -8853,6 +9670,8 @@ top_sites:
     type: event
     description: |
       A user opens a new private tab based on a top site item
+    extra_keys:
+      source: *top_sites_source
     bugs:
       - https://github.com/mozilla-mobile/fenix/issues/6757
     data_reviews:
@@ -8873,6 +9692,8 @@ top_sites:
     type: event
     description: |
       A user removes a top site item
+    extra_keys:
+      source: *top_sites_source
     bugs:
       - https://github.com/mozilla-mobile/fenix/issues/6757
     data_reviews:
@@ -8889,10 +9710,78 @@ top_sites:
     metadata:
       tags:
         - Shortcuts
+  add:
+    type: event
+    description: |
+      A user added a top site.
+    extra_keys:
+      source:
+        type: string
+        description: |
+          The source of where the shortcut was added. Options are: "popular" (chosen from the
+          popular sites list), "manual" (added directly by the user), or "frecency_promote"
+          (a frecenct top site was pinned by the user).
+      entry_point:
+        type: string
+        description: |
+          Where the add flow was started from. Options are: "homepage",
+          "shortcuts_library", or "page_menu".
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2050288
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2050288
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Shortcuts
+  add_sheet_shown:
+    type: event
+    description: |
+      The add shortcut bottom sheet for adding a shortcut was opened.
+    extra_keys:
+      entry_point:
+        type: string
+        description: |
+          Where the add shortcut bottom sheet was opened from. Options are: "homepage" or
+          "shortcuts_library".
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2050288
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2050288
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Shortcuts
+  add_url_shown:
+    type: event
+    description: |
+      The add website modal for adding a shortcut was opened.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2050288
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2050288
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Shortcuts
   google_top_site_removed:
     type: event
     description: |
       A user removed the default Google top site
+    extra_keys:
+      source: *top_sites_source
     bugs:
       - https://github.com/mozilla-mobile/fenix/issues/21841
     data_reviews:
@@ -8925,6 +9814,8 @@ top_sites:
     type: event
     description: |
       A user has opened a contile top site.
+    extra_keys:
+      source: *top_sites_source
     bugs:
       - https://github.com/mozilla-mobile/fenix/issues/23526
     data_reviews:
@@ -8941,6 +9832,8 @@ top_sites:
     description: |
       A user has opened a contile top site in a private tab via the long
       press context menu.
+    extra_keys:
+      source: *top_sites_source
     bugs:
       - https://github.com/mozilla-mobile/fenix/issues/23526
     data_reviews:
@@ -8957,6 +9850,8 @@ top_sites:
     description: |
       A user has selected "Settings" via the contile top sites
       longpress context menu.
+    extra_keys:
+      source: *top_sites_source
     bugs:
       - https://github.com/mozilla-mobile/fenix/issues/23526
     data_reviews:
@@ -8973,6 +9868,8 @@ top_sites:
     description: |
       A user has selected "Our sponsors & your privacy" via the
       contile top sites longpress context menu.
+    extra_keys:
+      source: *top_sites_source
     bugs:
       - https://github.com/mozilla-mobile/fenix/issues/23526
     data_reviews:
@@ -9077,7 +9974,9 @@ top_sites:
       A user saw a Contile top site
     extra_keys:
       source:
-        description: The source of the event, example "newtab", "urlbar"
+        description: |
+          The surface where the Contile top site was shown.
+          One of "homepage" or "shortcuts_library".
         type: string
       position:
         description: The tile placement (1-based)
@@ -9104,7 +10003,9 @@ top_sites:
       A user clicked a Contile top site
     extra_keys:
       source:
-        description: The source of the event, example "newtab", "urlbar"
+        description: |
+          The surface where the Contile top site was clicked.
+          One of "homepage" or "shortcuts_library".
         type: string
       position:
         description: The tile placement (1-based)
@@ -9195,6 +10096,12 @@ pocket:
     type: event
     description: |
       The Pocket recommended stories are shown on the home screen.
+    extra_keys:
+      source:
+        type: string
+        description: |
+          Where the stories impression was recorded.
+          One of "homepage" or "stories_screen".
     bugs:
       - https://github.com/mozilla-mobile/fenix/issues/21593
     data_reviews:
@@ -9223,6 +10130,11 @@ pocket:
         description: |
           Position of the clicked story in the list shown.
           Uses the [row x column] matrix notation.
+      source:
+        type: string
+        description: |
+          Where the clicked story was shown.
+          One of "homepage" or "stories_screen".
     bugs:
       - https://github.com/mozilla-mobile/fenix/issues/21593
     data_reviews:
@@ -9516,7 +10428,6 @@ play_store_attribution:
   source:
     type: string
     send_in_pings:
-      - first-session
       - play-store-attribution
     description: |
       The name of the utm_source that is responsible for this installation.
@@ -9539,7 +10450,6 @@ play_store_attribution:
   medium:
     type: string
     send_in_pings:
-      - first-session
       - play-store-attribution
     description: |
       The name of the utm_medium that is responsible for this installation.
@@ -9562,7 +10472,6 @@ play_store_attribution:
   campaign:
     type: string
     send_in_pings:
-      - first-session
       - play-store-attribution
     description: |
       The name of the utm_campaign that is responsible for this installation.
@@ -9585,7 +10494,6 @@ play_store_attribution:
   term:
     type: string
     send_in_pings:
-      - first-session
       - play-store-attribution
     description: |
       The name of the utm_term that is responsible for this installation.
@@ -9608,7 +10516,6 @@ play_store_attribution:
   content:
     type: string
     send_in_pings:
-      - first-session
       - play-store-attribution
     description: |
       The name of the utm_content that is responsible for this installation.
@@ -9651,7 +10558,7 @@ play_store_attribution:
     time_unit: millisecond
     send_in_pings:
       - metrics
-      - install-referrer-attribution
+      - play-store-attribution
     description: >
       The time that it takes to derive the attribution parameters by
       the Google Play Install Referrer library.
@@ -9675,8 +10582,7 @@ meta_attribution:
   app:
     type: string
     send_in_pings:
-      - first-session
-      - install-referrer-attribution
+      - play-store-attribution
     description: |
       The mobile application ID in Meta's attribution.
     bugs:
@@ -9696,8 +10602,7 @@ meta_attribution:
   t:
     type: string
     send_in_pings:
-      - first-session
-      - install-referrer-attribution
+      - play-store-attribution
     description: |
       Value tracking user interaction with Meta attribution.
     bugs:
@@ -9717,8 +10622,7 @@ meta_attribution:
   data:
     type: text
     send_in_pings:
-      - first-session
-      - install-referrer-attribution
+      - play-store-attribution
     description: |
       The Meta attribution data in encrypted format.
     bugs:
@@ -9739,8 +10643,7 @@ meta_attribution:
   nonce:
     type: string
     send_in_pings:
-      - first-session
-      - install-referrer-attribution
+      - play-store-attribution
     description: |
       Nonce used to decrypt the encrypted Meta attribution data.
     bugs:
@@ -9885,6 +10788,27 @@ adjust_attribution:
     metadata:
       tags:
         - Performance
+        - Attribution
+  conversion_event:
+    type: event
+    description: A conversion event has been sent to Adjust
+    extra_keys:
+      event_number:
+        description: >
+          Which conversion event was sent, numbered 1-10. Events 1-7 are
+          GrowthData events; events 8-10 are FirstWeekPostInstall events.
+        type: quantity
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2038776
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D299816
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
         - Attribution
 
 browser.search:
@@ -10180,6 +11104,53 @@ addons:
     metadata:
       tags:
         - WebExtensions
+  rtamo_identified:
+    type: event
+    description: |
+      The download URL of the RTAMO addon has been successfully identified.
+    extra_keys:
+      addon_download_url:
+        type: string
+        description: The download URL of the addon attempted to install.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2030692
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D293161
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - WebExtensions
+    send_in_pings:
+      - events
+  rtamo_failed:
+    type: event
+    description: |
+      Could not identify the download URL of the RTAMO addon.
+    extra_keys:
+      reason:
+        type: string
+        description: |
+          Reason for why this operation failed.
+          Can be one of: invalid_id, unknown_url, cancelled.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2030692
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D293161
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - WebExtensions
+    send_in_pings:
+      - events
+
 perf.startup:
   cold_main_app_to_first_frame:
     type: timing_distribution
@@ -10556,180 +11527,6 @@ autoplay:
       tags:
         - SitePermissions
 
-cookie_banners:
-  setting_changed_pmb:
-    type: event
-    description: |
-      A user changed their setting in private mode.
-    extra_keys:
-      cookie_banner_setting:
-        description: |
-          The new setting for cookie banners: disabled,reject_all,
-          or reject_or_accept_all.
-        type: string
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1796146
-    data_reviews:
-      - https://github.com/mozilla-mobile/fenix/pull/27561
-      - https://github.com/mozilla-mobile/firefox-android/pull/2597
-      - https://github.com/mozilla-mobile/firefox-android/pull/4039
-    data_sensitivity:
-      - interaction
-    notification_emails:
-      - android-probes@mozilla.com
-    expires: never
-    metadata:
-      tags:
-        - Privacy&Security
-  exception_added:
-    type: event
-    description: |
-      A user added a cookie banner handling exception through
-      the toggle in the protections panel.
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1797577
-    data_reviews:
-      - https://github.com/mozilla-mobile/fenix/pull/28044#issuecomment-1334548056
-      - https://github.com/mozilla-mobile/firefox-android/pull/2597
-      - https://github.com/mozilla-mobile/firefox-android/pull/4039
-    data_sensitivity:
-      - interaction
-    notification_emails:
-      - android-probes@mozilla.com
-    expires: never
-    metadata:
-      tags:
-        - Privacy&Security
-  exception_removed:
-    type: event
-    description: |
-      A user removed a cookie banner handling
-      exception through the toggle in the protections panel.
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1797577
-    data_reviews:
-      - https://github.com/mozilla-mobile/fenix/pull/28044#issuecomment-1334548056
-      - https://github.com/mozilla-mobile/firefox-android/pull/2597
-      - https://github.com/mozilla-mobile/firefox-android/pull/4039
-    data_sensitivity:
-      - interaction
-    notification_emails:
-      - android-probes@mozilla.com
-    expires: never
-    metadata:
-      tags:
-        - Privacy&Security
-  visited_panel:
-    type: event
-    description: A user visited the cookie banner toolbar panel
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1797577
-    data_reviews:
-      - https://github.com/mozilla-mobile/fenix/pull/28044#issuecomment-1334548056
-      - https://github.com/mozilla-mobile/firefox-android/pull/2597
-      - https://github.com/mozilla-mobile/firefox-android/pull/4039
-    data_sensitivity:
-      - interaction
-    notification_emails:
-      - android-probes@mozilla.com
-    expires: never
-    metadata:
-      tags:
-        - Privacy&Security
-  report_site_domain:
-    type: url
-    description: |
-      A user can report a site domain(Ex. for https://edition.cnn.com/
-      site domain will be cnn.com) when the cookie banner reducer is not
-      working from the cookie banner details panel.
-    lifetime: ping
-    send_in_pings:
-      - cookie-banner-report-site
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1805450
-    data_reviews:
-      - https://github.com/mozilla-mobile/firefox-android/pull/1298#pullrequestreview-1350344223
-      - https://github.com/mozilla-mobile/firefox-android/pull/3319
-      - https://github.com/mozilla-mobile/firefox-android/pull/4039
-    data_sensitivity:
-      - technical
-      - interaction
-    notification_emails:
-      - android-probes@mozilla.com
-    expires: never
-    metadata:
-      tags:
-        - Privacy&Security
-  report_site_cancel_button:
-    type: event
-    description: |
-      The user has pressed the report site domain cancel button
-      from the cookie banner reducer details panel.
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1805450
-    data_reviews:
-      - https://github.com/mozilla-mobile/firefox-android/pull/1298#pullrequestreview-1350344223
-      - https://github.com/mozilla-mobile/firefox-android/pull/3319
-      - https://github.com/mozilla-mobile/firefox-android/pull/4039
-    data_sensitivity:
-      - interaction
-    notification_emails:
-      - android-probes@mozilla.com
-    expires: never
-    metadata:
-      tags:
-        - Privacy&Security
-  report_domain_site_button:
-    type: event
-    description: |
-      The user has pressed the report site domain button
-      from the cookie banner reducer details panel.
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1805450
-    data_reviews:
-      - https://github.com/mozilla-mobile/firefox-android/pull/1298#pullrequestreview-1350344223
-      - https://github.com/mozilla-mobile/firefox-android/pull/3319
-      - https://github.com/mozilla-mobile/firefox-android/pull/4039
-    data_sensitivity:
-      - interaction
-    notification_emails:
-      - android-probes@mozilla.com
-    expires: never
-    metadata:
-      tags:
-        - Privacy&Security
-  cfr_shown:
-    type: event
-    description: The cookie banner cfr has been shown
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1859393
-    data_reviews:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1859393#c2
-    data_sensitivity:
-      - interaction
-    notification_emails:
-      - android-probes@mozilla.com
-    expires: never
-    metadata:
-      tags:
-        - Privacy&Security
-  cfr_dismissal:
-    type: event
-    description: |
-      The cookie banners CFR was dismissed by the user by interacting
-      with the outside of the popup
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1859393
-    data_reviews:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1859393#c2
-    data_sensitivity:
-      - interaction
-    notification_emails:
-      - android-probes@mozilla.com
-    expires: never
-    metadata:
-      tags:
-        - Privacy&Security
 site_permissions:
   prompt_shown:
     type: event
@@ -10954,24 +11751,6 @@ progressive_web_app:
     metadata:
       tags:
         - PWA
-  onboarding_cancel:
-    type: event
-    description: |
-      User interacts with the onboarding PWA dialog cancel button which takes
-      them to the website.
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1821030
-    data_reviews:
-      - https://github.com/mozilla-mobile/firefox-android/pull/1164
-      - https://github.com/mozilla-mobile/firefox-android/pull/4039
-    data_sensitivity:
-      - interaction
-    notification_emails:
-      - android-probes@mozilla.com
-    expires: never
-    metadata:
-      tags:
-        - PWA
 
 tabs:
   setting_opened:
@@ -11105,8 +11884,25 @@ engine_tab:
     type: event
     description: |
       A tab was reloaded by the engine.
+    extra_keys:
+      duration_since_last_visible_seconds:
+        description: |
+          Seconds since the tab was last visible to the user at the time the engine
+          session was recreated. Stamped when the tab's engine view is released
+          (tab switched away or app backgrounded). -1 if unavailable (tab was never
+          rendered, or is not a regular tab).
+        type: quantity
+      reason:
+        description: |
+          Why the tab was reloaded. Either "content_process_kill" (the content
+          process was killed mid-session) or "app_session_restore" (the
+          entire app was killed and the tab was restored from a persisted
+          session on the next launch).
+        type: string
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1938133
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1966918
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2008773
     data_reviews:
       - https://phabricator.services.mozilla.com/D240795
     notification_emails:
@@ -11117,7 +11913,8 @@ app_exit_info:
   process_exited:
     type: event
     description: |
-      A process has exited.
+      A process has exited. See https://developer.android.com/reference/android/app/ApplicationExitInfo
+      for additional support.
     extra_keys:
       date:
         type: string
@@ -11541,6 +12338,10 @@ awesomebar:
         description: |
           The type of suggestion card shown. One of: stocks, flights, sports
         type: string
+      extra:
+        description: |
+          Any extra information about the card displayed.
+        type: string
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2014705
     data_reviews:
@@ -11560,6 +12361,10 @@ awesomebar:
       card_type:
         description: |
           The type of suggestion card clicked. One of: stocks, flights, sports
+        type: string
+      extra:
+        description: |
+          Any extra information about the card clicked.
         type: string
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2014705
@@ -11809,34 +12614,6 @@ home_menu:
       tags:
         - Settings
         - MainMenu
-
-menu:
-  show_cfr:
-    type: event
-    description: |
-      Menu CFR was shown to the user.
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1885640
-    data_reviews:
-      - https://phabricator.services.mozilla.com/D216600
-    data_sensitivity:
-      - interaction
-    notification_emails:
-      - android-probes@mozilla.com
-    expires: never
-  dismiss_cfr:
-    type: event
-    description: |
-      A user has dismissed the Menu CFR.
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1885640
-    data_reviews:
-      - https://phabricator.services.mozilla.com/D216600
-    data_sensitivity:
-      - interaction
-    notification_emails:
-      - android-probes@mozilla.com
-    expires: never
 
 home_screen:
   home_screen_displayed:
@@ -12539,6 +13316,70 @@ addresses:
     metadata:
       tags:
         - Autofill
+  save_prompt_shown:
+    type: event
+    description: |
+      The address autofill save prompt is shown.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2061457
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2061457
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Autofill
+  save_prompt_create:
+    type: event
+    description: |
+      User saved an address using the autofill save prompt.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2061457
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2061457
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Autofill
+  save_prompt_update:
+    type: event
+    description: |
+      User updated an address using the autofill save prompt.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2061457
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2061457
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Autofill
+  save_prompt_dismissed:
+    type: event
+    description: |
+      User dismissed the address autofill save prompt without saving.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2061457
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2061457
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Autofill
   management_add_tapped:
     type: event
     description: |
@@ -12592,8 +13433,6 @@ wallpapers:
     data_sensitivity:
       - interaction
     expires: never
-    no_lint:
-      - COMMON_PREFIX
     metadata:
       tags:
         - Wallpapers
@@ -12625,8 +13464,6 @@ wallpapers:
     data_sensitivity:
       - interaction
     expires: never
-    no_lint:
-      - COMMON_PREFIX
     metadata:
       tags:
         - Wallpapers
@@ -13564,18 +14401,20 @@ customization_settings:
     extra_keys:
       toolbar_type:
         description: |
-          Where the interaction occurred. One of: simple, expanded.
+          Where the interaction occurred. One of: simple, expanded, tab_strip.
         type: string
       item:
         description: |
           A string containing the name of the shortcut the user selected. These items include:
-          new_tab, share, bookmark, translate, homepage, back, none.
+          new_tab, share, bookmark, translate, homepage, back, summarize, none.
         type: string
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2002636
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2020026
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2019946
     data_reviews:
       - https://phabricator.services.mozilla.com/D274607
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2019946
     data_sensitivity:
       - interaction
     notification_emails:
@@ -13682,6 +14521,10 @@ nimbus_system:
             type: string
         tou_points:
           type: number
+        are_notifications_enabled:
+          type: boolean
+        are_marketing_notifications_enabled:
+          type: boolean
     description: |
       The Nimbus context object that is recorded to Glean
     bugs:
@@ -13694,6 +14537,7 @@ nimbus_system:
       - 'https://bugzilla.mozilla.org/show_bug.cgi?id=1993034'
       - 'https://bugzilla.mozilla.org/show_bug.cgi?id=1992306'
       - 'https://bugzilla.mozilla.org/show_bug.cgi?id=2028993'
+      - 'https://bugzilla.mozilla.org/show_bug.cgi?id=2036418'
     data_reviews:
       - 'https://bugzilla.mozilla.org/show_bug.cgi?id=1898552#c3'
       - 'https://phabricator.services.mozilla.com/D258942'
@@ -13711,7 +14555,6 @@ nimbus_system:
       - project-nimbus@mozilla.com
     expires: never
     send_in_pings:
-      - nimbus
       - nimbus-targeting-context
     lifetime: application
 
@@ -14755,6 +15598,11 @@ home.content.article:
       topic: &topic
         description: The topic of the recommendation. Like "entertainment".
         type: string
+      source: &source_pocket
+        description: >
+          The surface where the article was shown.
+          One of "homepage" or "stories_screen".
+        type: string
     send_in_pings:
       - home
 
@@ -14780,6 +15628,7 @@ home.content.article:
       received_rank: *received_rank
       recommended_at: *recommended_at
       topic: *topic
+      source: *source_pocket
     send_in_pings:
       - home
 
@@ -15013,32 +15862,6 @@ client_association:
       - fx-accounts
 
 toolbar:
-  cfr_shown:
-    type: event
-    description: |
-      Toolbar cfr was shown to the user.
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=2000490
-    data_reviews:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=2000490
-    data_sensitivity:
-      - interaction
-    notification_emails:
-      - android-probes@mozilla.com
-    expires: never
-  cfr_dismissed:
-    type: event
-    description: |
-      Toolbar cfr was dismissed by the user.
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=2000490
-    data_reviews:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=2000490
-    data_sensitivity:
-      - interaction
-    notification_emails:
-      - android-probes@mozilla.com
-    expires: never
   button_tapped:
     type: event
     description: |
@@ -15048,7 +15871,7 @@ toolbar:
     extra_keys:
       source:
         description: |
-          Where the interaction occurred. One of: url_bar, navigation_bar, custom_bar.
+          Where the interaction occurred. One of: url_bar, navigation_bar.
         type: string
       item:
         description: |
@@ -15057,36 +15880,95 @@ toolbar:
           add_new_tab, add_new_tab_long_press, add_new_private_tab, tab_counter, tab_counter_long_press,
           menu, share, clear, refresh, stop, add_bookmark, edit_bookmark, security_indicator, qr_code,
           home, reader_mode, microphone, open_in_fenix, close, site_custom, search_engine_selector,
-          search_engine_selected, translate.
+          search_engine_selected, translate, summarize, lens, shortcut_long_press, shortcut_edit_clicked.
         type: string
       extra:
         description: |
-          Any extra information about the button that was tapped.
+          Sub-position on the bar. Populated only for `source = url_bar` on the home and browser
+          surfaces, where it is one of: browser_start, page_start, page_end, browser_end.
+          For the `search_engine_selected` item it instead holds the telemetry name of the chosen
+          search engine: the engine name for regular engines (e.g. Google, Bing, DuckDuckGo), or one
+          of the fixed values `custom`, `history`, `bookmarks`, `tabs`, or `application` for custom
+          and application search engines.
+        type: string
+      surface:
+        description: |
+          The app surface where the toolbar lives. One of: home, browser, custom_tab.
+          Distinguishes the Home fragment toolbar, the Browser fragment toolbar,
+          and the custom tab toolbar.
         type: string
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1971857
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2043252
     data_reviews:
       - https://phabricator.services.mozilla.com/D264134
+      - https://phabricator.services.mozilla.com/D303181
     data_sensitivity:
       - interaction
     notification_emails:
       - android-probes@mozilla.com
     expires: never
 
-integrity:
-  warmed_up:
+toolbar.google_lens_button:
+  tapped:
     type: event
     description: |
-      Records when the Play Integrity client has completed its warm-up.
+      Recorded the instant the user initiates the Google Lens flow by tapping
+      the Google Lens icon on the toolbar.
     bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=2026727
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2053250
     data_reviews:
-      - https://phabricator.services.mozilla.com/D290217
+      - https://phabricator.services.mozilla.com/D310944
     data_sensitivity:
-      - technical
+      - interaction
     notification_emails:
       - android-probes@mozilla.com
     expires: never
+    metadata:
+      tags:
+        - Toolbar
+
+google_lens:
+  search_completed:
+    type: event
+    description: |
+      Recorded when a Google Lens search runs to completion, whether a result is
+      displayed to the user or the search fails to produce one. Not recorded when
+      the search is intentionally skipped, such as in private browsing when the
+      client-side upload fails and the by-URL fallback is deliberately not used.
+    extra_keys:
+      succeeded:
+        description: |
+          Whether the Google Lens search produced a result that was shown to
+          the user.
+        type: boolean
+      http_status_code:
+        description: |
+          The HTTP status code of the Google Lens image upload request, when
+          available. Null when no such request was made, or when the shown
+          result came from the by-URL fallback rather than the client-side
+          upload.
+        type: quantity
+      source:
+        description: |
+          The upload method that initiated the Lens search: `camera` (photo
+          captured with the in-app camera), `photo_picker` (image chosen from
+          the system photo picker), `context_menu` (image opened from the
+          "Open with Google Lens" image context menu item), or `unknown` if the
+          source could not be determined.
+        type: string
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2053250
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D310944
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Search
 
 ai_summarize:
   closed:
@@ -15094,13 +15976,24 @@ ai_summarize:
     description: |
       Recorded when the user cancels or closes the summarization at any point.
     extra_keys:
+      session_id:
+        description: |
+          A UUID identifying a single summarization session, shared across all
+          events recorded during that session.
+        type: string
       model:
         description: The name of the model used for summarization.
         type: string
+      engine_available:
+        description: Whether the engine was available while ending this summarization.
+        type: boolean
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2025523
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2039112
     data_reviews:
       - https://phabricator.services.mozilla.com/D289882
+      - https://phabricator.services.mozilla.com/D300181
+      - https://phabricator.services.mozilla.com/D306313
     data_sensitivity:
       - interaction
     notification_emails:
@@ -15111,6 +16004,11 @@ ai_summarize:
     description: |
       Recorded when the summarizer service returns the summary or errors out.
     extra_keys:
+      session_id:
+        description: |
+          A UUID identifying a single summarization session, shared across all
+          events recorded during that session.
+        type: string
       success:
         description: True for success, false for failure.
         type: boolean
@@ -15132,10 +16030,17 @@ ai_summarize:
         type: string
       error_type:
         description: |
-          If an error occurred, the resulting error code. Examples include:
+          If an error occurred, a human-readable name for the failure
+          (typically the exception class name, e.g. "RateLimited",
+          "RequestTooLarge").
+        type: string
+      error_code:
+        description: |
+          If an error occurred, the integer error code associated with the
+          failure. Examples include:
           1005 (meaning content was too large to summarize)
           1007 (meaning LLM service has rate-limited the user)
-        type: string
+        type: quantity
       summarize_duration_ms:
         description: |
           Time in milliseconds between request and completion.
@@ -15147,8 +16052,11 @@ ai_summarize:
         type: string
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2025523
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2036474
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2046968
     data_reviews:
       - https://phabricator.services.mozilla.com/D289882
+      - https://phabricator.services.mozilla.com/D306313
     data_sensitivity:
       - interaction
     notification_emails:
@@ -15160,13 +16068,20 @@ ai_summarize:
       Recorded when the consent flow concludes, either by the user
       accepting, declining, or dismissing the dialogue.
     extra_keys:
+      session_id:
+        description: |
+          A UUID identifying a single summarization session, shared across all
+          events recorded during that session.
+        type: string
       agreed:
         description: Whether the user accepted the consent.
         type: boolean
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2025523
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2046968
     data_reviews:
       - https://phabricator.services.mozilla.com/D289882
+      - https://phabricator.services.mozilla.com/D306313
     data_sensitivity:
       - interaction
     notification_emails:
@@ -15177,10 +16092,24 @@ ai_summarize:
     description: |
       Records when the user initiates summarization.
       (e.g. taps menu button, toolbar icon or shakes the device).
+    extra_keys:
+      session_id:
+        description: |
+          A UUID identifying a single summarization session, shared across all
+          events recorded during that session.
+        type: string
+      trigger:
+        description: |
+          How the user initiated summarization. Possible values:
+          "shake", "menu".
+        type: string
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2025523
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2036474
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2046968
     data_reviews:
       - https://phabricator.services.mozilla.com/D289882
+      - https://phabricator.services.mozilla.com/D306313
     data_sensitivity:
       - interaction
     notification_emails:
@@ -15191,6 +16120,11 @@ ai_summarize:
     description: |
       Recorded when the summarizer service starts processing the page's text content.
     extra_keys:
+      session_id:
+        description: |
+          A UUID identifying a single summarization session, shared across all
+          events recorded during that session.
+        type: string
       trigger:
         description: |
           How the user initiated summarization. Possible values:
@@ -15212,8 +16146,86 @@ ai_summarize:
         type: string
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2025523
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2046968
     data_reviews:
       - https://phabricator.services.mozilla.com/D289882
+      - https://phabricator.services.mozilla.com/D306313
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+  provider_initialized:
+    type: event
+    description: |
+      Recorded when the LLM provider finishes initializing and is ready to
+      receive a prompt.
+    extra_keys:
+      session_id:
+        description: |
+          A UUID identifying a single summarization session, shared across all
+          events recorded during that session.
+        type: string
+      model:
+        description: The name of the model used for summarization.
+        type: string
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2046968
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D306314
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+  first_response:
+    type: event
+    description: |
+      Recorded when the first chunk of the response is received back from the
+      LLM after the prompt is sent.
+    extra_keys:
+      session_id:
+        description: |
+          A UUID identifying a single summarization session, shared across all
+          events recorded during that session.
+        type: string
+      model:
+        description: The name of the model used for summarization.
+        type: string
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2046968
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D306314
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+  feedback:
+    type: event
+    description: |
+      Recorded each time the user taps the thumbs up/down feedback control on
+      a generated summary. The user can change their rating while the summary
+      is on screen, so this can be recorded more than once per summarization
+      session; consumers should take the last event for a given session_id.
+    extra_keys:
+      session_id:
+        description: |
+          A UUID identifying a single summarization session, shared across all
+          events recorded during that session.
+        type: string
+      rating:
+        description: |
+          The user's rating of the summary. Possible values:
+          "good", "bad".
+        type: string
+      model:
+        description: The name of the model used for summarization.
+        type: string
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2047013
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2047013
     data_sensitivity:
       - interaction
     notification_emails:
@@ -15278,4 +16290,712 @@ user_ai_summarize:
       - interaction
     notification_emails:
       - android-probes@mozilla.com
+    expires: never
+
+genai.ai_controls:
+  global_pref_toggle:
+    type: event
+    description: |
+      Recorded when the user clicks on the toggle button to change the
+      Block AI Enhancements preference.
+    extra_keys:
+      block:
+        description: Whether the global AI block is now enabled.
+        type: boolean
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2030486
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D293327
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+
+  global_pref_confirmation_shown:
+    type: event
+    description: |
+      Recorded when the confirmation modal opens after the user has clicked
+      on the toggle button to change the Block AI Enhancements preference.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2030486
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D293327
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+
+  global_pref_confirmation_click:
+    type: event
+    description: |
+      Recorded when the user interacts with any element on the
+      confirmation modal.
+    extra_keys:
+      element:
+        description: |
+          The element the user interacted with. Possible values are:
+          `cancel` or `block`.
+        type: string
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2030486
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D293327
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+
+  feature_pref_change:
+    type: event
+    description: |
+      Recorded when the user changes the preference of any of the AI
+      features under the AI controls settings.
+    extra_keys:
+      feature:
+        description: |
+          The identifier of the AI feature, e.g. `translations`,
+          `voiceSearch`, `pageSummaries`.
+        type: string
+      selection:
+        description: |
+          The new state of the feature. Possible values are:
+          `enabled` or `blocked`.
+        type: string
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2030486
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D293327
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+
+  feature_link_click:
+    type: event
+    description: |
+      Recorded when user clicks any of the links from the AI controls
+      settings page.
+    extra_keys:
+      link:
+        description: |
+          The identifier of the link clicked. Possible values are:
+          `global_control` or a specific AI feature identifier such as
+          `translations`, `voiceSearch` or `pageSummaries`.
+        type: string
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2030486
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D293327
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+
+  features_blocked:
+    type: labeled_boolean
+    description: |
+      Records if each AI feature is blocked. Labels are the feature
+      identifiers, e.g. `translations`, `voiceSearch` or `pageSummaries`.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2030486
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D293327
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+
+browser:
+  global_ai_control_is_blocking:
+    type: boolean
+    lifetime: application
+    description: |
+      Records if the user has the global AI control set to blocked.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2030486
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D293327
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+
+referrals:
+  code:
+    type: string
+    lifetime: ping
+    send_in_pings:
+      - referrals
+    description: |
+      The referral code extracted from the install referrer's `utm_content`
+      parameter on first run. Recorded and submitted via the separate `referrals`
+      ping so that the referral code is kept out of regular attribution data
+      (bug 2062793; desktop equivalent bug 2055255).
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2062793
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2062793
+    data_sensitivity:
+      - highly_sensitive
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Attribution
+
+vpn:
+  onboarding_shown:
+    type: event
+    description:
+      Triggered when the VPN feature onboarding card is shown to the user.
+    extra_keys:
+      entrypoint:
+        description: >
+          The surface from which the user started the flow.
+          Possible values: Homepage, Browser.
+        type: string
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2031198
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2036176
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D293774
+      - https://phabricator.services.mozilla.com/D297821
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+  onboarding_not_now_tapped:
+    type: event
+    description:
+      Triggered when the user taps "Not Now" on the VPN onboarding card.
+    extra_keys:
+      entrypoint:
+        description: >
+          The surface from which the user started the flow.
+          Possible values: Homepage, Browser.
+        type: string
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2031198
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2036176
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D293774
+      - https://phabricator.services.mozilla.com/D297821
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+  onboarding_dismissed:
+    type: event
+    description:
+      Triggered when the user dismisses the VPN onboarding card.
+    extra_keys:
+      entrypoint:
+        description: >
+          The surface from which the user started the flow.
+          Possible values: Homepage, Browser.
+        type: string
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2031198
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2036176
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D293774
+      - https://phabricator.services.mozilla.com/D297821
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+  onboarding_browse_with_protection_tapped:
+    type: event
+    description:
+      Triggered when the user taps "Browse with extra protection" on the VPN onboarding page.
+    extra_keys:
+      entrypoint:
+        description: >
+          The surface from which the user started the flow.
+          Possible values: Homepage, Browser.
+        type: string
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2031198
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2036176
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D293774
+      - https://phabricator.services.mozilla.com/D297821
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+  fx_account_flow_completed:
+    type: event
+    description:
+      Triggered when the user completes the Firefox Account flow for VPN.
+    extra_keys:
+      duration_ms:
+        description: Duration of the Firefox Account flow in milliseconds.
+        type: quantity
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2031198
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D293774
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+  fx_authorization_flow_completed:
+    type: event
+    description:
+      Triggered when the user completes the Firefox Authorization flow for VPN.
+    extra_keys:
+      duration_ms:
+        description: Duration of the Firefox Authorization flow in milliseconds.
+        type: quantity
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2031198
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D293774
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+  get_started_tapped:
+    type: event
+    description:
+      Triggered when the user taps "Get Started" from the VPN settings page.
+    extra_keys:
+      entrypoint:
+        description: >
+          The surface from which the user started the flow.
+          Possible values: Homepage, Browser, Settings.
+        type: string
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2031198
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2036176
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D293774
+      - https://phabricator.services.mozilla.com/D297821
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Settings
+  settings_page_tapped:
+    type: event
+    description:
+      Triggered when the user taps on the VPN settings page.
+    extra_keys:
+      entrypoint:
+        description: >
+          The surface from which the user entered the VPN settings page.
+          Possible values: Settings, Menu, Trust Panel.
+        type: string
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2031198
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D293774
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Settings
+  settings_turned_on:
+    type: event
+    description:
+      Triggered when the user turns on VPN from the settings page.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2031198
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D293774
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Settings
+  settings_turned_off:
+    type: event
+    description:
+      Triggered when the user turns off VPN from the settings page.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2031198
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D293774
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Settings
+  settings_learn_more_tapped:
+    type: event
+    description:
+      Triggered when the user taps the "Learn more" link from the VPN settings page.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2031198
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D293774
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Settings
+  menu_try_it_tapped:
+    type: event
+    description:
+      Triggered when the user taps "Try it" for VPN from the menu option.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2031198
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2032561
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D293774
+      - https://phabricator.services.mozilla.com/D306452
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+  menu_turned_on:
+    type: event
+    description:
+      Triggered when the user taps "On" for VPN from the menu option.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2031198
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D293774
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+  menu_turned_off:
+    type: event
+    description:
+      Triggered when the user taps "Off" for VPN from the menu option.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2031198
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D293774
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+  error_encountered:
+    type: event
+    description:
+      Triggered when the user encounters a generic VPN error.
+    extra_keys:
+      error_code:
+        description:
+          The error code or number associated with the error, if available.
+        type: string
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2031198
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D293774
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+  entitled_account_unauthenticated:
+    type: event
+    description:
+      Triggered when a VPN toggle fails while the account is enrolled and
+      entitled but the IP protection service is still unauthenticated. This
+      indicates a race between the FxA auth flow and account-manager warm-up.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2054812
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D312137
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+  proxy_unavailable:
+    type: event
+    description: >
+      Triggered when the VPN is unavailable due to an unrecoverable error,
+      leaving IP protection unable to function. This results in a blocking warning dialog which
+      requires a user action.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2048642
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D308910
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+  bandwidth_limit_error:
+    type: event
+    description:
+      Triggered when the user hits a VPN bandwidth limit error.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2031198
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D293774
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+  location_switch_error:
+    type: event
+    description:
+      Triggered when switching the location fails.
+    extra_keys:
+      error_code:
+        description:
+          The error code or number associated with the error, if available.
+        type: string
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2049041
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D318300
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+  location_update_error:
+    type: event
+    description:
+      Triggered when updating the list of available locations fails.
+    extra_keys:
+      error_code:
+        description:
+          The class name of the error associated with the failure, if available.
+        type: string
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2059858
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D319380
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+  trust_panel_try_it_tapped:
+    type: event
+    description:
+      Triggered when the user taps "Try it" from the trust panel.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2032561
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D306489
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+  trust_panel_turned_on:
+    type: event
+    description:
+      Triggered when the user turns the VPN on from the trust panel.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2032561
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D306489
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+  trust_panel_turned_off:
+    type: event
+    description:
+      Triggered when the user turns the VPN off from the trust panel.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2032561
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D306489
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+
+native_share_sheet:
+  shown:
+    type: event
+    description: |
+      A user opened the native Android share sheet.
+    extra_keys:
+      source:
+        type: string
+        description: |
+          The surface from which the native share sheet was opened.
+          Current values: browser_menu, custom_tab_menu, browser_toolbar,
+          tabs_tray, home, bookmarks, history, history_metadata_group,
+          recently_closed, deep_link, web_share, context_menu_link.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2010859
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2010859
+    notification_emails:
+      - android-probes@mozilla.com
+    data_sensitivity:
+      - interaction
+    expires: never
+    metadata:
+      tags:
+        - Sharing
+  qr_code_tapped:
+    type: event
+    description: |
+      A user tapped the QR code action in the native share sheet and the QR code was displayed.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2010858
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2010858
+    notification_emails:
+      - android-probes@mozilla.com
+    data_sensitivity:
+      - interaction
+    expires: never
+    metadata:
+      tags:
+        - Sharing
+
+pdf_viewer:
+  download_tapped:
+    type: event
+    description: |
+      A user tapped the download button in the PDF viewer tools.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2054916
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D319233
+    notification_emails:
+      - android-probes@mozilla.com
+    data_sensitivity:
+      - interaction
+    expires: never
+    metadata:
+      tags:
+        - Download
+  print_tapped:
+    type: event
+    description: |
+      A user tapped the print button in the PDF viewer tools.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2054917
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D319739
+    notification_emails:
+      - android-probes@mozilla.com
+    data_sensitivity:
+      - interaction
+    expires: never
+  share_tapped:
+    type: event
+    description: |
+      A user tapped the share button in the PDF viewer tools.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2054918
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D319812
+    notification_emails:
+      - android-probes@mozilla.com
+    data_sensitivity:
+      - interaction
+    expires: never
+    metadata:
+      tags:
+        - Sharing
+  sign_tapped:
+    type: event
+    description: |
+      A user tapped the sign button in the PDF viewer tools, opening the dialog for
+      adding a signature.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2061281
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D321102
+    notification_emails:
+      - android-probes@mozilla.com
+    data_sensitivity:
+      - interaction
+    expires: never
+  sign_dialog_clear_tapped:
+    type: event
+    description: |
+      A user tapped the clear button in the PDF viewer's add a signature dialog.
+    extra_keys:
+      signature_type:
+        description: |
+          How the signature was created. Possible values are: `typed`.
+        type: string
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2061281
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D321102
+    notification_emails:
+      - android-probes@mozilla.com
+    data_sensitivity:
+      - interaction
+    expires: never
+  sign_dialog_add_tapped:
+    type: event
+    description: |
+      A user tapped the add button in the PDF viewer's add a signature dialog.
+    extra_keys:
+      signature_type:
+        description: |
+          How the signature was created. Possible values are: `typed`.
+        type: string
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2061281
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D321102
+    notification_emails:
+      - android-probes@mozilla.com
+    data_sensitivity:
+      - interaction
+    expires: never
+  sign_dialog_close_tapped:
+    type: event
+    description: |
+      A user dismissed the PDF viewer's add a signature dialog without adding a
+      signature, either with the close button or by going back.
+    extra_keys:
+      signature_type:
+        description: |
+          How the signature was created. Possible values are: `typed`.
+        type: string
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2061281
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D321102
+    notification_emails:
+      - android-probes@mozilla.com
+    data_sensitivity:
+      - interaction
     expires: never

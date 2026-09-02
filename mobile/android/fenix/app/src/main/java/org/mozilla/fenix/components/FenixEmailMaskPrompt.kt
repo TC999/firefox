@@ -6,7 +6,6 @@ package org.mozilla.fenix.components
 
 import android.view.View
 import mozilla.components.feature.prompts.concept.EmailMaskPromptView
-import mozilla.components.feature.prompts.concept.ToggleablePrompt
 import org.mozilla.fenix.browser.AutofillSelectBarBehavior
 import org.mozilla.fenix.components.toolbar.ToolbarPosition
 import org.mozilla.fenix.ext.behavior
@@ -23,38 +22,38 @@ class FenixEmailMaskPrompt<V>(
     private val viewProvider: () -> V,
     private val toolbarPositionProvider: () -> ToolbarPosition,
     private val onShow: () -> Unit,
-    private val onHide: () -> Unit,
+    private val onHide: () -> Unit = {},
 ) : EmailMaskPromptView where V : View, V : EmailMaskPromptView {
 
     private val view: V by lazy { viewProvider() }
     private var isVisible: Boolean = false
 
     override var emailMaskPromptListener: EmailMaskPromptView.Listener? = null
-    override var toggleablePromptListener: ToggleablePrompt.Listener? = null
 
     override val isPromptDisplayed: Boolean
         get() = isVisible
 
-    override fun showPrompt() = with(view) {
-        emailMaskPromptListener = this@FenixEmailMaskPrompt.emailMaskPromptListener
-        toggleablePromptListener = this@FenixEmailMaskPrompt.toggleablePromptListener
-        showPrompt()
-        behavior = createCustomAutofillBarBehavior()
-        isVisible = true
-        this@FenixEmailMaskPrompt.onShow()
-    }
+    override fun showPrompt() =
+        with(view) {
+            emailMaskPromptListener = this@FenixEmailMaskPrompt.emailMaskPromptListener
+            showPrompt()
+            behavior = createCustomAutofillBarBehavior()
+            isVisible = true
+            this@FenixEmailMaskPrompt.onShow()
+        }
 
-    override fun hidePrompt() = with(view) {
-        hidePrompt()
-        emailMaskPromptListener = null
-        toggleablePromptListener = null
-        behavior = null
-        isVisible = false
-        this@FenixEmailMaskPrompt.onHide()
-    }
+    override fun hidePrompt() =
+        with(view) {
+            hidePrompt()
+            emailMaskPromptListener = null
+            behavior = null
+            isVisible = false
+            this@FenixEmailMaskPrompt.onHide()
+        }
 
-    private fun <T : View> T.createCustomAutofillBarBehavior() = AutofillSelectBarBehavior<T>(
-        context = context,
-        toolbarPosition = toolbarPositionProvider(),
-    )
+    private fun <T : View> T.createCustomAutofillBarBehavior() =
+        AutofillSelectBarBehavior<T>(
+            context = context,
+            toolbarPosition = toolbarPositionProvider(),
+        )
 }

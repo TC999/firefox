@@ -62,6 +62,7 @@ using mozilla::dom::ForceMediaDocument from "mozilla/dom/LoadURIOptionsBinding.h
 using mozilla::dom::NavigationHistoryBehavior from "mozilla/dom/NavigationBinding.h";
 [RefCounted] using class mozilla::dom::ipc::StructuredCloneData from "mozilla/dom/ipc/StructuredCloneData.h";
 [RefCounted] using class nsStructuredCloneContainer from "nsStructuredCloneContainer.h";
+using struct mozilla::dom::RemoteType from "mozilla/dom/RemoteType.h";
 
 namespace mozilla {
 namespace dom {
@@ -72,6 +73,12 @@ struct MessagePortIdentifier
   nsID destinationUuid;
   uint32_t sequenceId;
   bool neutered;
+};
+
+struct NavigationEntriesTruncation
+{
+  MaybeDiscardedBrowsingContext context;
+  uint32_t newLength;
 };
 
 struct ScreenDetails {
@@ -89,6 +96,8 @@ struct ScreenDetails {
   uint16_t orientationAngle;
   bool isPseudoDisplay;
   bool isHDR;
+  float sdrContentBrightness;
+  float hdrPeakBrightness;
 };
 
 struct DimensionInfo
@@ -148,13 +157,13 @@ struct DocShellLoadStateInit
 
   // The provided remote type of the process responsible for causing the load to
   // occur. Validated in the parent process.
-  nsCString TriggeringRemoteType;
+  RemoteType TriggeringRemoteType;
 
   nsString SrcdocData; // useless without sourcedocshell
 
   nsCString? OriginalURIString;
 
-  nsCString? RemoteTypeOverride;
+  RemoteType? RemoteTypeOverride;
 
   LoadingSessionHistoryInfo? loadingSessionHistoryInfo;
 
@@ -204,8 +213,9 @@ struct DocShellLoadStateInit
   // nsCOMPtr<nsIDocShell> mSourceDocShell;
   // bool mIsSrcDocLoad; // useless without sourcedocshell
   // nsIChannel pendingRedirectedChannel; // sent through other mechanism
+  // DocumentLoadListener mSpeculativeListener; // parent-process only
 
-  bool ChannelInitialized;
+  bool HasSpeculativeListener;
 
   bool TryToReplaceWithSessionHistoryLoad;
 
@@ -226,6 +236,7 @@ struct TimedChannelInfo
   TimeStamp redirectEnd;
   nsString initiatorType;
   bool allRedirectsSameOrigin;
+  bool allRedirectsSameOriginIgnoringInternal;
   bool allRedirectsPassTimingAllowCheck;
   bool? timingAllowCheckForPrincipal;
   bool renderBlocking;
@@ -249,7 +260,6 @@ struct ReplacementChannelConfigInit
   TimedChannelInfo? timedChannelInfo;
   nullable RemoteLazyInputStream uploadStream;
   uint64_t uploadStreamLength;
-  bool uploadStreamHasHeaders;
   nsCString? contentType;
   nsCString? contentLength;
 };

@@ -8,8 +8,7 @@
 #include "mozilla/AutoRestore.h"
 #include "mozilla/ClearOnShutdown.h"
 #include "mozilla/ScopeExit.h"
-#include "mozilla/StaticPrefs_intl.h"
-#include "mozilla/gfx/2D.h"
+#include "mozilla/Utf16.h"
 #include "mozilla/intl/LineBreaker.h"  // for LineBreaker::ComputeBreakPositions
 #include "mozilla/intl/Locale.h"
 #include "mozilla/intl/UnicodeProperties.h"
@@ -18,6 +17,7 @@
 #include "nsHyphenator.h"
 
 using mozilla::AutoRestore;
+using mozilla::Span;
 using mozilla::intl::LineBreaker;
 using mozilla::intl::LineBreakRule;
 using mozilla::intl::Locale;
@@ -119,13 +119,13 @@ static void SetupCapitalization(const char16_t* aWord, uint32_t aLength,
   bool capitalizeNextChar = true;
   for (uint32_t i = 0; i < aLength; ++i) {
     uint32_t ch = aWord[i];
-    if (i + 1 < aLength && NS_IS_SURROGATE_PAIR(ch, aWord[i + 1])) {
-      ch = SURROGATE_TO_UCS4(ch, aWord[i + 1]);
+    if (i + 1 < aLength && mozilla::IsSurrogatePair(ch, aWord[i + 1])) {
+      ch = mozilla::SurrogateToUCS4(ch, aWord[i + 1]);
     }
     aCapitalization[i] =
         nsLineBreaker::ShouldCapitalize(ch, capitalizeNextChar);
 
-    if (!IS_IN_BMP(ch)) {
+    if (!mozilla::IsInBMP(ch)) {
       ++i;
     }
   }
@@ -159,9 +159,8 @@ nsresult nsLineBreaker::FlushCurrentWord() {
            gfxTextRun::CompressedGlyph::FLAG_BREAK_TYPE_NONE,
            length * sizeof(uint8_t));
   } else {
-    LineBreaker::ComputeBreakPositions(
-        mCurrentWord.Elements(), length, mWordBreak, mLineBreak,
-        mScriptIsChineseOrJapanese, breakState.Elements());
+    LineBreaker::ComputeBreakPositions(mCurrentWord, mWordBreak, mLineBreak,
+                                       mScriptIsChineseOrJapanese, breakState);
   }
 
   bool autoHyphenate = mCurrentWordLanguage && !mCurrentWordContainsMixedLang;
@@ -342,8 +341,10 @@ nsresult nsLineBreaker::AppendText(nsAtom* aHyphenationLanguage,
             // will set it to false.
             AutoRestore<uint8_t> saveWordStartBreakState(breakState[wordStart]);
             LineBreaker::ComputeBreakPositions(
-                aText + wordStart, offset - wordStart, mWordBreak, mLineBreak,
-                mScriptIsChineseOrJapanese, breakState.Elements() + wordStart);
+                Span<const char16_t>(aText + wordStart, offset - wordStart),
+                mWordBreak, mLineBreak, mScriptIsChineseOrJapanese,
+                Span<uint8_t>(breakState.Elements() + wordStart,
+                              offset - wordStart));
           }
           if (hyphenator) {
             FindHyphenationPoints(hyphenator, aText + wordStart, aText + offset,
@@ -433,9 +434,9 @@ void nsLineBreaker::FindHyphenationPoints(nsHyphenator* aHyphenator,
     // Get current character, converting surrogate pairs to UCS4 for char
     // category lookup.
     uint32_t ch = string[i];
-    if (NS_IS_HIGH_SURROGATE(ch) && i + 1 < string.Length() &&
-        NS_IS_LOW_SURROGATE(string[i + 1])) {
-      ch = SURROGATE_TO_UCS4(ch, string[i + 1]);
+    if (mozilla::IsHighSurrogate(ch) && i + 1 < string.Length() &&
+        mozilla::IsLowSurrogate(string[i + 1])) {
+      ch = mozilla::SurrogateToUCS4(ch, string[i + 1]);
     }
 
     // According to CSS Text, "Nonspacing combining marks (Unicode General
@@ -475,7 +476,7 @@ void nsLineBreaker::FindHyphenationPoints(nsHyphenator* aHyphenator,
     }
 
     // If the character was outside the BMP, skip past the low surrogate.
-    if (!IS_IN_BMP(ch)) {
+    if (!mozilla::IsInBMP(ch)) {
       ++i;
     }
   }
@@ -602,8 +603,10 @@ nsresult nsLineBreaker::AppendText(nsAtom* aHyphenationLanguage,
           // will set it to false.
           AutoRestore<uint8_t> saveWordStartBreakState(breakState[wordStart]);
           LineBreaker::ComputeBreakPositions(
-              aText + wordStart, offset - wordStart, mWordBreak, mLineBreak,
-              mScriptIsChineseOrJapanese, breakState.Elements() + wordStart);
+              Span<const uint8_t>(aText + wordStart, offset - wordStart),
+              mWordBreak, mLineBreak, mScriptIsChineseOrJapanese,
+              Span<uint8_t>(breakState.Elements() + wordStart,
+                            offset - wordStart));
         }
       }
 

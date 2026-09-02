@@ -5,8 +5,6 @@
 package org.mozilla.fenix.translations
 
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.cancelChildren
-import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -29,13 +27,15 @@ class TranslationsAIControllableFeatureRegistrarTest {
     @Test
     fun `WHEN engine is supported on resume THEN translation feature is registered`() = runTest {
         val registry = AIFeatureRegistry.inMemory()
-        val browserStore = BrowserStore(BrowserState(translationEngine = TranslationsBrowserState(isEngineSupported = true)))
-        val registrar = TranslationsAIControllableFeatureRegistrar(
-            registry,
-            browserStore,
-            settings,
-            this,
-        )
+        val browserStore =
+            BrowserStore(BrowserState(translationEngine = TranslationsBrowserState(isEngineSupported = true)))
+        val registrar =
+            TranslationsAIControllableFeatureRegistrar(
+                registry,
+                browserStore,
+                settings,
+                this,
+            )
 
         registrar.onResume(lifecycleOwner)
         this.runCurrent()
@@ -47,13 +47,15 @@ class TranslationsAIControllableFeatureRegistrarTest {
     @Test
     fun `WHEN engine is not supported on resume THEN translation feature is not registered`() = runTest {
         val registry = AIFeatureRegistry.inMemory()
-        val browserStore = BrowserStore(BrowserState(translationEngine = TranslationsBrowserState(isEngineSupported = false)))
-        val registrar = TranslationsAIControllableFeatureRegistrar(
-            registry,
-            browserStore,
-            settings,
-            this,
-        )
+        val browserStore =
+            BrowserStore(BrowserState(translationEngine = TranslationsBrowserState(isEngineSupported = false)))
+        val registrar =
+            TranslationsAIControllableFeatureRegistrar(
+                registry,
+                browserStore,
+                settings,
+                this,
+            )
 
         registrar.onResume(lifecycleOwner)
         this.runCurrent()
@@ -62,38 +64,41 @@ class TranslationsAIControllableFeatureRegistrarTest {
     }
 
     @Test
-    fun `WHEN engine support is unknown on resume THEN translation feature is not registered`() = runTest {
+    fun `WHEN engine support is unknown on resume THEN translation feature is registered`() = runTest {
         val registry = AIFeatureRegistry.inMemory()
-        val browserStore = BrowserStore(BrowserState(translationEngine = TranslationsBrowserState(isEngineSupported = null)))
-        val registrar = TranslationsAIControllableFeatureRegistrar(
-            registry,
-            browserStore,
-            settings,
-            this,
-        )
+        val browserStore =
+            BrowserStore(BrowserState(translationEngine = TranslationsBrowserState(isEngineSupported = null)))
+        val registrar =
+            TranslationsAIControllableFeatureRegistrar(
+                registry,
+                browserStore,
+                settings,
+                this,
+            )
 
         registrar.onResume(lifecycleOwner)
         this.runCurrent()
-        advanceTimeBy(100)
-        this.coroutineContext.cancelChildren()
 
-        assertTrue(registry.getFeatures().isEmpty())
+        assertEquals(1, registry.getFeatures().size)
+        assertEquals(TranslationsAIControllableFeature.id, registry.getFeatures().first().id)
     }
 
     @Test
     fun `WHEN engine becomes supported after resume THEN translation feature is registered`() = runTest {
         val registry = AIFeatureRegistry.inMemory()
-        val browserStore = BrowserStore(BrowserState(translationEngine = TranslationsBrowserState(isEngineSupported = null)))
-        val registrar = TranslationsAIControllableFeatureRegistrar(
-            registry,
-            browserStore,
-            settings,
-            this,
-        )
+        val browserStore =
+            BrowserStore(BrowserState(translationEngine = TranslationsBrowserState(isEngineSupported = null)))
+        val registrar =
+            TranslationsAIControllableFeatureRegistrar(
+                registry,
+                browserStore,
+                settings,
+                this,
+            )
 
         registrar.onResume(lifecycleOwner)
         this.runCurrent()
-        assertTrue(registry.getFeatures().isEmpty())
+        assertEquals(1, registry.getFeatures().size)
 
         browserStore.dispatch(TranslationsAction.SetEngineSupportedAction(isEngineSupported = true))
         advanceUntilIdle()
@@ -105,13 +110,15 @@ class TranslationsAIControllableFeatureRegistrarTest {
     @Test
     fun `WHEN feature is already registered and lifecycle resumes again THEN feature is not re-registered`() = runTest {
         val registry = AIFeatureRegistry.inMemory()
-        val browserStore = BrowserStore(BrowserState(translationEngine = TranslationsBrowserState(isEngineSupported = true)))
-        val registrar = TranslationsAIControllableFeatureRegistrar(
-            registry,
-            browserStore,
-            settings,
-            this,
-        )
+        val browserStore =
+            BrowserStore(BrowserState(translationEngine = TranslationsBrowserState(isEngineSupported = true)))
+        val registrar =
+            TranslationsAIControllableFeatureRegistrar(
+                registry,
+                browserStore,
+                settings,
+                this,
+            )
 
         registrar.onResume(lifecycleOwner)
         this.runCurrent()
@@ -127,13 +134,15 @@ class TranslationsAIControllableFeatureRegistrarTest {
     @Test
     fun `WHEN paused THEN store state changes do not register the feature`() = runTest {
         val registry = AIFeatureRegistry.inMemory()
-        val browserStore = BrowserStore(BrowserState(translationEngine = TranslationsBrowserState(isEngineSupported = null)))
-        val registrar = TranslationsAIControllableFeatureRegistrar(
-            registry,
-            browserStore,
-            settings,
-            this,
-        )
+        val browserStore =
+            BrowserStore(BrowserState(translationEngine = TranslationsBrowserState(isEngineSupported = false)))
+        val registrar =
+            TranslationsAIControllableFeatureRegistrar(
+                registry,
+                browserStore,
+                settings,
+                this,
+            )
 
         registrar.onResume(lifecycleOwner)
         this.runCurrent()
@@ -148,13 +157,15 @@ class TranslationsAIControllableFeatureRegistrarTest {
     @Test
     fun `WHEN paused and unpaused THEN store state is automatically collected`() = runTest {
         val registry = AIFeatureRegistry.inMemory()
-        val browserStore = BrowserStore(BrowserState(translationEngine = TranslationsBrowserState(isEngineSupported = null)))
-        val registrar = TranslationsAIControllableFeatureRegistrar(
-            registry,
-            browserStore,
-            settings,
-            this,
-        )
+        val browserStore =
+            BrowserStore(BrowserState(translationEngine = TranslationsBrowserState(isEngineSupported = null)))
+        val registrar =
+            TranslationsAIControllableFeatureRegistrar(
+                registry,
+                browserStore,
+                settings,
+                this,
+            )
 
         registrar.onResume(lifecycleOwner)
         registrar.onPause(lifecycleOwner)

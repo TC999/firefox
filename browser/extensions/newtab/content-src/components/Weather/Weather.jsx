@@ -59,6 +59,7 @@ export class _Weather extends React.PureComponent {
       url: "https://example.com",
       impressionSeen: false,
       errorSeen: false,
+      isMenuEnabled: false,
     };
     this.setImpressionRef = element => {
       this.impressionElement = element;
@@ -67,7 +68,13 @@ export class _Weather extends React.PureComponent {
       this.errorElement = element;
     };
     this.setPanelRef = element => {
+      if (this.panelElement) {
+        this.panelElement.removeEventListener("toggle", this.handlePanelToggle);
+      }
       this.panelElement = element;
+      if (element) {
+        element.addEventListener("toggle", this.handlePanelToggle);
+      }
     };
     this.setSizeSubmenuRef = element => {
       if (this.sizeSubmenuElement) {
@@ -85,6 +92,7 @@ export class _Weather extends React.PureComponent {
     this.onProviderClick = this.onProviderClick.bind(this);
     this.onMenuButtonClick = this.onMenuButtonClick.bind(this);
     this.onMenuButtonKeyDown = this.onMenuButtonKeyDown.bind(this);
+    this.handlePanelToggle = this.handlePanelToggle.bind(this);
   }
 
   onSizeSubmenuClick(e) {
@@ -267,6 +275,7 @@ export class _Weather extends React.PureComponent {
   handleChangeLocation = () => {
     if (this.panelElement) {
       this.panelElement.hide();
+      this.setState({ isMenuEnabled: false });
     }
     batch(() => {
       this.props.dispatch(
@@ -554,6 +563,11 @@ export class _Weather extends React.PureComponent {
     return systemValue || experimentValue;
   }
 
+  handlePanelToggle(e) {
+    const isOpen = e.newState === "open";
+    this.setState({ isMenuEnabled: isOpen });
+  }
+
   render() {
     // Check if weather should be rendered
     if (!this.isEnabled()) {
@@ -643,12 +657,17 @@ export class _Weather extends React.PureComponent {
             so we use a standard button element that can be fully controlled with CSS. */}
         <button
           aria-haspopup="true"
+          aria-expanded={this.state.isMenuEnabled}
           onKeyDown={this.onMenuButtonKeyDown}
           onClick={this.onMenuButtonClick}
           data-l10n-id="newtab-menu-section-tooltip"
           className="weatherButtonContextMenu"
         />
-        <panel-list id="weather-context-menu" ref={this.setPanelRef}>
+        <panel-list
+          className="panel-list-no-icons"
+          id="weather-context-menu"
+          ref={this.setPanelRef}
+        >
           {isLocationSearchEnabled && (
             <panel-item
               id="weather-menu-change-location"
@@ -698,10 +717,8 @@ export class _Weather extends React.PureComponent {
             // @nova-cleanup(remove-conditional): Remove the novaEnabled check
             // Always render the size submenu
             novaEnabled && (
-              <panel-item
-                submenu="weather-size-submenu"
-                data-l10n-id="newtab-widget-menu-change-size"
-              >
+              <panel-item submenu="weather-size-submenu">
+                <span data-l10n-id="newtab-widget-menu-change-size"></span>
                 <panel-list
                   ref={this.setSizeSubmenuRef}
                   slot="submenu"

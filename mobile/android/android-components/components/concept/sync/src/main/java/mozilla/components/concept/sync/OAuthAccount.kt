@@ -6,43 +6,7 @@ package mozilla.components.concept.sync
 
 import kotlinx.coroutines.Deferred
 
-/**
- * An object that represents a login flow initiated by [OAuthAccount].
- * @property state OAuth state parameter, identifying a specific authentication flow.
- * This string is randomly generated during [OAuthAccount.beginOAuthFlow] and [OAuthAccount.beginPairingFlow].
- * @property url Url which needs to be loaded to go through the authentication flow identified by [state].
- */
-data class AuthFlowUrl(val state: String, val url: String)
-
-/**
- * Represents a specific type of an "in-flight" migration state that could result from intermittent
- * issues during [OAuthAccount.migrateFromAccount].
- */
-enum class InFlightMigrationState(val reuseSessionToken: Boolean) {
-    /**
-     * "Copy" in-flight migration present. Can retry migration via [OAuthAccount.retryMigrateFromSessionToken].
-     */
-    COPY_SESSION_TOKEN(false),
-
-    /**
-     * "Reuse" in-flight migration present. Can retry migration via [OAuthAccount.retryMigrateFromSessionToken].
-     */
-    REUSE_SESSION_TOKEN(true),
-}
-
-/**
- * Data structure describing FxA and Sync credentials necessary to sign-in into an FxA account.
- */
-data class MigratingAccountInfo(
-    val sessionToken: String,
-    val kSync: String,
-    val kXCS: String,
-)
-
-/**
- * User data provided by the web content as a means of delivering the session token to the
- * application
- */
+/** User data provided by the web content as a means of delivering the session token to the application */
 data class UserData(
     val sessionToken: String,
     val email: String,
@@ -53,50 +17,17 @@ data class UserData(
 /**
  * Representing all the possible entry points into FxA
  *
- * These entry points will be reflected in the authentication URL and will be tracked
- * in server telemetry to allow studying authentication entry points independently.
+ * These entry points will be reflected in the authentication URL and will be tracked in server telemetry to allow
+ * studying authentication entry points independently.
  *
- * If you are introducing a new path to the firefox accounts sign in please add a new entry point
- * here.
+ * If you are introducing a new path to the firefox accounts sign in please add a new entry point here.
  */
 interface FxAEntryPoint {
     val entryName: String
 }
 
-/**
- * Facilitates testing consumers of FirefoxAccount.
- */
+/** Facilitates testing consumers of FirefoxAccount. */
 interface OAuthAccount : AutoCloseable {
-
-    /**
-     * Constructs a URL used to begin the OAuth flow for the requested scopes and keys.
-     *
-     * @param scopes List of OAuth scopes for which the client wants access
-     * @param entryPoint The UI entryPoint used to start this flow. An arbitrary
-     * string which is recorded in telemetry by the server to help analyze the
-     * most effective touchpoints
-     * @return [AuthFlowUrl] if available, `null` in case of a failure
-     */
-    suspend fun beginOAuthFlow(
-        scopes: Set<String>,
-        entryPoint: FxAEntryPoint,
-    ): AuthFlowUrl?
-
-    /**
-     * Constructs a URL used to begin the pairing flow for the requested scopes and pairingUrl.
-     *
-     * @param pairingUrl URL string for pairing
-     * @param scopes List of OAuth scopes for which the client wants access
-     * @param entryPoint The UI entryPoint used to start this flow. An arbitrary
-     * string which is recorded in telemetry by the server to help analyze the
-     * most effective touchpoints
-     * @return [AuthFlowUrl] if available, `null` in case of a failure
-     */
-    suspend fun beginPairingFlow(
-        pairingUrl: String,
-        scopes: Set<String>,
-        entryPoint: FxAEntryPoint,
-    ): AuthFlowUrl?
 
     /**
      * Returns current FxA Device ID for an authenticated account.
@@ -106,15 +37,21 @@ interface OAuthAccount : AutoCloseable {
     fun getCurrentDeviceId(): String?
 
     /**
-     * Returns session token for an authenticated account.
-     *
-     * @return Current account's session token, if available. `null` otherwise.
+     * Stores whatever is necessary given the JSON payload from a webchannel login. browser layer. The [jsonPayload] is
+     * the `data` object from the `fxaccounts:login` WebChannel command.
      */
-    fun getSessionToken(): String?
+    suspend fun handleWebChannelLogin(jsonPayload: String)
 
     /**
-     * Fetches the profile object for the current client either from the existing cached state
-     * or from the server (requires the client to have access to the profile scope).
+     * Returns a complete `signedInUser` JSON object for a WebChannel `fxaccounts:fxa_status` response, embedding the
+     * session token privately. Email and uid come from the cached profile in internal state. Returns `null` if no
+     * session token is available.
+     */
+    fun getSignedInUserForWebChannel(): String?
+
+    /**
+     * Fetches the profile object for the current client either from the existing cached state or from the server
+     * (requires the client to have access to the profile scope).
      *
      * @param ignoreCache Fetch the profile information directly from the server
      * @return Profile (optional, if successfully retrieved) representing the user's basic profile info
@@ -122,58 +59,39 @@ interface OAuthAccount : AutoCloseable {
     suspend fun getProfile(ignoreCache: Boolean = false): Profile?
 
     /**
-     * Sets the user data given by the web content finishing the OAuth flow.
-     * This should only be used by user agents that need the session token
-     *
-     * @param userData: The user data provided by the web content, including the session token
-     */
-    suspend fun setUserData(userData: UserData)
-
-    /**
-     * Authenticates the current account using the [code] and [state] parameters obtained via the
-     * OAuth flow initiated by [beginOAuthFlow].
-     *
-     * Modifies the FirefoxAccount state.
-     * @param code OAuth code string
-     * @param state state token string
-     * @return Deferred boolean representing success or failure
-     */
-    suspend fun completeOAuthFlow(code: String, state: String): Boolean
-
-    /**
      * Tries to fetch an access token for the given scope.
      *
      * @param singleScope Single OAuth scope (no spaces) for which the client wants access
-     * @return [AccessTokenInfo] that stores the token, along with its scope, key and
-     *                           expiration timestamp (in seconds) since epoch when complete
+     * @return [AccessTokenInfo] that stores the token, along with its scope, key and expiration timestamp (in seconds)
+     *   since epoch when complete
      */
     suspend fun getAccessToken(singleScope: String): AccessTokenInfo?
 
     /**
      * Get the list of all client applications attached to the user's account.
      *
-     * This method returns a list of AttachedClient structs representing all the applications
-     * connected to the user's account. This includes applications that are registered as a
-     * device as well as server-side services that the user has connected.
+     * This method returns a list of AttachedClient structs representing all the applications connected to the user's
+     * account. This includes applications that are registered as a device as well as server-side services that the user
+     * has connected.
      */
     suspend fun getAttachedClient(): List<AttachedClient>
 
     /**
-     * Call this whenever an authentication error was encountered while using an access token
-     * issued by [getAccessToken].
+     * Call this whenever an authentication error was encountered while using an access token issued by
+     * [getAccessToken].
      */
     fun authErrorDetected()
 
     /**
-     * This method should be called when a request made with an OAuth token failed with an
-     * authentication error. It will re-build cached state and perform a connectivity check.
+     * This method should be called when a request made with an OAuth token failed with an authentication error. It will
+     * re-build cached state and perform a connectivity check.
      *
-     * In time, fxalib will grow a similar method, at which point we'll just relay to it.
-     * See https://github.com/mozilla/application-services/issues/1263
+     * In time, fxalib will grow a similar method, at which point we'll just relay to it. See
+     * https://github.com/mozilla/application-services/issues/1263
      *
      * @param singleScope An oauth scope for which to check authorization state.
-     * @return An optional [Boolean] flag indicating if we're connected, or need to go through
-     * re-authentication. A null result means we were not able to determine state at this time.
+     * @return An optional [Boolean] flag indicating if we're connected, or need to go through re-authentication. A null
+     *   result means we were not able to determine state at this time.
      */
     suspend fun checkAuthorizationStatus(singleScope: String): Boolean?
 
@@ -214,98 +132,79 @@ interface OAuthAccount : AutoCloseable {
     fun deviceConstellation(): DeviceConstellation
 
     /**
-     * Reset internal account state and destroy current device record.
-     * Use this when device record is no longer relevant, e.g. while logging out. On success, other
-     * devices will no longer see the current device in their device lists.
+     * Checks whether the account has already been granted the [scope]
      *
-     * @return A [Deferred] that will be resolved with a success flag once operation is complete.
-     * Failure indicates that we may have failed to destroy current device record. Nothing to do for
-     * the consumer; device record will be cleaned up eventually via TTL.
+     * @param scope The scope we are checking for.
+     */
+    fun hasScope(scope: String): Boolean
+
+    /**
+     * Reset internal account state and destroy current device record. Use this when device record is no longer
+     * relevant, e.g. while logging out. On success, other devices will no longer see the current device in their device
+     * lists.
+     *
+     * @return A [Deferred] that will be resolved with a success flag once operation is complete. Failure indicates that
+     *   we may have failed to destroy current device record. Nothing to do for the consumer; device record will be
+     *   cleaned up eventually via TTL.
      */
     suspend fun disconnect(): Boolean
 
     /**
-     * Serializes the current account's authentication state as a JSON string, for persistence in
-     * the Android KeyStore/shared preferences. The authentication state can be restored using
-     * [FirefoxAccount.fromJSONString].
+     * Serializes the current account's authentication state as a JSON string, for persistence in the Android
+     * KeyStore/shared preferences. The authentication state can be restored using [FirefoxAccount.fromJSONString].
      *
      * @return String containing the authentication details in JSON format
      */
     fun toJSONString(): String
 }
 
-/**
- * Describes a delegate object that is used by [OAuthAccount] to persist its internal state as it changes.
- */
+/** Describes a delegate object that is used by [OAuthAccount] to persist its internal state as it changes. */
 interface StatePersistenceCallback {
-    /**
-     * @param data Account state representation as a string (e.g. as json).
-     */
+    /** @param data Account state representation as a string (e.g. as json). */
     fun persist(data: String)
 }
 
 sealed class AuthType {
-    /**
-     * Account restored from hydrated state on disk.
-     */
+    /** Account restored from hydrated state on disk. */
     object Existing : AuthType()
 
-    /**
-     * Account created in response to a sign-in.
-     */
+    /** Account created in response to a sign-in. */
     object Signin : AuthType()
 
-    /**
-     * Account created in response to a sign-up.
-     */
+    /** Account created in response to a sign-up. */
     object Signup : AuthType()
 
-    /**
-     * Account created via pairing (similar to sign-in, but without requiring credentials).
-     */
+    /** Account created via pairing (similar to sign-in, but without requiring credentials). */
     object Pairing : AuthType()
 
-    /**
-     * Account was created for an unknown external reason, hopefully identified by [action].
-     */
+    /** Account was created for an unknown external reason, hopefully identified by [action]. */
     data class OtherExternal(val action: String?) : AuthType()
 
-    /**
-     * Account created via a shared account state from another app via the copy token flow.
-     */
+    /** Account created via a shared account state from another app via the copy token flow. */
     object MigratedCopy : AuthType()
 
-    /**
-     * Account created via a shared account state from another app via the reuse token flow.
-     */
+    /** Account created via a shared account state from another app via the reuse token flow. */
     object MigratedReuse : AuthType()
 
-    /**
-     * Existing account was recovered from an authentication problem.
-     */
+    /** Existing account was recovered from an authentication problem. */
     object Recovered : AuthType()
 }
 
 /**
- * Different types of errors that may be encountered during authorization.
- * Intermittent network problems are the most common reason for these errors.
+ * Different types of errors that may be encountered during authorization. Intermittent network problems are the most
+ * common reason for these errors.
  */
 enum class AuthFlowError {
-    /**
-     * Couldn't begin authorization, i.e. failed to obtain an authorization URL.
-     */
+    /** Couldn't begin authorization, i.e. failed to obtain an authorization URL. */
     FailedToBeginAuth,
 
-    /**
-     * Couldn't complete authorization after user entered valid credentials/paired correctly.
-     */
+    /** Couldn't complete authorization after user entered valid credentials/paired correctly. */
     FailedToCompleteAuth,
 }
 
 /**
- * Observer interface which lets its users monitor account state changes and major events.
- * (XXX - there's some tension between this and the
- * mozilla.components.concept.sync.AccountEvent we should resolve!)
+ * Observer interface which lets its users monitor account state changes and major events. (XXX - there's some tension
+ * between this and the mozilla.components.concept.sync.AccountEvent we should resolve!)
  */
 interface AccountObserver {
     /**
@@ -315,9 +214,7 @@ interface AccountObserver {
      */
     fun onReady(authenticatedAccount: OAuthAccount?) = Unit
 
-    /**
-     * Account just got logged out.
-     */
+    /** Account just got logged out. */
     fun onLoggedOut() = Unit
 
     /**
@@ -330,17 +227,17 @@ interface AccountObserver {
 
     /**
      * Account's profile is now available.
+     *
      * @param profile A fresh version of account's [Profile].
      */
     fun onProfileUpdated(profile: Profile) = Unit
 
-    /**
-     * Account needs to be re-authenticated (e.g. due to a password change).
-     */
+    /** Account needs to be re-authenticated (e.g. due to a password change). */
     fun onAuthenticationProblems() = Unit
 
     /**
      * Encountered an error during an authentication or migration flow.
+     *
      * @param error Exact error encountered.
      */
     fun onFlowError(error: AuthFlowError) = Unit
@@ -385,9 +282,7 @@ data class AccessTokenInfo(
     val expiresAt: Long,
 )
 
-/**
- * The result of a request to get attached clients.
- */
+/** The result of a request to get attached clients. */
 data class AttachedClient(
     val clientId: String?,
     val deviceId: String?,

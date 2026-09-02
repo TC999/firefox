@@ -7,6 +7,7 @@
 
 #include "MemMoveAnnotation.h"
 #include "Utils.h"
+#include "llvm/Support/FileSystem.h"
 
 #if CLANG_VERSION_FULL >= 1300
 // Starting with clang-13 Expr::isRValue has been renamed to Expr::isPRValue
@@ -19,8 +20,8 @@ namespace ast_matchers {
 /// This matcher will match any function declaration that is declared as a heap
 /// allocator.
 AST_MATCHER(VarDecl, hasMozGlobalType) {
-  if(auto * TD = Node.getType().getTypePtr()->getAsTagDecl()) {
-    if(hasCustomAttribute<moz_global_class>(TD))
+  if (auto *TD = Node.getType().getTypePtr()->getAsTagDecl()) {
+    if (hasCustomAttribute<moz_global_class>(TD))
       return true;
   }
   return false;
@@ -37,9 +38,7 @@ AST_MATCHER(VarDecl, isMozGenerated) {
 }
 
 /// Match any variable declared with the constinit qualifier.
-AST_MATCHER(VarDecl, hasConstInitAttr) {
-  return Node.hasAttr<ConstInitAttr>();
-}
+AST_MATCHER(VarDecl, hasConstInitAttr) { return Node.hasAttr<ConstInitAttr>(); }
 
 /// This matcher will match any function declaration that is declared as a heap
 /// allocator.
@@ -96,6 +95,18 @@ AST_MATCHER(DeclaratorDecl, isNotSpiderMonkey) {
          Path.find("XPC") == std::string::npos;
 }
 
+/// This matcher will match if the file is located in a given path
+AST_MATCHER_P(Decl, isInPath, std::string, Substring) {
+  SourceManager &SM = Finder->getASTContext().getSourceManager();
+  std::string PresumedName =
+      SM.getPresumedLoc(Node.getBeginLoc()).getFilename();
+  llvm::SmallString<256> RealPath;
+  llvm::sys::fs::real_path(PresumedName, RealPath, /*expand_tilde=*/false);
+  llvm::StringRef Path = RealPath.empty() ? llvm::StringRef(PresumedName)
+                                          : llvm::StringRef(RealPath);
+  return Path.find(Substring) != llvm::StringRef::npos;
+}
+
 /// This matcher will match any declaration with an initializer that's
 /// considered as constant by the compiler.
 AST_MATCHER(VarDecl, hasConstantInitializer) {
@@ -113,13 +124,16 @@ AST_MATCHER(VarDecl, hasConstantInitializer) {
         if (CR->defaultedDefaultConstructorIsConstexpr()) {
           // Only accept constructor with empty body and constant initializer
           // for each member initialization.
-          if (const auto *CS = dyn_cast<CompoundStmt>(CD->getBody()); CS && CS->body_empty()) {
+          if (const auto *CS = dyn_cast<CompoundStmt>(CD->getBody());
+              CS && CS->body_empty()) {
             bool AllCustomInitializerCorrect = true;
             for (const CXXCtorInitializer *CI : CD->inits()) {
-              bool ForRef = CI->isAnyMemberInitializer()
-                          ? CI->getAnyMember()->getType()->isReferenceType()
-                          : false;
-              if (!CI->getInit()->isConstantInitializer(Finder->getASTContext(), ForRef)) {
+              bool ForRef =
+                  CI->isAnyMemberInitializer()
+                      ? CI->getAnyMember()->getType()->isReferenceType()
+                      : false;
+              if (!CI->getInit()->isConstantInitializer(Finder->getASTContext(),
+                                                        ForRef)) {
                 AllCustomInitializerCorrect = false;
                 break;
               }
@@ -132,7 +146,8 @@ AST_MATCHER(VarDecl, hasConstantInitializer) {
     }
 
     bool ForRef = Node.getType()->isReferenceType();
-    return Node.getInit()->isConstantInitializer(Finder->getASTContext(), ForRef);
+    return Node.getInit()->isConstantInitializer(Finder->getASTContext(),
+                                                 ForRef);
   } else if (Node.hasConstantInitialization()) {
     return true;
   } else {
@@ -424,6 +439,9 @@ AST_MATCHER(FunctionDecl, isMarkedImplicit) {
 AST_MATCHER(FunctionDecl, isMarkedMustOverride) {
   return hasCustomAttribute<moz_must_override>(&Node);
 }
+AST_MATCHER(FunctionDecl, isMarkedNonTerminatedString) {
+  return hasCustomAttribute<moz_non_terminated_string>(&Node);
+}
 
 AST_MATCHER(CXXRecordDecl, isConcreteClass) { return !Node.isAbstract(); }
 
@@ -508,6 +526,11 @@ AST_MATCHER(CXXMethodDecl, isNonVirtual) {
   return Decl && !Decl->isVirtual();
 }
 
+AST_MATCHER(CXXMethodDecl, hasMethodDefinition) {
+  const CXXMethodDecl *Decl = Node.getCanonicalDecl();
+  return Decl && Decl->isDefined();
+}
+
 AST_MATCHER(FunctionDecl, isMozMustReturnFromCaller) {
   const FunctionDecl *Decl = Node.getCanonicalDecl();
   return Decl &&
@@ -550,9 +573,8 @@ AST_MATCHER(MemberExpr, hasKnownLiveAnnotation) {
       {templateName "BigInt", templateName "<JS::BigInt*>"},                   \
       {templateName "Value", templateName "<JS::Value>"},                      \
       {templateName "ValueVector", templateName "Vector<JS::Value>"},          \
-      {templateName "ObjectVector", templateName "Vector<JSObject*>"}, {       \
-    templateName "IdVector", templateName "Vector<JS::PropertyKey>"            \
-  }
+      {templateName "ObjectVector", templateName "Vector<JSObject*>"},         \
+      {templateName "IdVector", templateName "Vector<JS::PropertyKey>"}
 
 static const char *const JSHandleRootedTypedefMap[][2] = {
     GENERATE_JSTYPEDEF_PAIR("JS::Handle"),

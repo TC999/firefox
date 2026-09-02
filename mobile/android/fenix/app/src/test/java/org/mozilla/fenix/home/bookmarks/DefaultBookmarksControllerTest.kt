@@ -9,6 +9,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.spyk
 import io.mockk.verify
+import kotlin.test.assertNotNull
 import kotlinx.coroutines.test.runTest
 import mozilla.appservices.places.BookmarkRoot
 import mozilla.components.browser.state.state.BrowserState
@@ -18,7 +19,6 @@ import mozilla.components.concept.engine.EngineSession
 import mozilla.components.concept.engine.EngineSession.LoadUrlFlags.Companion.ALLOW_JAVASCRIPT_URL
 import mozilla.components.feature.tabs.TabsUseCases
 import mozilla.components.support.test.robolectric.testContext
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Rule
@@ -36,8 +36,7 @@ import org.robolectric.RobolectricTestRunner
 @RunWith(RobolectricTestRunner::class)
 class DefaultBookmarksControllerTest {
 
-    @get:Rule
-    val gleanTestRule = FenixGleanTestRule(testContext)
+    @get:Rule val gleanTestRule = FenixGleanTestRule(testContext)
 
     private val navController: NavController = mockk(relaxUnitFun = true)
     private val settings: Settings = mockk(relaxed = true)
@@ -51,16 +50,17 @@ class DefaultBookmarksControllerTest {
     fun setup() {
         browserStore = BrowserStore()
 
-        controller = spyk(
-            DefaultBookmarksController(
-                navController = navController,
-                appStore = mockk(),
-                browserStore = browserStore,
-                settings = settings,
-                fenixBrowserUseCases = fenixBrowserUseCases,
-                selectTabUseCase = selectTabUseCase.selectTab,
-            ),
-        )
+        controller =
+            spyk(
+                DefaultBookmarksController(
+                    navController = navController,
+                    appStore = mockk(),
+                    browserStore = browserStore,
+                    settings = settings,
+                    fenixBrowserUseCases = fenixBrowserUseCases,
+                    selectTabUseCase = selectTabUseCase.selectTab,
+                )
+            )
     }
 
     @Test

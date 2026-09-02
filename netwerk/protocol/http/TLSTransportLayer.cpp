@@ -3,9 +3,9 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 // HttpLog.h should generally be included first
-#include "HttpLog.h"
-
 #include "TLSTransportLayer.h"
+
+#include "HttpLog.h"
 #include "nsISocketProvider.h"
 #include "nsITLSSocketControl.h"
 #include "nsQueryObject.h"
@@ -529,7 +529,7 @@ TLSTransportLayer::Close(nsresult aReason) {
 
   if (mOwner) {
     RefPtr<TLSTransportLayer> self = this;
-    (void)NS_DispatchToCurrentThread(NS_NewRunnableFunction(
+    (void)DispatchToCurrent(NS_NewRunnableFunction(
         "TLSTransportLayer::Close", [self{std::move(self)}]() {
           nsCOMPtr<nsIInputStreamCallback> inputCallback =
               std::move(self->mOwner);
@@ -635,7 +635,6 @@ FWD_TS_ADDREF(GetScriptableSelfAddr, nsINetAddr);
 FWD_TS_PTR(IsAlive, bool);
 FWD_TS_PTR(GetConnectionFlags, uint32_t);
 FWD_TS(SetConnectionFlags, uint32_t);
-FWD_TS(SetIsPrivate, bool);
 FWD_TS(SetIsTRRConnection, bool);
 FWD_TS_PTR(GetIsTRRConnection, bool);
 FWD_TS_PTR(GetTlsFlags, uint32_t);

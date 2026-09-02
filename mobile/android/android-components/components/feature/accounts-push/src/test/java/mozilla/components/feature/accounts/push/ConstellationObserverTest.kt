@@ -61,8 +61,6 @@ class ConstellationObserverTest {
         verifyNoMoreInteractions(push)
         // We should have told the constellation of the new subscription.
         verify(constellation).setDevicePushSubscription(any())
-
-        Unit
     }
 
     @Test
@@ -81,7 +79,6 @@ class ConstellationObserverTest {
         // We should not have told the constellation of the subscription as it matches
         verify(constellation).state()
         verifyNoMoreInteractions(constellation)
-        Unit
     }
 
     @Test
@@ -101,12 +98,11 @@ class ConstellationObserverTest {
         // We should have told the constellation of the same end-point subscription to clear the
         // expired flag on the server.
         verify(constellation).setDevicePushSubscription(any())
-        Unit
     }
 
     @Test
-    fun `notify crash reporter if subscribe error occurs`() {
-        val observer = ConstellationObserver(context, push, "testScope", account, verifier, crashReporter)
+    fun `notify crash reporter if subscribe error occurs`() = runTest {
+        val observer = ConstellationObserver(context, push, "testScope", account, verifier, crashReporter, this)
 
         whenSubscribeError()
         observer.onDevicesUpdate(state)
@@ -115,8 +111,8 @@ class ConstellationObserverTest {
     }
 
     @Test
-    fun `no FCM renewal if verifier is false`() {
-        val observer = ConstellationObserver(context, push, "testScope", account, verifier, crashReporter)
+    fun `no FCM renewal if verifier is false`() = runTest {
+        val observer = ConstellationObserver(context, push, "testScope", account, verifier, crashReporter, this)
 
         verifyNoInteractions(push)
 
@@ -132,8 +128,8 @@ class ConstellationObserverTest {
     }
 
     @Test
-    fun `invoke registration renewal`() {
-        val observer = ConstellationObserver(context, push, "testScope", account, verifier, crashReporter)
+    fun `invoke registration renewal`() = runTest {
+        val observer = ConstellationObserver(context, push, "testScope", account, verifier, crashReporter, this)
 
         `when`(device.subscriptionExpired).thenReturn(true)
         `when`(verifier.allowedToRenew()).thenReturn(true)
@@ -144,21 +140,20 @@ class ConstellationObserverTest {
         verify(verifier).increment()
     }
 
-    private fun testSubscription() = AutoPushSubscription(
-        scope = "testScope",
-        endpoint = "https://example.com/foobar",
-        publicKey = "",
-        authKey = "",
-        appServerKey = null,
-    )
+    private fun testSubscription() =
+        AutoPushSubscription(
+            scope = "testScope",
+            endpoint = "https://example.com/foobar",
+            publicKey = "",
+            authKey = "",
+            appServerKey = null,
+        )
 
     @Suppress("UNCHECKED_CAST")
     private fun whenSubscribe(): OngoingStubbing<Unit>? {
         return `when`(push.subscribe(any(), nullable(), any(), any())).thenAnswer {
             // Invoke the `onSubscribe` lambda with a fake subscription.
-            (it.arguments[3] as ((AutoPushSubscription) -> Unit)).invoke(
-                testSubscription(),
-            )
+            (it.arguments[3] as ((AutoPushSubscription) -> Unit)).invoke(testSubscription())
         }
     }
 
@@ -166,9 +161,7 @@ class ConstellationObserverTest {
     private fun whenSubscribeError(): OngoingStubbing<Unit>? {
         return `when`(push.subscribe(any(), nullable(), any(), any())).thenAnswer {
             // Invoke the `onSubscribeError` lambda with a fake exception.
-            (it.arguments[2] as ((Exception) -> Unit)).invoke(
-                IllegalStateException("test"),
-            )
+            (it.arguments[2] as ((Exception) -> Unit)).invoke(IllegalStateException("test"))
         }
     }
 
@@ -187,7 +180,7 @@ class ConstellationObserverTest {
             account = account,
             verifier = verifier,
             crashReporter = crashReporter,
-            uiContext = coroutineContext,
-            )
+            applicationScope = this,
+        )
     }
 }

@@ -3,25 +3,27 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "nsBaseChannel.h"
-#include "nsContentUtils.h"
-#include "nsURLHelper.h"
-#include "nsNetCID.h"
-#include "nsUnknownDecoder.h"
-#include "nsIScriptSecurityManager.h"
-#include "nsMimeTypes.h"
-#include "nsICancelable.h"
-#include "nsIChannelEventSink.h"
-#include "nsIStreamConverterService.h"
-#include "nsChannelClassifier.h"
-#include "nsAsyncRedirectVerifyHelper.h"
-#include "nsProxyRelease.h"
-#include "nsXULAppAPI.h"
-#include "nsContentSecurityManager.h"
+
 #include "LoadInfo.h"
-#include "nsServiceManagerUtils.h"
-#include "nsRedirectHistoryEntry.h"
 #include "mozilla/AntiTrackingUtils.h"
 #include "mozilla/BasePrincipal.h"
+#include "mozilla/dom/ParentProcessChannelHandle.h"
+#include "nsAsyncRedirectVerifyHelper.h"
+#include "nsChannelClassifier.h"
+#include "nsContentSecurityManager.h"
+#include "nsContentUtils.h"
+#include "nsICancelable.h"
+#include "nsIChannelEventSink.h"
+#include "nsIScriptSecurityManager.h"
+#include "nsIStreamConverterService.h"
+#include "nsMimeTypes.h"
+#include "nsNetCID.h"
+#include "nsProxyRelease.h"
+#include "nsRedirectHistoryEntry.h"
+#include "nsServiceManagerUtils.h"
+#include "nsURLHelper.h"
+#include "nsUnknownDecoder.h"
+#include "nsXULAppAPI.h"
 
 using namespace mozilla;
 
@@ -153,9 +155,24 @@ nsresult nsBaseChannel::ContinueRedirect() {
 
   mRedirectChannel = nullptr;
 
-  // close down this channel
+  // Close down this channel.  We must do these cleanups manually rather than
+  // relying on OnStopRequest because external callers may invoke Redirect()
+  // while a cancelable is already running (e.g. from a BeginAsyncRead
+  // callback).  In that case OnStopRequest may fire after we return, so we
+  // clear the load group and listener now to prevent double-removal and
+  // spurious OnStopRequest calls to the listener.  Note: this does not protect
+  // against OnStopRequest racing before ContinueRedirect when a pump is
+  // involved.
   Cancel(NS_BINDING_REDIRECTED);
   ChannelDone();
+  mCancelableAsyncRequest = nullptr;
+  mPumpingData = false;
+  if (mLoadGroup) {
+    mLoadGroup->RemoveRequest(this, nullptr, mStatus);
+    mLoadGroup = nullptr;
+  }
+  mCallbacks = nullptr;
+  CallbacksChanged();
 
   return NS_OK;
 }
@@ -265,8 +282,9 @@ void nsBaseChannel::ContinueHandleAsyncRedirect(nsresult result) {
 
   if (NS_FAILED(result) && mListener) {
     // Notify our consumer ourselves
-    mListener->OnStartRequest(this);
-    mListener->OnStopRequest(this, mStatus);
+    nsCOMPtr<nsIStreamListener> listener = mListener;
+    listener->OnStartRequest(this);
+    listener->OnStopRequest(this, mStatus);
     ChannelDone();
   }
 
@@ -706,6 +724,26 @@ nsBaseChannel::AsyncOpen(nsIStreamListener* aListener) {
   return NS_OK;
 }
 
+NS_IMETHODIMP
+nsBaseChannel::GetParentProcessChannelHandle(
+    mozilla::dom::ParentProcessChannelHandle** aValue) {
+  *aValue = do_AddRef(mParentProcessChannelHandle).take();
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsBaseChannel::SetParentProcessChannelHandle(
+    mozilla::dom::ParentProcessChannelHandle* aValue) {
+  if (XRE_IsParentProcess()) {
+    MOZ_ASSERT_UNREACHABLE(
+        "SetParentProcessChannelHandle in the parent process would leak");
+    return NS_ERROR_NOT_AVAILABLE;
+  }
+
+  mParentProcessChannelHandle = aValue;
+  return NS_OK;
+}
+
 //-----------------------------------------------------------------------------
 // nsBaseChannel::nsITransportEventSink
 
@@ -802,8 +840,9 @@ nsBaseChannel::OnStartRequest(nsIRequest* request) {
 
   SUSPEND_PUMP_FOR_SCOPE();
 
-  if (mListener) {  // null in case of redirect
-    return mListener->OnStartRequest(this);
+  // null in case of redirect
+  if (nsCOMPtr<nsIStreamListener> listener = mListener) {
+    return listener->OnStartRequest(this);
   }
   return NS_OK;
 }
@@ -820,8 +859,9 @@ nsBaseChannel::OnStopRequest(nsIRequest* request, nsresult status) {
   mCancelableAsyncRequest = nullptr;
   mPumpingData = false;
 
-  if (mListener) {  // null in case of redirect
-    mListener->OnStopRequest(this, mStatus);
+  // null in case of redirect
+  if (nsCOMPtr<nsIStreamListener> listener = mListener) {
+    listener->OnStopRequest(this, mStatus);
   }
   ChannelDone();
 
@@ -845,7 +885,8 @@ nsBaseChannel::OnDataAvailable(nsIRequest* request, nsIInputStream* stream,
                                uint64_t offset, uint32_t count) {
   SUSPEND_PUMP_FOR_SCOPE();
 
-  nsresult rv = mListener->OnDataAvailable(this, stream, offset, count);
+  nsCOMPtr<nsIStreamListener> listener = mListener;
+  nsresult rv = listener->OnDataAvailable(this, stream, offset, count);
   if (mSynthProgressEvents && NS_SUCCEEDED(rv)) {
     int64_t prog = offset + count;
     if (NS_IsMainThread()) {
@@ -967,20 +1008,6 @@ NS_IMETHODIMP nsBaseChannel::GetCanceled(bool* aCanceled) {
 
 void nsBaseChannel::SetupNeckoTarget() {
   mNeckoTarget = GetMainThreadSerialEventTarget();
-}
-
-NS_IMETHODIMP nsBaseChannel::GetContentRange(
-    RefPtr<mozilla::net::ContentRange>* aRange) {
-  if (aRange) {
-    *aRange = mContentRange;
-  }
-  return NS_OK;
-}
-
-NS_IMETHODIMP nsBaseChannel::SetContentRange(
-    RefPtr<mozilla::net::ContentRange> aRange) {
-  mContentRange = aRange;
-  return NS_OK;
 }
 
 NS_IMETHODIMP nsBaseChannel::GetFullMimeType(RefPtr<TMimeType<char>>* aOut) {

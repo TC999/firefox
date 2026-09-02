@@ -1,4 +1,3 @@
-/* -*- js-indent-level: 2; indent-tabs-mode: nil -*- */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -51,7 +50,6 @@ ChromeUtils.defineESModuleGetters(lazy, {
   TelemetryUntrustedModulesPing:
     "resource://gre/modules/UntrustedModulesPing.sys.mjs",
   UninstallPing: "resource://gre/modules/UninstallPing.sys.mjs",
-  UpdatePing: "resource://gre/modules/UpdatePing.sys.mjs",
   UsageReporting: "resource://gre/modules/UsageReporting.sys.mjs",
 });
 
@@ -764,11 +762,6 @@ var Impl = {
     this._clientID = lazy.ClientID.getCachedClientID();
     this._profileGroupID = lazy.ClientID.getCachedProfileGroupID();
 
-    // Init the update ping telemetry as early as possible. This won't have
-    // an impact on startup.
-    lazy.UpdatePing.earlyInit();
-
-    // Delay full telemetry initialization to give the browser time to
     // run various late initializers. Otherwise our gathered memory
     // footprint and other numbers would be too optimistic.
     this._delayedInitTaskDeferred = Promise.withResolvers();
@@ -898,8 +891,6 @@ var Impl = {
       if (this._delayedNewPingTask) {
         await this._delayedNewPingTask.finalize();
       }
-
-      lazy.UpdatePing.shutdown();
 
       lazy.TelemetryEventPing.shutdown();
 

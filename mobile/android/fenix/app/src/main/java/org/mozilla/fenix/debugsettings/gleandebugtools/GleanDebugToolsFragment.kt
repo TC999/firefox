@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -26,52 +25,55 @@ import androidx.core.net.toUri
 import androidx.fragment.app.Fragment
 import androidx.fragment.compose.content
 import androidx.navigation.fragment.findNavController
+import mozilla.components.compose.base.button.IconButton
 import mozilla.components.lib.state.helpers.StoreProvider.Companion.fragmentStore
+import mozilla.components.ui.icons.R as iconsR
 import mozilla.telemetry.glean.Glean
 import org.mozilla.fenix.R
 import org.mozilla.fenix.debugsettings.gleandebugtools.ui.GleanDebugToolsScreen
 import org.mozilla.fenix.e2e.SystemInsetsPaddedFragment
 import org.mozilla.fenix.ext.requireComponents
 import org.mozilla.fenix.theme.FirefoxTheme
-import mozilla.components.ui.icons.R as iconsR
 
-/**
- * [Fragment] for displaying the Glean Debug Tools in the about:glean page.
- */
+/** [Fragment] for displaying the Glean Debug Tools in the about:glean page. */
 class GleanDebugToolsFragment : Fragment(), SystemInsetsPaddedFragment {
 
-    private val store by fragmentStore(
-        GleanDebugToolsState(
-            logPingsToConsoleEnabled = Glean.getLogPings(),
-            debugViewTag = Glean.getDebugViewTag() ?: "",
-        ),
-    ) {
-        GleanDebugToolsStore(
-            initialState = it,
-            middlewares = listOf(
-                GleanDebugToolsMiddleware(
-                    gleanDebugToolsStorage = DefaultGleanDebugToolsStorage(),
-                    clipboardHandler = requireComponents.clipboardHandler,
-                    openDebugView = { debugViewLink ->
-                        val intent = Intent(Intent.ACTION_VIEW)
-                        intent.data = debugViewLink.toUri()
-                        requireContext().startActivity(intent)
-                    },
-                    showToast = { pingType ->
-                        val toast = Toast.makeText(
-                            requireContext(),
-                            requireContext().getString(
-                                R.string.glean_debug_tools_send_ping_toast_message,
-                                pingType,
-                            ),
-                            Toast.LENGTH_LONG,
+    private val store by
+        fragmentStore(
+            GleanDebugToolsState(
+                logPingsToConsoleEnabled = Glean.getLogPings(),
+                debugViewTag = Glean.getDebugViewTag() ?: "",
+            )
+        ) {
+            GleanDebugToolsStore(
+                initialState = it,
+                middlewares =
+                    listOf(
+                        GleanDebugToolsMiddleware(
+                            gleanDebugToolsStorage = DefaultGleanDebugToolsStorage(requireComponents.settings),
+                            clipboardHandler = requireComponents.clipboardHandler,
+                            openDebugView = { debugViewLink ->
+                                val intent = Intent(Intent.ACTION_VIEW)
+                                intent.data = debugViewLink.toUri()
+                                requireContext().startActivity(intent)
+                            },
+                            showToast = { pingType ->
+                                val toast =
+                                    Toast.makeText(
+                                        requireContext(),
+                                        requireContext()
+                                            .getString(
+                                                R.string.glean_debug_tools_send_ping_toast_message,
+                                                pingType,
+                                            ),
+                                        Toast.LENGTH_LONG,
+                                    )
+                                toast.show()
+                            },
                         )
-                        toast.show()
-                    },
-                ),
-            ),
-        )
-    }
+                    ),
+            )
+        }
 
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreateView(
@@ -91,21 +93,24 @@ class GleanDebugToolsFragment : Fragment(), SystemInsetsPaddedFragment {
                         },
                         navigationIcon = {
                             val directions = GleanDebugToolsFragmentDirections.actionGlobalBrowser()
-                            IconButton(onClick = { findNavController().navigate(directions) }) {
+                            IconButton(
+                                onClick = { findNavController().navigate(directions) },
+                                contentDescription =
+                                    stringResource(R.string.bookmark_navigate_back_button_content_description),
+                            ) {
                                 Icon(
                                     painter = painterResource(iconsR.drawable.mozac_ic_back_24),
-                                    contentDescription = stringResource(
-                                        R.string.bookmark_navigate_back_button_content_description,
-                                    ),
+                                    contentDescription = null,
                                 )
                             }
                         },
-                        windowInsets = WindowInsets(
-                            top = 0.dp,
-                            bottom = 0.dp,
-                        ),
+                        windowInsets =
+                            WindowInsets(
+                                top = 0.dp,
+                                bottom = 0.dp,
+                            ),
                     )
-                },
+                }
             ) { paddingValues ->
                 GleanDebugToolsScreen(
                     gleanDebugToolsStore = store,

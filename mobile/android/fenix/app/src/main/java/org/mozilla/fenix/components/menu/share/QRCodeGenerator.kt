@@ -13,21 +13,22 @@ import android.graphics.RectF
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.core.graphics.createBitmap
 import com.google.zxing.EncodeHintType
+import com.google.zxing.WriterException
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 import com.google.zxing.qrcode.encoder.ByteMatrix
 import com.google.zxing.qrcode.encoder.Encoder
 import com.google.zxing.qrcode.encoder.QRCode
-import org.mozilla.fenix.R
 import kotlin.math.max
 import kotlin.math.min
+import org.mozilla.fenix.R
 
-/**
- * Utility class to generate QR codes.
- */
+/** Utility class to generate QR codes. */
 class QRCodeGenerator {
 
     /**
      * Generates a QR code image as a [Bitmap] based on the provided text and dimensions.
+     *
+     * @throws [WriterException] if QR encoding fails because of invalid content or configuration.
      */
     fun generateQRCodeImage(
         text: String,
@@ -51,7 +52,7 @@ class QRCodeGenerator {
         val inputHeight = input.height
 
         paint.style = Paint.Style.FILL
-        paint.color = context.getColor(R.color.fx_mobile_on_surface)
+        paint.color = Color.BLACK
 
         drawBackground(canvas, width, height, context)
 
@@ -179,8 +180,8 @@ class QRCodeGenerator {
         circleSize: Int,
         paint: Paint,
     ) {
-        if (input.get(inputX, inputY).toInt() == 1 &&
-            !isInFinderPatternRegion(inputX, inputY, inputWidth, inputHeight)
+        if (
+            input.get(inputX, inputY).toInt() == 1 && !isInFinderPatternRegion(inputX, inputY, inputWidth, inputHeight)
         ) {
             val overlapsCenter = doesOverlapCenter(canvas, outputX, outputY, circleSize)
             if (!overlapsCenter) {
@@ -279,25 +280,26 @@ class QRCodeGenerator {
         )
 
         paint.color = Color.BLACK
-        val diamondPath = android.graphics.Path().apply {
-            moveTo(
-                (x + middleDotOffset + middleDotDiameter / 2).toFloat(),
-                (y + middleDotOffset).toFloat(),
-            )
-            lineTo(
-                (x + middleDotOffset + middleDotDiameter).toFloat(),
-                (y + middleDotOffset + middleDotDiameter / 2).toFloat(),
-            )
-            lineTo(
-                (x + middleDotOffset + middleDotDiameter / 2).toFloat(),
-                (y + middleDotOffset + middleDotDiameter).toFloat(),
-            )
-            lineTo(
-                (x + middleDotOffset).toFloat(),
-                (y + middleDotOffset + middleDotDiameter / 2).toFloat(),
-            )
-            close()
-        }
+        val diamondPath =
+            android.graphics.Path().apply {
+                moveTo(
+                    (x + middleDotOffset + middleDotDiameter / 2).toFloat(),
+                    (y + middleDotOffset).toFloat(),
+                )
+                lineTo(
+                    (x + middleDotOffset + middleDotDiameter).toFloat(),
+                    (y + middleDotOffset + middleDotDiameter / 2).toFloat(),
+                )
+                lineTo(
+                    (x + middleDotOffset + middleDotDiameter / 2).toFloat(),
+                    (y + middleDotOffset + middleDotDiameter).toFloat(),
+                )
+                lineTo(
+                    (x + middleDotOffset).toFloat(),
+                    (y + middleDotOffset + middleDotDiameter / 2).toFloat(),
+                )
+                close()
+            }
         canvas.drawPath(diamondPath, paint)
     }
 

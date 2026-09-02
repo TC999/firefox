@@ -4,6 +4,7 @@
 
 package org.mozilla.fenix.browser.applinks
 
+import android.content.DialogInterface
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -17,17 +18,18 @@ class AppLinksPromptFragmentTest {
 
     @Test
     fun `WHEN create is called THEN fragment arguments contain all provided values`() {
-        val fragment = AppLinksPromptFragment.create(
-            appName = "Firefox",
-            title = "Open in YouTube",
-            message = "Would you like to leave Firefox?",
-            showCheckbox = true,
-            sourceUrl = "https://www.youtube.com/watch?v=abc",
-            destinationUrl = "youtube://watch?v=abc",
-            firefoxUrl = "https://www.youtube.com/watch?v=abc",
-            uniqueIdentifier = "YouTube",
-            packageName = "com.google.android.youtube",
-        )
+        val fragment =
+            AppLinksPromptFragment.create(
+                appName = "Firefox",
+                title = "Open in YouTube",
+                message = "Would you like to leave Firefox?",
+                showCheckbox = true,
+                sourceUrl = "https://www.youtube.com/watch?v=abc",
+                destinationUrl = "youtube://watch?v=abc",
+                firefoxUrl = "https://www.youtube.com/watch?v=abc",
+                uniqueIdentifier = "YouTube",
+                packageName = "com.google.android.youtube",
+            )
 
         val args = fragment.requireArguments()
         assertEquals("Open in YouTube", args.getString("title"))
@@ -42,26 +44,50 @@ class AppLinksPromptFragmentTest {
 
     @Test
     fun `WHEN create is called with null firefoxUrl THEN firefox_url argument is null`() {
-        val fragment = AppLinksPromptFragment.create(
-            appName = "Firefox",
-            title = "title",
-            message = "message",
-            showCheckbox = false,
-            firefoxUrl = null,
-        )
+        val fragment =
+            AppLinksPromptFragment.create(
+                appName = "Firefox",
+                title = "title",
+                message = "message",
+                showCheckbox = false,
+                firefoxUrl = null,
+            )
 
         assertNull(fragment.requireArguments().getString("firefox_url"))
     }
 
     @Test
     fun `WHEN create is called with showCheckbox false THEN show_checkbox argument is false`() {
-        val fragment = AppLinksPromptFragment.create(
-            appName = "Firefox",
-            title = "title",
-            message = "message",
-            showCheckbox = false,
-        )
+        val fragment =
+            AppLinksPromptFragment.create(
+                appName = "Firefox",
+                title = "title",
+                message = "message",
+                showCheckbox = false,
+            )
 
         assertFalse(fragment.requireArguments().getBoolean("show_checkbox"))
+    }
+
+    @Test
+    fun `WHEN dialog is cancelled THEN onDismissRedirect is invoked`() {
+        val fragment =
+            AppLinksPromptFragment.create(
+                appName = "Firefox",
+                title = "title",
+                message = "message",
+                showCheckbox = false,
+            )
+        var dismissCalled = false
+        fragment.onDismissRedirect = { dismissCalled = true }
+        fragment.onCancel(
+            object : DialogInterface {
+                override fun cancel() {}
+
+                override fun dismiss() {}
+            }
+        )
+
+        assertTrue(dismissCalled)
     }
 }

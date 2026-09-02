@@ -1,103 +1,101 @@
-From: Michael Froman <mfroman@mozilla.com>
-Date: Thu, 10 Oct 2024 13:42:00 +0000
-Subject: Bug 1921707 - point to new build directory location in
- third_party/abseil-cpp r=ng
+From: Ryan VanderMeulen <rvandermeulen@mozilla.com>
+Date: Sun, 23 Aug 2026 13:55:28 -0400
+Subject: Bug 2038068 - make abseil-cpp use the Win32 path on mingw.
 
-Ran:
-ack -l "\"//build/config" third_party/abseil-cpp | xargs sed -i.bak -E 's/\"\/\/build\/config/\"\/\/chromium\/build\/config/'
-ack -l "\"//build/toolchain" third_party/abseil-cpp | xargs sed -i.bak -E 's/\"\/\/build\/toolchain/\"\/\/chromium\/build\/toolchain/'
-find third_party -name "*.bak" | xargs rm
-
-Differential Revision: https://phabricator.services.mozilla.com/D224544
-Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/566543823f7e89dc33d6d59a438aea7a1d19e3b0
 ---
- abseil-cpp/.gn                     |  2 +-
- abseil-cpp/BUILD.gn                |  8 ++++----
- abseil-cpp/absl.gni                | 14 +++++++-------
- abseil-cpp/absl/debugging/BUILD.gn |  2 +-
- 4 files changed, 13 insertions(+), 13 deletions(-)
+ abseil-cpp/absl/base/internal/thread_identity.cc          | 8 ++++----
+ abseil-cpp/absl/base/internal/thread_identity.h           | 2 +-
+ abseil-cpp/absl/synchronization/internal/pthread_waiter.h | 4 ++--
+ abseil-cpp/absl/synchronization/internal/win32_waiter.h   | 4 ++--
+ 4 files changed, 9 insertions(+), 9 deletions(-)
 
-diff --git a/abseil-cpp/.gn b/abseil-cpp/.gn
-index 648423a128f..bd6c38b3762 100644
---- a/abseil-cpp/.gn
-+++ b/abseil-cpp/.gn
-@@ -1,5 +1,5 @@
- # The location of the build configuration file.
--buildconfig = "//build/config/BUILDCONFIG.gn"
-+buildconfig = "//chromium/build/config/BUILDCONFIG.gn"
- script_executable = "python3"
- secondary_source = "//abseil-cpp/"
+diff --git a/abseil-cpp/absl/base/internal/thread_identity.cc b/abseil-cpp/absl/base/internal/thread_identity.cc
+index 27b5816394a..07352dee4e9 100644
+--- a/abseil-cpp/absl/base/internal/thread_identity.cc
++++ b/abseil-cpp/absl/base/internal/thread_identity.cc
+@@ -23,7 +23,7 @@
+ #include "absl/base/internal/raw_logging.h"
+ #include "absl/base/internal/spinlock.h"
  
-diff --git a/abseil-cpp/BUILD.gn b/abseil-cpp/BUILD.gn
-index 97b460e4fd4..ef837cb908a 100644
---- a/abseil-cpp/BUILD.gn
-+++ b/abseil-cpp/BUILD.gn
-@@ -6,10 +6,10 @@
- # opts will be linked together, and in some cases headers compiled with and
- # without these options will be part of the same program.
+-#if !defined(_WIN32) || defined(__MINGW32__)
++#if !defined(_WIN32)
+ #include <pthread.h>
+ #ifndef __wasi__
+ // WASI does not provide this header, either way we disable use
+@@ -84,9 +84,9 @@ void SetCurrentThreadIdentity(ThreadIdentity* identity,
+   absl::call_once(init_thread_identity_key_once, AllocateThreadIdentityKey,
+                   reclaimer);
  
--import("//build/config/c++/c++.gni")
--import("//build/config/nacl/config.gni")
--import("//build/config/sanitizers/sanitizers.gni")
--import("//build/toolchain/toolchain.gni")
-+import("//chromium/build/config/c++/c++.gni")
-+import("//chromium/build/config/nacl/config.gni")
-+import("//chromium/build/config/sanitizers/sanitizers.gni")
-+import("//chromium/build/toolchain/toolchain.gni")
- import("//build_overrides/build.gni")
- import("//third_party/abseil-cpp/absl.gni")
+-#if defined(__wasi__) || defined(__EMSCRIPTEN__) || defined(__MINGW32__) || \
++#if defined(__wasi__) || defined(__EMSCRIPTEN__) || \
+     defined(__hexagon__)
+-  // Emscripten, WASI and MinGW pthread implementations does not support
++  // Emscripten and WASI pthread implementations does not support
+   // signals. See
+   // https://kripken.github.io/emscripten-site/docs/porting/pthreads.html for
+   // more information.
+@@ -106,7 +106,7 @@ void SetCurrentThreadIdentity(ThreadIdentity* identity,
+   pthread_setspecific(thread_identity_pthread_key,
+                       reinterpret_cast<void*>(identity));
+   pthread_sigmask(SIG_SETMASK, &curr_signals, nullptr);
+-#endif  // !__EMSCRIPTEN__ && !__MINGW32__
++#endif  // !__EMSCRIPTEN__
  
-diff --git a/abseil-cpp/absl.gni b/abseil-cpp/absl.gni
-index 1213d0e0bb0..06515e0e805 100644
---- a/abseil-cpp/absl.gni
-+++ b/abseil-cpp/absl.gni
-@@ -30,10 +30,10 @@ template("absl_source_set") {
-       not_needed(invoker, "*")
-     } else {
-       forward_variables_from(invoker, "*")
--      configs -= [ "//build/config/compiler:chromium_code" ]
-+      configs -= [ "//chromium/build/config/compiler:chromium_code" ]
-       configs += [
--        "//build/config/compiler:no_chromium_code",
--        "//build/config/compiler:prevent_unsafe_narrowing",
-+        "//chromium/build/config/compiler:no_chromium_code",
-+        "//chromium/build/config/compiler:prevent_unsafe_narrowing",
-         "//abseil-cpp:absl_default_cflags_cc",
-         "//abseil-cpp:absl_define_config",
-       ]
-@@ -44,8 +44,8 @@ template("absl_source_set") {
-       if (is_component_build) {
-         defines += [ "ABSL_BUILD_DLL" ]
-         if (!is_win && current_os != "aix") {
--          configs -= [ "//build/config/gcc:symbol_visibility_hidden" ]
--          configs += [ "//build/config/gcc:symbol_visibility_default" ]
-+          configs -= [ "//chromium/build/config/gcc:symbol_visibility_hidden" ]
-+          configs += [ "//chromium/build/config/gcc:symbol_visibility_default" ]
-         }
-       }
+ #elif ABSL_THREAD_IDENTITY_MODE == ABSL_THREAD_IDENTITY_MODE_USE_TLS
+   // NOTE: Not async-safe.  But can be open-coded.
+diff --git a/abseil-cpp/absl/base/internal/thread_identity.h b/abseil-cpp/absl/base/internal/thread_identity.h
+index a9f26d06557..86fad8ceaa7 100644
+--- a/abseil-cpp/absl/base/internal/thread_identity.h
++++ b/abseil-cpp/absl/base/internal/thread_identity.h
+@@ -271,7 +271,7 @@ void ClearCurrentThreadIdentity();
+ #error ABSL_THREAD_IDENTITY_MODE cannot be directly set
+ #elif defined(ABSL_FORCE_THREAD_IDENTITY_MODE)
+ #define ABSL_THREAD_IDENTITY_MODE ABSL_FORCE_THREAD_IDENTITY_MODE
+-#elif defined(_WIN32) && !defined(__MINGW32__)
++#elif defined(_WIN32)
+ #define ABSL_THREAD_IDENTITY_MODE ABSL_THREAD_IDENTITY_MODE_USE_CPP11
+ #elif defined(__APPLE__) && defined(ABSL_HAVE_THREAD_LOCAL)
+ #define ABSL_THREAD_IDENTITY_MODE ABSL_THREAD_IDENTITY_MODE_USE_CPP11
+diff --git a/abseil-cpp/absl/synchronization/internal/pthread_waiter.h b/abseil-cpp/absl/synchronization/internal/pthread_waiter.h
+index 23db76ad442..eb30b24d0e3 100644
+--- a/abseil-cpp/absl/synchronization/internal/pthread_waiter.h
++++ b/abseil-cpp/absl/synchronization/internal/pthread_waiter.h
+@@ -16,7 +16,7 @@
+ #ifndef ABSL_SYNCHRONIZATION_INTERNAL_PTHREAD_WAITER_H_
+ #define ABSL_SYNCHRONIZATION_INTERNAL_PTHREAD_WAITER_H_
  
-@@ -128,9 +128,9 @@ template("absl_test") {
-     } else {
-       forward_variables_from(invoker, "*")
-       testonly = true
--      configs -= [ "//build/config/compiler:chromium_code" ]
-+      configs -= [ "//chromium/build/config/compiler:chromium_code" ]
-       configs += [
--        "//build/config/compiler:no_chromium_code",
-+        "//chromium/build/config/compiler:no_chromium_code",
-         "//abseil-cpp:absl_default_cflags_cc",
-         "//abseil-cpp:absl_define_config",
-         "//abseil-cpp:absl_test_config",
-diff --git a/abseil-cpp/absl/debugging/BUILD.gn b/abseil-cpp/absl/debugging/BUILD.gn
-index a1939b67793..9041c59ddad 100644
---- a/abseil-cpp/absl/debugging/BUILD.gn
-+++ b/abseil-cpp/absl/debugging/BUILD.gn
-@@ -2,7 +2,7 @@
- # Use of this source code is governed by a BSD-style license that can be
- # found in the LICENSE file.
+-#if !defined(_WIN32) && !defined(__MINGW32__)
++#if !defined(_WIN32)
+ #include <pthread.h>
  
--import("//build/config/sanitizers/sanitizers.gni")
-+import("//chromium/build/config/sanitizers/sanitizers.gni")
- import("//third_party/abseil-cpp/absl.gni")
+ #include "absl/base/config.h"
+@@ -55,6 +55,6 @@ class PthreadWaiter : public WaiterCrtp<PthreadWaiter> {
+ ABSL_NAMESPACE_END
+ }  // namespace absl
  
- absl_source_set("stacktrace") {
+-#endif  // !defined(_WIN32) && !defined(__MINGW32__)
++#endif  // !defined(_WIN32)
+ 
+ #endif  // ABSL_SYNCHRONIZATION_INTERNAL_PTHREAD_WAITER_H_
+diff --git a/abseil-cpp/absl/synchronization/internal/win32_waiter.h b/abseil-cpp/absl/synchronization/internal/win32_waiter.h
+index fdab264e8cb..cba1c9d8834 100644
+--- a/abseil-cpp/absl/synchronization/internal/win32_waiter.h
++++ b/abseil-cpp/absl/synchronization/internal/win32_waiter.h
+@@ -20,7 +20,7 @@
+ #include <sdkddkver.h>
+ #endif
+ 
+-#if defined(_WIN32) && !defined(__MINGW32__) && \
++#if defined(_WIN32) && \
+     _WIN32_WINNT >= _WIN32_WINNT_VISTA
+ 
+ #include "absl/base/config.h"
+@@ -66,7 +66,7 @@ class Win32Waiter : public WaiterCrtp<Win32Waiter> {
+ ABSL_NAMESPACE_END
+ }  // namespace absl
+ 
+-#endif  // defined(_WIN32) && !defined(__MINGW32__) &&
++#endif  // defined(_WIN32) &&
+         // _WIN32_WINNT >= _WIN32_WINNT_VISTA
+ 
+ #endif  // ABSL_SYNCHRONIZATION_INTERNAL_WIN32_WAITER_H_

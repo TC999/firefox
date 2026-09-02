@@ -2,70 +2,65 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include <stdlib.h>
-
 #include "Dictionary.h"
 
+#include <stdlib.h>
+
 #include "CacheFileUtils.h"
+#include "LoadContextInfo.h"
+#include "ReferrerInfo.h"
+#include "SerializedLoadContext.h"
+#include "mozilla/ClearOnShutdown.h"
+#include "mozilla/Components.h"
+#include "mozilla/FlowMarkers.h"
+#include "mozilla/Logging.h"
+#include "mozilla/OriginAttributes.h"
+#include "mozilla/Preferences.h"
+#include "mozilla/SchedulerGroup.h"
+#include "mozilla/Services.h"
+#include "mozilla/StaticPrefs_network.h"
+#include "mozilla/dom/ContentParent.h"
+#include "mozilla/dom/Document.h"
+#include "mozilla/dom/InternalRequest.h"
+#include "mozilla/glean/GleanPings.h"
+#include "mozilla/glean/NetwerkMetrics.h"
+#include "mozilla/ipc/URIUtils.h"
+#include "mozilla/net/NeckoChild.h"
+#include "mozilla/net/NeckoCommon.h"
+#include "mozilla/net/NeckoParent.h"
+#include "mozilla/net/URLPatternGlue.h"
+#include "mozilla/net/urlpattern_glue.h"
+#include "nsAppDirectoryServiceDefs.h"
 #include "nsAttrValue.h"
 #include "nsContentPolicyUtils.h"
-#include "nsString.h"
-#include "nsAppDirectoryServiceDefs.h"
+#include "nsContentUtils.h"
+#include "nsHTTPCompressConv.h"
 #include "nsIAsyncInputStream.h"
-#include "nsICacheStorageService.h"
-#include "nsICacheStorage.h"
 #include "nsICacheEntry.h"
+#include "nsICacheStorage.h"
+#include "nsICacheStorageService.h"
 #include "nsICachingChannel.h"
 #include "nsICancelable.h"
 #include "nsIChannel.h"
-#include "nsContentUtils.h"
+#include "nsIEffectiveTLDService.h"
 #include "nsIFile.h"
 #include "nsIInputStream.h"
 #include "nsILoadContext.h"
 #include "nsILoadContextInfo.h"
 #include "nsILoadGroup.h"
+#include "nsIOService.h"
 #include "nsIObserverService.h"
 #include "nsIURI.h"
-#include "mozilla/Services.h"
 #include "nsIURIMutator.h"
-#include "nsIEffectiveTLDService.h"
 #include "nsInputStreamPump.h"
-#include "nsIOService.h"
-#include "nsNetUtil.h"
 #include "nsNetCID.h"
+#include "nsNetUtil.h"
 #include "nsServiceManagerUtils.h"
 #include "nsSimpleURI.h"
 #include "nsStandardURL.h"
 #include "nsStreamUtils.h"
 #include "nsString.h"
 #include "nsThreadUtils.h"
-#include "mozilla/Logging.h"
-
-#include "mozilla/Components.h"
-#include "mozilla/dom/Document.h"
-#include "mozilla/FlowMarkers.h"
-#include "mozilla/OriginAttributes.h"
-#include "mozilla/Preferences.h"
-#include "mozilla/SchedulerGroup.h"
-#include "mozilla/StaticPrefs_network.h"
-#include "mozilla/glean/NetwerkMetrics.h"
-#include "mozilla/glean/GleanPings.h"
-
-#include "mozilla/net/NeckoCommon.h"
-#include "mozilla/net/NeckoParent.h"
-#include "mozilla/net/NeckoChild.h"
-#include "mozilla/net/URLPatternGlue.h"
-#include "mozilla/net/urlpattern_glue.h"
-
-#include "LoadContextInfo.h"
-#include "mozilla/ipc/URIUtils.h"
-#include "SerializedLoadContext.h"
-
-#include "mozilla/dom/ContentParent.h"
-#include "mozilla/dom/InternalRequest.h"
-#include "mozilla/ClearOnShutdown.h"
-
-#include "ReferrerInfo.h"
 
 using namespace mozilla;
 
@@ -107,7 +102,14 @@ DictionaryCacheEntry::~DictionaryCacheEntry() {
       ("Destroyed DictionaryCacheEntry %p, uri=%s, pattern=%s, id=%s", this,
        mURI.get(), mPattern.get(), mId.get()));
   if (mCachedPattern.isSome()) {
-    urlpattern_pattern_free(mCachedPattern.ref());
+    if (NS_IsMainThread()) {
+      urlpattern_pattern_free(mCachedPattern.ref());
+    } else {
+      UrlPatternGlue pattern = mCachedPattern.ref();
+      NS_DispatchToMainThread(NS_NewRunnableFunction(
+          "DictionaryCacheEntry::FreeCachedPattern",
+          [pattern]() { urlpattern_pattern_free(pattern); }));
+    }
   }
 }
 
@@ -255,9 +257,9 @@ void DictionaryCacheEntry::CallbackOnCacheRead(
 
 const Vector<uint8_t>& DictionaryCacheEntry::GetDictionary() const
     MOZ_NO_THREAD_SAFETY_ANALYSIS {
-  MOZ_ASSERT(NS_IsMainThread());
-  // Safe to return without lock: data is immutable after completion
-  // and only accessed on MainThread
+  // May be called off main thread when the channel has been retargeted.
+  // Safe because mDictionaryData is immutable after mDictionaryDataComplete.
+  MOZ_ASSERT(mDictionaryDataComplete);
   return mDictionaryData;
 }
 
@@ -268,7 +270,7 @@ void DictionaryCacheEntry::ClearDataForTesting() {
 }
 
 uint8_t* DictionaryCacheEntry::DictionaryData(size_t* aLength) const {
-  MOZ_ASSERT(NS_IsMainThread());
+  MOZ_ASSERT(mDictionaryDataComplete);
   *aLength = mDictionaryData.length();
   return (uint8_t*)mDictionaryData.begin();
 }
@@ -360,7 +362,13 @@ nsresult DictionaryCacheEntry::Prefetch(
 }
 
 void DictionaryCacheEntry::AccumulateHash(const char* aBuf, int32_t aCount) {
-  MOZ_ASSERT(NS_IsMainThread());
+  // Called from CacheFileOutputStream::Write, which may run on a non-main
+  // thread when the channel's delivery has been retargeted (e.g. by
+  // FetchDriver). Safe because during the save phase, mCrypto, mHash, and
+  // mDictionaryData are only accessed sequentially from the write path.
+  // No concurrent access occurs: mHash is empty (not yet computed),
+  // mDictionaryData is empty (not yet loaded), and mCrypto is only used
+  // by AccumulateHash/FinishHash which are called sequentially.
   if (!mHash.IsEmpty()) {
     if (!mDictionaryData.empty()) {
       // We have data from the cache.... but if we change the hash there will
@@ -395,28 +403,61 @@ void DictionaryCacheEntry::AccumulateHash(const char* aBuf, int32_t aCount) {
     rv = mCrypto->Init(nsICryptoHash::SHA256);
     NS_WARNING_ASSERTION(NS_SUCCEEDED(rv), "Cache InitCrypto failed");
   }
+  // Detect if we're hashing compressed data — the cache should store
+  // decompressed dictionary bytes.
+  if (MOZ_UNLIKELY(MOZ_LOG_TEST(gDictionaryLog, mozilla::LogLevel::Debug))) {
+    if (dataLen == 0 && aCount >= 2) {
+      const uint8_t* bytes = reinterpret_cast<const uint8_t*>(aBuf);
+      if (bytes[0] == GZIP_MAGIC_0 && bytes[1] == GZIP_MAGIC_1) {
+        DICTIONARY_LOG((
+            "**** WARNING: AccumulateHash for %s starts with gzip magic bytes! "
+            "Data may be stored compressed instead of decompressed.",
+            mURI.get()));
+      } else if (bytes[0] == BROTLI_BYTE_0 && bytes[1] == BROTLI_BYTE_1) {
+        // brotli has no fixed magic, but 0xceb2 is common for shared brotli
+        // dict
+        DICTIONARY_LOG(
+            ("*** NOTE: AccumulateHash likely brotli for %s", mURI.get()));
+      }
+    }
+  }
   mCrypto->Update(reinterpret_cast<const uint8_t*>(aBuf), aCount);
   DICTIONARY_LOG(
       ("Accumulate Hash %p: %d bytes, total %zu", this, aCount, dataLen));
 }
 
 void DictionaryCacheEntry::FinishHash() {
-  MOZ_ASSERT(NS_IsMainThread());
+  // May be called off main thread when channel delivery is retargeted.
+  // Hash computation is safe off-thread; origin operations are dispatched.
   if (mCrypto) {
     mCrypto->Finish(true, mHash);
     mCrypto = nullptr;
     DICTIONARY_LOG(("Hash for %p (%s) is %s", this, mURI.get(), mHash.get()));
     if (mOrigin) {
-      DICTIONARY_LOG(("Write on hash"));
-      // This will also move us from mPendingEntries to mEntries
-      if (NS_FAILED(mOrigin->Write(this))) {
-        mOrigin->RemoveEntry(this);
-        return;
-      }
-      if (!mBlocked) {
-        mOrigin->FinishAddEntry(this);
+      if (NS_IsMainThread()) {
+        FinishHashOnMainThread();
+      } else {
+        NS_DispatchToMainThread(NewRunnableMethod(
+            "DictionaryCacheEntry::FinishHashOnMainThread", this,
+            &DictionaryCacheEntry::FinishHashOnMainThread));
       }
     }
+  }
+}
+
+void DictionaryCacheEntry::FinishHashOnMainThread() {
+  MOZ_ASSERT(NS_IsMainThread());
+  RefPtr<DictionaryOrigin> origin = std::move(mOrigin);
+  if (!origin) {
+    return;
+  }
+  DICTIONARY_LOG(("Write on hash"));
+  if (NS_FAILED(origin->Write(this))) {
+    origin->RemoveEntry(this);
+    return;
+  }
+  if (!mBlocked) {
+    origin->FinishAddEntry(this);
   }
 }
 
@@ -660,6 +701,25 @@ DictionaryCacheEntry::OnStopRequest(nsIRequest* request, nsresult result) {
     pendingData = std::move(mPendingDictionaryData);
   }
 
+  // Check if loaded data looks compressed (gzip/zstd magic bytes)
+  if (MOZ_UNLIKELY(MOZ_LOG_TEST(gDictionaryLog, mozilla::LogLevel::Debug))) {
+    if (NS_SUCCEEDED(result) && pendingData.length() >= 4) {
+      const uint8_t* b = pendingData.begin();
+      if (b[0] == GZIP_MAGIC_0 && b[1] == GZIP_MAGIC_1) {
+        DICTIONARY_LOG(
+            ("WARNING: Prefetched dictionary data for %s starts with gzip "
+             "magic! length=%zu. Cache stored compressed data.",
+             mURI.get(), pendingData.length()));
+      } else if (b[0] == ZSTD_MAGIC_0 && b[1] == ZSTD_MAGIC_1 &&
+                 b[2] == ZSTD_MAGIC_2 && b[3] == ZSTD_MAGIC_3) {
+        DICTIONARY_LOG(
+            ("WARNING: Prefetched dictionary data for %s starts with zstd "
+             "magic! length=%zu. Cache stored compressed data.",
+             mURI.get(), pendingData.length()));
+      }
+    }
+  }
+
   // Calculate hash of loaded data (can be done off-thread)
   if (NS_SUCCEEDED(result) && !pendingData.empty()) {
     nsCOMPtr<nsICryptoHash> hasher =
@@ -675,7 +735,7 @@ DictionaryCacheEntry::OnStopRequest(nsIRequest* request, nsresult result) {
   // Dispatch to main thread to compare hash and install validated data
   nsCOMPtr<nsIRunnable> runnable = NS_NewRunnableFunction(
       "DictionaryCacheEntry::OnStopRequest",
-      [self = RefPtr{this}, result, computedHash,
+      [self = RefPtr{this}, result, computedHash = std::move(computedHash),
        pendingData = std::move(pendingData)]() mutable {
         nsresult finalResult = result;
         bool shouldRemoveDictionary = false;
@@ -686,6 +746,30 @@ DictionaryCacheEntry::OnStopRequest(nsIRequest* request, nsresult result) {
             DICTIONARY_LOG(("Hash mismatch for %s: expected %s, computed %s",
                             self->mURI.get(), self->mHash.get(),
                             computedHash.get()));
+            // Log stored Content-Encoding from cache metadata — if non-empty,
+            // the dictionary was stored compressed (decompressor not applied)
+            if (MOZ_UNLIKELY(
+                    MOZ_LOG_TEST(gDictionaryLog, mozilla::LogLevel::Debug))) {
+              if (!self->mStoredContentEncoding.IsEmpty()) {
+                DICTIONARY_LOG(
+                    ("Hash mismatch: stored Content-Encoding was '%s' — "
+                     "data is compressed!",
+                     self->mStoredContentEncoding.get()));
+              }
+              // Log first bytes to detect compression format
+              if (pendingData.length() >= 4) {
+                const uint8_t* b = pendingData.begin();
+                DICTIONARY_LOG(
+                    ("Hash mismatch data: first bytes 0x%02x 0x%02x 0x%02x "
+                     "0x%02x, length %zu %s",
+                     b[0], b[1], b[2], b[3], pendingData.length(),
+                     (b[0] == 0x1f && b[1] == 0x8b) ? "(GZIP!)"
+                     : (b[0] == 0x28 && b[1] == 0xb5 && b[2] == 0x2f &&
+                        b[3] == 0xfd)
+                         ? "(ZSTD!)"
+                         : ""));
+              }
+            }
             // Report to OHTTP ping with dictionary URI's ETLD+1
             // Only send if at least one waiting request is NOT in private
             // browsing
@@ -724,6 +808,12 @@ DictionaryCacheEntry::OnStopRequest(nsIRequest* request, nsresult result) {
             self->mDictionaryData = std::move(pendingData);
             self->mDictionaryDataComplete = true;
           }
+        }
+
+        if (NS_SUCCEEDED(finalResult) && !self->mDictionaryDataComplete) {
+          DICTIONARY_LOG(("Zero-byte cache entry for %s", self->mURI.get()));
+          finalResult = NS_ERROR_FAILURE;
+          shouldRemoveDictionary = true;
         }
 
         self->CleanupOnCacheData(finalResult);
@@ -780,21 +870,72 @@ DictionaryCacheEntry::OnCacheEntryAvailable(nsICacheEntry* entry, bool isNew,
   DICTIONARY_LOG(("OnCacheEntryAvailable %p, result %u, entry %p", this,
                   (uint32_t)status, entry));
   if (entry) {
+    if (MOZ_UNLIKELY(MOZ_LOG_TEST(gDictionaryLog, mozilla::LogLevel::Debug))) {
+      // Check if the cache entry still has Content-Encoding in its stored
+      // response headers. If so, the data on disk is likely still compressed
+      // (the decompressor wasn't applied before saving).
+      nsCString responseHead;
+      if (NS_SUCCEEDED(entry->GetMetaDataElement(
+              "response-head", getter_Copies(responseHead)))) {
+        // Extract Content-Encoding value from stored response headers
+        auto ceStart = responseHead.Find("Content-Encoding:"_ns);
+        if (ceStart != kNotFound) {
+          auto valueStart = ceStart + 17;  // strlen("Content-Encoding:")
+          auto lineEnd = responseHead.FindChar('\n', valueStart);
+          if (lineEnd == kNotFound) {
+            lineEnd = responseHead.Length();
+          }
+          mStoredContentEncoding =
+              Substring(responseHead, valueStart, lineEnd - valueStart);
+          mStoredContentEncoding.Trim(" \t\r");
+          DICTIONARY_LOG(
+              ("WARNING: Cache entry for dictionary %s has stored "
+               "Content-Encoding: '%s'. Data is likely compressed!",
+               mURI.get(), mStoredContentEncoding.get()));
+        }
+      }
+    }
+
     nsCOMPtr<nsIInputStream> stream;
     entry->OpenInputStream(0, getter_AddRefs(stream));
     if (!stream) {
+      DICTIONARY_LOG(("OpenInputStream failed for %s", mURI.get()));
+      nsCOMPtr<nsIRunnable> runnable = NS_NewRunnableFunction(
+          "DictionaryCacheEntry::OnCacheEntryAvailable",
+          [self = RefPtr{this}]() {
+            self->CleanupOnCacheData(NS_ERROR_FAILURE);
+            DictionaryCache::RemoveDictionary(self->mURI);
+          });
+      NS_DispatchToMainThread(runnable);
       return NS_OK;
     }
 
+    // nsInputStreamPump supports off-main-thread use: when constructed
+    // off-thread it sets mOffMainThread and targets the calling thread's
+    // serial event target, so callbacks fire on whatever thread calls
+    // AsyncRead.
     RefPtr<nsInputStreamPump> pump;
     nsresult rv = nsInputStreamPump::Create(getter_AddRefs(pump), stream);
     if (NS_FAILED(rv)) {
-      return NS_OK;  // just ignore
+      DICTIONARY_LOG(("nsInputStreamPump::Create failed for %s", mURI.get()));
+      NS_DispatchToMainThread(NS_NewRunnableFunction(
+          "DictionaryCacheEntry::OnCacheEntryAvailable",
+          [self = RefPtr{this}]() {
+            self->CleanupOnCacheData(NS_ERROR_FAILURE);
+            DictionaryCache::RemoveDictionary(self->mURI);
+          }));
+      return NS_OK;
     }
-
     rv = pump->AsyncRead(this);
     if (NS_FAILED(rv)) {
-      return NS_OK;  // just ignore
+      DICTIONARY_LOG(("AsyncRead failed for %s", mURI.get()));
+      NS_DispatchToMainThread(NS_NewRunnableFunction(
+          "DictionaryCacheEntry::OnCacheEntryAvailable",
+          [self = RefPtr{this}]() {
+            self->CleanupOnCacheData(NS_ERROR_FAILURE);
+            DictionaryCache::RemoveDictionary(self->mURI);
+          }));
+      return NS_OK;
     }
     DICTIONARY_LOG(("Waiting for data"));
   } else {
@@ -1462,10 +1603,15 @@ void DictionaryOrigin::SetCacheEntry(nsICacheEntry* aEntry) {
   mEntry = aEntry;
   mEntry->SetContentType(nsICacheEntry::CONTENT_TYPE_DICTIONARY);
   if (mDeferredWrites) {
+    // RemoveEntry() mutates mEntries, so defer removals.
+    DictCacheList remove;
     for (auto& entry : mEntries) {
       if (NS_FAILED(Write(entry))) {
-        RemoveEntry(entry);
+        remove.AppendElement(entry);
       }
+    }
+    for (auto& entry : remove) {
+      RemoveEntry(entry);
     }
   }
   mDeferredWrites = false;

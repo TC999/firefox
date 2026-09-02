@@ -880,10 +880,29 @@ void DisplayPortUtils::SetZeroMarginDisplayPortOnAsyncScrollableAncestors(
 
 bool DisplayPortUtils::MaybeCreateDisplayPortInFirstScrollFrameEncountered(
     nsIFrame* aFrame, nsDisplayListBuilder* aBuilder) {
-  // Don't descend into the tab bar in chrome, it can be very large and does not
-  // contain any async scrollable elements.
+  // Don't descend into the tab bar in chrome, it can be very large. The only
+  // async scrollable element it contains is its own scroll container, which
+  // arrowscrollbox.js puts directly inside the host, so we can give that a
+  // displayport without ever walking the tabs inside it. See also the comment
+  // in navigator-toolbox.inc.xhtml.
+  //
+  // Once bug 1970536 gives the horizontal strip a scroll container too, the
+  // code below will find the scroller on its own whenever the strip is
+  // overflowing, and this may be able to go away.
   if (XRE_IsParentProcess() && aFrame->GetContent() &&
       aFrame->GetContent()->GetID() == nsGkAtoms::tabbrowser_arrowscrollbox) {
+    for (nsIFrame* child : aFrame->PrincipalChildList()) {
+      if (!child->IsScrollContainerOrSubclass()) {
+        continue;
+      }
+      ScrollContainerFrame* sf = static_cast<ScrollContainerFrame*>(child);
+      if (MaybeCreateDisplayPort(aBuilder, sf, RepaintMode::Repaint)) {
+        // See the comment on the same call below.
+        sf->SetIsFirstScrollableFrameSequenceNumber(
+            Some(nsDisplayListBuilder::GetPaintSequenceNumber()));
+        return true;
+      }
+    }
     return false;
   }
   if (aFrame->IsScrollContainerOrSubclass()) {
@@ -1258,12 +1277,8 @@ const ActiveScrolledRoot* DisplayPortUtils::ActivateDisplayportOnASRAncestors(
              : FrameAndASRKind::default_value()) ==
         GetASRAncestorFrame(OneStepInASRChain(asrFrame, aBuilder), aBuilder));
 
-    asr = (asrFrame.mASRKind == ActiveScrolledRoot::ASRKind::Scroll)
-              ? aBuilder->GetOrCreateActiveScrolledRoot(
-                    asr, static_cast<ScrollContainerFrame*>(
-                             do_QueryFrame(asrFrame.mFrame)))
-              : aBuilder->GetOrCreateActiveScrolledRootForSticky(
-                    asr, asrFrame.mFrame);
+    asr = aBuilder->GetOrCreateActiveScrolledRoot(asr, asrFrame.mFrame,
+                                                  asrFrame.mASRKind);
   }
   return asr;
 }

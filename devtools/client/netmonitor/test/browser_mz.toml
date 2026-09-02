@@ -15,6 +15,7 @@ support-files = [
   "html_zstd-test-page.html",
   "html_image-tooltip-test-page.html",
   "html_cache-test-page.html",
+  "html_cache-test-page-js.html",
   "html_cors-test-page.html",
   "html_csp-frame-test-page.html",
   "html_csp-resend-test-page.html",
@@ -57,6 +58,8 @@ support-files = [
   "html_send-beacon.html",
   "html_send-beacon-late-iframe-request.html",
   "html_sorting-test-page.html",
+  "html_speculation-rules.html",
+  "html_speculation-rules_subpage.html",
   "html_statistics-edge-case-page.html",
   "html_statistics-test-page.html",
   "html_status-codes-test-page.html",
@@ -69,6 +72,8 @@ support-files = [
   "html_image-cache.html",
   "html_script-cache.html",
   "html_stylesheet-cache.html",
+  "js_cache-test.js",
+  "js_cache-test2.js",
   "js_worker-test.js",
   "js_worker-test2.js",
   "network-overrides-test-helpers.js",
@@ -106,7 +111,6 @@ support-files = [
   "xhr_original.js",
   "!/devtools/client/debugger/test/mochitest/shared-head.js",
   "!/devtools/client/shared/test/shared-head.js",
-  "!/devtools/client/shared/test/telemetry-test-helpers.js",
   "!/devtools/client/webconsole/test/browser/shared-head.js",
 ]
 
@@ -129,6 +133,8 @@ skip-if = [
 fail-if = [
   "a11y_checks", # Bug 1849028 clicked element may not be focusable and/or labeled
 ]
+
+["browser_net_overrides_with_styleeditor.js"]
 
 ["browser_net_pane-collapse.js"]
 
@@ -159,6 +165,9 @@ skip-if = [
 ["browser_net_prefs-and-l10n.js"]
 
 ["browser_net_prefs-reload.js"]
+fail-if = [
+  "a11y_checks", # Bug 1860733 splitter element is not focusable
+]
 
 ["browser_net_raw_headers.js"]
 
@@ -170,9 +179,9 @@ skip-if = [
 
 ["browser_net_req-resp-bodies.js"]
 
-["browser_net_requests_with_empty_response.js"]
-
 ["browser_net_requests-keep-alive.js"]
+
+["browser_net_requests_with_empty_response.js"]
 
 ["browser_net_response_CORS_blocked.js"]
 
@@ -245,13 +254,21 @@ skip-if = [
 
 ["browser_net_sort-reset.js"]
 
+["browser_net_speculation-rules-prefetch-requests.js"]
+
 ["browser_net_sse-basic.js"]
+
+["browser_net_stacktraces-cached.js"]
 
 ["browser_net_stacktraces-no-chrome-frames.js"]
 
 ["browser_net_stacktraces-visibility.js"]
 
 ["browser_net_statistics-01.js"]
+skip-if = [
+  "os == 'win' && os_version == '11.26100' && arch == 'x86_64'", # Bug 2026850
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64'", # Bug 2026850
+]
 
 ["browser_net_statistics-02.js"]
 skip-if = [
@@ -259,6 +276,10 @@ skip-if = [
 ]
 
 ["browser_net_statistics-content.js"]
+skip-if = [
+  "os == 'win' && os_version == '11.26100' && arch == 'x86_64'", # Bug 1982005
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64'", # Bug 1982005
+]
 
 ["browser_net_statistics-edge-case.js"]
 

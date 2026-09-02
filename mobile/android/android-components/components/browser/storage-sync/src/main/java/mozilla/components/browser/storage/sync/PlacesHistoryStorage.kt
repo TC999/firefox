@@ -31,8 +31,6 @@ import mozilla.components.concept.storage.VisitInfo
 import mozilla.components.concept.storage.VisitType
 import mozilla.components.concept.storage.constraints
 import mozilla.components.concept.storage.periodicStorageWorkRequest
-import mozilla.components.concept.sync.SyncAuthInfo
-import mozilla.components.concept.sync.SyncStatus
 import mozilla.components.concept.sync.SyncableStore
 import mozilla.components.concept.toolbar.AutocompleteProvider
 import mozilla.components.concept.toolbar.AutocompleteResult
@@ -41,25 +39,19 @@ import mozilla.components.support.utils.segmentAwareDomainMatch
 
 private const val AUTOCOMPLETE_SOURCE_NAME = "placesHistory"
 
-/**
- * Implementation of the [HistoryStorage] which is backed by a Rust Places lib via [PlacesApi].
- */
+/** Implementation of the [HistoryStorage] which is backed by a Rust Places lib via [PlacesApi]. */
 @Suppress("TooManyFunctions", "LargeClass")
 open class PlacesHistoryStorage(
     private val context: Context,
     crashReporter: CrashReporting? = null,
     override val autocompletePriority: Int = 0,
-) : PlacesStorage(context, crashReporter),
-    HistoryStorage,
-    HistoryMetadataStorage,
-    SyncableStore,
-    AutocompleteProvider {
+    private val currentTimeMillis: () -> Long = { System.currentTimeMillis() },
+) : PlacesStorage(context, crashReporter), HistoryStorage, HistoryMetadataStorage, SyncableStore, AutocompleteProvider {
     /**
-     * Separate reader used only for autocomplete suggestions allowing to decouple this functionality
-     * from the history suggestions feature and independent reader management.
+     * Separate reader used only for autocomplete suggestions allowing to decouple this functionality from the history
+     * suggestions feature and independent reader management.
      */
-    @VisibleForTesting
-    internal val autocompleteReader: PlacesReaderConnection by lazy { places.newReader() }
+    @VisibleForTesting internal val autocompleteReader: PlacesReaderConnection by lazy { places.newReader() }
 
     override val logger = Logger("PlacesHistoryStorage")
 
@@ -70,14 +62,16 @@ open class PlacesHistoryStorage(
         }
         withContext(writeScope.coroutineContext) {
             handlePlacesExceptions("recordVisit") {
-                places.writer().noteObservation(
-                    VisitObservation(
-                        uri,
-                        visitType = visit.visitType.into(),
-                        isRedirectSource = visit.redirectSource != null,
-                        isPermanentRedirectSource = visit.redirectSource == RedirectSource.PERMANENT,
-                    ),
-                )
+                places
+                    .writer()
+                    .noteObservation(
+                        VisitObservation(
+                            uri,
+                            visitType = visit.visitType.into(),
+                            isRedirectSource = visit.redirectSource != null,
+                            isPermanentRedirectSource = visit.redirectSource == RedirectSource.PERMANENT,
+                        )
+                    )
             }
         }
     }
@@ -92,14 +86,16 @@ open class PlacesHistoryStorage(
             // Ignore exceptions related to uris. This means we may drop some of the data on the floor
             // if the underlying storage layer refuses it.
             handlePlacesExceptions("recordObservation") {
-                places.writer().noteObservation(
-                    VisitObservation(
-                        url = uri,
-                        visitType = null,
-                        title = observation.title,
-                        previewImageUrl = observation.previewImageUrl,
-                    ),
-                )
+                places
+                    .writer()
+                    .noteObservation(
+                        VisitObservation(
+                            url = uri,
+                            visitType = null,
+                            title = observation.title,
+                            previewImageUrl = observation.previewImageUrl,
+                        )
+                    )
             }
         }
     }
@@ -115,11 +111,13 @@ open class PlacesHistoryStorage(
     override suspend fun getVisited(): List<String> {
         return withContext(readScope.coroutineContext) {
             handlePlacesExceptions("getVisited", default = emptyList()) {
-                places.reader().getVisitedUrlsInRange(
-                    start = 0,
-                    end = System.currentTimeMillis(),
-                    includeRemote = true,
-                )
+                places
+                    .reader()
+                    .getVisitedUrlsInRange(
+                        start = 0,
+                        end = currentTimeMillis(),
+                        includeRemote = true,
+                    )
             }
         }
     }
@@ -150,8 +148,7 @@ open class PlacesHistoryStorage(
 
         return withContext(readScope.coroutineContext) {
             handlePlacesExceptions("getTopFrecentSites", default = emptyList()) {
-                places.reader().getTopFrecentSiteInfos(numItems, frecencyThreshold.into())
-                    .map { it.into() }
+                places.reader().getTopFrecentSiteInfos(numItems, frecencyThreshold.into()).map { it.into() }
             }
         }
     }
@@ -166,10 +163,11 @@ open class PlacesHistoryStorage(
     }
 
     override suspend fun getAutocompleteSuggestion(query: String): AutocompleteResult? {
-        val url = handlePlacesExceptions("getAutoCompleteSuggestions", default = null) {
-            autocompleteReader.interrupt()
-            autocompleteReader.matchUrl(query)
-        } ?: return null
+        val url =
+            handlePlacesExceptions("getAutoCompleteSuggestions", default = null) {
+                autocompleteReader.interrupt()
+                autocompleteReader.matchUrl(query)
+            } ?: return null
 
         val resultText = segmentAwareDomainMatch(query, arrayListOf(url))
         return resultText?.let {
@@ -184,8 +182,8 @@ open class PlacesHistoryStorage(
     }
 
     /**
-     * Sync behaviour: will not remove any history from remote devices, but it will prevent deleted
-     * history from returning.
+     * Sync behaviour: will not remove any history from remote devices, but it will prevent deleted history from
+     * returning.
      */
     override suspend fun deleteEverything() {
         withContext(writeScope.coroutineContext) {
@@ -195,10 +193,7 @@ open class PlacesHistoryStorage(
         }
     }
 
-    /**
-     * Sync behaviour: may remove history from remote devices, if the removed visits were the only
-     * ones for a URL.
-     */
+    /** Sync behaviour: may remove history from remote devices, if the removed visits were the only ones for a URL. */
     override suspend fun deleteVisitsSince(since: Long) {
         withContext(writeScope.coroutineContext) {
             handlePlacesExceptions("deleteVisitsSince") {
@@ -207,10 +202,7 @@ open class PlacesHistoryStorage(
         }
     }
 
-    /**
-     * Sync behaviour: may remove history from remote devices, if the removed visits were the only
-     * ones for a URL.
-     */
+    /** Sync behaviour: may remove history from remote devices, if the removed visits were the only ones for a URL. */
     override suspend fun deleteVisitsBetween(startTime: Long, endTime: Long) {
         withContext(writeScope.coroutineContext) {
             handlePlacesExceptions("deleteVisitsBetween") {
@@ -219,9 +211,7 @@ open class PlacesHistoryStorage(
         }
     }
 
-    /**
-     * Sync behaviour: will remove history from remote devices.
-     */
+    /** Sync behaviour: will remove history from remote devices. */
     override suspend fun deleteVisitsFor(url: String) {
         withContext(writeScope.coroutineContext) {
             handlePlacesExceptions("deleteVisitsFor") {
@@ -231,8 +221,8 @@ open class PlacesHistoryStorage(
     }
 
     /**
-     * Sync behaviour: will remove history from remote devices if this was the only visit for [url].
-     * Otherwise, remote devices are not affected.
+     * Sync behaviour: will remove history from remote devices if this was the only visit for [url]. Otherwise, remote
+     * devices are not affected.
      */
     override suspend fun deleteVisit(url: String, timestamp: Long) {
         withContext(writeScope.coroutineContext) {
@@ -243,36 +233,21 @@ open class PlacesHistoryStorage(
     }
 
     /**
-     * Enqueues a periodic storage maintenance worker to WorkManager that prunes database entries
-     * when it exceeds [PlacesHistoryStorageWorker.DB_SIZE_LIMIT_IN_BYTES].
+     * Enqueues a periodic storage maintenance worker to WorkManager that prunes database entries when it exceeds
+     * [PlacesHistoryStorageWorker.DB_SIZE_LIMIT_IN_BYTES].
      */
     override fun registerStorageMaintenanceWorker() {
-        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-            PlacesHistoryStorageWorker.UNIQUE_NAME,
-            ExistingPeriodicWorkPolicy.KEEP,
-            periodicStorageWorkRequest<PlacesHistoryStorageWorker>(
-                tag = PlacesHistoryStorageWorker.UNIQUE_NAME,
-            ) {
-                constraints {
-                    setRequiresBatteryNotLow(true)
-                    setRequiresDeviceIdle(true)
-                }
-            },
-        )
-    }
-
-    /**
-     * Runs syncHistory() method on the places Connection
-     *
-     * @param authInfo The authentication information to sync with.
-     * @return Sync status of OK or Error
-     */
-    suspend fun sync(authInfo: SyncAuthInfo): SyncStatus {
-        return withContext(writeScope.coroutineContext) {
-            syncAndHandleExceptions {
-                places.syncHistory(authInfo)
-            }
-        }
+        WorkManager.getInstance(context)
+            .enqueueUniquePeriodicWork(
+                PlacesHistoryStorageWorker.UNIQUE_NAME,
+                ExistingPeriodicWorkPolicy.KEEP,
+                periodicStorageWorkRequest<PlacesHistoryStorageWorker>(tag = PlacesHistoryStorageWorker.UNIQUE_NAME) {
+                    constraints {
+                        setRequiresBatteryNotLow(true)
+                        setRequiresDeviceIdle(true)
+                    }
+                },
+            )
     }
 
     override fun registerWithSyncManager() {
@@ -357,24 +332,25 @@ open class PlacesHistoryStorage(
     }
 
     private suspend fun deleteHistoryMetadata(
-        predicate: (mozilla.appservices.places.uniffi.HistoryMetadata) -> Boolean,
+        predicate: (mozilla.appservices.places.uniffi.HistoryMetadata) -> Boolean
     ) {
         // Ideally, we want this to live in A-S as a simple DELETE statement.
         // As-is, this isn't an atomic operation. For how we're using these data, both lack of
         // atomicity and a performance penalty is acceptable for now.
         withContext(writeScope.coroutineContext) {
             handlePlacesExceptions("deleteHistoryMetadata") {
-                places.reader().getHistoryMetadataSince(Long.MIN_VALUE)
-                    .filter(predicate)
-                    .forEach {
-                        places.writer().deleteHistoryMetadata(
+                places.reader().getHistoryMetadataSince(Long.MIN_VALUE).filter(predicate).forEach {
+                    places
+                        .writer()
+                        .deleteHistoryMetadata(
                             HistoryMetadataKey(
-                                url = it.url,
-                                searchTerm = it.searchTerm,
-                                referrerUrl = it.referrerUrl,
-                            ).into(),
+                                    url = it.url,
+                                    searchTerm = it.searchTerm,
+                                    referrerUrl = it.referrerUrl,
+                                )
+                                .into()
                         )
-                    }
+                }
             }
         }
     }
@@ -398,21 +374,22 @@ open class PlacesHistoryStorage(
             return true
         }
 
-        val schemasToIgnore = listOf(
-            "",
-            "about",
-            "imap",
-            "news",
-            "mailbox",
-            "moz-anno",
-            "moz-extension",
-            "view-source",
-            "chrome",
-            "resource",
-            "data",
-            "javascript",
-            "blob",
-        )
+        val schemasToIgnore =
+            listOf(
+                "",
+                "about",
+                "imap",
+                "news",
+                "mailbox",
+                "moz-anno",
+                "moz-extension",
+                "view-source",
+                "chrome",
+                "resource",
+                "data",
+                "javascript",
+                "blob",
+            )
 
         return !schemasToIgnore.contains(scheme)
     }

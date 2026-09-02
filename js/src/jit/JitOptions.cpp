@@ -74,9 +74,6 @@ DefaultJitOptions::DefaultJitOptions() {
   // RangeAnalysis results.
   SET_DEFAULT(checkRangeAnalysis, false);
 
-  // Toggles whether Alignment Mask Analysis is globally disabled.
-  SET_DEFAULT(disableAma, false);
-
   // Toggles whether Effective Address Analysis is globally disabled.
   SET_DEFAULT(disableEaa, false);
 
@@ -122,9 +119,6 @@ DefaultJitOptions::DefaultJitOptions() {
   // Toggles whether stubs with different offsets in Loads or Stores are folded.
   SET_DEFAULT(disableStubFoldingLoadsAndStores, false);
 
-  // Toggles whether sink code motion is globally disabled.
-  SET_DEFAULT(disableSink, true);
-
   // Toggles whether redundant shape guard elimination is globally disabled.
   SET_DEFAULT(disableRedundantShapeGuards, false);
 
@@ -139,6 +133,9 @@ DefaultJitOptions::DefaultJitOptions() {
 
   // Whether replacing Object.keys with NativeIterators is globally disabled.
   SET_DEFAULT(disableObjectKeysScalarReplacement, false);
+
+  // Toggles whether CanonicalizeNaN pass is globally disabled.
+  SET_DEFAULT(disableCanonicalizeNaNAtUses, true);
 
 #ifdef ENABLE_PORTABLE_BASELINE_INTERP
   // Whether the Portable Baseline Interpreter is enabled.
@@ -383,10 +380,16 @@ DefaultJitOptions::DefaultJitOptions() {
   SET_DEFAULT(trace_regexp_parser, false);
   // Dumps the calls made to the regexp assembler to stderr
   SET_DEFAULT(trace_regexp_assembler, false);
+  // Dumps information about regexp compilation to stderr
+  SET_DEFAULT(trace_regexp_compiler, false);
+  // Dumps information about regexp compilation to stderr
+  SET_DEFAULT(trace_regexp_graph_building, false);
   // Dumps the bytecodes interpreted by the regexp engine to stderr
   SET_DEFAULT(trace_regexp_bytecodes, false);
   // Dumps the changes made by the regexp peephole optimizer to stderr
   SET_DEFAULT(trace_regexp_peephole_optimization, false);
+  // Whether regexp logs should include terminal colour codes.
+  SET_DEFAULT(log_colour, false);
 
   // ***** Irregexp shim flags *****
 
@@ -394,11 +397,13 @@ DefaultJitOptions::DefaultJitOptions() {
   SET_DEFAULT(js_regexp_modifiers, true);
   // Whether the stage 3 duplicate named capture groups proposal is enabled.
   SET_DEFAULT(js_regexp_duplicate_named_groups, true);
+  // Whether the regexp buffer boundaries proposal (\A, \z, \Z assertions) is
+  // enabled. See Bug 2047702.
+  SET_DEFAULT(js_regexp_buffer_boundaries, false);
   // V8 uses this for differential fuzzing to handle stack overflows.
   // We address the same problem in StackLimitCheck::HasOverflowed.
   SET_DEFAULT(correctness_fuzzer_suppressions, false);
-  // Instead of using a flag for this, we provide an implementation of
-  // CanReadUnaligned in SMRegExpMacroAssembler.
+  // This is set in InitializeJit based on supportsUnalignedAccesses.
   SET_DEFAULT(enable_regexp_unaligned_accesses, false);
   // This is used to guard an old prototype implementation of possessive
   // quantifiers, which never got past the point of adding parser support.
@@ -408,6 +413,17 @@ DefaultJitOptions::DefaultJitOptions() {
   // example, if a regexp is too long - so we might as well turn these
   // flags on unconditionally.
   SET_DEFAULT(regexp_optimization, true);
+  SET_DEFAULT(regexp_masked_dispatch, true);
+  SET_DEFAULT(regexp_simd_in_rc, true);
+  // These can be used to disable some optimizations that simplify regexps.
+  // V8 uses them for fuzzing (similar to --ion-gvn=off.)
+  SET_DEFAULT(regexp_quick_check, true);
+  SET_DEFAULT(regexp_unroll, true);
+  // V8 has an experimental bytecode analysis. It doesn't do anything yet.
+  SET_DEFAULT(regexp_bytecode_analysis, false);
+  SET_DEFAULT(trace_regexp_bytecode_analysis, false);
+  // This enables some slower irregexp asserts (only in debug builds).
+  SET_DEFAULT(enable_slow_asserts, true);
   // peephole optimization only supported for little endian
   SET_DEFAULT(regexp_peephole_optimization,
               std::endian::native == std::endian::little);

@@ -199,13 +199,14 @@ class MegamorphicCache {
   // Generation counter used to invalidate all entries.
   uint16_t generation_ = 0;
 
-  // NOTE: this logic is mirrored in MacroAssembler::emitMegamorphicCacheLookup
+  // NOTE: this logic is mirrored in
+  // MacroAssembler::emitMegamorphicCacheLookupByValueCommon
   Entry& getEntry(Shape* shape, PropertyKey key) {
     static_assert(std::has_single_bit(NumEntries),
                   "NumEntries must be a power-of-two for fast modulo");
     uintptr_t hash = uintptr_t(shape) >> ShapeHashShift1;
-    hash ^= uintptr_t(shape) >> ShapeHashShift2;
     hash += HashAtomOrSymbolPropertyKey(key);
+    hash ^= uintptr_t(shape) >> ShapeHashShift2;
     return entries_[hash % NumEntries];
   }
 
@@ -267,7 +268,11 @@ class MegamorphicCache {
 
 class MegamorphicSetPropCacheEntry {
   Shape* beforeShape_ = nullptr;
-  Shape* afterShape_ = nullptr;
+
+  // The shape of the object after adding the property, or nullptr if we're
+  // setting an existing property. We low-bit tag this to indicate whether we
+  // should call preserveWrapper on this object when we change its shape.
+  uintptr_t taggedAfterShape_ = 0;
 
   // The atom or symbol property being accessed.
   PropertyKey key_;
@@ -284,24 +289,32 @@ class MegamorphicSetPropCacheEntry {
   friend class MegamorphicSetPropCache;
 
  public:
+  static constexpr uintptr_t ShouldPreserveBit = 0x1;
+
   void init(Shape* beforeShape, Shape* afterShape, PropertyKey key,
             uint16_t generation, TaggedSlotOffset slotOffset,
-            uint16_t newCapacity) {
+            uint16_t newCapacity, bool shouldPreserve) {
+    MOZ_ASSERT_IF(shouldPreserve, afterShape);
+
     beforeShape_ = beforeShape;
-    afterShape_ = afterShape;
+    taggedAfterShape_ = reinterpret_cast<uintptr_t>(afterShape) |
+                        (shouldPreserve ? ShouldPreserveBit : 0);
     key_ = key;
     slotOffset_ = slotOffset;
     newCapacity_ = newCapacity;
     generation_ = generation;
   }
   TaggedSlotOffset slotOffset() const { return slotOffset_; }
-  Shape* afterShape() const { return afterShape_; }
+  Shape* afterShape() const {
+    return reinterpret_cast<Shape*>(taggedAfterShape_ & ~ShouldPreserveBit);
+  }
+  bool shouldPreserve() const { return taggedAfterShape_ & ShouldPreserveBit; }
 
   static constexpr size_t offsetOfShape() {
     return offsetof(MegamorphicSetPropCacheEntry, beforeShape_);
   }
-  static constexpr size_t offsetOfAfterShape() {
-    return offsetof(MegamorphicSetPropCacheEntry, afterShape_);
+  static constexpr size_t offsetOfTaggedAfterShape() {
+    return offsetof(MegamorphicSetPropCacheEntry, taggedAfterShape_);
   }
 
   static constexpr size_t offsetOfKey() {
@@ -363,13 +376,15 @@ class MegamorphicSetPropCache {
     }
   }
   void set(Shape* beforeShape, Shape* afterShape, PropertyKey key,
-           TaggedSlotOffset slotOffset, uint32_t newCapacity) {
+           TaggedSlotOffset slotOffset, uint32_t newCapacity,
+           bool shouldPreserve) {
     uint16_t newSlots = (uint16_t)newCapacity;
     if (newSlots != newCapacity) {
       return;
     }
     Entry& entry = getEntry(beforeShape, key);
-    entry.init(beforeShape, afterShape, key, generation_, slotOffset, newSlots);
+    entry.init(beforeShape, afterShape, key, generation_, slotOffset, newSlots,
+               shouldPreserve);
   }
 
 #ifdef DEBUG
@@ -422,7 +437,7 @@ class StringToAtomCache {
   struct AtomTableKey {
     explicit AtomTableKey(const JS::Latin1Char* str, size_t len)
         : string_(str), length_(len) {
-      hash_ = mozilla::HashString(string_, length_);
+      hash_ = mozilla::HashLatin1AsUTF16(string_, length_);
     }
 
     const JS::Latin1Char* string_;

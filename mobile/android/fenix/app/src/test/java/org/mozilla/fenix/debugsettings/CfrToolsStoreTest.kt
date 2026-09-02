@@ -20,46 +20,14 @@ class CfrToolsStoreTest {
     @Test
     fun `WHEN the init action is dispatched THEN the state remains the same`() {
         val initialState = CfrToolsState()
-        val store = CfrToolsStore(
-            initialState = initialState,
-        )
+        val store = CfrToolsStore(initialState = initialState)
         store.dispatch(CfrToolsAction.Init)
         assertEquals(initialState, store.state)
     }
 
     @Test
-    fun `GIVEN the homepage searchbar CFR has been shown WHEN the homepage searchbar CFR is toggled THEN its preference is set to false`() {
-        val store = CfrToolsStore(
-            initialState = CfrToolsState(
-                homepageSearchBarShown = true,
-            ),
-        )
-
-        assertTrue(store.state.homepageSearchBarShown)
-        store.dispatch(CfrToolsAction.HomepageSearchBarShownToggled)
-        assertFalse(store.state.homepageSearchBarShown)
-    }
-
-    @Test
-    fun `GIVEN the homepage searchbar CFR has not been shown WHEN the homepage searchbar CFR is toggled THEN its preference is set to true`() {
-        val store = CfrToolsStore(
-            initialState = CfrToolsState(
-                homepageSearchBarShown = false,
-            ),
-        )
-
-        assertFalse(store.state.homepageSearchBarShown)
-        store.dispatch(CfrToolsAction.HomepageSearchBarShownToggled)
-        assertTrue(store.state.homepageSearchBarShown)
-    }
-
-    @Test
     fun `GIVEN the tab auto close banner CFR has been shown WHEN the tab auto close banner CFR is toggled THEN its preference is set to false`() {
-        val store = CfrToolsStore(
-            initialState = CfrToolsState(
-                tabAutoCloseBannerShown = true,
-            ),
-        )
+        val store = CfrToolsStore(initialState = CfrToolsState(tabAutoCloseBannerShown = true))
 
         assertTrue(store.state.tabAutoCloseBannerShown)
         store.dispatch(CfrToolsAction.TabAutoCloseBannerShownToggled)
@@ -68,11 +36,7 @@ class CfrToolsStoreTest {
 
     @Test
     fun `GIVEN the tab auto close banner CFR has not been shown WHEN the tab auto close banner CFR is toggled THEN its preference is set to true`() {
-        val store = CfrToolsStore(
-            initialState = CfrToolsState(
-                tabAutoCloseBannerShown = false,
-            ),
-        )
+        val store = CfrToolsStore(initialState = CfrToolsState(tabAutoCloseBannerShown = false))
 
         assertFalse(store.state.tabAutoCloseBannerShown)
         store.dispatch(CfrToolsAction.TabAutoCloseBannerShownToggled)
@@ -81,11 +45,7 @@ class CfrToolsStoreTest {
 
     @Test
     fun `GIVEN the inactive tabs CFR has been shown WHEN the inactive tabs CFR is toggled THEN its preference is set to false`() {
-        val store = CfrToolsStore(
-            initialState = CfrToolsState(
-                inactiveTabsShown = true,
-            ),
-        )
+        val store = CfrToolsStore(initialState = CfrToolsState(inactiveTabsShown = true))
 
         assertTrue(store.state.inactiveTabsShown)
         store.dispatch(CfrToolsAction.InactiveTabsShownToggled)
@@ -94,11 +54,7 @@ class CfrToolsStoreTest {
 
     @Test
     fun `GIVEN the inactive tabs CFR has not been shown WHEN the inactive tabs CFR is toggled THEN its preference is set to true`() {
-        val store = CfrToolsStore(
-            initialState = CfrToolsState(
-                inactiveTabsShown = false,
-            ),
-        )
+        val store = CfrToolsStore(initialState = CfrToolsState(inactiveTabsShown = false))
 
         assertFalse(store.state.inactiveTabsShown)
         store.dispatch(CfrToolsAction.InactiveTabsShownToggled)
@@ -107,11 +63,7 @@ class CfrToolsStoreTest {
 
     @Test
     fun `GIVEN the open in app CFR has been shown WHEN the open in app CFR is toggled THEN its preference is set to false`() {
-        val store = CfrToolsStore(
-            initialState = CfrToolsState(
-                openInAppShown = true,
-            ),
-        )
+        val store = CfrToolsStore(initialState = CfrToolsState(openInAppShown = true))
 
         assertTrue(store.state.openInAppShown)
         store.dispatch(CfrToolsAction.OpenInAppShownToggled)
@@ -120,11 +72,7 @@ class CfrToolsStoreTest {
 
     @Test
     fun `GIVEN the open in app CFR has not been shown WHEN the open in app CFR is toggled THEN its preference is set to true`() {
-        val store = CfrToolsStore(
-            initialState = CfrToolsState(
-                openInAppShown = false,
-            ),
-        )
+        val store = CfrToolsStore(initialState = CfrToolsState(openInAppShown = false))
 
         assertFalse(store.state.openInAppShown)
         store.dispatch(CfrToolsAction.OpenInAppShownToggled)
@@ -133,11 +81,7 @@ class CfrToolsStoreTest {
 
     @Test
     fun `GIVEN the PWA dialog CFR has been shown WHEN the PWA dialog CFR is toggled THEN its preference is set to false`() {
-        val store = CfrToolsStore(
-            initialState = CfrToolsState(
-                pwaShown = true,
-            ),
-        )
+        val store = CfrToolsStore(initialState = CfrToolsState(pwaShown = true))
 
         assertTrue(store.state.pwaShown)
         store.dispatch(CfrToolsAction.PwaShownToggled)
@@ -146,11 +90,7 @@ class CfrToolsStoreTest {
 
     @Test
     fun `GIVEN the PWA dialog CFR has not been shown WHEN the PWA dialog CFR is toggled THEN its preference is set to true`() {
-        val store = CfrToolsStore(
-            initialState = CfrToolsState(
-                pwaShown = false,
-            ),
-        )
+        val store = CfrToolsStore(initialState = CfrToolsState(pwaShown = false))
 
         assertFalse(store.state.pwaShown)
         store.dispatch(CfrToolsAction.PwaShownToggled)
@@ -167,38 +107,8 @@ class CfrToolsStoreTest {
     }
 
     @Test
-    fun `GIVEN the homepage searchbar CFR has not been shown WHEN the corresponding CfrPreferenceUpdate is dispatched THEN update its state to true`() {
-        val store = CfrToolsStore(
-            initialState = CfrToolsState(
-                homepageSearchBarShown = false,
-            ),
-        )
-
-        assertFalse(store.state.homepageSearchBarShown)
-        store.dispatch(CfrToolsAction.HomepageSearchbarCfrLoaded(true))
-        assertTrue(store.state.homepageSearchBarShown)
-    }
-
-    @Test
-    fun `GIVEN the homepage searchbar CFR has been shown WHEN the corresponding CfrPreferenceUpdate is dispatched THEN update its state to false`() {
-        val store = CfrToolsStore(
-            initialState = CfrToolsState(
-                homepageSearchBarShown = true,
-            ),
-        )
-
-        assertTrue(store.state.homepageSearchBarShown)
-        store.dispatch(CfrToolsAction.HomepageSearchbarCfrLoaded(false))
-        assertFalse(store.state.homepageSearchBarShown)
-    }
-
-    @Test
     fun `GIVEN the tab auto close banner CFR has not been shown WHEN the corresponding CfrPreferenceUpdate is dispatched THEN update its state to true`() {
-        val store = CfrToolsStore(
-            initialState = CfrToolsState(
-                tabAutoCloseBannerShown = false,
-            ),
-        )
+        val store = CfrToolsStore(initialState = CfrToolsState(tabAutoCloseBannerShown = false))
 
         assertFalse(store.state.tabAutoCloseBannerShown)
         store.dispatch(CfrToolsAction.TabAutoCloseBannerCfrLoaded(true))
@@ -207,11 +117,7 @@ class CfrToolsStoreTest {
 
     @Test
     fun `GIVEN the tab auto close banner CFR has been shown WHEN the corresponding CfrPreferenceUpdate is dispatched THEN update its state to false`() {
-        val store = CfrToolsStore(
-            initialState = CfrToolsState(
-                tabAutoCloseBannerShown = true,
-            ),
-        )
+        val store = CfrToolsStore(initialState = CfrToolsState(tabAutoCloseBannerShown = true))
 
         assertTrue(store.state.tabAutoCloseBannerShown)
         store.dispatch(CfrToolsAction.TabAutoCloseBannerCfrLoaded(false))
@@ -220,11 +126,7 @@ class CfrToolsStoreTest {
 
     @Test
     fun `GIVEN the inactive tabs CFR has not been shown WHEN the corresponding CfrPreferenceUpdate is dispatched THEN update its state to true`() {
-        val store = CfrToolsStore(
-            initialState = CfrToolsState(
-                inactiveTabsShown = false,
-            ),
-        )
+        val store = CfrToolsStore(initialState = CfrToolsState(inactiveTabsShown = false))
 
         assertFalse(store.state.inactiveTabsShown)
         store.dispatch(CfrToolsAction.InactiveTabsCfrLoaded(true))
@@ -233,11 +135,7 @@ class CfrToolsStoreTest {
 
     @Test
     fun `GIVEN the inactive tabs CFR has been shown WHEN the corresponding CfrPreferenceUpdate is dispatched THEN update its state to false`() {
-        val store = CfrToolsStore(
-            initialState = CfrToolsState(
-                inactiveTabsShown = true,
-            ),
-        )
+        val store = CfrToolsStore(initialState = CfrToolsState(inactiveTabsShown = true))
 
         assertTrue(store.state.inactiveTabsShown)
         store.dispatch(CfrToolsAction.InactiveTabsCfrLoaded(false))
@@ -246,11 +144,7 @@ class CfrToolsStoreTest {
 
     @Test
     fun `GIVEN the open in app CFR has not been shown WHEN the corresponding CfrPreferenceUpdate is dispatched THEN update its state to true`() {
-        val store = CfrToolsStore(
-            initialState = CfrToolsState(
-                openInAppShown = false,
-            ),
-        )
+        val store = CfrToolsStore(initialState = CfrToolsState(openInAppShown = false))
 
         assertFalse(store.state.openInAppShown)
         store.dispatch(CfrToolsAction.OpenInAppCfrLoaded(true))
@@ -259,11 +153,7 @@ class CfrToolsStoreTest {
 
     @Test
     fun `GIVEN the open in app CFR has been shown WHEN the corresponding CfrPreferenceUpdate is dispatched THEN update its state to false`() {
-        val store = CfrToolsStore(
-            initialState = CfrToolsState(
-                openInAppShown = true,
-            ),
-        )
+        val store = CfrToolsStore(initialState = CfrToolsState(openInAppShown = true))
 
         assertTrue(store.state.openInAppShown)
         store.dispatch(CfrToolsAction.OpenInAppCfrLoaded(false))
@@ -272,11 +162,7 @@ class CfrToolsStoreTest {
 
     @Test
     fun `GIVEN the PWA CFR has not been shown WHEN the corresponding CfrPreferenceUpdate is dispatched THEN update its state to true`() {
-        val store = CfrToolsStore(
-            initialState = CfrToolsState(
-                pwaShown = false,
-            ),
-        )
+        val store = CfrToolsStore(initialState = CfrToolsState(pwaShown = false))
 
         assertFalse(store.state.pwaShown)
         store.dispatch(CfrToolsAction.PwaCfrLoaded(true))
@@ -285,11 +171,7 @@ class CfrToolsStoreTest {
 
     @Test
     fun `GIVEN the PWA CFR has been shown WHEN the corresponding CfrPreferenceUpdate is dispatched THEN update its state to false`() {
-        val store = CfrToolsStore(
-            initialState = CfrToolsState(
-                pwaShown = true,
-            ),
-        )
+        val store = CfrToolsStore(initialState = CfrToolsState(pwaShown = true))
 
         assertTrue(store.state.pwaShown)
         store.dispatch(CfrToolsAction.PwaCfrLoaded(false))

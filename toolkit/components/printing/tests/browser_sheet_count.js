@@ -105,7 +105,7 @@ add_task(async function testSheetCountPageRange() {
       })
     );
 
-    await BrowserTestUtils.waitForCondition(
+    await TestUtils.waitForCondition(
       () => helper.sheetCount != 1,
       "Wait for sheet count to update"
     );
@@ -143,7 +143,7 @@ add_task(async function testSheetCountDuplex() {
         duplex: Ci.nsIPrintSettings.kDuplexNone,
       })
     );
-    await BrowserTestUtils.waitForCondition(
+    await TestUtils.waitForCondition(
       () => helper.sheetCount != 1,
       "Wait for sheet count to update"
     );
@@ -156,7 +156,7 @@ add_task(async function testSheetCountDuplex() {
         duplex: Ci.nsIPrintSettings.kDuplexFlipOnLongEdge,
       })
     );
-    await BrowserTestUtils.waitForCondition(
+    await TestUtils.waitForCondition(
       () => helper.sheetCount != singleSidedSheets,
       "Wait for sheet count to update"
     );
@@ -173,7 +173,7 @@ add_task(async function testSheetCountDuplex() {
         duplex: Ci.nsIPrintSettings.kDuplexNone,
       })
     );
-    await BrowserTestUtils.waitForCondition(
+    await TestUtils.waitForCondition(
       () => helper.sheetCount == singleSidedSheets,
       "Wait for sheet count to update"
     );
@@ -185,7 +185,7 @@ add_task(async function testSheetCountDuplex() {
         duplex: Ci.nsIPrintSettings.kDuplexFlipOnShortEdge,
       })
     );
-    await BrowserTestUtils.waitForCondition(
+    await TestUtils.waitForCondition(
       () => helper.sheetCount != singleSidedSheets,
       "Wait for sheet count to update"
     );
@@ -227,7 +227,7 @@ async function TestDuplexNumCopiesAtScale(scale) {
         duplex: Ci.nsIPrintSettings.kDuplexNone,
       })
     );
-    await BrowserTestUtils.waitForCondition(
+    await TestUtils.waitForCondition(
       () => helper.sheetCount != 1,
       "Wait for sheet count to update"
     );
@@ -239,7 +239,7 @@ async function TestDuplexNumCopiesAtScale(scale) {
         numCopies: 2,
       })
     );
-    await BrowserTestUtils.waitForCondition(
+    await TestUtils.waitForCondition(
       () => helper.sheetCount != singleSidedSheets,
       "Wait for sheet count to update"
     );
@@ -251,7 +251,7 @@ async function TestDuplexNumCopiesAtScale(scale) {
         duplex: Ci.nsIPrintSettings.kDuplexFlipOnLongEdge,
       })
     );
-    await BrowserTestUtils.waitForCondition(
+    await TestUtils.waitForCondition(
       () => helper.sheetCount != twoCopiesSheetCount,
       "Wait for sheet count to update"
     );
@@ -286,7 +286,7 @@ add_task(async function testPagesPerSheetCount() {
       })
     );
 
-    await BrowserTestUtils.waitForCondition(
+    await TestUtils.waitForCondition(
       () => helper.sheetCount != 1,
       "Wait for sheet count to update"
     );
@@ -307,7 +307,7 @@ add_task(async function testPagesPerSheetCount() {
 
     let numberMove = [...pagesPerSheet.options].map(o => o.value).indexOf("16");
 
-    if (!nativeSelectEnabled()) {
+    if (!selectPopup.isNativeMenu) {
       numberMove -= pagesPerSheet.selectedIndex;
 
       for (let i = 0; i < numberMove; i++) {
@@ -319,7 +319,7 @@ add_task(async function testPagesPerSheetCount() {
     }
 
     await helper.waitForPreview(() => {
-      if (nativeSelectEnabled()) {
+      if (selectPopup.isNativeMenu) {
         selectPopup.activateItem(selectPopup.childNodes[numberMove]);
       } else {
         EventUtils.sendKey("return", window);

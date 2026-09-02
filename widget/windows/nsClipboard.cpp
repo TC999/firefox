@@ -4,49 +4,51 @@
 
 #include "nsClipboard.h"
 
-#include <shlobj.h>
 #include <intshcut.h>
+#include <shlobj.h>
 
 // shellapi.h is needed to build with WIN32_LEAN_AND_MEAN
 #include <shellapi.h>
 
 #include <thread>
-#include <chrono>
 
 #ifdef ACCESSIBILITY
 #  include "mozilla/a11y/Compatibility.h"
 #endif
+#include "SpecialSystemDirectory.h"
+#include "WinOLELock.h"
+#include "WinUtils.h"
+#include "imgIContainer.h"
+#include "imgITools.h"
+#include "mozilla/CheckedInt.h"
 #include "mozilla/Logging.h"
 #include "mozilla/ScopeExit.h"
 #include "mozilla/StaticPrefs_clipboard.h"
 #include "mozilla/StaticPrefs_widget.h"
+#include "mozilla/TextUtils.h"
 #include "mozilla/WindowsVersion.h"
-#include "SpecialSystemDirectory.h"
-
+#include "mozilla/widget/WebCustomFormatUtils.h"
 #include "nsArrayUtils.h"
 #include "nsCOMPtr.h"
+#include "nsCRT.h"
 #include "nsComponentManagerUtils.h"
 #include "nsDataObj.h"
-#include "nsString.h"
-#include "nsNativeCharsetUtils.h"
-#include "nsIInputStream.h"
-#include "nsITransferable.h"
-#include "nsXPCOM.h"
-#include "nsReadableUtils.h"
-#include "nsUnicharUtils.h"
-#include "nsPrimitiveHelpers.h"
-#include "nsIWidget.h"
-#include "nsWidgetsCID.h"
-#include "nsCRT.h"
-#include "nsNetUtil.h"
-#include "nsIFileProtocolHandler.h"
 #include "nsEscape.h"
+#include "nsIFileProtocolHandler.h"
+#include "nsIInputStream.h"
 #include "nsIObserverService.h"
+#include "nsISupportsPrimitives.h"
+#include "nsITransferable.h"
+#include "nsIWidget.h"
 #include "nsMimeTypes.h"
-#include "imgITools.h"
-#include "imgIContainer.h"
-#include "WinOLELock.h"
-#include "WinUtils.h"
+#include "nsNativeCharsetUtils.h"
+#include "nsNetUtil.h"
+#include "nsPrimitiveHelpers.h"
+#include "nsReadableUtils.h"
+#include "nsString.h"
+#include "nsUnicharUtils.h"
+#include "nsWidgetsCID.h"
+#include "nsXPCOM.h"
 
 /* static */
 UINT nsClipboard::GetClipboardFileDescriptorFormatA() {
@@ -75,6 +77,82 @@ UINT nsClipboard::GetCustomClipboardFormat() {
   return format;
 }
 
+/* static */
+UINT nsClipboard::GetWebCustomFormatMapClipboardFormat() {
+  static UINT format = ::RegisterClipboardFormatW(L"Web Custom Format Map");
+  MOZ_ASSERT(format);
+  return format;
+}
+
+static inline nsresult CheckClipboardByteSize(HGLOBAL aHGlobal,
+                                              uint64_t aByteThreshold) {
+  // GlobalSize returns the size of the heap allocation backing aHGlobal,
+  // which may be slightly larger than the actual clipboard data.
+  if (::GlobalSize(aHGlobal) > aByteThreshold) {
+    return NS_ERROR_CLIPBOARD_TOO_BIG;
+  }
+
+  return NS_OK;
+}
+
+// Web-originated format names must be of the form "Web Custom Format",
+// followed by the item's index -- see the W3C clipboard-apis spec, Appendix A
+// (https://www.w3.org/TR/clipboard-apis/#to-write-web-custom-formats).  That
+// algorithm appends the index, increments it, and breaks once it exceeds 100.
+// (That was probably supposed to be 99 but...).
+// The spec does not say that clipboard reads need to validate these names but
+// external applications that want "Web Custom Format" interop should write
+// according to the web format spec, to avoid surprising behavior.
+static bool IsWebCustomFormatSlotName(const nsACString& aFormatName) {
+  constexpr auto kSlotPrefix = "Web Custom Format"_ns;
+  if (!StringBeginsWith(aFormatName, kSlotPrefix)) {
+    return false;
+  }
+  if (kSlotPrefix.Length() >= aFormatName.Length() ||
+      (aFormatName.Length() - kSlotPrefix.Length() > 3)) {
+    return false;
+  }
+
+  uint32_t index = 0;
+  for (uint32_t i = kSlotPrefix.Length(); i < aFormatName.Length(); ++i) {
+    if (!mozilla::IsAsciiDigit(aFormatName.CharAt(i))) {
+      return false;
+    }
+    index = index * 10;
+    index += static_cast<uint32_t>(aFormatName.CharAt(i) - '0');
+  }
+  return index <= 100;
+}
+
+// Reads the "Web Custom Format Map" clipboard format and decodes its JSON
+// into the supplied map. Fetches via aDataObject (OLE) when provided; falls
+// back to the legacy Windows clipboard API rooted at aWindow when aDataObject
+// is null, matching the same primary/fallback path other flavors use in
+// GetDataFromDataObject(). Returns false if the format is missing or the
+// payload fails to parse.
+static bool GetWebCustomFormatMapFromClipboard(
+    IDataObject* aDataObject, nsIWidget* aWindow,
+    mozilla::widget::WebCustomFormatMap& aMap) {
+  const UINT format = nsClipboard::GetWebCustomFormatMapClipboardFormat();
+  void* data = nullptr;
+  uint32_t dataLen = 0;
+  nsresult rv = NS_ERROR_FAILURE;
+  if (aDataObject) {
+    rv = nsClipboard::GetNativeDataOffClipboard(
+        aDataObject, 0, format, /* aMIMEFlavor */ nullptr, &data, &dataLen);
+  } else if (aWindow) {
+    rv = nsClipboard::GetNativeDataOffClipboard(aWindow, 0, format, &data,
+                                                &dataLen);
+  }
+  if (NS_FAILED(rv) || !data) {
+    return false;
+  }
+  bool ok = mozilla::widget::JSONToWebCustomFormatMap(
+      nsDependentCSubstring(static_cast<const char*>(data), dataLen), aMap);
+  free(data);
+  return ok;
+}
+
 //-------------------------------------------------------------------------
 //
 // nsClipboard constructor
@@ -100,8 +178,6 @@ nsClipboard::nsClipboard()
 //-------------------------------------------------------------------------
 // nsClipboard destructor
 //-------------------------------------------------------------------------
-nsClipboard::~nsClipboard() {}
-
 NS_IMPL_ISUPPORTS_INHERITED(nsClipboard, nsBaseClipboard, nsIObserver)
 
 NS_IMETHODIMP
@@ -135,6 +211,8 @@ UINT nsClipboard::GetFormat(const char* aMimeStr, bool aMapHTMLMime) {
     format = GetHtmlClipboardFormat();
   } else if (strcmp(aMimeStr, kCustomTypesMime) == 0) {
     format = GetCustomClipboardFormat();
+  } else if (strcmp(aMimeStr, kWebCustomFormatMapType) == 0) {
+    format = GetWebCustomFormatMapClipboardFormat();
   } else {
     format = ::RegisterClipboardFormatW(NS_ConvertASCIItoUTF16(aMimeStr).get());
   }
@@ -150,6 +228,74 @@ mozilla::Maybe<UINT> nsClipboard::GetSecondaryFormat(const char* aMimeStr) {
   return mozilla::Nothing();
 }
 
+template <typename GroupDesc>
+/* static */
+bool nsClipboard::FileGroupDescriptorHasItems(HGLOBAL aHGlobal,
+                                              uint64_t aItemCount) {
+  if (!aHGlobal) {
+    return false;
+  }
+  using FileDesc = std::remove_extent_t<decltype(GroupDesc::fgd)>;
+  mozilla::CheckedInt<size_t> requiredSize(offsetof(GroupDesc, fgd));
+  requiredSize += mozilla::CheckedInt<size_t>(aItemCount) * sizeof(FileDesc);
+  return requiredSize.isValid() &&
+         ::GlobalSize(aHGlobal) >= requiredSize.value();
+}
+
+template bool nsClipboard::FileGroupDescriptorHasItems<FILEGROUPDESCRIPTORW>(
+    HGLOBAL, uint64_t);
+template bool nsClipboard::FileGroupDescriptorHasItems<FILEGROUPDESCRIPTORA>(
+    HGLOBAL, uint64_t);
+
+template <typename CharT>
+static bool HasValidDropFilesList(DROPFILES* aDropFiles, size_t aBufferSize) {
+  // The file list offset has to be at least past the DROPFILES metadata and
+  // has to contain at least room for the double-NUL terminator.
+  if (aDropFiles->pFiles < sizeof(DROPFILES) ||
+      aDropFiles->pFiles > aBufferSize ||
+      aBufferSize - aDropFiles->pFiles < 2 * sizeof(CharT)) {
+    return false;
+  }
+
+  const BYTE* list =
+      reinterpret_cast<const BYTE*>(aDropFiles) + aDropFiles->pFiles;
+  const CharT* charList = reinterpret_cast<const CharT*>(list);
+  // Whether the size evenly divides by sizeof(CharT) is irrelevant.
+  const CharT* endCharList =
+      charList + ((aBufferSize - aDropFiles->pFiles) / sizeof(CharT));
+
+  while (charList <= endCharList - 2) {
+    if (charList[0] == CharT(0) && charList[1] == CharT(0)) {
+      return true;
+    }
+    ++charList;
+  }
+  return false;
+}
+
+/* static */
+bool nsClipboard::IsValidDropFilesData(HGLOBAL aHGlobal) {
+  if (!aHGlobal) {
+    return false;
+  }
+
+  size_t size = ::GlobalSize(aHGlobal);
+  if (size < sizeof(DROPFILES)) {
+    return false;
+  }
+
+  ScopedOLELock<DROPFILES*> dropFiles(aHGlobal);
+  if (!dropFiles) {
+    return false;
+  }
+
+  if (dropFiles->fWide) {
+    return HasValidDropFilesList<WCHAR>(dropFiles.get(), size);
+  }
+
+  return HasValidDropFilesList<CHAR>(dropFiles.get(), size);
+}
+
 //-------------------------------------------------------------------------
 // static
 nsresult nsClipboard::CreateNativeDataObject(
@@ -161,7 +307,7 @@ nsresult nsClipboard::CreateNativeDataObject(
   }
 
   // Create our native DataObject that implements the OLE IDataObject interface
-  RefPtr<nsDataObj> dataObj = new nsDataObj(aUri);
+  auto dataObj = mozilla::MakeRefPtr<nsDataObj>(aUri);
 
   // Now set it up with all the right data flavors & enums
   nsresult res =
@@ -217,15 +363,40 @@ nsresult nsClipboard::SetupNativeDataObject(
   nsTArray<nsCString> flavors;
   aTransferable->FlavorsTransferableCanExport(flavors);
 
+  // Track web custom format flavors so we can publish a single JSON map
+  // alongside the per-clipboard-format data. The map essence (the part after
+  // "web ") maps to the clipboard format name we registered under
+  // "Web Custom FormatN".
+  mozilla::widget::WebCustomFormatMap webCustomFormatMap;
+  uint32_t webCustomFormatIndex = 0;
+
   // Walk through flavors that contain data and register them
   // into the DataObj as supported flavors
   for (uint32_t i = 0; i < flavors.Length(); i++) {
     nsCString& flavorStr = flavors[i];
 
-    // When putting data onto the clipboard, we want to maintain kHTMLMime
-    // ("text/html") and not map it to CF_HTML here since this will be done
-    // below.
-    UINT format = GetFormat(flavorStr.get(), false);
+    UINT format;
+    if (StringBeginsWith(flavorStr, nsLiteralCString(kWebCustomFormatPrefix))) {
+      if (!nsBaseClipboard::IsValidFlavor(flavorStr)) {
+        continue;
+      }
+      // Each "web foo/bar" gets its own per-slot clipboard format published
+      // under the "Web Custom FormatN" name; the essence -> slot mapping is
+      // recorded so the map JSON below can advertise it.
+      nsAutoCString clipboardFormatName;
+      clipboardFormatName.AppendLiteral("Web Custom Format");
+      clipboardFormatName.AppendInt(webCustomFormatIndex);
+      format = GetFormat(clipboardFormatName.get(), false);
+      nsDependentCSubstring essence(
+          Substring(flavorStr, strlen(kWebCustomFormatPrefix)));
+      webCustomFormatMap.InsertOrUpdate(essence, clipboardFormatName);
+      webCustomFormatIndex++;
+    } else {
+      // When putting data onto the clipboard, we want to maintain kHTMLMime
+      // ("text/html") and not map it to CF_HTML here since this will be done
+      // below.
+      format = GetFormat(flavorStr.get(), false);
+    }
 
     // Now tell the native IDataObject about both our mime type and
     // the native data format
@@ -316,6 +487,19 @@ nsresult nsClipboard::SetupNativeDataObject(
                     DVASPECT_CONTENT, -1, TYMED_HGLOBAL)
       dObj->AddDataFlavor(kFilePromiseMime, &shortcutFE);
     }
+  }
+
+  if (!webCustomFormatMap.IsEmpty()) {
+    // Publish the web-custom-format map alongside the per-slot payloads.
+    // The JSON is held on the data object so nsDataObj::GetText can serve
+    // it without consulting the transferable.
+    nsAutoCString mapJson;
+    mozilla::widget::WebCustomFormatMapToJSON(webCustomFormatMap, mapJson);
+    dObj->SetWebCustomFormatMapJson(mapJson);
+    FORMATETC mapFE;
+    SET_FORMATETC(mapFE, GetFormat(kWebCustomFormatMapType, false), 0,
+                  DVASPECT_CONTENT, -1, TYMED_HGLOBAL);
+    dObj->AddDataFlavor(kWebCustomFormatMapType, &mapFE);
   }
 
   if (!mozilla::StaticPrefs::
@@ -637,7 +821,8 @@ nsresult nsClipboard::GetGlobalData(HGLOBAL aHGBL, void** aData,
 //-------------------------------------------------------------------------
 nsresult nsClipboard::GetNativeDataOffClipboard(nsIWidget* aWidget,
                                                 UINT /*aIndex*/, UINT aFormat,
-                                                void** aData, uint32_t* aLen) {
+                                                void** aData, uint32_t* aLen,
+                                                uint64_t aThreshold) {
   MOZ_CLIPBOARD_LOG("%s: overload taking nsIWidget*.", __FUNCTION__);
 
   HGLOBAL hglb;
@@ -646,6 +831,15 @@ nsresult nsClipboard::GetNativeDataOffClipboard(nsIWidget* aWidget,
   HWND nativeWin = nullptr;
   if (::OpenClipboard(nativeWin)) {
     hglb = ::GetClipboardData(aFormat);
+
+    if (aThreshold) {
+      if (aFormat == CF_TEXT) {
+        MOZ_TRY(CheckClipboardByteSize(hglb, aThreshold + 1));
+      } else if (aFormat == CF_UNICODETEXT) {
+        MOZ_TRY(CheckClipboardByteSize(hglb, aThreshold + sizeof(wchar_t)));
+      }
+    }
+
     result = GetGlobalData(hglb, aData, aLen);
     ::CloseClipboard();
   }
@@ -698,13 +892,16 @@ HRESULT nsClipboard::FillSTGMedium(IDataObject* aDataObject, UINT aFormat,
 }
 
 //-------------------------------------------------------------------------
-// If aFormat is CF_DIBV5, aMIMEImageFormat must be a type for which we have
-// an image encoder (e.g. image/png).
-// For other values of aFormat, it is OK to pass null for aMIMEImageFormat.
+// aMIMEFlavor lets the caller hint which transferable flavor is being
+// fetched. It must be a type for which we have an image encoder (e.g.
+// image/png) when aFormat is CF_DIBV5, and it is consulted to detect web
+// custom format payloads ("web foo/bar") so the trailing UTF-16 null pad is
+// suppressed. May be null otherwise.
 nsresult nsClipboard::GetNativeDataOffClipboard(IDataObject* aDataObject,
                                                 UINT aIndex, UINT aFormat,
-                                                const char* aMIMEImageFormat,
-                                                void** aData, uint32_t* aLen) {
+                                                const char* aMIMEFlavor,
+                                                void** aData, uint32_t* aLen,
+                                                uint64_t aThreshold) {
   MOZ_CLIPBOARD_LOG("%s: overload taking IDataObject*.", __FUNCTION__);
 
   *aData = nullptr;
@@ -717,7 +914,7 @@ nsresult nsClipboard::GetNativeDataOffClipboard(IDataObject* aDataObject,
   UINT const format = aFormat;
 
   FORMATETC fe;
-  STGMEDIUM stm;
+  STGMEDIUM stm{};
   HRESULT hres = FillSTGMedium(aDataObject, format, &fe, &stm, TYMED_HGLOBAL);
 
   // If the format is CF_HDROP and we haven't found any files we can try looking
@@ -762,6 +959,10 @@ nsresult nsClipboard::GetNativeDataOffClipboard(IDataObject* aDataObject,
   // compile-time-constant format indicators:
   switch (fe.cfFormat) {
     case CF_TEXT: {
+      if (aThreshold > 0) {
+        MOZ_TRY(CheckClipboardByteSize(stm.hGlobal, aThreshold + 1));
+      }
+
       // Get the data out of the global data handle. The size we
       // return should not include the null because the other
       // platforms don't use nulls, so just return the length we get
@@ -776,6 +977,11 @@ nsresult nsClipboard::GetNativeDataOffClipboard(IDataObject* aDataObject,
     }
 
     case CF_UNICODETEXT: {
+      if (aThreshold > 0) {
+        MOZ_TRY(
+            CheckClipboardByteSize(stm.hGlobal, aThreshold + sizeof(wchar_t)));
+      }
+
       // Get the data out of the global data handle. The size we
       // return should not include the null because the other
       // platforms don't use nulls, so just return the length we get
@@ -790,7 +996,7 @@ nsresult nsClipboard::GetNativeDataOffClipboard(IDataObject* aDataObject,
     }
 
     case CF_DIBV5: {
-      if (!aMIMEImageFormat) {
+      if (!aMIMEFlavor) {
         return NS_ERROR_FAILURE;
       }
       uint32_t allocLen = 0;
@@ -807,10 +1013,10 @@ nsresult nsClipboard::GetNativeDataOffClipboard(IDataObject* aDataObject,
           getter_AddRefs(container)));
 
       nsAutoCString mimeType;
-      if (strcmp(aMIMEImageFormat, kJPGImageMime) == 0) {
+      if (strcmp(aMIMEFlavor, kJPGImageMime) == 0) {
         mimeType.Assign(IMAGE_JPEG);
       } else {
-        mimeType.Assign(aMIMEImageFormat);
+        mimeType.Assign(aMIMEFlavor);
       }
 
       nsCOMPtr<nsIInputStream> inputStream;
@@ -831,6 +1037,10 @@ nsresult nsClipboard::GetNativeDataOffClipboard(IDataObject* aDataObject,
       // single data object. In order to match mozilla's D&D apis, we
       // just pull out the file at the requested index, pretending as
       // if there really are multiple drag items.
+      if (!IsValidDropFilesData(stm.hGlobal)) {
+        return NS_ERROR_INVALID_ARG;
+      }
+
       ScopedOLELock<HDROP> dropFiles(stm.hGlobal);
 
       UINT numFiles = ::DragQueryFileW(dropFiles.get(), 0xFFFFFFFF, nullptr, 0);
@@ -866,12 +1076,40 @@ nsresult nsClipboard::GetNativeDataOffClipboard(IDataObject* aDataObject,
       fe.cfFormat == fileDescriptorFlavorW) {
     nsAutoString tempPath;
 
-    // BUG(?): this should probably use FILEGROUPDESCRIPTOR[A,W] depending on
-    // the above
-    ScopedOLELock<LPFILEGROUPDESCRIPTOR> fgdesc(stm.hGlobal);
-    if (fgdesc) {
-      MOZ_TRY(GetTempFilePath(
-          nsDependentString((fgdesc->fgd)[aIndex].cFileName), tempPath));
+    if (fe.cfFormat == fileDescriptorFlavorW) {
+      ScopedOLELock<LPFILEGROUPDESCRIPTORW> fgdesc(stm.hGlobal);
+      if (fgdesc) {
+        if (aIndex >= fgdesc->cItems ||
+            !FileGroupDescriptorHasItems<FILEGROUPDESCRIPTORW>(
+                stm.hGlobal, static_cast<uint64_t>(aIndex) + 1)) {
+          return NS_ERROR_INVALID_ARG;
+        }
+        const WCHAR* fileName = fgdesc->fgd[aIndex].cFileName;
+        size_t nameLen = ::wcsnlen(fileName, MAX_PATH);
+        if (nameLen == MAX_PATH) {
+          return NS_ERROR_INVALID_ARG;
+        }
+        MOZ_TRY(
+            GetTempFilePath(nsDependentString(fileName, nameLen), tempPath));
+      }
+    } else {
+      ScopedOLELock<LPFILEGROUPDESCRIPTORA> fgdesc(stm.hGlobal);
+      if (fgdesc) {
+        if (aIndex >= fgdesc->cItems ||
+            !FileGroupDescriptorHasItems<FILEGROUPDESCRIPTORA>(
+                stm.hGlobal, static_cast<uint64_t>(aIndex) + 1)) {
+          return NS_ERROR_INVALID_ARG;
+        }
+        const CHAR* fileName = fgdesc->fgd[aIndex].cFileName;
+        size_t nameLen = ::strnlen(fileName, MAX_PATH);
+        if (nameLen == MAX_PATH) {
+          return NS_ERROR_INVALID_ARG;
+        }
+        nsAutoString wideName;
+        MOZ_TRY(NS_CopyNativeToUnicode(nsDependentCSubstring(fileName, nameLen),
+                                       wideName));
+        MOZ_TRY(GetTempFilePath(wideName, tempPath));
+      }
     }
 
     MOZ_TRY(SaveStorageOrStream(aDataObject, aIndex, tempPath));
@@ -885,7 +1123,7 @@ nsresult nsClipboard::GetNativeDataOffClipboard(IDataObject* aDataObject,
   }
 
   if (fe.cfFormat == pngFlavor) {
-    MOZ_ASSERT(!strcmp(aMIMEImageFormat, kPNGImageMime));
+    MOZ_ASSERT(!strcmp(aMIMEFlavor, kPNGImageMime));
     uint32_t allocLen = 0;
     const char* clipboardData = nullptr;
     auto const _freeClipboardData =
@@ -940,8 +1178,16 @@ nsresult nsClipboard::GetNativeDataOffClipboard(IDataObject* aDataObject,
     // For now, return the allocLen. This case is mostly to
     // ensure we don't try to call strlen on the buffer.
     *aLen = allocLen;
-  } else if (fe.cfFormat == GetCustomClipboardFormat()) {
-    // Binary data
+  } else if (fe.cfFormat == GetCustomClipboardFormat() ||
+             fe.cfFormat == GetWebCustomFormatMapClipboardFormat() ||
+             (aMIMEFlavor && !strncmp(aMIMEFlavor, kWebCustomFormatPrefix,
+                                      strlen(kWebCustomFormatPrefix)))) {
+    // Binary data: legacy application/x-moz-custom-clipdata, the web custom
+    // format map (JSON, no terminator), or one of the "Web Custom FormatN"
+    // clipboard formats backing a web custom format payload. The writer
+    // stores the exact byte length without a trailing terminator, so we
+    // mustn't fall through to the default UTF-16 strlen interpretation
+    // (which would over-read into the zero-padded HGLOBAL tail).
     *aLen = allocLen;
   } else if (fe.cfFormat == preferredDropEffect) {
     // As per the MSDN doc entitled: "Shell Clipboard Formats"
@@ -956,15 +1202,58 @@ nsresult nsClipboard::GetNativeDataOffClipboard(IDataObject* aDataObject,
   }
   return NS_OK;
 }
-
 //-------------------------------------------------------------------------
 mozilla::Result<nsCOMPtr<nsISupports>, nsresult>
 nsClipboard::GetDataFromDataObject(IDataObject* aDataObject, UINT anIndex,
-                                   nsIWidget* aWindow,
-                                   const nsCString& aFlavor) {
+                                   nsIWidget* aWindow, const nsCString& aFlavor,
+                                   uint64_t aThreshold) {
   MOZ_CLIPBOARD_LOG("%s", __FUNCTION__);
 
-  UINT format = GetFormat(aFlavor.get());
+  // kWebCustomFormatMapType is a synthetic flavor: its payload isn't on the
+  // clipboard as bytes-and-flavor; it's the "Web Custom Format Map" JSON. Use
+  // the helper to fetch and parse it, then surface the per-essence flavors
+  // as an nsIMutableArray. The rest of GetDataFromDataObject doesn't apply
+  // to this case.
+  if (aFlavor.EqualsLiteral(kWebCustomFormatMapType)) {
+    mozilla::widget::WebCustomFormatMap map;
+    if (!GetWebCustomFormatMapFromClipboard(aDataObject, aWindow, map)) {
+      return nsCOMPtr<nsISupports>{};
+    }
+    nsCOMPtr<nsIMutableArray> customFormats =
+        do_CreateInstance(NS_ARRAY_CONTRACTID);
+    for (const auto& essence : map.Keys()) {
+      nsCOMPtr<nsISupportsCString> customFormat =
+          do_CreateInstance(NS_SUPPORTS_CSTRING_CONTRACTID);
+      customFormat->SetData(nsLiteralCString(kWebCustomFormatPrefix) + essence);
+      customFormats->AppendElement(customFormat);
+    }
+    return nsCOMPtr<nsISupports>(std::move(customFormats));
+  }
+
+  // Resolve the Windows clipboard format for aFlavor. Standard flavors go
+  // through GetFormat(); a "web foo/bar" flavor is dynamic and resolved via
+  // a lookup in the published "Web Custom Format Map" JSON.
+  const bool isWebFormat =
+      StringBeginsWith(aFlavor, nsLiteralCString(kWebCustomFormatPrefix));
+  UINT format;
+  if (isWebFormat) {
+    mozilla::widget::WebCustomFormatMap map;
+    if (!GetWebCustomFormatMapFromClipboard(aDataObject, aWindow, map)) {
+      return nsCOMPtr<nsISupports>{};
+    }
+    nsDependentCSubstring essence(
+        Substring(aFlavor, strlen(kWebCustomFormatPrefix)));
+    auto entry = map.Lookup(essence);
+    if (!entry || !IsWebCustomFormatSlotName(entry.Data())) {
+      return nsCOMPtr<nsISupports>{};
+    }
+    format = GetFormat(entry.Data().get());
+    if (!format) {
+      return nsCOMPtr<nsISupports>{};
+    }
+  } else {
+    format = GetFormat(aFlavor.get());
+  }
 
   // Try to get the data using the desired flavor. This might fail, but all is
   // not lost.
@@ -972,15 +1261,20 @@ nsClipboard::GetDataFromDataObject(IDataObject* aDataObject, UINT anIndex,
   uint32_t dataLen = 0;
   bool dataFound = false;
   if (nullptr != aDataObject) {
-    if (NS_SUCCEEDED(GetNativeDataOffClipboard(
-            aDataObject, anIndex, format, aFlavor.get(), &data, &dataLen))) {
-      dataFound = true;
+    nsresult rv =
+        GetNativeDataOffClipboard(aDataObject, anIndex, format, aFlavor.get(),
+                                  &data, &dataLen, aThreshold);
+    if (rv == NS_ERROR_CLIPBOARD_TOO_BIG) {
+      return mozilla::Err(NS_ERROR_CLIPBOARD_TOO_BIG);
     }
+    dataFound = NS_SUCCEEDED(rv);
   } else if (nullptr != aWindow) {
-    if (NS_SUCCEEDED(GetNativeDataOffClipboard(aWindow, anIndex, format, &data,
-                                               &dataLen))) {
-      dataFound = true;
+    nsresult rv = GetNativeDataOffClipboard(aWindow, anIndex, format, &data,
+                                            &dataLen, aThreshold);
+    if (rv == NS_ERROR_CLIPBOARD_TOO_BIG) {
+      return mozilla::Err(NS_ERROR_CLIPBOARD_TOO_BIG);
     }
+    dataFound = NS_SUCCEEDED(rv);
   }
 
   // This is our second chance to try to find some data, having not found it
@@ -1051,8 +1345,11 @@ nsClipboard::GetDataFromDataObject(IDataObject* aDataObject, UINT anIndex,
     genericDataWrapper = do_QueryInterface(imageStream);
     NS_IF_RELEASE(imageStream);
   } else {
-    // Treat custom types as a string of bytes.
-    if (!aFlavor.EqualsLiteral(kCustomTypesMime)) {
+    // Treat custom types and web custom format payloads as raw bytes
+    // (nsISupportsCString); CreatePrimitiveForData below picks that up
+    // from the flavor. Skip the Win32 -> DOM linebreak conversion for
+    // these so the bytes survive verbatim.
+    if (!aFlavor.EqualsLiteral(kCustomTypesMime) && !isWebFormat) {
       bool isRTF = aFlavor.EqualsLiteral(kRTFMime);
       // we probably have some form of text. The DOM only wants LF, so
       // convert from Win32 line endings to DOM line endings.
@@ -1079,7 +1376,8 @@ nsClipboard::GetDataFromDataObject(IDataObject* aDataObject, UINT anIndex,
 
 nsresult nsClipboard::GetDataFromDataObject(IDataObject* aDataObject,
                                             UINT anIndex, nsIWidget* aWindow,
-                                            nsITransferable* aTransferable) {
+                                            nsITransferable* aTransferable,
+                                            uint64_t aThreshold) {
   MOZ_CLIPBOARD_LOG("%s", __FUNCTION__);
 
   // make sure we have a good transferable
@@ -1100,8 +1398,8 @@ nsresult nsClipboard::GetDataFromDataObject(IDataObject* aDataObject,
   for (uint32_t i = 0; i < flavors.Length(); i++) {
     const nsCString& flavorStr = flavors[i];
 
-    auto dataOrError =
-        GetDataFromDataObject(aDataObject, anIndex, aWindow, flavorStr);
+    auto dataOrError = GetDataFromDataObject(aDataObject, anIndex, aWindow,
+                                             flavorStr, aThreshold);
     if (dataOrError.isErr() || !dataOrError.inspect()) {
       continue;
     }
@@ -1384,9 +1682,11 @@ bool nsClipboard ::IsInternetShortcut(const nsAString& inFileName) {
 //-------------------------------------------------------------------------
 mozilla::Result<nsCOMPtr<nsISupports>, nsresult>
 nsClipboard::GetNativeClipboardData(const nsACString& aFlavor,
-                                    ClipboardType aWhichClipboard) {
+                                    ClipboardType aWhichClipboard,
+                                    uint64_t aThreshold) {
   MOZ_DIAGNOSTIC_ASSERT(
       nsIClipboard::IsClipboardTypeSupported(aWhichClipboard));
+  MOZ_DIAGNOSTIC_ASSERT(IsValidFlavor(aFlavor));
 
   MOZ_CLIPBOARD_LOG("%s aWhichClipboard=%i", __FUNCTION__, aWhichClipboard);
 
@@ -1412,12 +1712,12 @@ nsClipboard::GetNativeClipboardData(const nsACString& aFlavor,
     }
 
     return GetDataFromDataObject(dataObj, 0, nullptr,
-                                 PromiseFlatCString(aFlavor));
+                                 PromiseFlatCString(aFlavor), aThreshold);
   }
 
   // do it the old manual way
-  return GetDataFromDataObject(nullptr, 0, mWindow,
-                               PromiseFlatCString(aFlavor));
+  return GetDataFromDataObject(nullptr, 0, mWindow, PromiseFlatCString(aFlavor),
+                               aThreshold);
 }
 
 nsresult nsClipboard::EmptyNativeClipboardData(ClipboardType aWhichClipboard) {
@@ -1444,7 +1744,43 @@ nsClipboard::HasNativeClipboardDataMatchingFlavors(
     const nsTArray<nsCString>& aFlavorList, ClipboardType aWhichClipboard) {
   MOZ_DIAGNOSTIC_ASSERT(
       nsIClipboard::IsClipboardTypeSupported(aWhichClipboard));
+  // The web custom format map is loaded lazily on the first "web " query to
+  // avoid parsing JSON when the caller is only asking about standard formats.
+  mozilla::widget::WebCustomFormatMap webCustomFormatMap;
+  bool didLoadWebCustomFormatMap = false;
+  IDataObject* webMapDataObj = nullptr;
+  auto webMapDataObjRelease = mozilla::MakeScopeExit([&] {
+    if (webMapDataObj) {
+      webMapDataObj->Release();
+    }
+  });
   for (const auto& flavor : aFlavorList) {
+    MOZ_DIAGNOSTIC_ASSERT(IsValidFlavor(flavor));
+
+    if (StringBeginsWith(flavor, nsLiteralCString(kWebCustomFormatPrefix))) {
+      if (!didLoadWebCustomFormatMap) {
+        didLoadWebCustomFormatMap = true;
+        // Try OLE first; if that fails, the helper falls back to the
+        // window-rooted legacy Windows clipboard path.
+        (void)RepeatedlyTryOleGetClipboard(&webMapDataObj);
+        if (!GetWebCustomFormatMapFromClipboard(webMapDataObj, mWindow,
+                                                webCustomFormatMap)) {
+          continue;
+        }
+      }
+      nsDependentCSubstring essence(
+          Substring(flavor, strlen(kWebCustomFormatPrefix)));
+      auto entry = webCustomFormatMap.Lookup(essence);
+      if (!entry || !IsWebCustomFormatSlotName(entry.Data())) {
+        continue;
+      }
+      UINT cf = GetFormat(entry.Data().get());
+      if (cf && IsClipboardFormatAvailable(cf)) {
+        return true;
+      }
+      continue;
+    }
+
     UINT format = GetFormat(flavor.get());
     if (IsClipboardFormatAvailable(format)) {
       return true;
@@ -1543,6 +1879,11 @@ nsresult nsClipboard::SaveStorageOrStream(IDataObject* aDataObject, UINT aIndex,
     return NS_ERROR_FAILURE;
   }
 
+  // Don't leave a partially-written file behind if we bail out on a read or
+  // write error below.
+  // NB: This must initialize before/run after fileCloseGuard.
+  auto fileDeleteGuard =
+      mozilla::MakeScopeExit([&] { DeleteFile(flatFileName.get()); });
   auto fileCloseGuard = mozilla::MakeScopeExit([&] { CloseHandle(handle); });
 
   const ULONG bufferSize = 4096;
@@ -1554,6 +1895,10 @@ nsresult nsClipboard::SaveStorageOrStream(IDataObject* aDataObject, UINT aIndex,
     if (FAILED(result)) {
       return NS_ERROR_FAILURE;
     }
+    if (bytesRead > bufferSize) {
+      // It obviously couldn't legitimately write more than the buffer holds.
+      return NS_ERROR_FAILURE;
+    }
     if (bytesRead == 0) {
       break;
     }
@@ -1562,5 +1907,6 @@ nsresult nsClipboard::SaveStorageOrStream(IDataObject* aDataObject, UINT aIndex,
       return NS_ERROR_FAILURE;
     }
   }
+  fileDeleteGuard.release();
   return NS_OK;
 }

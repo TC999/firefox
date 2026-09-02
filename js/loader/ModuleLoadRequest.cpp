@@ -5,12 +5,14 @@
 #include "ModuleLoadRequest.h"
 
 #include "mozilla/DebugOnly.h"
-#include "mozilla/HoldDropJSObjects.h"
 #include "mozilla/dom/ScriptLoadContext.h"
+#include "mozilla/HoldDropJSObjects.h"
 
-#include "LoadedScript.h"
 #include "LoadContextBase.h"
+#include "LoadedScript.h"
 #include "ModuleLoaderBase.h"
+
+#include "js/Modules.h"
 
 namespace JS::loader {
 
@@ -68,6 +70,12 @@ nsIGlobalObject* ModuleLoadRequest::GetGlobalObject() {
   return mLoader->GetGlobalObject();
 }
 
+bool ModuleLoadRequest::IsSourcePhaseRequest(JSContext* aCx) const {
+  Rooted<JSObject*> moduleRequest(aCx, mModuleRequestObj);
+  // moduleRequest can be null if ClearImport() has been called.
+  return moduleRequest && JS::ModuleRequestIsSourcePhase(aCx, moduleRequest);
+}
+
 bool ModuleLoadRequest::IsErrored() const {
   return !mModuleScript || mModuleScript->HasParseError();
 }
@@ -96,8 +104,17 @@ void ModuleLoadRequest::ModuleLoaded() {
 
   mModuleScript = mLoader->GetFetchedModule(ModuleMapKey(URI(), mModuleType));
 
-  if (mModuleScript->ForPreload() != mLoadContext->IsPreload()) {
-    mModuleScript->SetForPreload(mLoadContext->IsPreload());
+  if (FetchInfo()->IsForModulePreload() != mLoadContext->IsPreload()) {
+    FetchInfo()->SetForModulePreload(mLoadContext->IsPreload());
+  }
+
+  // A module script fetched during preload can be reused by a normal load whose
+  // top-level request never matched a preload entry, so the preload-promotion
+  // path never clears the module script's preload flag. Clear it here so the
+  // shared module script reflects that it is now part of a normal load.
+  MOZ_ASSERT(mModuleScript);
+  if (!mLoadContext->IsPreload() && mModuleScript->ForPreload()) {
+    mModuleScript->SetForPreload(false);
   }
 }
 
@@ -158,6 +175,12 @@ void ModuleLoadRequest::LoadFinished() {
   }
 
   mLoader->OnModuleLoadComplete(request);
+}
+
+void ModuleLoadRequest::NotifyModuleWaitFinished() {
+  if (HasScriptLoadContext()) {
+    GetScriptLoadContext()->NotifyModuleWaitFinished();
+  }
 }
 
 void ModuleLoadRequest::SetImport(Handle<JSScript*> aReferrerScript,

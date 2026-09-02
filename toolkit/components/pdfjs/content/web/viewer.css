@@ -12,33 +12,281 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+@import url(chrome://global/skin/design-system/tokens-brand.css) -moz-pref(
+    "pdfjs.enableNova"
+  );
+
+:root{
+  --button-primary-bg-color:var(
+    --button-background-color-primary,
+    light-dark(#0060df, #0df)
+  );
+  --button-primary-fg-color:var(
+    --button-text-color-primary,
+    light-dark(#fbfbfe, #15141a)
+  );
+  --button-primary-border-color:var(--button-primary-bg-color);
+  --button-primary-active-bg-color:var(
+    --button-background-color-primary-active,
+    light-dark(#054096, #aaf2ff)
+  );
+  --button-primary-active-fg-color:var(--button-primary-fg-color);
+  --button-primary-active-border-color:var(--button-primary-active-bg-color);
+  --button-primary-hover-bg-color:var(
+    --button-background-color-primary-hover,
+    light-dark(#0250bb, #80ebff)
+  );
+  --button-primary-hover-fg-color:var(--button-primary-fg-color);
+  --button-primary-hover-border-color:var(--button-primary-hover-bg-color);
+  --button-primary-disabled-bg-color:var(--button-primary-bg-color);
+  --button-primary-disabled-border-color:var(--button-primary-border-color);
+  --button-primary-disabled-fg-color:var(--button-primary-fg-color);
+
+  --button-secondary-bg-color:var(
+    --button-background-color,
+    light-dark(rgb(21 20 26 / 0.07), rgb(251 251 254 / 0.07))
+  );
+  --button-secondary-fg-color:var(--text-color, light-dark(#15141a, #fbfbfe));
+  --button-secondary-border-color:var(
+    --button-border-color,
+    var(--button-secondary-bg-color)
+  );
+  --button-secondary-active-bg-color:var(
+    --button-background-color-active,
+    light-dark(rgb(21 20 26 / 0.21), rgb(251 251 254 / 0.21))
+  );
+  --button-secondary-active-fg-color:var(--button-secondary-fg-color);
+  --button-secondary-active-border-color:var(--button-secondary-bg-color);
+  --button-secondary-hover-bg-color:var(
+    --button-background-color-hover,
+    light-dark(rgb(21 20 26 / 0.14), rgb(251 251 254 / 0.14))
+  );
+  --button-secondary-hover-fg-color:var(--button-secondary-fg-color);
+  --button-secondary-hover-border-color:var(--button-secondary-hover-bg-color);
+  --button-secondary-disabled-bg-color:var(--button-secondary-bg-color);
+  --button-secondary-disabled-border-color:var(
+    --button-secondary-border-color
+  );
+  --button-secondary-disabled-fg-color:var(--button-secondary-fg-color);
+  --button-disabled-opacity:0.4;
+  --hover-filter:brightness(0.9);
+
+  @media (prefers-color-scheme: dark){
+    --button-disabled-opacity:0.6;
+    --hover-filter:brightness(1.4);
+  }
+  @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+    --hover-filter:none;
+    --button-disabled-opacity:var(--button-opacity-disabled);
+    --button-secondary-hover-border-color:var(--button-border-color-hover);
+    --button-secondary-active-border-color:var(--button-border-color-active);
+  }
+
+  @media screen and (forced-colors: active){
+    --button-primary-bg-color:var(
+      --button-background-color-primary,
+      ButtonText
+    );
+    --button-primary-fg-color:var(--button-text-color-primary, ButtonFace);
+    --button-primary-border-color:var(
+      --button-border-color-primary,
+      ButtonText
+    );
+    --button-primary-active-bg-color:var(
+      --button-background-color-primary-active,
+      SelectedItem
+    );
+    --button-primary-active-fg-color:var(
+      --button-text-color-primary-active,
+      HighlightText
+    );
+    --button-primary-active-border-color:var(
+      --button-border-color-primary-active,
+      ButtonText
+    );
+    --button-primary-hover-bg-color:var(
+      --button-background-color-primary-hover,
+      SelectedItem
+    );
+    --button-primary-hover-fg-color:var(
+      --button-text-color-primary-hover,
+      HighlightText
+    );
+    --button-primary-hover-border-color:var(
+      --button-border-color-primary-hover,
+      SelectedItem
+    );
+    --button-primary-disabled-bg-color:var(
+      --button-background-color-primary-disabled,
+      GrayText
+    );
+    --button-primary-disabled-fg-color:var(
+      --button-text-color-primary-disabled,
+      ButtonFace
+    );
+    --button-primary-disabled-border-color:var(
+      --button-border-color-primary-disabled,
+      GrayText
+    );
+
+    --button-secondary-bg-color:var(--button-background-color, ButtonFace);
+    --button-secondary-fg-color:var(--button-text-color, ButtonText);
+    --button-secondary-border-color:var(--button-border-color, ButtonText);
+    --button-secondary-active-bg-color:var(
+      --button-background-color-active,
+      HighlightText
+    );
+    --button-secondary-active-fg-color:var(
+      --button-text-color-active,
+      SelectedItem
+    );
+    --button-secondary-active-border-color:var(
+      --button-border-color-active,
+      ButtonText
+    );
+    --button-secondary-hover-bg-color:var(
+      --button-background-color-hover,
+      HighlightText
+    );
+    --button-secondary-hover-fg-color:var(
+      --button-text-color-hover,
+      SelectedItem
+    );
+    --button-secondary-hover-border-color:var(
+      --button-border-color-hover,
+      SelectedItem
+    );
+    --button-secondary-disabled-fg-color:var(
+      --button-text-color-disabled,
+      GrayText
+    );
+    --button-secondary-disabled-border-color:var(
+      --button-border-color-disabled,
+      GrayText
+    );
+    --button-disabled-opacity:1;
+    --hover-filter:none;
+  }
+}
+
+.primaryButton,
+.secondaryButton{
+  border-radius:var(--button-border-radius, 4px);
+  border:1px solid;
+  font:menu;
+  font-weight:var(--button-font-weight, 590);
+  font-size:var(--button-font-size, 13px);
+  padding:var(--button-padding, 4px 16px);
+  width:auto;
+  min-height:var(--button-min-height, 32px);
+
+  &:hover{
+    cursor:pointer;
+    filter:var(--hover-filter);
+  }
+
+  > span{
+    color:inherit;
+    font:inherit;
+  }
+
+  &:disabled{
+    pointer-events:none;
+  }
+}
+
+.primaryButton{
+  color:var(--button-primary-fg-color);
+  background-color:var(--button-primary-bg-color);
+  border-color:var(--button-primary-border-color);
+  opacity:1;
+
+  &:hover{
+    color:var(--button-primary-hover-fg-color);
+    background-color:var(--button-primary-hover-bg-color);
+    border-color:var(--button-primary-hover-border-color);
+  }
+
+  &:active{
+    color:var(--button-primary-active-fg-color);
+    background-color:var(--button-primary-active-bg-color);
+    border-color:var(--button-primary-active-border-color);
+  }
+
+  &:disabled{
+    background-color:var(--button-primary-disabled-bg-color);
+    border-color:var(--button-primary-disabled-border-color);
+    color:var(--button-primary-disabled-fg-color);
+    opacity:var(--button-disabled-opacity);
+  }
+}
+
+.secondaryButton{
+  color:var(--button-secondary-fg-color);
+  background-color:var(--button-secondary-bg-color);
+  border-color:var(--button-secondary-border-color);
+
+  &:hover{
+    color:var(--button-secondary-hover-fg-color);
+    background-color:var(--button-secondary-hover-bg-color);
+    border-color:var(--button-secondary-hover-border-color);
+  }
+
+  &:active{
+    color:var(--button-secondary-active-fg-color);
+    background-color:var(--button-secondary-active-bg-color);
+    border-color:var(--button-secondary-active-border-color);
+  }
+
+  &:disabled{
+    background-color:var(--button-secondary-disabled-bg-color);
+    border-color:var(--button-secondary-disabled-border-color);
+    color:var(--button-secondary-disabled-fg-color);
+    opacity:var(--button-disabled-opacity);
+  }
+}
 
 .messageBar{
   --closing-button-icon:url(images/messageBar_closingButton.svg);
   --message-bar-close-button-color:var(--text-primary-color);
   --message-bar-close-button-color-hover:var(--text-primary-color);
-  --message-bar-close-button-border-radius:4px;
+  --message-bar-close-button-border-radius:var(--border-radius-small, 4px);
   --message-bar-close-button-border:none;
-  --message-bar-close-button-hover-bg-color:light-dark(
-    rgb(21 20 26 / 0.14),
-    rgb(251 251 254 / 0.14)
+  --message-bar-close-button-hover-bg-color:var(
+    --button-background-color-hover,
+    light-dark(rgb(21 20 26 / 0.14), rgb(251 251 254 / 0.14))
   );
-  --message-bar-close-button-active-bg-color:light-dark(
-    rgb(21 20 26 / 0.21),
-    rgb(251 251 254 / 0.21)
+  --message-bar-close-button-active-bg-color:var(
+    --button-background-color-active,
+    light-dark(rgb(21 20 26 / 0.21), rgb(251 251 254 / 0.21))
   );
-  --message-bar-close-button-focus-bg-color:light-dark(
-    rgb(21 20 26 / 0.07),
-    rgb(251 251 254 / 0.07)
+  --message-bar-close-button-focus-bg-color:var(
+    --button-background-color,
+    light-dark(rgb(21 20 26 / 0.07), rgb(251 251 254 / 0.07))
   );
+  @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+    --message-bar-close-button-border-radius:var(--button-border-radius);
+  }
 
   @media screen and (forced-colors: active){
-    --message-bar-close-button-color:ButtonText;
-    --message-bar-close-button-border:1px solid ButtonText;
-    --message-bar-close-button-hover-bg-color:ButtonText;
-    --message-bar-close-button-active-bg-color:ButtonText;
-    --message-bar-close-button-focus-bg-color:ButtonText;
-    --message-bar-close-button-color-hover:HighlightText;
+    --message-bar-close-button-color:var(--button-text-color, ButtonText);
+    --message-bar-close-button-border:1px solid var(--button-border-color, ButtonText);
+    --message-bar-close-button-hover-bg-color:var(
+      --button-background-color-hover,
+      SelectedItemText
+    );
+    --message-bar-close-button-active-bg-color:var(
+      --button-background-color-hover,
+      SelectedItemText
+    );
+    --message-bar-close-button-focus-bg-color:var(
+      --button-background-color-hover,
+      SelectedItemText
+    );
+    --message-bar-close-button-color-hover:var(
+      --button-text-color-hover,
+      SelectedItem
+    );
   }
 
   display:flex;
@@ -49,8 +297,7 @@
   align-items:center;
   gap:8px;
   user-select:none;
-
-  border-radius:4px;
+  border-radius:var(--border-radius-small, 4px);
 
   border:1px solid var(--message-bar-border-color);
   background:var(--message-bar-bg-color);
@@ -130,8 +377,6 @@
 }
 
 #editorUndoBar{
-  --text-primary-color:light-dark(#15141a, #fbfbfe);
-
   --message-bar-icon:url(images/messageBar_info.svg);
   --message-bar-icon-color:light-dark(#0060df, #73a7f3);
   --message-bar-bg-color:light-dark(#deeafc, #003070);
@@ -140,42 +385,16 @@
     rgb(0 0 0 / 0.08),
     rgb(255 255 255 / 0.08)
   );
-
-  --undo-button-bg-color:light-dark(
-    rgb(21 20 26 / 0.07),
-    rgb(255 255 255 / 0.08)
-  );
-  --undo-button-bg-color-hover:light-dark(
-    rgb(21 20 26 / 0.14),
-    rgb(255 255 255 / 0.14)
-  );
-  --undo-button-bg-color-active:light-dark(
-    rgb(21 20 26 / 0.21),
-    rgb(255 255 255 / 0.21)
-  );
-
-  --undo-button-border:1px solid light-dark(#0060df, #0df);
-
-  --undo-button-fg-color:var(--message-bar-fg-color);
-  --undo-button-fg-color-hover:var(--undo-button-fg-color);
-  --undo-button-fg-color-active:var(--undo-button-fg-color);
+  @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+    --message-bar-icon-color:var(--icon-color-information);
+    --message-bar-bg-color:var(--background-color-box);
+    --message-bar-border-color:var(--border-color-deemphasized);
+  }
 
   @media screen and (forced-colors: active){
-    --text-primary-color:CanvasText;
-
     --message-bar-icon-color:CanvasText;
     --message-bar-bg-color:Canvas;
     --message-bar-border-color:CanvasText;
-
-    --undo-button-bg-color:ButtonText;
-    --undo-button-bg-color-hover:SelectedItem;
-    --undo-button-bg-color-active:SelectedItem;
-
-    --undo-button-fg-color:ButtonFace;
-    --undo-button-fg-color-hover:SelectedItemText;
-    --undo-button-fg-color-active:SelectedItemText;
-
-    --undo-button-border:none;
   }
 
   position:fixed;
@@ -197,26 +416,8 @@
   }
 
   #editorUndoBarUndoButton{
-    border-radius:4px;
-    font-weight:590;
-    line-height:19.5px;
-    color:var(--undo-button-fg-color);
-    border:var(--undo-button-border);
-    padding:4px 16px;
     margin-inline-start:8px;
-    height:32px;
-
-    background-color:var(--undo-button-bg-color);
-
-    &:hover{
-      background-color:var(--undo-button-bg-color-hover);
-      color:var(--undo-button-fg-color-hover);
-    }
-
-    &:active{
-      background-color:var(--undo-button-bg-color-active);
-      color:var(--undo-button-fg-color-active);
-    }
+    border-color:var(--color-accent-primary, light-dark(#0060df, #0df));
   }
 
   > div{
@@ -225,116 +426,36 @@
 }
 
 .dialog{
-  --dialog-bg-color:light-dark(white, #1c1b22);
-  --dialog-border-color:light-dark(white, #1c1b22);
+  --dialog-bg-color:var(--background-color-canvas, light-dark(white, #1c1b22));
+  --dialog-border-color:var(
+    --background-color-canvas,
+    light-dark(white, #1c1b22)
+  );
   --dialog-shadow:0 2px 14px 0 light-dark(rgb(58 57 68 / 0.2), #15141a);
-  --text-primary-color:light-dark(#15141a, #fbfbfe);
   --text-secondary-color:light-dark(#5b5b66, #cfcfd8);
-  --hover-filter:brightness(0.9);
-  --link-fg-color:light-dark(#0060df, #0df);
-  --link-hover-fg-color:light-dark(#0250bb, #80ebff);
   --separator-color:light-dark(#f0f0f4, #52525e);
-
-  --textarea-border-color:#8f8f9d;
+  --textarea-border-color:var(--border-color-interactive, #8f8f9d);
   --textarea-bg-color:light-dark(white, #42414d);
   --textarea-fg-color:var(--text-secondary-color);
 
-  --radio-bg-color:light-dark(#f0f0f4, #2b2a33);
-  --radio-checked-bg-color:light-dark(#fbfbfe, #15141a);
-  --radio-border-color:#8f8f9d;
-  --radio-checked-border-color:light-dark(#0060df, #0df);
-
-  --button-secondary-bg-color:light-dark(
-    rgb(21 20 26 / 0.07),
-    rgb(251 251 254 / 0.07)
-  );
-  --button-secondary-fg-color:var(--text-primary-color);
-  --button-secondary-border-color:var(--button-secondary-bg-color);
-  --button-secondary-active-bg-color:light-dark(
-    rgb(21 20 26 / 0.21),
-    rgb(251 251 254 / 0.21)
-  );
-  --button-secondary-active-fg-color:var(--button-secondary-fg-color);
-  --button-secondary-active-border-color:var(--button-secondary-bg-color);
-  --button-secondary-hover-bg-color:light-dark(
-    rgb(21 20 26 / 0.14),
-    rgb(251 251 254 / 0.14)
-  );
-  --button-secondary-hover-fg-color:var(--button-secondary-fg-color);
-  --button-secondary-hover-border-color:var(--button-secondary-hover-bg-color);
-  --button-secondary-disabled-bg-color:var(--button-secondary-bg-color);
-  --button-secondary-disabled-border-color:var(
-    --button-secondary-border-color
-  );
-  --button-secondary-disabled-fg-color:var(--button-secondary-fg-color);
-
-  --button-primary-bg-color:light-dark(#0060df, #0df);
-  --button-primary-fg-color:light-dark(#fbfbfe, #15141a);
-  --button-primary-border-color:var(--button-primary-bg-color);
-  --button-primary-active-bg-color:light-dark(#054096, #aaf2ff);
-  --button-primary-active-fg-color:var(--button-primary-fg-color);
-  --button-primary-active-border-color:var(--button-primary-active-bg-color);
-  --button-primary-hover-bg-color:light-dark(#0250bb, #80ebff);
-  --button-primary-hover-fg-color:var(--button-primary-fg-color);
-  --button-primary-hover-border-color:var(--button-primary-hover-bg-color);
-  --button-primary-disabled-bg-color:var(--button-primary-bg-color);
-  --button-primary-disabled-border-color:var(--button-primary-border-color);
-  --button-primary-disabled-fg-color:var(--button-primary-fg-color);
-  --button-disabled-opacity:0.4;
-
   --input-text-bg-color:light-dark(white, #42414d);
   --input-text-fg-color:var(--text-primary-color);
-
-  @media (prefers-color-scheme: dark){
-    --hover-filter:brightness(1.4);
-    --button-disabled-opacity:0.6;
+  @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+    --dialog-border-color:var(--border-color-deemphasized);
+    --dialog-shadow:var(--box-shadow-level-3);
+    --separator-color:var(--border-color-deemphasized);
   }
 
   @media screen and (forced-colors: active){
-    --dialog-bg-color:Canvas;
-    --dialog-border-color:CanvasText;
+    --dialog-bg-color:var(--background-color-canvas, Canvas);
+    --dialog-border-color:var(--border-color, CanvasText);
     --dialog-shadow:none;
-    --text-primary-color:CanvasText;
     --text-secondary-color:CanvasText;
-    --hover-filter:none;
-    --link-fg-color:LinkText;
-    --link-hover-fg-color:LinkText;
     --separator-color:CanvasText;
 
     --textarea-border-color:ButtonBorder;
     --textarea-bg-color:Field;
     --textarea-fg-color:ButtonText;
-
-    --radio-bg-color:ButtonFace;
-    --radio-checked-bg-color:ButtonFace;
-    --radio-border-color:ButtonText;
-    --radio-checked-border-color:ButtonText;
-
-    --button-secondary-bg-color:ButtonFace;
-    --button-secondary-fg-color:ButtonText;
-    --button-secondary-border-color:ButtonText;
-    --button-secondary-active-bg-color:HighlightText;
-    --button-secondary-active-fg-color:SelectedItem;
-    --button-secondary-active-border-color:ButtonText;
-    --button-secondary-hover-bg-color:HighlightText;
-    --button-secondary-hover-fg-color:SelectedItem;
-    --button-secondary-hover-border-color:SelectedItem;
-    --button-secondary-disabled-fg-color:GrayText;
-    --button-secondary-disabled-border-color:GrayText;
-
-    --button-primary-bg-color:ButtonText;
-    --button-primary-fg-color:ButtonFace;
-    --button-primary-border-color:ButtonText;
-    --button-primary-active-bg-color:SelectedItem;
-    --button-primary-active-fg-color:HighlightText;
-    --button-primary-active-border-color:ButtonText;
-    --button-primary-hover-bg-color:SelectedItem;
-    --button-primary-hover-fg-color:HighlightText;
-    --button-primary-hover-border-color:SelectedItem;
-    --button-primary-disabled-bg-color:GrayText;
-    --button-primary-disabled-fg-color:ButtonFace;
-    --button-primary-disabled-border-color:GrayText;
-    --button-disabled-opacity:1;
 
     --input-text-bg-color:Field;
     --input-text-fg-color:FieldText;
@@ -344,7 +465,7 @@
   font-size:13px;
   font-weight:400;
   line-height:150%;
-  border-radius:4px;
+  border-radius:var(--border-radius-medium, 4px);
   padding:12px 16px;
   border:1px solid var(--dialog-border-color);
   background:var(--dialog-bg-color);
@@ -386,6 +507,11 @@
       gap:12px;
       align-self:flex-end;
     }
+    input:is([type="checkbox"], [type="radio"]){
+      accent-color:var(--color-accent-primary, light-dark(#0060df, #0df));
+      width:var(--checkbox-size, 16px);
+      height:var(--checkbox-size, 16px);
+    }
 
     .radio{
       display:flex;
@@ -398,25 +524,6 @@
         gap:8px;
         align-self:stretch;
         align-items:center;
-
-        input{
-          appearance:none;
-          box-sizing:border-box;
-          width:16px;
-          height:16px;
-          border-radius:50%;
-          background-color:var(--radio-bg-color);
-          border:1px solid var(--radio-border-color);
-
-          &:hover{
-            filter:var(--hover-filter);
-          }
-
-          &:checked{
-            background-color:var(--radio-checked-bg-color);
-            border:4px solid var(--radio-checked-border-color);
-          }
-        }
       }
 
       > .radioLabel{
@@ -435,14 +542,15 @@
     }
 
     button:not(:is(.toggle-button, .closeButton, .clearInputButton)){
-      border-radius:4px;
-      border:1px solid;
+      border-radius:var(--button-border-radius, 4px);
+      border-width:1px;
+      border-style:solid;
       font:menu;
-      font-weight:590;
-      font-size:13px;
-      padding:4px 16px;
+      font-weight:var(--button-font-weight, 590);
+      font-size:var(--button-font-size, 13px);
+      padding:var(--button-padding, 4px 16px);
       width:auto;
-      height:32px;
+      min-height:var(--button-min-height, 32px);
 
       &:hover{
         cursor:pointer;
@@ -453,58 +561,6 @@
         color:inherit;
         font:inherit;
       }
-
-      &.secondaryButton{
-        color:var(--button-secondary-fg-color);
-        background-color:var(--button-secondary-bg-color);
-        border-color:var(--button-secondary-border-color);
-
-        &:hover{
-          color:var(--button-secondary-hover-fg-color);
-          background-color:var(--button-secondary-hover-bg-color);
-          border-color:var(--button-secondary-hover-border-color);
-        }
-
-        &:active{
-          color:var(--button-secondary-active-fg-color);
-          background-color:var(--button-secondary-active-bg-color);
-          border-color:var(--button-secondary-active-border-color);
-        }
-
-        &:disabled{
-          background-color:var(--button-secondary-disabled-bg-color);
-          border-color:var(--button-secondary-disabled-border-color);
-          color:var(--button-secondary-disabled-fg-color);
-          opacity:var(--button-disabled-opacity);
-        }
-      }
-
-      &.primaryButton{
-        color:var(--button-primary-fg-color);
-        background-color:var(--button-primary-bg-color);
-        border-color:var(--button-primary-border-color);
-        opacity:1;
-
-        &:hover{
-          color:var(--button-primary-hover-fg-color);
-          background-color:var(--button-primary-hover-bg-color);
-          border-color:var(--button-primary-hover-border-color);
-        }
-
-        &:active{
-          color:var(--button-primary-active-fg-color);
-          background-color:var(--button-primary-active-bg-color);
-          border-color:var(--button-primary-active-border-color);
-        }
-
-        &:disabled{
-          background-color:var(--button-primary-disabled-bg-color);
-          border-color:var(--button-primary-disabled-border-color);
-          color:var(--button-primary-disabled-fg-color);
-          opacity:var(--button-disabled-opacity);
-        }
-      }
-
       &:disabled{
         pointer-events:none;
       }
@@ -524,7 +580,7 @@
       resize:none;
       margin:0;
       box-sizing:border-box;
-      border-radius:4px;
+      border-radius:var(--border-radius-small, 4px);
       border:1px solid var(--textarea-border-color);
       background:var(--textarea-bg-color);
       color:var(--textarea-fg-color);
@@ -611,6 +667,8 @@
   overflow:clip;
   opacity:1;
   line-height:1;
+  letter-spacing:normal;
+  word-spacing:normal;
   text-size-adjust:none;
   forced-color-adjust:none;
   transform-origin:0 0;
@@ -627,6 +685,7 @@
     white-space:pre;
     cursor:text;
     transform-origin:0% 0%;
+    user-select:text;
   }
   --min-font-size:1;
   --text-scale-factor:calc(var(--total-scale-factor) * var(--min-font-size));
@@ -698,7 +757,15 @@
   }
 
   ::selection{
-    background:color-mix(in srgb, AccentColor, transparent 75%);
+    background:color-mix(in srgb, AccentColor, transparent 50%);
+    color:transparent;
+  }
+
+  &.selectionRendering{
+    ::selection{
+      background:transparent;
+      color:transparent;
+    }
   }
 
   .endOfContent{
@@ -730,6 +797,7 @@
   color-scheme:only light;
 
   --annotation-unfocused-field-background:url("data:image/svg+xml;charset=UTF-8,<svg width='1px' height='1px' xmlns='http://www.w3.org/2000/svg'><rect width='100%' height='100%' style='fill:rgba(0, 54, 255, 0.13);'/></svg>");
+  --annotation-unfocused-field-filter:url("data:image/svg+xml;charset=UTF-8,<svg xmlns='http://www.w3.org/2000/svg'><filter id='pdfjsFillableField' x='0%' y='0%' width='100%' height='100%' color-interpolation-filters='sRGB'><feFlood flood-color='rgb(0,54,255)' flood-opacity='0.13' result='f'/><feComposite in='f' in2='SourceGraphic' operator='over'/></filter></svg>#pdfjsFillableField");
   --input-focus-border-color:Highlight;
   --input-focus-outline:1px solid Canvas;
   --input-unfocused-border-color:transparent;
@@ -850,6 +918,13 @@
       overflow:hidden;
     }
   }
+  .hasOwnCanvas:not(.sandboxModified) :is(input, textarea){
+    display:none;
+  }
+
+  .hasOwnCanvas.sandboxModified canvas.annotationContent{
+    display:none;
+  }
 
   .textLayer.selecting ~ & section{
     pointer-events:none;
@@ -910,10 +985,6 @@
     padding:0;
   }
 
-  .buttonWidgetAnnotation.radioButton input{
-    border-radius:50%;
-  }
-
   .textWidgetAnnotation textarea{
     resize:none;
   }
@@ -961,55 +1032,112 @@
     outline:var(--input-focus-outline);
   }
 
-  .buttonWidgetAnnotation.checkBox input:checked::before,
-  .buttonWidgetAnnotation.checkBox input:checked::after,
-  .buttonWidgetAnnotation.radioButton input:checked::before{
-    background-color:CanvasText;
-    content:"";
-    display:block;
-    position:absolute;
-  }
+  .buttonWidgetAnnotation:is(.checkBox, .radioButton){
+    [data-canvas-name]{
+      filter:var(--annotation-unfocused-field-filter);
+    }
 
-  .buttonWidgetAnnotation.checkBox input:checked::before,
-  .buttonWidgetAnnotation.checkBox input:checked::after{
-    height:80%;
-    left:45%;
-    width:1px;
-  }
+    &:focus-within [data-canvas-name]{
+      filter:none;
+    }
 
-  .buttonWidgetAnnotation.checkBox input:checked::before{
-    transform:rotate(45deg);
-  }
+    [data-canvas-name="checked"]{
+      &:has(~ input:checked){
+        display:block;
+      }
 
-  .buttonWidgetAnnotation.checkBox input:checked::after{
-    transform:rotate(-45deg);
-  }
+      &:has(~ input:not(:checked)){
+        display:none;
+      }
+    }
 
-  .buttonWidgetAnnotation.radioButton input:checked::before{
-    border-radius:50%;
-    height:50%;
-    left:25%;
-    top:25%;
-    width:50%;
+    [data-canvas-name="unchecked"]{
+      &:has(~ input:checked){
+        display:none;
+      }
+
+      &:has(~ input:not(:checked)){
+        display:block;
+      }
+    }
   }
 
   .textWidgetAnnotation input.comb{
+    --comb-width:0px;
+    --comb-letter-spacing:calc(var(--comb-width) - 1ch);
+
     font-family:monospace;
-    padding-left:2px;
-    padding-right:0;
+    letter-spacing:var(--comb-letter-spacing);
+    overflow-x:hidden;
+    padding:0;
+    text-indent:calc(
+      var(--comb-offset, 0) * var(--comb-width) + var(--comb-letter-spacing) / 2
+    );
   }
 
   .textWidgetAnnotation input.comb:focus{
-    width:103%;
+    background-image:repeating-linear-gradient(
+      to right,
+      transparent 0 calc(var(--comb-width) - 1px),
+      var(--input-focus-border-color) calc(var(--comb-width) - 1px)
+        var(--comb-width)
+    );
   }
 
   .buttonWidgetAnnotation:is(.checkBox, .radioButton) input{
     appearance:none;
   }
 
+  .buttonWidgetAnnotation:is(.checkBox, .radioButton):has(
+      [data-canvas-name="checked"]
+    )
+    input:checked,
+  .buttonWidgetAnnotation:is(.checkBox, .radioButton):has(
+      [data-canvas-name="unchecked"]
+    )
+    input:not(:checked){
+    background-image:none;
+  }
+
   .fileAttachmentAnnotation .popupTriggerArea{
     height:100%;
     width:100%;
+  }
+
+  .mediaAnnotation{
+    pointer-events:auto;
+
+    .mediaContent{
+      width:100%;
+    }
+
+    video.mediaContent{
+      height:100%;
+      object-fit:contain;
+    }
+
+    audio.mediaContent{
+      position:absolute;
+      bottom:0;
+    }
+
+    .mediaPlayButton{
+      height:100%;
+      width:100%;
+      margin:0;
+      padding:0;
+      border:none;
+      cursor:pointer;
+      background-color:transparent;
+      background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='40' fill='rgba(0,0,0,0.55)'/%3E%3Cpath d='M40 32 L70 50 L40 68 Z' fill='white'/%3E%3C/svg%3E");
+      background-position:center;
+      background-repeat:no-repeat;
+      background-size:calc(48px * var(--total-scale-factor));
+
+      &:hover{
+        background-color:rgba(255 255 255 / 0.1);
+      }
+    }
   }
 
   .popupAnnotation{
@@ -1544,62 +1672,47 @@
 }
 
 .toggle-button{
-  --button-background-color:color-mix(in srgb, currentColor 7%, transparent);
-  --button-background-color-hover:color-mix(
-    in srgb,
-    currentColor 14%,
-    transparent
+  --toggle-background-color:var(
+    --button-background-color,
+    color-mix(in srgb, currentColor 7%, transparent)
   );
-  --button-background-color-active:color-mix(
-    in srgb,
-    currentColor 21%,
-    transparent
+  --toggle-background-color-hover:var(
+    --button-background-color-hover,
+    color-mix(in srgb, currentColor 14%, transparent)
   );
-  --color-accent-primary:light-dark(#0060df, #0df);
-  --color-accent-primary-hover:light-dark(#0250bb, #80ebff);
-  --color-accent-primary-active:light-dark(#054096, #aaf2ff);
-  --border-radius-circle:9999px;
-  --border-width:1px;
-  --size-item-small:16px;
-  --size-item-large:32px;
-  --color-canvas:light-dark(white, #1c1b22);
-  --background-color-canvas:var(--color-canvas);
-  --border-color-interactive:light-dark(#8f8f9d, #f9f9fa);
-  --border-color-interactive-hover:var(--border-color-interactive);
-  --border-color-interactive-active:var(--border-color-interactive);
-  --focus-outline-offset:2px;
-
-  @media (forced-colors: active){
-    --color-accent-primary:ButtonText;
-    --color-accent-primary-hover:SelectedItem;
-    --color-accent-primary-active:SelectedItem;
-    --button-background-color:ButtonFace;
-    --border-color-interactive:ButtonText;
-    --border-color-interactive-hover:SelectedItem;
-    --border-color-interactive-active:ButtonText;
-    --color-canvas:ButtonText;
-    --background-color-canvas:Canvas;
-  }
-}
-
-.toggle-button{
-  --toggle-background-color:var(--button-background-color);
-  --toggle-background-color-hover:var(--button-background-color-hover);
-  --toggle-background-color-active:var(--button-background-color-active);
-  --toggle-background-color-pressed:var(--color-accent-primary);
-  --toggle-background-color-pressed-hover:var(--color-accent-primary-hover);
-  --toggle-background-color-pressed-active:var(--color-accent-primary-active);
-  --toggle-border-color:var(--border-color-interactive);
+  --toggle-background-color-active:var(
+    --button-background-color-active,
+    color-mix(in srgb, currentColor 21%, transparent)
+  );
+  --toggle-background-color-pressed:var(
+    --color-accent-primary,
+    light-dark(#0060df, #0df)
+  );
+  --toggle-background-color-pressed-hover:var(
+    --color-accent-primary-hover,
+    light-dark(#0250bb, #80ebff)
+  );
+  --toggle-background-color-pressed-active:var(
+    --color-accent-primary-active,
+    light-dark(#054096, #aaf2ff)
+  );
+  --toggle-border-color:var(
+    --border-color-interactive,
+    light-dark(#8f8f9d, #f9f9fa)
+  );
   --toggle-border-color-hover:var(--toggle-border-color);
   --toggle-border-color-active:var(--toggle-border-color);
-  --toggle-border-radius:var(--border-radius-circle);
-  --toggle-border-width:var(--border-width);
-  --toggle-height:var(--size-item-small);
-  --toggle-width:var(--size-item-large);
+  --toggle-border-radius:var(--border-radius-circle, 9999px);
+  --toggle-border-width:var(--border-width, 1px);
+  --toggle-height:var(--size-item-small, 16px);
+  --toggle-width:var(--size-item-large, 32px);
   --toggle-dot-background-color:var(--toggle-border-color);
   --toggle-dot-background-color-hover:var(--toggle-dot-background-color);
   --toggle-dot-background-color-active:var(--toggle-dot-background-color);
-  --toggle-dot-background-color-on-pressed:var(--background-color-canvas);
+  --toggle-dot-background-color-on-pressed:var(
+    --background-color-canvas,
+    light-dark(white, #1c1b22)
+  );
   --toggle-dot-margin:1px;
   --toggle-dot-height:calc(
     var(--toggle-height) - 2 * var(--toggle-dot-margin) - 2 *
@@ -1621,8 +1734,8 @@
   box-sizing:border-box;
 
   &:focus-visible{
-    outline:var(--focus-outline);
-    outline-offset:var(--focus-outline-offset);
+    outline:var(--focus-ring-outline);
+    outline-offset:var(--focus-outline-offset, 2px);
   }
 
   &:enabled:hover{
@@ -1714,16 +1827,42 @@
 
 @media (forced-colors){
   .toggle-button{
-    --toggle-dot-background-color:var(--color-accent-primary);
-    --toggle-dot-background-color-hover:var(--color-accent-primary-hover);
-    --toggle-dot-background-color-active:var(--color-accent-primary-active);
-    --toggle-dot-background-color-on-pressed:var(--button-background-color);
-    --toggle-border-color-hover:var(--border-color-interactive-hover);
-    --toggle-border-color-active:var(--border-color-interactive-active);
+    --toggle-background-color:var(--button-background-color, ButtonFace);
+    --toggle-background-color-pressed:var(--color-accent-primary, ButtonText);
+    --toggle-background-color-pressed-hover:var(
+      --color-accent-primary-hover,
+      SelectedItem
+    );
+    --toggle-background-color-pressed-active:var(
+      --color-accent-primary-active,
+      SelectedItem
+    );
+    --toggle-border-color:var(--border-color-interactive, ButtonText);
+    --toggle-dot-background-color:var(--color-accent-primary, ButtonText);
+    --toggle-dot-background-color-hover:var(
+      --color-accent-primary-hover,
+      SelectedItem
+    );
+    --toggle-dot-background-color-active:var(
+      --color-accent-primary-active,
+      SelectedItem
+    );
+    --toggle-dot-background-color-on-pressed:var(
+      --button-background-color,
+      ButtonFace
+    );
+    --toggle-border-color-hover:var(
+      --border-color-interactive-hover,
+      SelectedItem
+    );
+    --toggle-border-color-active:var(
+      --border-color-interactive-active,
+      ButtonText
+    );
   }
 
   .toggle-button[aria-pressed="true"]:enabled::after{
-    border:1px solid var(--button-background-color);
+    border:1px solid var(--button-background-color, ButtonFace);
     content:"";
     position:absolute;
     height:var(--toggle-height);
@@ -1740,8 +1879,14 @@
 
 :root{
   --clear-signature-button-icon:url(images/editor-toolbar-delete.svg);
-  --signature-bg:light-dark(#f9f9fb, #2b2a33);
-  --signature-hover-bg:light-dark(#f0f0f4, var(--signature-bg));
+  --signature-bg:var(
+    --background-color-box-info,
+    light-dark(#f9f9fb, #2b2a33)
+  );
+  --signature-hover-bg:var(
+    --button-background-color-hover,
+    light-dark(#f0f0f4, var(--signature-bg))
+  );
   --button-signature-bg:transparent;
   --button-signature-color:var(--main-color);
   --button-signature-active-bg:light-dark(#cfcfd8, #5b5b66);
@@ -1750,6 +1895,10 @@
   --button-signature-border:none;
   --button-signature-hover-bg:light-dark(#e0e0e6, #52525e);
   --button-signature-hover-color:var(--button-signature-color);
+  @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+    --button-signature-hover-bg:var(--button-background-color-hover);
+    --button-signature-active-bg:var(--button-background-color-active);
+  }
 
   @media screen and (forced-colors: active){
     --signature-bg:HighlightText;
@@ -1766,13 +1915,13 @@
 
 .signatureDialog{
   --primary-color:var(--text-primary-color);
-  --border-color:#8f8f9d;
+  --signature-border-color:var(--border-color-interactive, #8f8f9d);
   --open-link-fg:var(--link-fg-color);
   --open-link-hover-fg:var(--link-hover-fg-color);
 
   @media screen and (forced-colors: active){
     --primary-color:ButtonText;
-    --border-color:ButtonText;
+    --signature-border-color:var(--border-color-interactive, ButtonText);
     --open-link-fg:ButtonText;
     --open-link-hover-fg:ButtonText;
   }
@@ -1813,11 +1962,11 @@
 
     > input{
       width:100%;
-      height:32px;
+      height:var(--size-item-large, 32px);
       padding-inline:8px calc(4px + var(--button-dimension));
       box-sizing:border-box;
-      border-radius:4px;
-      border:1px solid var(--border-color);
+      border-radius:var(--border-radius-small, 4px);
+      border:1px solid var(--signature-border-color);
     }
 
     .clearInputButton{
@@ -1838,11 +1987,17 @@
 
 #addSignatureDialog{
   --secondary-color:var(--text-secondary-color);
-  --bg-hover:#e0e0e6;
-  --tab-top-line-active-color:#0060df;
+  --bg-hover:var(
+    --button-background-color-hover,
+    light-dark(#e0e0e6, #52525e)
+  );
+  --tab-top-line-active-color:var(
+    --color-accent-primary,
+    light-dark(#0060df, #0df)
+  );
   --tab-top-line-active-hover-color:var(--tab-text-hover-color);
-  --tab-top-line-hover-color:#8f8f9d;
-  --tab-top-line-inactive-color:#cfcfd8;
+  --tab-top-line-hover-color:var(--border-color-interactive, #8f8f9d);
+  --tab-top-line-inactive-color:light-dark(#cfcfd8, #8f8f9d);
   --tab-bottom-line-active-color:var(--tab-top-line-inactive-color);
   --tab-bottom-line-hover-color:var(--tab-top-line-inactive-color);
   --tab-bottom-line-inactive-color:var(--tab-top-line-inactive-color);
@@ -1851,7 +2006,7 @@
   --tab-bg-active-hover-color:var(--bg-hover);
   --tab-bg-hover:var(--bg-hover);
   --tab-panel-border:none;
-  --tab-panel-border-radius:4px;
+  --tab-panel-border-radius:var(--border-radius-small, 4px);
   --tab-text-color:var(--primary-color);
   --tab-text-active-color:var(--tab-top-line-active-color);
   --tab-text-active-hover-color:var(--tab-text-hover-color);
@@ -1859,24 +2014,6 @@
   --signature-placeholder-color:var(--secondary-color);
   --signature-draw-placeholder-color:var(--primary-color);
   --signature-color:var(--primary-color);
-  --clear-signature-button-border-width:0;
-  --clear-signature-button-border-style:solid;
-  --clear-signature-button-border-color:transparent;
-  --clear-signature-button-border-disabled-color:transparent;
-  --clear-signature-button-color:var(--primary-color);
-  --clear-signature-button-hover-color:var(--clear-signature-button-color);
-  --clear-signature-button-active-color:var(--clear-signature-button-color);
-  --clear-signature-button-disabled-color:var(--clear-signature-button-color);
-  --clear-signature-button-focus-color:var(--clear-signature-button-color);
-  --clear-signature-button-bg:var(--dialog-bg-color);
-  --clear-signature-button-bg-hover:var(--bg-hover);
-  --clear-signature-button-bg-active:#cfcfd8;
-  --clear-signature-button-bg-focus:#f0f0f4;
-  --clear-signature-button-bg-disabled:color-mix(
-    in srgb,
-    #f0f0f4,
-    transparent 40%
-  );
   --save-warning-color:var(--secondary-color);
   --thickness-bg:var(--dialog-bg-color);
   --thickness-label-color:var(--primary-color);
@@ -1884,29 +2021,13 @@
   --thickness-border:none;
   --draw-cursor:url(images/cursor-editorInk.svg) 0 16, pointer;
 
-  @media (prefers-color-scheme: dark){
-    --dialog-bg-color:#42414d;
-    --bg-hover:#52525e;
-    --primary-color:#fbfbfe;
-    --secondary-color:#cfcfd8;
-    --tab-top-line-active-color:#0df;
-    --tab-top-line-inactive-color:#8f8f9d;
-    --clear-signature-button-bg-active:#5b5b66;
-    --clear-signature-button-bg-focus:#2b2a33;
-    --clear-signature-button-bg-disabled:color-mix(
-      in srgb,
-      #2b2a33,
-      transparent 40%
-    );
-  }
-
   @media screen and (forced-colors: active){
     --secondary-color:ButtonText;
     --bg:HighlightText;
     --bg-hover:var(--bg);
-    --tab-top-line-active-color:ButtonText;
+    --tab-top-line-active-color:var(--color-accent-primary, ButtonText);
     --tab-top-line-active-hover-color:HighlightText;
-    --tab-top-line-hover-color:SelectedItem;
+    --tab-top-line-hover-color:var(--border-color-interactive, SelectedItem);
     --tab-top-line-inactive-color:ButtonText;
     --tab-bottom-line-active-color:var(--tab-top-line-active-color);
     --tab-bottom-line-hover-color:var(--tab-top-line-hover-color);
@@ -1920,24 +2041,10 @@
     --tab-text-active-hover-color:HighlightText;
     --tab-text-hover-color:SelectedItem;
     --signature-color:ButtonText;
-    --clear-signature-button-border-width:1px;
-    --clear-signature-button-border-style:solid;
-    --clear-signature-button-border-color:ButtonText;
-    --clear-signature-button-border-disabled-color:GrayText;
-    --clear-signature-button-color:ButtonText;
-    --clear-signature-button-hover-color:HighlightText;
-    --clear-signature-button-active-color:SelectedItem;
-    --clear-signature-button-focus-color:CanvasText;
-    --clear-signature-button-disabled-color:GrayText;
-    --clear-signature-button-bg:var(--bg);
-    --clear-signature-button-bg-hover:SelectedItem;
-    --clear-signature-button-bg-active:var(--bg);
-    --clear-signature-button-bg-focus:var(--bg);
-    --clear-signature-button-bg-disabled:var(--bg);
     --thickness-bg:Canvas;
     --thickness-label-color:CanvasText;
     --thickness-slider-color:ButtonText;
-    --thickness-border:1px solid var(--border-color);
+    --thickness-border:1px solid var(--signature-border-color);
   }
 
   #addSignatureDialogLabel{
@@ -2130,6 +2237,9 @@
               margin:0;
               background-color:var(--thickness-bg);
               border-radius:4px 4px 0 0;
+              @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+                border-radius:var(--border-radius-small) var(--border-radius-small) 0 0;
+              }
               border-inline:var(--thickness-border);
               border-top:var(--thickness-border);
               pointer-events:auto;
@@ -2246,14 +2356,7 @@
 
           #clearSignatureButton{
             display:flex;
-            height:32px;
-            padding:4px 8px;
             align-items:center;
-            background-color:var(--clear-signature-button-bg);
-            border-width:var(--clear-signature-button-border-width);
-            border-style:var(--clear-signature-button-border-style);
-            border-color:var(--clear-signature-button-border-color);
-            border-radius:4px;
 
             > span{
               display:flex;
@@ -2262,8 +2365,6 @@
               gap:4px;
               flex-shrink:0;
 
-              color:var(--clear-signature-button-color);
-
               &::after{
                 content:"";
                 display:inline-block;
@@ -2271,55 +2372,8 @@
                 height:16px;
                 mask-image:var(--clear-signature-button-icon);
                 mask-size:cover;
-                background-color:var(--clear-signature-button-color);
+                background-color:currentColor;
                 flex-shrink:0;
-              }
-            }
-
-            &:hover{
-              background-color:var(--clear-signature-button-bg-hover);
-
-              > span{
-                color:var(--clear-signature-button-hover-color);
-                &::after{
-                  background-color:var(--clear-signature-button-hover-color);
-                }
-              }
-            }
-
-            &:active{
-              background-color:var(--clear-signature-button-bg-active);
-
-              > span{
-                color:var(--clear-signature-button-active-color);
-                &::after{
-                  background-color:var(--clear-signature-button-active-color);
-                }
-              }
-            }
-
-            &:focus-visible{
-              background-color:var(--clear-signature-button-bg-focus);
-
-              > span{
-                color:var(--clear-signature-button-focus-color);
-                &::after{
-                  background-color:var(--clear-signature-button-focus-color);
-                }
-              }
-            }
-
-            &:disabled{
-              background-color:var(--clear-signature-button-bg-disabled);
-              border-color:var(--clear-signature-button-border-disabled-color);
-
-              > span{
-                color:var(--clear-signature-button-disabled-color);
-                &::after{
-                  background-color:var(
-                    --clear-signature-button-disabled-color
-                  );
-                }
               }
             }
           }
@@ -2427,6 +2481,9 @@
       button{
         border:var(--button-signature-border);
         border-radius:4px;
+        @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+          border-radius:var(--border-radius-small);
+        }
         background-color:var(--button-signature-bg);
         color:var(--button-signature-color);
 
@@ -2469,6 +2526,9 @@
         justify-content:flex-start;
         outline:none;
         border-radius:4px;
+        @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+          border-radius:var(--border-radius-small);
+        }
         box-sizing:border-box;
         font:message-box;
         position:relative;
@@ -2490,6 +2550,9 @@
           box-sizing:border-box;
           border:none;
           border-radius:4px;
+          @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+            border-radius:var(--border-radius-small);
+          }
 
           > path{
             stroke:var(--button-signature-color);
@@ -2509,6 +2572,9 @@
 
         &:is(:hover, :active) > svg{
           border-radius:4px 0 0 4px;
+          @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+            border-radius:var(--border-radius-small) 0 0 var(--border-radius-small);
+          }
           background-color:var(--signature-hover-bg);
         }
 
@@ -2565,6 +2631,9 @@
   box-sizing:border-box;
 
   border-radius:8px;
+  @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+    border-radius:var(--border-radius-medium);
+  }
 }
 
 #commentManagerDialog{
@@ -2605,37 +2674,81 @@
 :is(.annotationLayer, .annotationEditorLayer){
   .annotationCommentButton{
     color-scheme:light dark;
-    --comment-button-bg:light-dark(white, #1c1b22);
+    --comment-button-bg:var(
+      --background-color-canvas,
+      light-dark(white, #1c1b22)
+    );
     --comment-button-fg:light-dark(#5b5b66, #fbfbfe);
     --comment-button-active-bg:light-dark(#0041a4, #a6ecf4);
-    --comment-button-active-fg:light-dark(white, #15141a);
-    --comment-button-hover-bg:light-dark(#0053cb, #61dce9);
-    --comment-button-hover-fg:light-dark(white, #15141a);
-    --comment-button-selected-bg:light-dark(#0062fa, #00cadb);
-    --comment-button-border-color:light-dark(#8f8f9d, #bfbfc9);
+    --comment-button-active-fg:var(
+      --button-text-color-primary,
+      light-dark(white, #15141a)
+    );
+    --comment-button-hover-bg:var(
+      --color-accent-primary-hover,
+      light-dark(#0053cb, #61dce9)
+    );
+    --comment-button-hover-fg:var(
+      --button-text-color-primary,
+      light-dark(white, #15141a)
+    );
+    --comment-button-selected-bg:var(
+      --color-accent-primary,
+      light-dark(#0062fa, #00cadb)
+    );
+    --comment-button-border-color:var(
+      --border-color-interactive,
+      light-dark(#8f8f9d, #bfbfc9)
+    );
     --comment-button-active-border-color:var(--comment-button-active-bg);
     --comment-button-focus-border-color:light-dark(#cfcfd8, #3a3944);
     --comment-button-hover-border-color:var(--comment-button-hover-bg);
     --comment-button-selected-border-color:var(--comment-button-selected-bg);
-    --comment-button-selected-fg:light-dark(white, #15141a);
+    --comment-button-selected-fg:var(
+      --button-text-color-primary,
+      light-dark(white, #15141a)
+    );
     --comment-button-dim:24px;
     --comment-button-box-shadow:0 0.25px 0.75px 0 light-dark(rgb(0 0 0 / 0.05), rgb(0 0 0 / 0.2)), 0 2px 6px 0 light-dark(rgb(0 0 0 / 0.1), rgb(0 0 0 / 0.4));
-    --comment-button-focus-outline-color:light-dark(#0062fa, #00cadb);
-
+    --comment-button-focus-outline-color:var(
+      --focus-outline-color,
+      light-dark(#0062fa, #00cadb)
+    );
     @media screen and (forced-colors: active){
-      --comment-button-bg:ButtonFace;
-      --comment-button-fg:ButtonText;
-      --comment-button-hover-bg:SelectedItemText;
-      --comment-button-hover-fg:SelectedItem;
-      --comment-button-active-bg:SelectedItemText;
-      --comment-button-active-fg:SelectedItem;
-      --comment-button-border-color:ButtonBorder;
-      --comment-button-active-border-color:ButtonBorder;
-      --comment-button-hover-border-color:SelectedItem;
+      --comment-button-bg:var(--button-background-color, ButtonFace);
+      --comment-button-fg:var(--button-text-color, ButtonText);
+      --comment-button-hover-bg:var(
+        --button-background-color-hover,
+        SelectedItemText
+      );
+      --comment-button-hover-fg:var(--button-text-color-hover, SelectedItem);
+      --comment-button-active-bg:var(
+        --button-background-color-active,
+        SelectedItemText
+      );
+      --comment-button-active-fg:var(--button-text-color-active, SelectedItem);
+      --comment-button-border-color:var(--button-border-color, ButtonBorder);
+      --comment-button-active-border-color:var(
+        --button-border-color-active,
+        ButtonBorder
+      );
+      --comment-button-hover-border-color:var(
+        --button-border-color-hover,
+        SelectedItem
+      );
       --comment-button-box-shadow:none;
-      --comment-button-focus-outline-color:CanvasText;
-      --comment-button-selected-bg:ButtonBorder;
-      --comment-button-selected-fg:ButtonFace;
+      --comment-button-focus-outline-color:var(
+        --focus-outline-color,
+        CanvasText
+      );
+      --comment-button-selected-bg:var(
+        --button-background-color-primary,
+        ButtonBorder
+      );
+      --comment-button-selected-fg:var(
+        --button-text-color-primary,
+        ButtonFace
+      );
     }
 
     position:absolute;
@@ -2723,19 +2836,28 @@
   --comment-active-brightness:0.825;
   --comment-active-filter:brightness(var(--comment-active-brightness));
   --comment-border-color:light-dark(#f0f0f4, #52525e);
-  --comment-focus-outline-color:light-dark(#0062fa, #00cadb);
-  --comment-fg-color:light-dark(#15141a, #fbfbfe);
+  --comment-focus-outline-color:var(
+    --focus-outline-color,
+    light-dark(#0062fa, #00cadb)
+  );
+  --comment-fg-color:var(--text-color, light-dark(#15141a, #fbfbfe));
   --comment-count-bg-color:light-dark(#e2f7ff, #00317e);
   --comment-indicator-active-fg-color:light-dark(#0041a4, #a6ecf4);
   --comment-indicator-active-filter:brightness(
     calc(1 / var(--comment-active-brightness))
   );
   --comment-indicator-focus-fg-color:light-dark(#5b5b66, #fbfbfe);
-  --comment-indicator-hover-fg-color:light-dark(#0053cb, #61dce9);
+  --comment-indicator-hover-fg-color:var(
+    --color-accent-primary-hover,
+    light-dark(#0053cb, #61dce9)
+  );
   --comment-indicator-hover-filter:brightness(
     calc(1 / var(--comment-hover-brightness))
   );
-  --comment-indicator-selected-fg-color:light-dark(#0062fa, #00cadb);
+  --comment-indicator-selected-fg-color:var(
+    --color-accent-primary,
+    light-dark(#0062fa, #00cadb)
+  );
 
   --button-comment-bg:transparent;
   --button-comment-color:var(--main-color);
@@ -2745,9 +2867,22 @@
   --button-comment-border:none;
   --button-comment-hover-bg:light-dark(#e0e0e6, #52525e);
   --button-comment-hover-color:var(--button-comment-color);
+  @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+    --comment-date-fg-color:color-mix(
+      in srgb,
+      var(--comment-fg-color) 69%,
+      transparent
+    );
+    --comment-bg-color:var(--background-color-box-info);
+    --comment-border-color:var(--border-color-deemphasized);
+    --comment-count-bg-color:var(--background-color-information);
+    --comment-indicator-active-fg-color:var(--color-accent-primary-active);
+    --comment-indicator-focus-fg-color:var(--icon-color);
 
-  --link-fg-color:light-dark(#0060df, #0df);
-  --link-hover-fg-color:light-dark(#0250bb, #80ebff);
+    --button-comment-color:var(--toolbarbutton-icon-fill);
+    --button-comment-active-bg:var(--toolbarbutton-background-color-active);
+    --button-comment-hover-bg:var(--toolbarbutton-background-color-hover);
+  }
 
   @media screen and (forced-colors: active){
     --comment-date-fg-color:CanvasText;
@@ -2757,11 +2892,11 @@
     --comment-active-bg-color:Canvas;
     --comment-active-filter:none;
     --comment-border-color:CanvasText;
-    --comment-fg-color:CanvasText;
+    --comment-fg-color:var(--text-color, CanvasText);
     --comment-count-bg-color:Canvas;
     --comment-indicator-active-fg-color:SelectedItem;
-    --comment-indicator-focus-fg-color:CanvasText;
-    --comment-indicator-hover-fg-color:CanvasText;
+    --comment-indicator-focus-fg-color:var(--text-color, CanvasText);
+    --comment-indicator-hover-fg-color:var(--text-color, CanvasText);
     --comment-indicator-selected-fg-color:SelectedItem;
     --button-comment-bg:ButtonFace;
     --button-comment-color:ButtonText;
@@ -2770,8 +2905,6 @@
     --button-comment-border:1px solid ButtonText;
     --button-comment-hover-bg:Highlight;
     --button-comment-hover-color:HighlightText;
-    --link-fg-color:LinkText;
-    --link-hover-fg-color:LinkText;
   }
 }
 
@@ -2819,6 +2952,9 @@
         font-style:normal;
         font-weight:400;
         line-height:normal;
+        @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+          border-radius:var(--border-radius-small);
+        }
       }
     }
 
@@ -2869,6 +3005,14 @@
         height:0;
         overflow:hidden;
       }
+      @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+        border-radius:var(--button-border-radius);
+
+        &:focus-visible{
+          outline:var(--focus-outline);
+          outline-offset:var(--focus-outline-offset);
+        }
+      }
     }
   }
 
@@ -2897,6 +3041,10 @@
         border-radius:8px;
         border:0.5px solid var(--comment-border-color);
         background-color:var(--comment-bg-color);
+        @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+          border-radius:var(--border-radius-medium);
+          border-width:1px;
+        }
 
         &:not(.noComments){
           &:hover{
@@ -3191,14 +3339,14 @@
 :root{
   --editor-toolbar-vert-offset:6px;
   --outline-width:2px;
-  --outline-color:#0060df;
+  --outline-color:var(--color-blue-60, #0060df);
   --outline-around-width:1px;
-  --outline-around-color:#f0f0f4;
+  --outline-around-color:var(--color-gray-20, #f0f0f4);
   --hover-outline-around-color:var(--outline-around-color);
-  --focus-outline:solid var(--outline-width) var(--outline-color);
+  --editor-selection-outline:solid var(--outline-width) var(--outline-color);
   --unfocus-outline:solid var(--outline-width) transparent;
   --focus-outline-around:solid var(--outline-around-width) var(--outline-around-color);
-  --hover-outline-color:#8f8f9d;
+  --hover-outline-color:var(--color-gray-60, #8f8f9d);
   --hover-outline:solid var(--outline-width) var(--hover-outline-color);
   --hover-outline-around:solid var(--outline-around-width) var(--hover-outline-around-color);
   --freetext-line-height:1.35;
@@ -3260,7 +3408,7 @@
     --outline-color:CanvasText;
     --outline-around-color:ButtonFace;
     --resizer-bg-color:ButtonText;
-    --hover-outline-color:Highlight;
+    --hover-outline-color:var(--color-accent-primary-hover, Highlight);
     --hover-outline-around-color:SelectedItemText;
   }
 }
@@ -3353,7 +3501,7 @@
   }
 
   &.selectedEditor{
-    border:var(--focus-outline);
+    border:var(--editor-selection-outline);
     outline:var(--focus-outline-around);
 
     &::before{
@@ -3392,29 +3540,58 @@
     --editor-toolbar-bg-color:light-dark(#f0f0f4, #2b2a33);
     --editor-toolbar-highlight-image:url(images/toolbarButton-editorHighlight.svg);
     --editor-toolbar-fg-color:light-dark(#2e2e56, #fbfbfe);
-    --editor-toolbar-border-color:#8f8f9d;
+    --editor-toolbar-border-color:var(--border-color-interactive, #8f8f9d);
     --editor-toolbar-hover-border-color:var(--editor-toolbar-border-color);
     --editor-toolbar-hover-bg-color:light-dark(#e0e0e6, #52525e);
     --editor-toolbar-hover-fg-color:var(--editor-toolbar-fg-color);
     --editor-toolbar-hover-outline:none;
-    --editor-toolbar-focus-outline-color:light-dark(#0060df, #0df);
+    --editor-toolbar-focus-outline-color:var(
+      --focus-outline-color,
+      light-dark(#0060df, #0df)
+    );
     --editor-toolbar-shadow:0 2px 6px 0 rgb(58 57 68 / 0.2);
     --editor-toolbar-height:28px;
     --editor-toolbar-padding:2px;
-    --alt-text-done-color:light-dark(#2ac3a2, #54ffbd);
+    --alt-text-done-color:var(
+      --color-accent-attention,
+      light-dark(#2ac3a2, #54ffbd)
+    );
     --alt-text-warning-color:light-dark(#0090ed, #80ebff);
     --alt-text-hover-done-color:var(--alt-text-done-color);
     --alt-text-hover-warning-color:var(--alt-text-warning-color);
+    @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+      --editor-toolbar-bg-color:var(--background-color-box);
+      --editor-toolbar-fg-color:var(--toolbarbutton-icon-fill);
+      --editor-toolbar-border-color:var(--border-color-deemphasized);
+      --editor-toolbar-hover-bg-color:var(
+        --toolbarbutton-background-color-hover
+      );
+      --editor-toolbar-shadow:var(--box-shadow-level-2);
+      --editor-toolbar-height:var(--size-item-large);
+      --alt-text-warning-color:var(--icon-color-information);
+    }
 
     @media screen and (forced-colors: active){
-      --editor-toolbar-bg-color:ButtonFace;
-      --editor-toolbar-fg-color:ButtonText;
-      --editor-toolbar-border-color:ButtonText;
-      --editor-toolbar-hover-border-color:AccentColor;
-      --editor-toolbar-hover-bg-color:ButtonFace;
-      --editor-toolbar-hover-fg-color:AccentColor;
+      --editor-toolbar-bg-color:var(--button-background-color, ButtonFace);
+      --editor-toolbar-fg-color:var(--button-text-color, ButtonText);
+      --editor-toolbar-border-color:var(--button-border-color, ButtonText);
+      --editor-toolbar-hover-border-color:var(
+        --button-border-color-hover,
+        AccentColor
+      );
+      --editor-toolbar-hover-bg-color:var(
+        --button-background-color-hover,
+        ButtonFace
+      );
+      --editor-toolbar-hover-fg-color:var(
+        --button-text-color-hover,
+        AccentColor
+      );
       --editor-toolbar-hover-outline:2px solid var(--editor-toolbar-hover-border-color);
-      --editor-toolbar-focus-outline-color:ButtonBorder;
+      --editor-toolbar-focus-outline-color:var(
+        --button-border-color,
+        ButtonBorder
+      );
       --editor-toolbar-shadow:none;
       --alt-text-done-color:var(--editor-toolbar-fg-color);
       --alt-text-warning-color:var(--editor-toolbar-fg-color);
@@ -3432,6 +3609,7 @@
     pointer-events:auto;
     box-sizing:content-box;
     padding:var(--editor-toolbar-padding);
+    user-select:none;
 
     position:absolute;
     inset-inline-end:0;
@@ -3441,6 +3619,10 @@
     background-color:var(--editor-toolbar-bg-color);
     border:1px solid var(--editor-toolbar-border-color);
     box-shadow:var(--editor-toolbar-shadow);
+
+    @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+      border-radius:var(--panel-border-radius);
+    }
 
     &.hidden{
       display:none;
@@ -3535,6 +3717,11 @@
           border-radius:2px;
           outline:2px solid var(--editor-toolbar-focus-outline-color);
         }
+        @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+          &:is(:hover, :focus-visible){
+            border-radius:var(--button-border-radius);
+          }
+        }
       }
 
       .altText{
@@ -3607,14 +3794,24 @@
 
           &.show{
             --alt-text-tooltip-bg:light-dark(#f0f0f4, #1c1b22);
-            --alt-text-tooltip-fg:light-dark(#15141a, #fbfbfe);
-            --alt-text-tooltip-border:#8f8f9d;
+            --alt-text-tooltip-fg:var(
+              --text-color,
+              light-dark(#15141a, #fbfbfe)
+            );
+            --alt-text-tooltip-border:var(--border-color-interactive, #8f8f9d);
             --alt-text-tooltip-shadow:0 2px 6px 0 light-dark(rgb(58 57 68 / 0.2), #15141a);
+            @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+              --alt-text-tooltip-bg:var(--background-color-box);
+              --alt-text-tooltip-border:var(--border-color-deemphasized);
+              --alt-text-tooltip-shadow:var(--box-shadow-level-2);
+
+              border-radius:var(--border-radius-xsmall);
+            }
 
             @media screen and (forced-colors: active){
               --alt-text-tooltip-bg:Canvas;
-              --alt-text-tooltip-fg:CanvasText;
-              --alt-text-tooltip-border:CanvasText;
+              --alt-text-tooltip-fg:var(--text-color, CanvasText);
+              --alt-text-tooltip-border:var(--border-color, CanvasText);
               --alt-text-tooltip-shadow:none;
             }
 
@@ -3736,6 +3933,11 @@
     --no-alt-text-badge-border-color:light-dark(#f0f0f4, #52525e);
     --no-alt-text-badge-bg-color:light-dark(#cfcfd8, #fbfbfe);
     --no-alt-text-badge-fg-color:light-dark(#5b5b66, #15141a);
+    @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+      --no-alt-text-badge-border-color:var(--border-color-deemphasized);
+      --no-alt-text-badge-bg-color:var(--background-color-box);
+      --no-alt-text-badge-fg-color:var(--icon-color);
+    }
 
     @media screen and (forced-colors: active){
       --no-alt-text-badge-border-color:ButtonText;
@@ -3758,6 +3960,10 @@
     border-radius:2px;
     border:1px solid var(--no-alt-text-badge-border-color);
     background:var(--no-alt-text-badge-bg-color);
+
+    @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+      border-radius:var(--border-radius-xsmall);
+    }
 
     &::before{
       content:"";
@@ -4020,6 +4226,9 @@
   --new-alt-text-spinner-icon:url(images/altText_spinner.svg);
   --preview-image-bg-color:light-dark(#f0f0f4, #2b2a33);
   --preview-image-border:none;
+  @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+    --preview-image-bg-color:var(--background-color-box-info);
+  }
 
   @media screen and (forced-colors: active){
     --preview-image-bg-color:ButtonFace;
@@ -4197,9 +4406,16 @@
 }
 
 .colorPicker{
-  --hover-outline-color:light-dark(#0250bb, #80ebff);
+  --hover-outline-color:var(
+    --color-accent-primary-hover,
+    light-dark(#0250bb, #80ebff)
+  );
   --selected-outline-color:light-dark(#0060df, #aaf2ff);
   --swatch-border-color:light-dark(#cfcfd8, #52525e);
+  @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+    --selected-outline-color:var(--color-accent-primary);
+    --swatch-border-color:var(--border-color-deemphasized);
+  }
 
   @media screen and (forced-colors: active){
     --hover-outline-color:Highlight;
@@ -4224,9 +4440,15 @@
 
 .basicColorPicker{
   width:28px;
+  @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+    width:auto;
+    aspect-ratio:1;
+    padding:var(--space-small);
+  }
 
   &::-moz-color-swatch{
     border-radius:100%;
+    margin:0;
   }
 
 }
@@ -4323,6 +4545,10 @@
 
           &:has(.dropdown:not(.hidden)){
             background-color:var(--editor-toolbar-hover-bg-color);
+            @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+              background-color:var(--toolbarbutton-background-color-active);
+              border-radius:var(--button-border-radius);
+            }
 
             &::after{
               scale:-1;
@@ -4368,6 +4594,25 @@
 
               &:is(:hover, :active, :focus-visible) > .swatch{
                 outline:2px solid var(--hover-outline-color);
+              }
+            }
+            @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+              flex-direction:row;
+              gap:var(--space-small);
+              padding:var(--space-small);
+              width:max-content;
+              inset-inline-start:50%;
+              translate:calc(-50% * var(--dir-factor));
+              border-radius:var(--border-radius-medium);
+
+              button{
+                width:auto;
+                flex:0 0 auto;
+
+                > .swatch{
+                  width:var(--size-item-medium);
+                  height:var(--size-item-medium);
+                }
               }
             }
           }
@@ -4579,16 +4824,19 @@ button.hasPopupMenu{
     var(--menu-text-color),
     transparent 93%
   );
-  --menuitem-focus-outline-color:light-dark(#0062fa, #00cadb);
+  --menuitem-focus-outline-color:var(
+    --focus-outline-color,
+    light-dark(#0062fa, #00cadb)
+  );
   --menuitem-focus-border-color:light-dark(white, black);
 
-  --menu-bg:light-dark(white, #23222b);
+  --menu-bg:var(--background-color-box, light-dark(white, #23222b));
   --menu-background-blend-mode:normal;
   --menu-box-shadow:0 0.375px 1.5px 0 light-dark(rgb(0 0 0 / 0.05), rgb(0 0 0 / 0.2)), 0 3px 12px 0 light-dark(rgb(0 0 0 / 0.1), rgb(0 0 0 / 0.4));
   --menu-border-color:light-dark(rgb(21 20 26 / 0.1), rgb(251 251 254 / 0.1));
   --menuitem-border-radius:8px;
   --menu-backdrop-filter:none;
-  --menu-text-color:light-dark(#15141a, #fbfbfe);
+  --menu-text-color:var(--text-color, light-dark(#15141a, #fbfbfe));
   --menu-text-disabled-color:var(--menu-text-color);
   --menuitem-text-hover-fg:var(--menu-text-color);
   --menuitem-hover-bg:color-mix(
@@ -4598,13 +4846,25 @@ button.hasPopupMenu{
   );
   --menuitem-hover-background-blend-mode:normal;
   --disabled-opacity:0.62;
+  @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+    --menuitem-gap:var(--space-small);
+    --menuitem-border-radius:var(--panel-menuitem-border-radius);
+    --menu-box-shadow:var(--box-shadow-level-2);
+    --menu-border-color:var(--border-color-deemphasized);
+    --menuitem-hover-bg:var(--button-background-color-menu-hover);
+    --menuitem-text-hover-fg:var(--button-text-color-menu-hover);
+    --menuitem-active-bg:var(--button-background-color-menu-active);
+    --menuitem-text-active-fg:var(--button-text-color-menu-active);
+    --menuitem-focus-border-color:transparent;
+    --disabled-opacity:var(--button-opacity-disabled);
+  }
 
   @media screen and (forced-colors: active){
-    --menu-bg:Canvas;
+    --menu-bg:var(--background-color-box, Canvas);
     --menu-background-blend-mode:normal;
     --menu-box-shadow:none;
     --menu-backdrop-filter:none;
-    --menu-text-color:ButtonText;
+    --menu-text-color:var(--text-color, ButtonText);
     --menu-text-disabled-color:GrayText;
     --menu-border-color:CanvasText;
     --menuitem-border-color:none;
@@ -4614,7 +4874,7 @@ button.hasPopupMenu{
     --menuitem-active-border-color:ButtonText;
     --menuitem-text-active-fg:SelectedItem;
     --menuitem-focus-bg:ButtonFace;
-    --menuitem-focus-outline-color:CanvasText;
+    --menuitem-focus-outline-color:var(--focus-outline-color, CanvasText);
     --menuitem-focus-border-color:none;
     --disabled-opacity:1;
   }
@@ -4636,6 +4896,10 @@ button.hasPopupMenu{
   border-radius:6px;
   border:1px solid var(--menu-border-color);
   backdrop-filter:var(--menu-backdrop-filter);
+  @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+    padding:var(--space-small) 0;
+    border-radius:var(--panel-border-radius);
+  }
 
   &.withMark{
     --menu-mark-icon-size:16px;
@@ -4666,7 +4930,7 @@ button.hasPopupMenu{
       position:absolute;
       inset-inline-start:var(--menuitem-gap);
       top:50%;
-      transform:translateY(-50%);
+      transform:translateY(-50%) scaleX(var(--dir-factor));
     }
 
     &:disabled{
@@ -4717,6 +4981,10 @@ button.hasPopupMenu{
         background-color:var(--menuitem-focus-bg);
         outline:2px solid var(--menuitem-focus-outline-color);
         outline-offset:2px;
+        @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+          outline:var(--focus-outline);
+          outline-offset:var(--focus-outline-inset);
+        }
       }
     }
 
@@ -4747,6 +5015,30 @@ button.hasPopupMenu{
       font-weight:510;
       line-height:normal;
     }
+    @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+      height:auto;
+      min-height:var(--size-item-large);
+      width:auto;
+      margin:var(--panel-menuitem-margin);
+      padding:var(--panel-menuitem-padding);
+
+      &.selected::after{
+        inset-inline-start:var(--panel-menuitem-padding-inline);
+      }
+
+      > span{
+        padding-inline-start:0;
+      }
+    }
+  }
+
+  @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+    &.withMark > button{
+      padding-inline-start:calc(
+        var(--panel-menuitem-padding-inline) + var(--menu-mark-icon-size) +
+          var(--menuitem-gap)
+      );
+    }
   }
 }
 
@@ -4764,6 +5056,15 @@ button.hasPopupMenu{
   );
   --treeitem-expanded-icon:url(images/treeitem-expanded.svg);
   --treeitem-collapsed-icon:url(images/treeitem-collapsed.svg);
+  @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+    --treeitem-color:var(--text-color);
+    --treeitem-bg-color:var(--toolbarbutton-background-color-hover);
+    --treeitem-hover-color:var(--text-color);
+    --treeitem-selected-color:var(--text-color);
+    --treeitem-selected-bg-color:var(--toolbarbutton-background-color-active);
+
+    padding-inline:var(--panel-menuitem-margin-inline);
+  }
 
   &.withNesting{
     .treeItemToggler{
@@ -4803,6 +5104,9 @@ button.hasPopupMenu{
         background-clip:padding-box;
         border-radius:2px;
         color:var(--treeitem-hover-color);
+        @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+          border-radius:var(--panel-menuitem-border-radius);
+        }
       }
     }
 
@@ -4843,12 +5147,23 @@ button.hasPopupMenu{
       user-select:none;
       white-space:normal;
       cursor:default;
+      @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+        box-sizing:border-box;
+        min-width:100%;
+        padding-block:var(--space-xsmall);
+        padding-inline:var(--space-small);
+        border-radius:var(--panel-menuitem-border-radius);
+      }
 
       &:hover{
         background-color:var(--treeitem-bg-color);
         background-clip:padding-box;
         border-radius:2px;
         color:var(--treeitem-hover-color);
+
+        @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+          border-radius:var(--panel-menuitem-border-radius);
+        }
       }
     }
 
@@ -4905,19 +5220,35 @@ button.hasPopupMenu{
   --sidebar-max-width:50vw;
   --sidebar-block-padding:8px;
 
-  --text-color:light-dark(#15141a, #fbfbfe);
-  --button-fg:var(--text-color);
-  --button-no-bg:transparent;
-  --button-bg:light-dark(rgb(21 20 26 / 0.07), rgb(251 251 254 / 0.07));
-  --button-border-color:transparent;
-  --button-hover-bg:light-dark(rgb(21 20 26 / 0.14), rgb(251 251 254 / 0.14));
-  --button-hover-fg:var(--text-color);
-  --button-hover-border-color:var(--button-border-color);
-  --button-active-bg:light-dark(rgb(21 20 26 / 0.21), rgb(251 251 254 / 0.21));
-  --button-active-fg:var(--text-color);
-  --button-active-border-color:var(--button-border-color);
-  --button-focus-no-bg:color-mix(in srgb, var(--text-color), transparent 93%);
-  --button-focus-outline-color:light-dark(#0062fa, #00cadb);
+  --views-text-color:var(--text-color, light-dark(#15141a, #fbfbfe));
+  --button-fg:var(--views-text-color);
+  --button-no-bg:var(--button-background-color-toolbar, transparent);
+  --button-bg:var(
+    --button-background-color,
+    light-dark(rgb(21 20 26 / 0.07), rgb(251 251 254 / 0.07))
+  );
+  --views-button-border-color:var(--button-border-color, transparent);
+  --button-hover-bg:var(
+    --button-background-color-hover,
+    light-dark(rgb(21 20 26 / 0.14), rgb(251 251 254 / 0.14))
+  );
+  --button-hover-fg:var(--views-text-color);
+  --button-hover-border-color:var(--views-button-border-color);
+  --button-active-bg:var(
+    --button-background-color-active,
+    light-dark(rgb(21 20 26 / 0.21), rgb(251 251 254 / 0.21))
+  );
+  --button-active-fg:var(--views-text-color);
+  --button-active-border-color:var(--views-button-border-color);
+  --button-focus-no-bg:color-mix(
+    in srgb,
+    var(--views-text-color),
+    transparent 93%
+  );
+  --button-focus-outline-color:var(
+    --focus-outline-color,
+    light-dark(#0062fa, #00cadb)
+  );
   --button-focus-border-color:light-dark(white, black);
   --status-border-color:transparent;
   --status-actions-bg:light-dark(
@@ -4926,7 +5257,7 @@ button.hasPopupMenu{
   );
   --status-undo-bg:light-dark(rgb(0 98 250 / 0.08), rgb(0 202 219 / 0.08));
   --status-waiting-bg:var(--status-undo-bg);
-  --indicator-color:light-dark(#0062fa, #00cadb);
+  --indicator-color:var(--color-accent-primary, light-dark(#0062fa, #00cadb));
   --status-warning-bg:light-dark(#ffe8ea, #6e001f);
   --indicator-warning-color:light-dark(#b20037, #ffa0aa);
   --header-shadow:0 0.25px 0.75px -0.75px light-dark(rgb(0 0 0 / 0.05), rgb(0 0 0 / 0.2)), 0 2px 6px -6px light-dark(rgb(0 0 0 / 0.1), rgb(0 0 0 / 0.4));
@@ -4938,7 +5269,7 @@ button.hasPopupMenu{
   --image-current-border-color:var(--button-focus-outline-color);
   --image-current-focused-outline-color:var(--image-hover-border-color);
   --image-page-number-bg:light-dark(#f0f0f4, #42414d);
-  --image-page-number-fg:var(--text-color);
+  --image-page-number-fg:var(--views-text-color);
   --image-page-number-border-color:transparent;
   --image-hover-page-number-bg:var(--image-page-number-bg);
   --image-hover-page-number-fg:var(--image-page-number-fg);
@@ -4959,25 +5290,47 @@ button.hasPopupMenu{
   --image-dragging-shadow:0 0 0 var(--image-border-width) var(--image-current-border-color);
   --multiple-dragging-indicator-bg:var(--indicator-color);
   --multiple-dragging-text-color:light-dark(#fbfbfe, #15141a);
+  @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+    --sidebar-bg-color:var(--background-color-box);
+    --sidebar-backdrop-filter:none;
+    --header-bg:var(--background-color-box);
+    --status-undo-bg:color-mix(
+      in srgb,
+      var(--color-accent-primary) 8%,
+      transparent
+    );
+    --status-warning-bg:var(--background-color-box-info);
+    --indicator-warning-color:var(--icon-color-critical);
+    --image-border-color:var(--border-color-deemphasized);
+    --image-hover-border-color:var(--border-color-interactive);
+    --image-page-number-bg:var(--background-color-box-info);
+    --image-current-page-number-fg:var(--button-text-color-primary);
+    --image-dragging-placeholder-bg:color-mix(
+      in srgb,
+      var(--color-accent-primary) 8%,
+      transparent
+    );
+    --multiple-dragging-bg:var(--background-color-box);
+  }
 
   @media screen and (forced-colors: active){
-    --text-color:CanvasText;
-    --button-fg:ButtonText;
-    --button-bg:ButtonFace;
-    --button-no-bg:ButtonFace;
-    --button-border-color:ButtonText;
-    --button-hover-bg:SelectedItemText;
-    --button-hover-fg:SelectedItem;
-    --button-hover-border-color:SelectedItem;
-    --button-active-bg:SelectedItemText;
-    --button-active-fg:SelectedItem;
-    --button-active-border-color:ButtonText;
-    --button-focus-no-bg:ButtonFace;
-    --button-focus-outline-color:CanvasText;
+    --views-text-color:var(--text-color, CanvasText);
+    --button-fg:var(--button-text-color, ButtonText);
+    --button-bg:var(--button-background-color, ButtonFace);
+    --button-no-bg:var(--button-background-color, ButtonFace);
+    --views-button-border-color:var(--button-border-color, ButtonText);
+    --button-hover-bg:var(--button-background-color-hover, SelectedItemText);
+    --button-hover-fg:var(--button-text-color-hover, SelectedItem);
+    --button-hover-border-color:var(--button-border-color-hover, SelectedItem);
+    --button-active-bg:var(--button-background-color-active, SelectedItemText);
+    --button-active-fg:var(--button-text-color-active, SelectedItem);
+    --button-active-border-color:var(--button-border-color-active, ButtonText);
+    --button-focus-no-bg:var(--button-background-color, ButtonFace);
+    --button-focus-outline-color:var(--focus-outline-color, CanvasText);
     --button-focus-border-color:none;
     --status-border-color:CanvasText;
     --status-undo-bg:none;
-    --indicator-color:CanvasText;
+    --indicator-color:var(--text-color, CanvasText);
     --status-warning-bg:none;
     --indicator-warning-color:CanvasText;
     --header-shadow:none;
@@ -4989,7 +5342,7 @@ button.hasPopupMenu{
     --image-hover-page-number-fg:SelectedItem;
     --image-current-page-number-bg:ButtonText;
     --image-current-page-number-fg:ButtonFace;
-    --image-current-border-color:ButtonText;
+    --image-current-border-color:var(--border-color, ButtonText);
     --image-current-focused-outline-color:var(--image-hover-border-color);
     --image-current-hover-page-number-bg:SelectedItem;
     --image-current-hover-page-number-fg:SelectedItemText;
@@ -4997,7 +5350,7 @@ button.hasPopupMenu{
     --image-page-number-fg:ButtonText;
     --image-page-number-border-color:var(--image-page-number-fg);
     --multiple-dragging-bg:Canvas;
-    --multiple-dragging-indicator-bg:ButtonBorder;
+    --multiple-dragging-indicator-bg:var(--text-color, ButtonBorder);
     --multiple-dragging-text-color:Canvas;
     --image-dragging-placeholder-bg:Canvas;
     --image-dragging-placeholder-border:1px GrayText solid;
@@ -5027,8 +5380,8 @@ button.hasPopupMenu{
   .viewsManagerButton{
     width:auto;
     color:var(--button-fg);
-    border-radius:8px;
-    border:1px solid var(--button-border-color);
+    border-radius:var(--button-border-radius, 8px);
+    border:1px solid var(--views-button-border-color);
     background:var(--button-bg);
 
     &:hover{
@@ -5056,15 +5409,27 @@ button.hasPopupMenu{
     }
 
     &.viewsCloseButton{
-      width:26px;
-      height:26px;
-      padding:4px;
-      border-radius:8px;
+      width:var(--size-item-large, 26px);
+      height:var(--size-item-large, 26px);
+      border-radius:var(--button-border-radius, 8px);
       background:none;
+      display:flex;
+      align-items:center;
+      justify-content:center;
 
       &::before{
+        width:16px;
+        height:16px;
         mask-image:var(--close-button-icon);
       }
+    }
+  }
+  @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+    padding-block-start:0;
+
+    #viewsManagerHeader{
+      border-start-start-radius:var(--panel-border-radius);
+      border-start-end-radius:var(--panel-border-radius);
     }
   }
 
@@ -5080,7 +5445,7 @@ button.hasPopupMenu{
 
     .viewsManagerLabel{
       flex:1 1 auto;
-      color:var(--text-color);
+      color:var(--views-text-color);
       text-align:center;
       height:fit-content;
       width:fit-content;
@@ -5100,7 +5465,8 @@ button.hasPopupMenu{
       align-self:stretch;
       justify-content:space-between;
       width:auto;
-      padding:12px 16px 12px 8px;
+      padding-block:12px;
+      padding-inline:8px 16px;
 
       &:not(:has(#viewsManagerHeaderLabel ~ button:not([hidden])))::after{
 
@@ -5136,7 +5502,7 @@ button.hasPopupMenu{
             display:inline-block;
             width:12px;
             height:12px;
-            margin-left:8px;
+            margin-inline-start:8px;
             mask-repeat:no-repeat;
             mask-position:center;
             mask-image:var(--views-manager-button-arrow-icon);
@@ -5180,8 +5546,6 @@ button.hasPopupMenu{
       }
 
       #viewsManagerAddFileButton{
-        visibility:hidden;
-
         background:var(--button-no-bg);
         width:32px;
         height:32px;
@@ -5193,6 +5557,11 @@ button.hasPopupMenu{
         &::before{
           mask-repeat:no-repeat;
           mask-image:var(--views-manager-add-file-button-icon);
+          background-color:var(--button-fg);
+        }
+
+        > input{
+          display:none;
         }
       }
 
@@ -5208,22 +5577,27 @@ button.hasPopupMenu{
         &::before{
           mask-repeat:no-repeat;
           mask-image:var(--current-outline-button-icon);
+          background-color:var(--button-fg);
         }
       }
     }
 
     #viewsManagerStatus{
-      display:flex;
-      align-items:center;
-      align-self:stretch;
-      justify-content:space-between;
-      width:auto;
+      display:grid;
+      width:100%;
       border:1px solid var(--status-border-color);
 
       > div{
         min-height:64px;
         width:100%;
         padding-inline:16px;
+        grid-area:1 / 1;
+        box-sizing:border-box;
+
+        &.hidden{
+          visibility:hidden;
+          display:unset !important;
+        }
       }
 
       .viewsManagerStatusLabel{
@@ -5258,6 +5632,29 @@ button.hasPopupMenu{
             mask-position:center;
             background-color:var(--indicator-color);
             mask-image:var(--pages-selected-icon);
+          }
+
+          @media screen and (forced-colors: active){
+            border-radius:2px;
+            background-color:var(--button-bg);
+
+            &::before{
+              background-color:var(--button-fg);
+            }
+            &:hover{
+              background-color:var(--button-hover-bg);
+
+              &::before{
+                background-color:var(--button-hover-fg);
+              }
+            }
+            &:active{
+              background-color:var(--button-active-bg);
+
+              &::before{
+                background-color:var(--button-active-fg);
+              }
+            }
           }
 
           &#viewsManagerStatusActionDeselectButton:focus-visible{
@@ -5426,14 +5823,15 @@ button.hasPopupMenu{
             pointer-events:none;
           }
         }
+      }
 
-        > .dragMarker{
-          position:absolute;
-          top:0;
-          left:0;
-          border:2px solid var(--indicator-color);
-          contain:strict;
-        }
+      &.isDragging > .dragMarker,
+      &.isDraggingFile > .dragMarker{
+        position:absolute;
+        top:0;
+        left:0;
+        border:2px solid var(--indicator-color);
+        contain:strict;
       }
 
       &.pasteMode{
@@ -5453,6 +5851,10 @@ button.hasPopupMenu{
             border-radius:16px;
             min-height:24px;
             padding:4px 16px;
+
+            @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+              border-radius:var(--button-border-radius);
+            }
 
             font:menu;
             font-size:13px;
@@ -5496,6 +5898,9 @@ button.hasPopupMenu{
         &:not(.isDragging) > .thumbnailImageContainer::after{
           content:attr(page-number);
           border-radius:8px;
+          @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+            border-radius:var(--border-radius-circle);
+          }
           border:1px solid var(--image-page-number-border-color);
           background-color:var(--image-page-number-bg);
           color:var(--image-page-number-fg);
@@ -5547,6 +5952,9 @@ button.hasPopupMenu{
           outline:var(--image-outline);
           user-select:none;
           position:relative;
+          @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+            border-radius:var(--border-radius-medium);
+          }
 
           img{
             width:100%;
@@ -5556,6 +5964,10 @@ button.hasPopupMenu{
             outline:none;
             user-select:none;
             pointer-events:none;
+
+            @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+              border-radius:var(--border-radius-medium);
+            }
           }
 
           &.missingThumbnailImage{
@@ -5669,11 +6081,22 @@ button.hasPopupMenu{
                 box-sizing:content-box;
                 outline:none;
                 user-select:none;
+
+                @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+                  border-radius:var(--border-radius-medium);
+                }
               }
 
               &::after{
                 content:attr(data-multiple-count);
                 border-radius:calc(8px * var(--thumbnail-dragging-scale));
+
+                @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+                  border-radius:calc(
+                    var(--border-radius-medium) *
+                      var(--thumbnail-dragging-scale)
+                  );
+                }
                 background-color:var(--multiple-dragging-indicator-bg);
                 color:var(--multiple-dragging-text-color);
                 position:absolute;
@@ -5705,10 +6128,18 @@ button.hasPopupMenu{
         rgb(0 0 0 / 0.9),
         rgb(255 255 255 / 0.9)
       );
+      @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+        --attachment-color:var(--text-color);
+        --attachment-hover-color:var(--text-color);
+        --attachment-bg-color:var(--toolbarbutton-background-color-hover);
+      }
 
       > ul{
         list-style-type:none;
         padding:0;
+        @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+          padding-inline:var(--panel-menuitem-margin-inline);
+        }
 
         > li > a{
           text-decoration:none;
@@ -5732,6 +6163,17 @@ button.hasPopupMenu{
             border-radius:2px;
             color:var(--attachment-hover-color);
           }
+          @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+            box-sizing:border-box;
+            min-width:100%;
+            padding-block:var(--space-xsmall);
+            padding-inline:var(--space-small);
+
+            &,
+            &:hover{
+              border-radius:var(--panel-menuitem-border-radius);
+            }
+          }
         }
       }
     }
@@ -5739,7 +6181,7 @@ button.hasPopupMenu{
 }
 
 .sidebar{
-  --sidebar-bg-color:light-dark(#fff, #23222b);
+  --sidebar-bg-color:var(--background-color-box, light-dark(#fff, #23222b));
   --sidebar-border-color:light-dark(
     rgb(21 20 26 / 0.1),
     rgb(251 251 254 / 0.1)
@@ -5753,13 +6195,21 @@ button.hasPopupMenu{
   --sidebar-width:239px;
   --resizer-width:4px;
   --resizer-shift:calc(0px - var(--resizer-width) - 2px);
-  --resizer-hover-bg-color:light-dark(#0062fa, #00cadb);
+  --resizer-hover-bg-color:var(
+    --color-accent-primary,
+    light-dark(#0062fa, #00cadb)
+  );
+  @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+    --sidebar-border-color:var(--border-color-deemphasized);
+    --sidebar-box-shadow:var(--box-shadow-level-2);
+    --sidebar-border-radius:var(--panel-border-radius);
+  }
 
   @media screen and (forced-colors: active){
-    --sidebar-bg-color:Canvas;
+    --sidebar-bg-color:var(--background-color-box, Canvas);
     --sidebar-border-color:CanvasText;
     --sidebar-box-shadow:none;
-    --resizer-hover-bg-color:CanvasText;
+    --resizer-hover-bg-color:var(--text-color, CanvasText);
   }
 
   border-radius:var(--sidebar-border-radius);
@@ -5797,6 +6247,10 @@ button.hasPopupMenu{
       background-color:var(--resizer-hover-bg-color);
       outline:none;
     }
+    @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+      border-inline-width:0;
+      border-radius:var(--border-radius-large);
+    }
   }
 
   &.resizing{
@@ -5822,18 +6276,29 @@ button.hasPopupMenu{
   --page-border:9px solid transparent;
   --spreadHorizontalWrapped-margin-LR:-3.5px;
   --loading-icon-delay:400ms;
-  --focus-ring-color:light-dark(#0060df, #0df);
-  --focus-ring-outline:2px solid var(--focus-ring-color);
+  --focus-ring-color:var(--focus-outline-color, light-dark(#0060df, #0df));
+  --focus-ring-outline:var(--focus-outline-width, 2px) solid var(--focus-ring-color);
+  --text-primary-color:var(--text-color, light-dark(#15141a, #fbfbfe));
+  --link-fg-color:var(--link-color, light-dark(#0060df, #0df));
+  --link-hover-fg-color:var(--link-color-hover, light-dark(#0250bb, #80ebff));
   --new-badge-bg:light-dark(#070, #37b847);
   --new-badge-color:light-dark(#fff, #15141a);
   --new-badge-border-color:light-dark(#fbfbfe / 40%, #15141a / 40%);
+  @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+    --new-badge-bg:var(--background-color-success);
+    --new-badge-color:var(--text-color);
+    --new-badge-border-color:transparent;
+  }
 
   @media screen and (forced-colors: active){
     --pdfViewer-padding-bottom:9px;
     --page-margin:8px auto -1px;
     --page-border:1px solid CanvasText;
     --spreadHorizontalWrapped-margin-LR:3.5px;
-    --focus-ring-color:CanvasText;
+    --focus-ring-color:var(--focus-outline-color, CanvasText);
+    --text-primary-color:var(--text-color, CanvasText);
+    --link-fg-color:var(--link-color, LinkText);
+    --link-hover-fg-color:var(--link-color-hover, LinkText);
     --new-badge-bg:AccentColor;
     --new-badge-color:ButtonFace;
     --new-badge-border-color:CanvasText;
@@ -5846,6 +6311,11 @@ button.hasPopupMenu{
   border-radius:4px;
   border:1px solid var(--new-badge-border-color);
   padding-inline:4px;
+
+  @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+    border-radius:var(--border-radius-circle);
+    padding-inline:var(--space-small);
+  }
   margin-inline:4px;
   font:menu;
   font-size:12px;
@@ -5864,16 +6334,6 @@ button.hasPopupMenu{
 }
 [data-main-rotation="270"]{
   transform:rotate(270deg) translateX(-100%);
-}
-
-#hiddenCopyElement,
-.hiddenCanvasElement{
-  position:absolute;
-  top:0;
-  left:0;
-  width:0;
-  height:0;
-  display:none;
 }
 
 .pdfViewer{
@@ -5915,6 +6375,15 @@ button.hasPopupMenu{
       &.detailView{
         image-rendering:pixelated;
       }
+    }
+    .selection{
+      position:absolute;
+      top:0;
+      left:0;
+      width:100%;
+      height:100%;
+      pointer-events:none;
+      background:rgb(0 90 255 / 0.22);
     }
   }
 }
@@ -6010,6 +6479,382 @@ button.hasPopupMenu{
 }
 
 :root{
+  --sig-card-border:light-dark(rgb(228 228 232), rgb(82 82 86));
+  --sig-card-bg:var(--field-bg-color, light-dark(white, rgb(64 64 68)));
+  --sig-card-nested-bg:light-dark(rgb(252 252 253), rgb(72 72 76));
+  --sig-row-color:light-dark(rgb(58 58 60), rgb(228 228 232));
+  --sig-detail-color:light-dark(rgb(96 96 96), rgb(180 180 184));
+  --sig-divider-color:light-dark(rgb(228 228 232), rgb(82 82 86));
+  --sig-summary-hover-color:light-dark(rgb(28 67 138), rgb(126 169 255));
+  --sig-link-color:var(
+    --link-color,
+    light-dark(rgb(28 113 216), rgb(126 169 255))
+  );
+  --sig-link-hover-bg:light-dark(
+    rgb(28 113 216 / 0.1),
+    rgb(126 169 255 / 0.15)
+  );
+  --sig-banner-verified-bg:var(
+    --background-color-success,
+    light-dark(rgb(228 247 235), rgb(28 84 49))
+  );
+  --sig-banner-verified-color:light-dark(rgb(16 92 47), rgb(176 232 196));
+  --sig-banner-warn-bg:var(
+    --background-color-warning,
+    light-dark(rgb(255 247 217), rgb(95 67 9))
+  );
+  --sig-banner-warn-color:light-dark(rgb(124 84 9), rgb(255 222 153));
+  --sig-banner-error-bg:var(
+    --background-color-critical,
+    light-dark(rgb(254 226 235), rgb(122 21 51))
+  );
+  --sig-banner-error-color:light-dark(rgb(167 26 70), rgb(255 188 207));
+  --sig-icon-default:light-dark(rgb(150 150 150), rgb(180 180 184));
+  --sig-icon-warn:var(
+    --icon-color-warning,
+    light-dark(rgb(217 142 27), rgb(255 178 77))
+  );
+  --sig-icon-error:var(
+    --icon-color-critical,
+    light-dark(rgb(196 31 71), rgb(255 117 145))
+  );
+  --sig-icon-verified:var(
+    --icon-color-success,
+    light-dark(rgb(29 142 61), rgb(106 210 126))
+  );
+  @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+    --sig-card-border:var(--border-color-deemphasized);
+    --sig-card-nested-bg:var(--background-color-box-info);
+    --sig-row-color:var(--text-color);
+    --sig-detail-color:var(--text-color-deemphasized);
+    --sig-divider-color:var(--border-color-deemphasized);
+    --sig-summary-hover-color:var(--link-color-hover);
+    --sig-link-hover-bg:var(--button-background-color-ghost-hover);
+    --sig-banner-verified-bg:var(--background-color-box-info);
+    --sig-banner-warn-bg:var(--background-color-box-info);
+    --sig-banner-error-bg:var(--background-color-box-info);
+    --sig-banner-verified-color:var(--text-color);
+    --sig-banner-warn-color:var(--text-color);
+    --sig-banner-error-color:var(--text-color);
+    --sig-icon-default:var(--text-color-deemphasized);
+  }
+
+  @media screen and (forced-colors: active){
+    --sig-card-border:ButtonBorder;
+    --sig-card-bg:Canvas;
+    --sig-card-nested-bg:ButtonFace;
+    --sig-row-color:ButtonText;
+    --sig-detail-color:GrayText;
+    --sig-divider-color:GrayText;
+    --sig-summary-hover-color:AccentColor;
+    --sig-link-color:var(--link-color, LinkText);
+    --sig-link-hover-bg:transparent;
+    --sig-banner-verified-bg:var(--background-color-success, ButtonFace);
+    --sig-banner-verified-color:var(--text-color, ButtonText);
+    --sig-banner-warn-bg:var(--background-color-warning, ButtonFace);
+    --sig-banner-warn-color:var(--text-color, ButtonText);
+    --sig-banner-error-bg:var(--background-color-critical, ButtonFace);
+    --sig-banner-error-color:var(--text-color, ButtonText);
+    --sig-icon-default:GrayText;
+    --sig-icon-warn:var(--icon-color-warning, AccentColor);
+    --sig-icon-error:var(--icon-color-critical, AccentColor);
+    --sig-icon-verified:var(--icon-color-success, AccentColor);
+  }
+}
+
+#signaturePropertiesButton{
+  &::before{
+    mask-image:var(--toolbarButton-editorSignature-icon);
+    transform:scaleX(var(--dir-factor));
+  }
+  &.state-verified::before,
+  &.state-warn::before,
+  &.state-error::before{
+    opacity:1;
+  }
+  &.state-verified::before{
+    mask-image:var(--toolbarButton-signaturePropertiesVerified-icon);
+    background-color:var(--sig-icon-verified);
+  }
+  &.state-warn::before{
+    mask-image:var(--toolbarButton-signaturePropertiesError-icon);
+    background-color:var(--sig-icon-warn);
+  }
+  &.state-error::before{
+    mask-image:var(--toolbarButton-signaturePropertiesError-icon);
+    background-color:var(--sig-icon-error);
+  }
+  &.state-loading{
+    &::before{
+      display:none;
+    }
+    .loadingDot{
+      display:inline-block;
+      width:4px;
+      height:4px;
+      margin:0 1px;
+      border-radius:50%;
+      background:var(--toolbar-icon-bg-color);
+      animation:signaturePropertiesDot 1.2s ease-in-out infinite both;
+
+      &:nth-child(2){
+        animation-delay:0.2s;
+      }
+      &:nth-child(3){
+        animation-delay:0.4s;
+      }
+    }
+  }
+}
+
+@keyframes signaturePropertiesDot{
+  0%,
+  80%,
+  100%{
+    opacity:0.3;
+    transform:scale(0.85);
+  }
+  40%{
+    opacity:1;
+    transform:scale(1);
+  }
+}
+
+#signaturePropertiesPanel{
+  width:320px;
+  padding:0;
+}
+
+.signaturePropertiesContainer{
+  display:flex;
+  flex-direction:column;
+  max-height:70vh;
+  overflow:hidden;
+}
+
+.sigBanner{
+  margin:12px 12px 8px;
+  padding:10px 12px;
+  border-radius:6px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  font-size:12.5px;
+  line-height:1.35;
+  border-inline-start:3px solid currentcolor;
+  @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+    border-radius:var(--border-radius-medium);
+  }
+
+  &.verified{
+    background:var(--sig-banner-verified-bg);
+    color:var(--sig-banner-verified-color);
+    border-inline-start-color:var(--sig-icon-verified);
+  }
+  &.warn{
+    background:var(--sig-banner-warn-bg);
+    color:var(--sig-banner-warn-color);
+    border-inline-start-color:var(--sig-icon-warn);
+  }
+  &.error{
+    background:var(--sig-banner-error-bg);
+    color:var(--sig-banner-error-color);
+    border-inline-start-color:var(--sig-icon-error);
+  }
+}
+
+.signaturePropertiesList{
+  list-style:none;
+  margin:0;
+  padding:0 12px 12px;
+  overflow-y:auto;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+
+.sigCard{
+  border:1px solid var(--sig-card-border);
+  border-radius:6px;
+  padding:8px 10px;
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+  background:var(--sig-card-bg);
+  @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+    border-radius:var(--border-radius-medium);
+  }
+
+  .signer{
+    font-weight:600;
+    font-size:13px;
+    letter-spacing:0.1px;
+    margin-bottom:1px;
+  }
+
+  .row{
+    display:flex;
+    flex-wrap:nowrap;
+    gap:2px 6px;
+    align-items:flex-start;
+    font-size:12px;
+    color:var(--sig-row-color);
+    min-height:18px;
+
+    > span{
+      flex:1 1 auto;
+      min-width:0;
+      overflow-wrap:break-word;
+    }
+
+    &::before{
+      content:"";
+      display:inline-block;
+      width:14px;
+      height:14px;
+      flex-shrink:0;
+      margin-top:1px;
+      mask-position:center;
+      mask-repeat:no-repeat;
+      mask-size:contain;
+      mask-image:var(--signatureProperties-rowCheck-icon);
+      background-color:var(--sig-icon-default);
+      transform:scaleX(var(--dir-factor));
+    }
+    &.status--verified::before,
+    &.status--untrusted::before,
+    &.status--expired::before,
+    &.status--revoked::before,
+    &.cert--trusted::before{
+      mask-image:var(--signatureProperties-rowCheck-icon);
+      background-color:var(--sig-icon-default);
+    }
+    &.cert--untrusted::before,
+    &.cert--expired::before{
+      mask-image:var(--toolbarButton-signaturePropertiesError-icon);
+      background-color:var(--sig-icon-warn);
+    }
+    &.cert--revoked::before,
+    &.status--invalid::before,
+    &.status--unknown::before,
+    &.cert--unknown::before{
+      mask-image:var(--toolbarButton-signaturePropertiesError-icon);
+      background-color:var(--sig-icon-error);
+    }
+  }
+  &.sigCard--top-allfine > .row.status--verified::before,
+  &.sigCard--top-allfine > .row.cert--trusted::before{
+    mask-image:var(--toolbarButton-signaturePropertiesVerified-icon);
+    background-color:var(--sig-icon-verified);
+  }
+
+  .detail{
+    font-size:11.5px;
+    color:var(--sig-detail-color);
+    margin-inline-start:20px;
+    line-height:1.35;
+  }
+
+  .viewCert{
+    align-self:center;
+    margin-top:4px;
+    color:var(--sig-link-color);
+    background:none;
+    border:none;
+    cursor:pointer;
+    font-size:12px;
+    padding:2px 4px;
+    border-radius:4px;
+    white-space:nowrap;
+    @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+      padding-inline:var(--space-small);
+      border-radius:var(--button-border-radius);
+    }
+
+    &:hover{
+      background:var(--sig-link-hover-bg);
+      text-decoration:underline;
+    }
+    &:focus-visible{
+      outline:2px solid var(--sig-link-color);
+      outline-offset:1px;
+
+      @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+        outline:var(--focus-outline);
+        outline-offset:var(--focus-outline-offset);
+      }
+    }
+  }
+
+  .subSignatures{
+    margin-top:4px;
+    border-top:1px dashed var(--sig-divider-color);
+    padding-top:4px;
+    font-size:12px;
+    @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+      border-top-style:solid;
+    }
+
+    > summary{
+      cursor:pointer;
+      user-select:none;
+      list-style:none;
+      color:var(--sig-detail-color);
+      display:flex;
+      align-items:center;
+      gap:4px;
+      padding:2px 0;
+
+      &:hover{
+        color:var(--sig-summary-hover-color);
+      }
+      &::-webkit-details-marker{
+        display:none;
+      }
+      &::before{
+        content:"";
+        display:inline-block;
+        width:0;
+        height:0;
+        border-top:4px solid transparent;
+        border-bottom:4px solid transparent;
+        border-inline-start:5px solid currentcolor;
+        transition:transform 0.15s;
+      }
+    }
+    &[open] > summary::before{
+      transform:rotate(90deg);
+    }
+  }
+
+  .nested,
+  .subSignatures > .signaturePropertiesList{
+    padding:4px 0 2px;
+    margin-inline-start:0;
+    gap:4px;
+  }
+
+  .nested{
+    margin-top:4px;
+  }
+  .subSignatures .sigCard,
+  .nested .sigCard{
+    padding:6px 8px;
+    background:var(--sig-card-nested-bg);
+    gap:2px;
+    @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+      border-radius:var(--border-radius-small);
+    }
+  }
+
+  .subSignatures .signer,
+  .nested .signer{
+    font-size:12px;
+    font-weight:500;
+  }
+}
+
+:root{
   --dir-factor:1;
 
   --sidebar-width:200px;
@@ -6046,7 +6891,10 @@ button.hasPopupMenu{
   --toolbar-border-bottom:none;
   --toolbarSidebar-box-shadow:inset calc(-1px * var(--dir-factor)) 0 0 rgb(0 0 0 / 0.25), 0 1px 0 rgb(0 0 0 / 0.15), 0 0 1px rgb(0 0 0 / 0.1);
   --toolbarSidebar-border-bottom:none;
-  --button-hover-color:color-mix(in srgb, currentColor 17%, transparent);
+  --button-hover-color:var(
+    --button-background-color-toolbar-hover,
+    color-mix(in srgb, currentColor 17%, transparent)
+  );
   --toggled-btn-color:light-dark(rgb(0 0 0), rgb(255 255 255));
   --toggled-btn-bg-color:rgb(0 0 0 / 0.3);
   --toggled-hover-active-btn-color:rgb(0 0 0 / 0.4);
@@ -6061,12 +6909,6 @@ button.hasPopupMenu{
   --doorhanger-border-color:light-dark(rgb(12 12 13 / 0.2), rgb(39 39 43));
   --doorhanger-hover-color:light-dark(rgb(12 12 13), rgb(249 249 250));
   --doorhanger-separator-color:light-dark(rgb(222 222 222), rgb(92 92 97));
-  --dialog-button-border:none;
-  --dialog-button-bg-color:light-dark(rgb(12 12 13 / 0.1), rgb(92 92 97));
-  --dialog-button-hover-bg-color:light-dark(
-    rgb(12 12 13 / 0.3),
-    rgb(115 115 115)
-  );
 
   --loading-icon:url(images/loading.svg);
   --toolbarButton-editorComment-icon:url(images/comment-editButton.svg);
@@ -6075,6 +6917,9 @@ button.hasPopupMenu{
   --toolbarButton-editorInk-icon:url(images/toolbarButton-editorInk.svg);
   --toolbarButton-editorStamp-icon:url(images/toolbarButton-editorStamp.svg);
   --toolbarButton-editorSignature-icon:url(images/toolbarButton-editorSignature.svg);
+  --toolbarButton-signaturePropertiesVerified-icon:url(images/toolbarButton-signaturePropertiesVerified.svg);
+  --toolbarButton-signaturePropertiesError-icon:url(images/toolbarButton-signaturePropertiesError.svg);
+  --signatureProperties-rowCheck-icon:url(images/signature-properties-row-check.svg);
   --toolbarButton-menuArrow-icon:url(images/toolbarButton-menuArrow.svg);
   --toolbarButton-viewsManagerToggle-icon:url(images/toolbarButton-viewsManagerToggle.svg);
   --toolbarButton-secondaryToolbarToggle-icon:url(images/toolbarButton-secondaryToolbarToggle.svg);
@@ -6113,6 +6958,54 @@ button.hasPopupMenu{
   --secondaryToolbarButton-documentProperties-icon:url(images/secondaryToolbarButton-documentProperties.svg);
   --editorParams-stampAddImage-icon:url(images/toolbarButton-zoomIn.svg);
   --comment-edit-button-icon:url(images/comment-editButton.svg);
+  @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+    font-size:var(--font-size-root);
+
+    --toolbarButton-menuArrowNova-icon:url(images/toolbarButton-menuArrowNova.svg);
+
+    --toolbar-height:40px;
+    --toolbar-horizontal-padding:6px;
+    --toolbar-vertical-padding:4px;
+
+    --toolbar-icon-opacity:1;
+    --doorhanger-icon-opacity:1;
+
+    --main-color:var(--text-color);
+    --body-bg-color:light-dark(var(--color-gray-15), var(--color-gray-85));
+    --progressBar-color:var(--color-accent-primary);
+    --progressBar-bg-color:var(--background-color-box-info);
+    --progressBar-blend-color:color-mix(
+      in srgb,
+      var(--color-accent-primary) 40%,
+      var(--background-color-box)
+    );
+    --toolbar-icon-bg-color:var(--toolbarbutton-icon-fill);
+    --toolbar-icon-hover-bg-color:var(--toolbarbutton-icon-fill);
+
+    --sidebar-narrow-bg-color:color-mix(
+      in srgb,
+      var(--background-color-canvas) 90%,
+      transparent
+    );
+    --sidebar-toolbar-bg-color:var(--toolbar-background-color);
+    --toolbar-bg-color:var(--toolbar-background-color);
+    --toolbar-border-color:var(--border-color-deemphasized);
+    --toggled-btn-color:var(--toolbarbutton-icon-fill);
+    --toggled-btn-bg-color:var(--toolbarbutton-background-color-active);
+    --toggled-hover-active-btn-color:var(
+      --toolbarbutton-background-color-active
+    );
+    --dropdown-btn-bg-color:var(--button-background-color);
+    --dropdown-btn-border:1px solid var(--button-border-color);
+    --separator-color:var(--border-color-deemphasized);
+    --field-color:var(--text-color);
+    --field-bg-color:var(--background-color-box);
+    --field-border-color:var(--border-color-interactive);
+    --doorhanger-bg-color:var(--background-color-box);
+    --doorhanger-border-color:var(--border-color-deemphasized);
+    --doorhanger-hover-color:var(--text-color);
+    --doorhanger-separator-color:var(--border-color-deemphasized);
+  }
 }
 
 :root:dir(rtl){
@@ -6135,9 +7028,6 @@ button.hasPopupMenu{
     --doorhanger-hover-color:ButtonFace;
     --doorhanger-border-color-whcm:1px solid ButtonText;
     --doorhanger-triangle-opacity-whcm:0;
-    --dialog-button-border:1px solid Highlight;
-    --dialog-button-hover-bg-color:Highlight;
-    --dialog-button-hover-color:ButtonFace;
     --dropdown-btn-border:1px solid ButtonText;
     --field-border-color:ButtonText;
     --main-color:CanvasText;
@@ -6167,9 +7057,15 @@ button.hasPopupMenu{
 html{
   &[data-toolbar-density="compact"]{
     --toolbar-height:30px;
+    @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+      --toolbar-height:32px;
+    }
   }
   &[data-toolbar-density="touch"]{
     --toolbar-height:44px;
+    @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+      --toolbar-height:48px;
+    }
   }
 }
 
@@ -6222,7 +7118,8 @@ body{
   user-select:none;
 }
 
-.pdfPresentationMode:fullscreen section:not([data-internal-link]){
+.pdfPresentationMode:fullscreen
+  section:not([data-internal-link], .mediaAnnotation){
   pointer-events:none;
 }
 
@@ -6271,6 +7168,20 @@ body{
 #viewerContainer:not(.pdfPresentationMode){
   transition-duration:var(--sidebar-transition-duration);
   transition-timing-function:var(--sidebar-transition-timing-function);
+}
+
+#viewerContainer:not(.pdfPresentationMode){
+  inset-block-start:calc(var(--toolbar-height) + var(--pfn-bar-height, 0px));
+}
+
+#outerContainer #toolbarContainer #loadingBar{
+  top:calc(var(--toolbar-height) + var(--pfn-bar-height, 0px));
+}
+
+#viewsManager{
+  inset-block-start:calc(
+    100% + var(--pfn-bar-height, 0px) + var(--sidebar-block-padding)
+  );
 }
 
 #sidebarContainer :is(input, button, select){
@@ -6348,6 +7259,16 @@ body{
   &::after{
     border-width:var(--doorhanger-height);
   }
+  @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+    border-radius:var(--panel-border-radius);
+    border:1px solid var(--doorhanger-border-color);
+    box-shadow:var(--box-shadow-level-2);
+
+    &::after,
+    &::before{
+      display:none;
+    }
+  }
 }
 
 .doorHangerRight{
@@ -6360,6 +7281,9 @@ body{
   &::after{
     border-bottom-color:var(--doorhanger-bg-color);
     inset-inline-end:1px;
+  }
+  @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+    inset-inline-end:0;
   }
 }
 
@@ -6374,22 +7298,10 @@ body{
     border-bottom-color:var(--toolbar-bg-color);
     inset-inline-start:1px;
   }
-}
 
-.dialogButton{
-  border:none;
-  background:none;
-  width:28px;
-  height:28px;
-  outline:none;
-}
-
-.dialogButton:is(:hover, :focus-visible){
-  background-color:var(--dialog-button-hover-bg-color);
-}
-
-.dialogButton:is(:hover, :focus-visible) > span{
-  color:var(--dialog-button-hover-color);
+  @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+    inset-inline-start:0;
+  }
 }
 
 .splitToolbarButtonSeparator{
@@ -6398,20 +7310,6 @@ body{
   height:62%;
   border-left:1px solid var(--separator-color);
   border-right:none;
-}
-
-.dialogButton{
-  min-width:16px;
-  margin:2px 1px;
-  padding:2px 6px 0;
-  border:none;
-  border-radius:2px;
-  color:var(--main-color);
-  font-size:12px;
-  line-height:14px;
-  user-select:none;
-  cursor:default;
-  box-sizing:border-box;
 }
 
 #viewsManagerToggleButton::before{
@@ -6492,6 +7390,10 @@ body{
   height:9px;
   width:9px;
   border-radius:50%;
+
+  @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+    background-color:var(--color-accent-attention);
+  }
 }
 
 .verticalToolbarSeparator{
@@ -6552,6 +7454,19 @@ body{
   &:focus{
     border-color:#0a84ff;
   }
+  @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+    border-radius:var(--border-radius-small);
+    padding:var(--space-xsmall) var(--space-small);
+
+    &:focus{
+      border-color:var(--field-border-color);
+    }
+
+    &:focus-visible{
+      outline:var(--focus-outline);
+      outline-offset:var(--focus-outline-inset);
+    }
+  }
 }
 
 #pageNumber{
@@ -6602,15 +7517,6 @@ body{
   }
 }
 
-.dialogButton{
-  width:auto;
-  margin:3px 4px 2px !important;
-  padding:2px 11px;
-  color:var(--main-color);
-  background-color:var(--dialog-button-bg-color);
-  border:var(--dialog-button-border) !important;
-}
-
 dialog{
   margin:auto;
   padding:15px;
@@ -6621,7 +7527,7 @@ dialog{
   line-height:14px;
   background-color:var(--doorhanger-bg-color);
   border:1px solid rgb(0 0 0 / 0.5);
-  border-radius:4px;
+  border-radius:var(--border-radius-medium, 4px);
   box-shadow:0 1px 4px rgb(0 0 0 / 0.3);
 }
 
@@ -6651,12 +7557,33 @@ dialog .separator{
 }
 
 dialog .buttonRow{
-  text-align:center;
-  vertical-align:middle;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  gap:8px;
 }
 
 dialog :link{
   color:rgb(255 255 255);
+}
+@media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+  dialog:not(.dialog){
+    padding:var(--space-large);
+    font-size:var(--font-size-small);
+    line-height:150%;
+    border-spacing:var(--space-xsmall);
+    background-color:var(--background-color-canvas);
+    border:1px solid var(--border-color);
+    box-shadow:var(--box-shadow-level-3);
+
+    .separator{
+      margin-block:var(--space-small);
+    }
+
+    :link{
+      color:var(--link-color);
+    }
+  }
 }
 
 #passwordDialog{
@@ -6812,6 +7739,24 @@ dialog :link{
       height:auto;
     }
   }
+  @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+    border-radius:var(--button-border-radius);
+
+    &:focus-visible{
+      outline:var(--focus-outline);
+      outline-offset:var(--focus-outline-inset);
+    }
+
+    &.toggled:hover:focus-visible{
+      --toggled-hover-btn-outline:var(--focus-outline);
+    }
+
+    &.labeled{
+      border-radius:var(--panel-menuitem-border-radius);
+      gap:var(--space-small);
+      padding-inline-start:var(--space-small);
+    }
+  }
 }
 
 .toolbarButtonWithContainer{
@@ -6828,6 +7773,10 @@ dialog :link{
 
   .menu{
     padding-block:5px;
+    @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+      padding-block:var(--space-small);
+      padding-inline:var(--space-small);
+    }
   }
 
   .menuContainer{
@@ -6881,6 +7830,11 @@ dialog :link{
       padding-inline:10px;
       padding-block:10px;
 
+      @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+        padding-inline:var(--space-medium);
+        padding-block:var(--space-medium);
+      }
+
       > .editorParamsSetter{
         min-height:26px;
         display:flex;
@@ -6911,6 +7865,19 @@ dialog :link{
 
         &::-moz-range-thumb{
           background-color:white;
+        }
+        @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+          &::-moz-range-progress{
+            background-color:var(--color-accent-primary);
+          }
+
+          &::-moz-range-track{
+            background-color:var(--border-color-interactive);
+          }
+
+          &::-moz-range-thumb{
+            background-color:var(--color-accent-primary);
+          }
         }
       }
     }
@@ -7023,6 +7990,12 @@ dialog :link{
   box-sizing:border-box;
   flex-wrap:wrap;
   justify-content:flex-start;
+  @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+    --input-horizontal-padding:var(--space-medium);
+
+    border-radius:var(--border-radius-medium);
+    padding-inline:var(--space-small);
+  }
 
   > *{
     height:var(--toolbar-height);
@@ -7056,6 +8029,13 @@ dialog :link{
 
       &[data-status="notFound"]{
         background-color:rgb(255 102 102);
+
+        @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+          background-color:var(--background-color-critical);
+        }
+      }
+      @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+        border-radius:var(--input-search-border-radius);
       }
     }
   }
@@ -7072,6 +8052,10 @@ dialog :link{
       background-color:rgb(217 217 217);
       color:rgb(82 82 82);
       padding-block:4px;
+      @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+        background-color:var(--background-color-box-info);
+        color:var(--text-color-deemphasized);
+      }
 
       &:empty{
         display:none;
@@ -7183,6 +8167,11 @@ dialog :link{
   padding-inline:4px;
   margin:2px;
   border-radius:2px;
+  @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+    padding-inline:var(--space-small);
+    border-radius:var(--button-border-radius);
+  }
+
   color:var(--main-color);
   font-size:12px;
   line-height:14px;
@@ -7209,6 +8198,10 @@ dialog :link{
   justify-content:space-between;
   gap:1px;
   box-sizing:border-box;
+
+  @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+    gap:var(--space-xxsmall);
+  }
 }
 
 .dropdownToolbarButton{
@@ -7280,10 +8273,73 @@ dialog :link{
   &:is(:hover, :focus-visible, :active)::after{
     background-color:var(--toolbar-icon-hover-bg-color);
   }
+  @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+    overflow:hidden;
+    border:var(--button-border);
+    border-radius:var(--button-border-radius);
+    background-color:var(--button-background-color);
+    color:var(--button-text-color);
+
+    &:is(:hover, :has(> select:open)){
+      border-color:var(--border-color-interactive-hover);
+      background-color:var(--button-background-color-hover);
+      color:var(--button-text-color-hover);
+    }
+
+    &:has(> select:focus-visible){
+      outline:var(--focus-outline);
+      outline-offset:var(--focus-outline-offset);
+    }
+
+    > select{
+      height:auto;
+      min-height:var(--button-min-height);
+      border-radius:inherit;
+      padding-block:var(--button-padding-block);
+      padding-inline:var(--button-padding-inline) calc(
+          var(--button-padding-inline) + var(--icon-size) + var(--space-small)
+        );
+      font-size:var(--font-size-root);
+      font-weight:var(--button-font-weight);
+      color:inherit;
+      background-color:var(--background-color-box);
+
+      > option{
+        color:var(--text-color);
+        font-weight:var(--font-weight);
+      }
+
+      &:is(:hover, :focus-visible){
+        background-color:var(--background-color-box);
+        color:inherit;
+      }
+
+      &:focus-visible{
+        outline:none;
+      }
+    }
+
+    &:is(:hover, :has(> select:open)) > select{
+      background-image:linear-gradient(
+        var(--button-background-color-hover),
+        var(--button-background-color-hover)
+      );
+    }
+
+    &::after,
+    &:is(:hover, :focus-visible, :active)::after{
+      inset-inline-end:var(--button-padding-inline);
+      background-color:currentColor;
+      mask-image:var(--toolbarButton-menuArrowNova-icon);
+    }
+  }
 }
 
 #toolbarContainer{
   --menuitem-height:calc(var(--toolbar-height) - 6px);
+  @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+    --menuitem-height:var(--size-item-large);
+  }
 
   width:100%;
   height:var(--toolbar-height);
@@ -7316,6 +8372,9 @@ dialog :link{
 
     #toolbarViewerLeft{
       margin-inline-start:8px;
+      @media -moz-pref("pdfjs.enableNova") and -moz-pref("browser.nova.enabled"){
+        margin-inline-start:0;
+      }
 
       #numPages.toolbarLabel{
         padding-inline-start:3px;

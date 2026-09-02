@@ -98,15 +98,7 @@ struct StackMapHeader {
                     (MaxParams * MaxParamSize / sizeof(void*)) + 16,
                 "limited size of the offset field");
 
-  bool operator==(const StackMapHeader& rhs) const {
-    return numMappedWords == rhs.numMappedWords &&
-#ifdef DEBUG
-           numExitStubWords == rhs.numExitStubWords &&
-#endif
-           frameOffsetFromTop == rhs.frameOffsetFromTop &&
-           hasDebugFrameWithLiveRefs == rhs.hasDebugFrameWithLiveRefs;
-  }
-  bool operator!=(const StackMapHeader& rhs) const { return !(*this == rhs); }
+  bool operator==(const StackMapHeader& rhs) const = default;
 };
 
 WASM_DECLARE_CACHEABLE_POD(StackMapHeader);
@@ -233,6 +225,14 @@ struct StackMap final {
     return calcBitmapNumElems(header.numMappedWords) * sizeof(bitmap[0]);
   }
 
+  inline uint32_t numMappedWords() const { return header.numMappedWords; }
+
+#ifdef JS_JITSPEW
+  // Dumps a summary of the stackmap to the JitSpew_Codegen channel.
+  // `codeOffset` is the intended assembler buffer offset for the map.
+  void show(uint32_t codeOffset) const;
+#endif
+
  private:
   static constexpr uint32_t bitsPerMappedWord = 2;
   static constexpr uint32_t mappedWordsPerBitmapElem =
@@ -273,7 +273,7 @@ class StackMaps {
   // memory to be linearly allocated as stack maps, giving us pointer stability
   // while avoiding lock contention from malloc across compilation threads. It
   // also allows us to undo a stack map allocation.
-  LifoAlloc stackMaps_;
+  LifoAlloc stackMaps_{4096, js::BackgroundMallocArena};
   // Map for finding a stack map at a specific code offset.
   StackMapHashMap codeOffsetToStackMap_;
 
@@ -289,7 +289,7 @@ class StackMaps {
 #endif
 
  public:
-  StackMaps() : stackMaps_(4096, js::BackgroundMallocArena) {}
+  StackMaps() = default;
 
   // Allocates a new empty stack map. After configuring the stack map to your
   // liking, you must call finalize().
@@ -349,6 +349,11 @@ class StackMaps {
 
   // Add a finalized stack map with a given code offset.
   [[nodiscard]] bool add(uint32_t codeOffset, StackMap* map) {
+#ifdef JS_JITSPEW
+    if (JitSpewEnabled(jit::JitSpew_Codegen)) {
+      map->show(codeOffset);
+    }
+#endif
     MOZ_ASSERT(!createdButNotFinalized_);
     MOZ_ASSERT(stackMaps_.contains(map));
     return codeOffsetToStackMap_.put(codeOffset, map);
@@ -548,7 +553,7 @@ void EmitWasmPreBarrierGuard(jit::MacroAssembler& masm, jit::Register instance,
 
 // Before storing a GC pointer value in memory, call out-of-line prebarrier
 // code. This assumes `PreBarrierReg` contains the address that will be
-// updated. On ARM64 it also assums that x28 (the PseudoStackPointer) has the
+// updated. On ARM64 it also assums that x20 (the PseudoStackPointer) has the
 // same value as SP.  `PreBarrierReg` is preserved by the barrier function.
 // Will clobber `scratch`.
 //
@@ -565,6 +570,25 @@ void EmitWasmPreBarrierCallImmediate(jit::MacroAssembler& masm,
 void EmitWasmPreBarrierCallIndex(jit::MacroAssembler& masm,
                                  jit::Register instance, jit::Register scratch1,
                                  jit::Register scratch2, jit::BaseIndex addr);
+
+#ifdef ENABLE_WASM_JSPI
+
+// Before resuming a continuation, jump to a 'resume barrier' if an incremental
+// GC is happening.
+void EmitWasmResumeBarrierGuard(jit::MacroAssembler& masm,
+                                jit::Register instance, jit::Register scratch,
+                                jit::Label* enterBarrier);
+
+// Call the 'resume barrier' for a continuation. This will clobber all
+// registers except for `instance`. `instance` must be InstanceReg.
+//
+// See [SMDOC] Wasm Stack Switching in WasmStacks.cpp for more information.
+//
+// This will immediately trace the continuation stack if it hasn't been already.
+void EmitWasmResumeBarrier(jit::MacroAssembler& masm, jit::Register instance,
+                           jit::Register cont);
+
+#endif  // ENABLE_WASM_JSPI
 
 // After storing a GC pointer value in memory, skip to `skipBarrier` if a
 // postbarrier is not needed.  If the location being set is in an
@@ -590,14 +614,54 @@ void CheckWholeCellLastElementCache(jit::MacroAssembler& masm,
                                     jit::Label* skipBarrier);
 
 #ifdef DEBUG
-// Check (approximately) whether `nextPC` is a valid code address for a
-// stackmap created by this compiler.  This is done by examining the
-// instruction at `nextPC`.  The matching is inexact, so it may err on the
-// side of returning `true` if it doesn't know.  Doing so reduces the
-// effectiveness of the MOZ_ASSERTs that use this function, so at least for
-// the four primary platforms we should keep it as exact as possible.
+// Check (approximately) whether `base + stackmapOffset` is a valid key (code
+// address) for a wasm stackmap.  This is done by examining the instruction
+// immediately preceding `base + stackmapOffset`, since stackmaps are keyed by
+// the address/offset of the first byte of the instruction following the
+// instruction with which the stackmap is associated.
+//
+// The matching is inexact, so it may err on the side of returning `true` if it
+// doesn't know.  Doing so reduces the effectiveness of the MOZ_ASSERTs that use
+// this function, so at least for the four primary platforms we should keep it
+// as exact as possible.
+//
+// The matching is unavoidably inexact at least on x86/x86_64, since we don't
+// know the start point of the previous instruction, and so have to resort to
+// looking backwards from the start point we've been given.  That's problematic
+// because instructions don't parse uniquely "backwards".  For example, we might
+// hope to identify UD2 (which is 0F 0B) by checking
+//
+//   key[-2] == 0x0F && key[-1] == 0B
+//
+// but because constants are stored at the end of instructions,
+//
+//   movl $0x0B0F1234, %eax
+//
+// would also end with 0F 0B.  This introduces some inaccuracy into the process,
+// but it is in the direction of false positives, which we tolerate since this
+// is a debug-only facility we use for identifying obviously-bogus stackmap
+// keys.  Also, the above ambiguity is expected to be rare in practice.
+//
+// In short:
+// * it is OK to claim an invalid key is valid (`true` is returned)
+// * it is not OK to claim a valid key is invalid (`false` returned)
+bool IsPlausibleStackMapKey(const uint8_t* base, uint32_t stackmapOffset);
 
-bool IsPlausibleStackMapKey(const uint8_t* nextPC);
+using TrapSitesFrontierArray =
+    mozilla::EnumeratedArray<Trap, uint32_t, size_t(Trap::Limit)>;
+
+// Check that traps have an associated stack map.  The check is performed only
+// for traps `t` for which `checkThisTrapKind` returns `true`.  For each such
+// `t`, trap site indices to be checked are taken from `trapSitesBefore[t]` to
+// `trapSitesAfter[t] - 1`.  The trap sites and instructions to inspect are to
+// be found in `masm`, and the corresponding stack maps in `stackMaps`.
+//
+// Returns without comment on success; MOZ_ASSERTs on failure.
+void CheckStackMapsForTraps(const jit::MacroAssembler& masm,
+                            const StackMaps& stackMaps,
+                            const TrapSitesFrontierArray& trapSitesBefore,
+                            const TrapSitesFrontierArray& trapSitesAfter,
+                            bool (*checkThisTrapKind)(Trap));
 #endif
 
 }  // namespace wasm

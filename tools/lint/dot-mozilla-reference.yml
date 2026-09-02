@@ -6,9 +6,15 @@ avoid-dot-mozilla-without-xdg:
         the documentation for more info.
     level: error
     include: ['.']
-    type: regex
-    payload: \"\.mozilla\"|'\.mozilla'
-    ignore-case: true
+    type: external
+    payload: mozcheck:lint
+    setup: mozcheck:setup
+    check: rejected-words
+    check-config:
+        regex-pattern: "\"\\.mozilla\"|'\\.mozilla'"
+        ignore-case: true
+    support-files:
+        - 'tools/lint/mozcheck/**'
     extensions:
         - js
         - mjs

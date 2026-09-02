@@ -6,8 +6,12 @@
 #define LAYOUT_STYLE_TYPEDOM_CSSMATHCLAMP_H_
 
 #include "js/TypeDecls.h"
+#include "mozilla/RefPtr.h"
+#include "mozilla/UniquePtr.h"
 #include "mozilla/dom/CSSMathValue.h"
 #include "mozilla/dom/CSSNumericValueBindingFwd.h"
+#include "nsCycleCollectionParticipant.h"
+#include "nsISupportsImpl.h"
 
 template <class T>
 struct already_AddRefed;
@@ -17,7 +21,11 @@ class nsISupports;
 
 namespace mozilla {
 
+struct CSSPropertyId;
 class ErrorResult;
+template <typename T>
+class MovingNotNull;
+struct StyleMathClamp;
 
 namespace dom {
 
@@ -25,29 +33,49 @@ class GlobalObject;
 
 class CSSMathClamp final : public CSSMathValue {
  public:
-  explicit CSSMathClamp(nsCOMPtr<nsISupports> aParent);
+  CSSMathClamp(nsCOMPtr<nsISupports> aParent,
+               MovingNotNull<UniquePtr<StyleNumericType>> aNumericType,
+               RefPtr<CSSNumericValue> aLower, RefPtr<CSSNumericValue> aValue,
+               RefPtr<CSSNumericValue> aUpper);
+
+  static RefPtr<CSSMathClamp> Create(nsCOMPtr<nsISupports> aParent,
+                                     const StyleMathClamp& aMathClamp);
+
+  NS_DECL_ISUPPORTS_INHERITED
+  NS_DECL_CYCLE_COLLECTION_CLASS_INHERITED(CSSMathClamp, CSSMathValue)
 
   JSObject* WrapObject(JSContext* aCx,
                        JS::Handle<JSObject*> aGivenProto) override;
 
   // start of CSSMathClamp Web IDL declarations
 
+  // https://drafts.css-houdini.org/css-typed-om-1/#dom-cssmathclamp-cssmathclamp
   static already_AddRefed<CSSMathClamp> Constructor(const GlobalObject& aGlobal,
                                                     const CSSNumberish& aLower,
                                                     const CSSNumberish& aValue,
                                                     const CSSNumberish& aUpper,
                                                     ErrorResult& aRv);
 
-  CSSNumericValue* GetLower(ErrorResult& aRv) const;
+  CSSNumericValue* Lower() const;
 
-  CSSNumericValue* GetValue(ErrorResult& aRv) const;
+  CSSNumericValue* Value() const;
 
-  CSSNumericValue* GetUpper(ErrorResult& aRv) const;
+  CSSNumericValue* Upper() const;
 
   // end of CSSMathClamp Web IDL declarations
 
+  void ToCssTextWithProperty(const CSSPropertyId& aPropertyId,
+                             const SerializationContext& aContext,
+                             nsACString& aDest) const;
+
+  StyleMathClamp ToStyleMathClamp() const;
+
  private:
   virtual ~CSSMathClamp() = default;
+
+  RefPtr<CSSNumericValue> mLower;
+  RefPtr<CSSNumericValue> mValue;
+  RefPtr<CSSNumericValue> mUpper;
 };
 
 }  // namespace dom

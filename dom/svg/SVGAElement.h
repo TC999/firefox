@@ -10,8 +10,8 @@
 #include "mozilla/dom/SVGGraphicsElement.h"
 #include "nsDOMTokenList.h"
 
-nsresult NS_NewSVGAElement(
-    nsIContent** aResult, already_AddRefed<mozilla::dom::NodeInfo>&& aNodeInfo);
+nsresult NS_NewSVGAElement(nsIContent** aResult,
+                           already_AddRefed<mozilla::dom::NodeInfo> aNodeInfo);
 
 namespace mozilla {
 
@@ -26,10 +26,10 @@ class SVGAElement final : public SVGAElementBase, public Link {
  protected:
   using Element::GetCharacterDataBuffer;
 
-  explicit SVGAElement(already_AddRefed<mozilla::dom::NodeInfo>&& aNodeInfo);
-  friend nsresult(::NS_NewSVGAElement(
-      nsIContent** aResult,
-      already_AddRefed<mozilla::dom::NodeInfo>&& aNodeInfo));
+  explicit SVGAElement(already_AddRefed<mozilla::dom::NodeInfo> aNodeInfo);
+  friend nsresult(
+      ::NS_NewSVGAElement(nsIContent** aResult,
+                          already_AddRefed<mozilla::dom::NodeInfo> aNodeInfo));
   JSObject* WrapNode(JSContext* cx, JS::Handle<JSObject*> aGivenProto) override;
 
  public:
@@ -76,8 +76,6 @@ class SVGAElement final : public SVGAElementBase, public Link {
   void SetHreflang(const nsAString& aHreflang, mozilla::ErrorResult& rv);
   void GetType(nsAString& aType);
   void SetType(const nsAString& aType, mozilla::ErrorResult& rv);
-  void GetText(nsAString& aText, mozilla::ErrorResult& rv) const;
-  void SetText(const nsAString& aText, mozilla::ErrorResult& rv);
 
   void NodeInfoChanged(Document* aOldDoc) final {
     ClearHasPendingLinkUpdate();

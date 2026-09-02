@@ -9,12 +9,14 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
 import mozilla.components.concept.llm.CloudLlmProvider
 import mozilla.components.concept.llm.CloudLlmProvider.State
-import mozilla.components.concept.llm.ErrorCode
 import mozilla.components.concept.llm.Llm
 import mozilla.components.concept.llm.LlmProvider
 import mozilla.components.lib.llm.mlpa.service.ChatService
-import mozilla.components.lib.llm.mlpa.service.ChatServiceError
+import mozilla.components.lib.llm.mlpa.service.InvalidToken
 import mozilla.components.lib.llm.mlpa.service.MlpaService
+
+internal val LlmProvider.ModelID.Companion.mozSummarization
+    get() = LlmProvider.ModelID("moz-summarization")
 
 /**
  * [CloudLlmProvider] implementation backed by MLPA services.
@@ -24,8 +26,7 @@ import mozilla.components.lib.llm.mlpa.service.MlpaService
  * - Initializing an [MlpaLlm] instance when authentication succeeds.
  * - Exposing availability and readiness through a [StateFlow].
  *
- * The provider starts in [State.Available]. After calling [prepare],
- * the state will transition to:
+ * The provider starts in [State.Available]. After calling [prepare], the state will transition to:
  * - [Ready] with an initialized [MlpaLlm] instance if token retrieval succeeds.
  * - [Unavailable] if token retrieval fails.
  *
@@ -37,12 +38,17 @@ class MlpaLlmProvider(
     val storage: MlpaTokenStorage,
     val mlpaService: MlpaService,
 ) : CloudLlmProvider {
-    override val info = LlmProvider.Info(nameRes = R.string.mlpa_llm_provider_name, iconRes = R.drawable.firefox_icon)
+    private val modelID = LlmProvider.ModelID.mozSummarization
+
+    override val info =
+        LlmProvider.Info(
+            nameRes = R.string.mlpa_llm_provider_name,
+            iconRes = R.drawable.firefox_icon,
+            modelId = modelID,
+        )
     private val _state = MutableStateFlow<State>(State.Available)
 
-    /**
-     * The current state.
-     */
+    /** The current state. */
     override val state: StateFlow<State> = _state
 
     /**
@@ -54,43 +60,35 @@ class MlpaLlmProvider(
      * - On failure, updates [state] to [State.Unavailable].
      */
     override suspend fun prepare() {
-        tokenProvider.fetchToken()
-            .onSuccess { _state.value = State.Ready(MlpaLlm(chatService, it)) }
+        tokenProvider
+            .fetchToken()
+            .onSuccess { _state.value = State.Ready(MlpaLlm(chatService, it, modelID)) }
             .onFailure {
-                _state.value = State.Unavailable(
-                it as? Llm.Exception
-                    ?: Llm.Exception(
-                        message = it.message ?: "missing token provider error",
-                        errorCode = unknownTokenProviderError,
-                    ),
-                )
-            }
-    }
-
-    /**
-     * Wraps the [ChatService]
-     */
-    private val chatService = ChatService { token, request ->
-        mlpaService.completion(token, request)
-            .catch { throwable ->
-                if (throwable is ChatServiceError.InvalidToken) {
-                    storage.clear()
-                    _state.value = State.Available
-                } else {
-                    _state.value = State.Unavailable(
-                        throwable as? Llm.Exception
+                _state.value =
+                    State.Unavailable(
+                        it as? Llm.Exception
                             ?: Llm.Exception(
-                                message = throwable.message ?: "missing chat service error",
-                                errorCode = unknownChatServiceError,
-                            ),
+                                message = it.message ?: "missing token provider error",
+                                cause = it,
+                            )
                     )
-                }
-
-                // Re-throw the error so downstream consumers can handle the error
-                throw throwable
             }
     }
 
-    private val unknownTokenProviderError = ErrorCode(1010)
-    private val unknownChatServiceError = ErrorCode(1011)
+    /** Wraps the [ChatService] */
+    private val chatService = ChatService { token, request ->
+        mlpaService.completion(token, request).catch { throwable ->
+            val error =
+                throwable as? Llm.Exception
+                    ?: Llm.Exception(
+                        message = throwable.message ?: "missing chat service error",
+                        cause = throwable,
+                    )
+            if (throwable is InvalidToken) {
+                storage.clear()
+                _state.value = State.Available
+            }
+            throw error
+        }
+    }
 }

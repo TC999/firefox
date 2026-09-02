@@ -15,6 +15,40 @@ namespace {
 
 StaticRefPtr<FileSystemSecurity> gFileSystemSecurity;
 
+#if defined(XP_WIN)
+constexpr char16_t kWindowsPathSeparator = '\\';
+constexpr char16_t kPlatformPathSeparator = kWindowsPathSeparator;
+#else
+constexpr char16_t kPosixPathSeparator = '/';
+constexpr char16_t kPlatformPathSeparator = kPosixPathSeparator;
+#endif
+
+bool IsDescendantPath(const nsAString& aAuthorizedRoot,
+                      const nsAString& aRequestedDescendant) {
+  // Check the sub-directory path to see if it has the parent path as prefix.
+  if (aRequestedDescendant.Equals(aAuthorizedRoot)) {
+    return true;
+  }
+
+  if (!StringBeginsWith(/*aSource*/ aRequestedDescendant,
+                        /*aSubstring*/ aAuthorizedRoot)) {
+    return false;
+  }
+
+  // Require a path separator immediately after the granted prefix.
+  const uint32_t prefixLen = aAuthorizedRoot.Length();
+  if (prefixLen > 0 && aAuthorizedRoot.Last() == kPlatformPathSeparator) {
+    return true;
+  }
+
+  if (aRequestedDescendant.Length() <= prefixLen ||
+      aRequestedDescendant.CharAt(prefixLen) != kPlatformPathSeparator) {
+    return false;
+  }
+
+  return true;
+}
+
 }  // namespace
 
 /* static */
@@ -77,6 +111,11 @@ bool FileSystemSecurity::ContentProcessHasAccessTo(ContentParentId aId,
   MOZ_ASSERT(NS_IsMainThread());
   mozilla::ipc::AssertIsInMainProcess();
 
+  // POSIX APIs accept all other characters than NUL
+  if (aPath.FindChar(char16_t(0)) != kNotFound) {
+    return false;
+  }
+
 #if defined(XP_WIN)
   if (StringBeginsWith(aPath, u"..\\"_ns) ||
       FindInReadable(u"\\..\\"_ns, aPath) ||
@@ -84,7 +123,7 @@ bool FileSystemSecurity::ContentProcessHasAccessTo(ContentParentId aId,
     return false;
   }
 #endif
-  if (StringBeginsWith(aPath, u"../"_ns) || FindInReadable(u"/../"_ns, aPath) ||
+  if (StringBeginsWith(aPath, u"../"_ns) || aPath.Contains(u"/../"_ns) ||
       StringEndsWith(aPath, u"/.."_ns) || aPath.EqualsLiteral("..")) {
     return false;
   }
@@ -96,7 +135,7 @@ bool FileSystemSecurity::ContentProcessHasAccessTo(ContentParentId aId,
 
   MOZ_DIAGNOSTIC_ASSERT(paths);
   for (const auto& authorizedRoot : *paths) {
-    if (FileSystemUtils::IsDescendantPath(authorizedRoot, aPath)) {
+    if (IsDescendantPath(authorizedRoot, aPath)) {
       return true;
     }
   }

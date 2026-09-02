@@ -18,6 +18,8 @@ prefs = [
 
 ["browser_atspi_interfaces.js"]
 
+["browser_forceEnabled.js"]
+
 ["browser_groupPosition.js"]
 
 ["browser_notification.js"]
@@ -25,8 +27,5 @@ prefs = [
 ["browser_prune_children.js"]
 
 ["browser_role.js"]
-skip-if = [
-  "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && display == 'x11' && opt", # Bug 1984205
-]
 
 ["browser_table.js"]

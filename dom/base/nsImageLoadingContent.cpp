@@ -27,8 +27,10 @@
 #include "mozilla/StaticPrefs_image.h"
 #include "mozilla/StaticPrefs_svg.h"
 #include "mozilla/dom/BindContext.h"
+#include "mozilla/dom/ContentList.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/Element.h"
+#include "mozilla/dom/ElementInlines.h"
 #include "mozilla/dom/FetchPriority.h"
 #include "mozilla/dom/HTMLImageElement.h"
 #include "mozilla/dom/ImageTextBinding.h"
@@ -40,9 +42,8 @@
 #include "mozilla/dom/ScriptSettings.h"
 #include "mozilla/intl/Locale.h"
 #include "mozilla/intl/LocaleService.h"
-#include "mozilla/net/UrlClassifierFeatureFactory.h"
+#include "mozilla/net/ChannelClassifierUtils.h"
 #include "mozilla/widget/TextRecognition.h"
-#include "nsContentList.h"
 #include "nsContentPolicyUtils.h"
 #include "nsContentUtils.h"
 #include "nsError.h"
@@ -109,7 +110,7 @@ class ImageLoadTask : public MicroTaskRunnable {
   }
 
   bool Suppressed() override {
-    nsIGlobalObject* global = mElement->AsContent()->GetOwnerGlobal();
+    nsIGlobalObject* global = mElement->AsContent()->GetRelevantGlobal();
     return global && global->IsInSyncOperation();
   }
 
@@ -284,7 +285,7 @@ void nsImageLoadingContent::Notify(imgIRequest* aRequest, int32_t aType,
        * We make a note of this image node by including it in a dedicated
        * array of blocked tracking nodes under its parent document.
        */
-      if (net::UrlClassifierFeatureFactory::IsClassifierBlockingErrorCode(
+      if (net::ChannelClassifierUtils::IsClassifierBlockingErrorCode(
               errorCode)) {
         Document* doc = GetOurOwnerDoc();
         doc->AddBlockedNodeByClassifier(AsContent());
@@ -307,6 +308,10 @@ void nsImageLoadingContent::Notify(imgIRequest* aRequest, int32_t aType,
     }
     UpdateImageState(true);
   }
+}
+
+bool nsImageLoadingContent::HasPendingAlwaysLoadImageTask() const {
+  return mPendingImageLoadTask && mPendingImageLoadTask->AlwaysLoad();
 }
 
 void nsImageLoadingContent::OnLoadComplete(imgIRequest* aRequest,
@@ -423,6 +428,7 @@ nsresult nsImageLoadingContent::GetSyncDecodingHint(bool* aHint) {
 
 already_AddRefed<Promise> nsImageLoadingContent::QueueDecodeAsync(
     ErrorResult& aRv) {
+  // XXX probably should use our global.
   Document* doc = GetOurOwnerDoc();
   RefPtr<Promise> promise = Promise::Create(doc->GetScopeObject(), aRv);
   if (aRv.Failed()) {
@@ -437,11 +443,12 @@ already_AddRefed<Promise> nsImageLoadingContent::QueueDecodeAsync(
           mPromise(aPromise),
           mRequestGeneration(aRequestGeneration) {}
 
-    virtual void Run(AutoSlowOperation& aAso) override {
+    void Run(AutoSlowOperation& aAso) override {
       mOwner->DecodeAsync(std::move(mPromise), mRequestGeneration);
     }
 
-    virtual bool Suppressed() override {
+    bool Suppressed() override {
+      // XXX Probably should use mOwner->GetRelevantGlobal()
       nsIGlobalObject* global = mOwner->GetOurOwnerDoc()->GetScopeObject();
       return global && global->IsInSyncOperation();
     }
@@ -1280,6 +1287,7 @@ already_AddRefed<Promise> nsImageLoadingContent::RecognizeCurrentImageText(
     return nullptr;
   }
 
+  // XXX Probably should use this->GetRelevantGlobal()
   RefPtr<Promise> domPromise =
       Promise::Create(GetOurOwnerDoc()->GetScopeObject(), aRv);
   if (aRv.Failed()) {
@@ -1346,26 +1354,18 @@ already_AddRefed<Promise> nsImageLoadingContent::RecognizeCurrentImageText(
             auto& textRecognitionResult = aValue.ResolveValue();
             Element* el = ilc->AsContent()->AsElement();
 
-            // When enabled, this feature will place the recognized text as
-            // spans inside of the shadow dom of the img element. These are then
-            // positioned so that the user can select the text.
-            if (Preferences::GetBool("dom.text-recognition.shadow-dom-enabled",
-                                     false)) {
-              el->AttachAndSetUAShadowRoot(Element::NotifyUAWidget::Yes);
-              TextRecognition::FillShadow(*el->GetShadowRoot(),
-                                          textRecognitionResult);
-              el->NotifyUAWidgetSetupOrChange();
-            }
-
             nsTArray<ImageText> imageTexts(
                 textRecognitionResult.quads().Length());
-            nsIGlobalObject* global = el->OwnerDoc()->GetOwnerGlobal();
+            // XXX shouldn't this be GetRelevantGlobal? But it's privileged code
+            // so seems probably fine.
+            nsIGlobalObject* global = el->GetDocumentGlobal();
 
             for (const auto& quad : textRecognitionResult.quads()) {
               NotNull<ImageText*> imageText = imageTexts.AppendElement();
 
-              // Note: These points are not actually CSSPixels, but a DOMQuad is
-              // a conveniently similar structure that can store these values.
+              // Note: These points are not actually CSSPixels, but a
+              // DOMQuad is a conveniently similar structure that can store
+              // these values.
               CSSPoint points[4];
               points[0] = CSSPoint(quad.points()[0].x, quad.points()[0].y);
               points[1] = CSSPoint(quad.points()[1].x, quad.points()[1].y);
@@ -1931,7 +1931,7 @@ Element* nsImageLoadingContent::FindImageMap() {
     return nullptr;  // useMap == "#"
   }
 
-  RefPtr<nsContentList> imageMapList;
+  RefPtr<ContentList> imageMapList;
   if (aElement->IsInUncomposedDoc()) {
     // Optimize the common case and use document level image map.
     imageMapList = aElement->OwnerDoc()->ImageMapList();
@@ -1940,9 +1940,9 @@ Element* nsImageLoadingContent::FindImageMap() {
     // so using SubtreeRoot() here.
     // Because this is a temporary list, we don't need to make it live.
     imageMapList =
-        new nsContentList(aElement->SubtreeRoot(), kNameSpaceID_XHTML,
-                          nsGkAtoms::map, nsGkAtoms::map, true, /* deep */
-                          false /* live */);
+        new ContentList(aElement->SubtreeRoot(), kNameSpaceID_XHTML,
+                        nsGkAtoms::map, nsGkAtoms::map, true, /* deep */
+                        false /* live */);
   }
 
   nsAutoString mapName(Substring(start, end));

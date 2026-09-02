@@ -9,7 +9,6 @@
 #include <IOKit/hid/IOHIDBase.h>
 #include <IOKit/hid/IOHIDKeys.h>
 #include <IOKit/hid/IOHIDManager.h>
-#include <stdio.h>
 
 #include <vector>
 
@@ -243,7 +242,7 @@ class DarwinGamepadService {
 
 class DarwinGamepadServiceStartupRunnable final : public Runnable {
  private:
-  ~DarwinGamepadServiceStartupRunnable() {}
+  ~DarwinGamepadServiceStartupRunnable() = default;
   // This Runnable schedules startup of DarwinGamepadService
   // in a new thread, pointer to DarwinGamepadService is only
   // used by this Runnable within its thread.
@@ -261,7 +260,7 @@ class DarwinGamepadServiceStartupRunnable final : public Runnable {
 
 class DarwinGamepadServiceShutdownRunnable final : public Runnable {
  private:
-  ~DarwinGamepadServiceShutdownRunnable() {}
+  ~DarwinGamepadServiceShutdownRunnable() = default;
 
  public:
   // This Runnable schedules shutdown of DarwinGamepadService
@@ -385,7 +384,7 @@ void DarwinGamepadService::DeviceRemoved(IOHIDDeviceRef device) {
   for (Gamepad& gamepad : mGamepads) {
     if (gamepad == device) {
       IOHIDDeviceRegisterInputReportCallback(
-          device, gamepad.mInputReport.Elements(), 0, NULL,
+          device, gamepad.mInputReport.Elements(), 0, nullptr,
           gamepad.mInputReportContext.get());
 
       gamepad.mInputReportContext.reset();

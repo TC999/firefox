@@ -94,7 +94,7 @@ class IOUtils final {
 
   static already_AddRefed<dom::Promise> WriteJSON(
       dom::GlobalObject& aGlobal, const nsAString& aPath,
-      JS::Handle<JS::Value> aValue, const dom::WriteOptions& aOptions,
+      JS::Handle<JS::Value> aValue, const dom::WriteJSONOptions& aOptions,
       ErrorResult& aError);
 
   static already_AddRefed<dom::Promise> Move(dom::GlobalObject& aGlobal,
@@ -247,6 +247,26 @@ class IOUtils final {
     Uint8Array,
   };
 
+  /**
+   * Attempts to remove the file located at |aFile|.
+   *
+   * Must be called off the main thread.
+   *
+   * @param aFile          The location of the file.
+   * @param aIgnoreAbsent  If true, suppress errors due to an absent target
+   * file.
+   * @param aRecursive     If true, attempt to recursively remove descendant
+   *                       files. This option is safe to use even if the target
+   *                       is not a directory.
+   * @param aRetryReadonly Retry a delete that failed with a NotAllowedError by
+   *                       first removing the readonly attribute. Only has an
+   *                       effect on Windows.
+   *
+   * @return Ok if the file was removed successfully, or an error.
+   */
+  static Result<Ok, IOError> RemoveSync(nsIFile* aFile, bool aIgnoreAbsent,
+                                        bool aRecursive, bool aRetryReadonly);
+
  private:
   ~IOUtils() = default;
 
@@ -385,24 +405,6 @@ class IOUtils final {
                                             const char* aMethodName,
                                             nsIFile* aSource, nsIFile* aDest,
                                             bool aNoOverwrite);
-
-  /**
-   * Attempts to remove the file located at |aFile|.
-   *
-   * @param aFile          The location of the file.
-   * @param aIgnoreAbsent  If true, suppress errors due to an absent target
-   * file.
-   * @param aRecursive     If true, attempt to recursively remove descendant
-   *                       files. This option is safe to use even if the target
-   *                       is not a directory.
-   * @param aRetryReadonly Retry a delete that failed with a NotAllowedError by
-   *                       first removing the readonly attribute. Only has an
-   *                       effect on Windows.
-   *
-   * @return Ok if the file was removed successfully, or an error.
-   */
-  static Result<Ok, IOError> RemoveSync(nsIFile* aFile, bool aIgnoreAbsent,
-                                        bool aRecursive, bool aRetryReadonly);
 
   /**
    * Attempts to create a new directory at |aFile|.
@@ -736,9 +738,12 @@ struct IOUtils::InternalWriteOpts {
   dom::WriteMode mMode;
   bool mFlush = false;
   bool mCompress = false;
+  size_t mLengthHint = 0;
 
   static Result<InternalWriteOpts, IOUtils::IOError> FromBinding(
       const dom::WriteOptions& aOptions);
+  static Result<InternalWriteOpts, IOUtils::IOError> FromBinding(
+      const dom::WriteJSONOptions& aOptions);
 };
 
 /**

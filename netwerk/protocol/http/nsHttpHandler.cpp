@@ -3,98 +3,93 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 // HttpLog.h should generally be included first
-#include "HttpLog.h"
-
-#include "prsystem.h"
-
-#include "AltServiceChild.h"
-#include "nsCORSListenerProxy.h"
-#include "nsError.h"
-#include "nsHttp.h"
-#include "nsHttpConnectionMgr.h"
 #include "nsHttpHandler.h"
-#include "nsHttpChannel.h"
-#include "nsHTTPCompressConv.h"
-#include "nsHttpAuthCache.h"
-#include "nsStandardURL.h"
+
+#include <bitset>
+
+#include "ASpdySession.h"
+#include "AltServiceChild.h"
+#include "EventTokenBucket.h"
+#include "HttpLog.h"
 #include "LoadContextInfo.h"
-#include "nsCategoryManagerUtils.h"
-#include "nsDirectoryServiceDefs.h"
-#include "nsSocketProviderService.h"
-#include "nsISocketProvider.h"
-#include "nsPrintfCString.h"
-#include "nsCOMPtr.h"
-#include "nsNetCID.h"
+#include "SerializedLoadContext.h"
+#include "TRRServiceChannel.h"
+#include "Tickler.h"
+#include "mozilla/AntiTrackingRedirectHeuristic.h"
 #include "mozilla/AppShutdown.h"
 #include "mozilla/Base64.h"
+#include "mozilla/BasePrincipal.h"
 #include "mozilla/ClearOnShutdown.h"
 #include "mozilla/Components.h"
+#include "mozilla/DynamicFpiRedirectHeuristic.h"
 #include "mozilla/EndianUtils.h"
+#include "mozilla/LazyIdleThread.h"
+#include "mozilla/OriginAttributesHashKey.h"
 #include "mozilla/Printf.h"
 #include "mozilla/RandomNum.h"
 #include "mozilla/SHA1.h"
 #include "mozilla/ScopeExit.h"
 #include "mozilla/Sprintf.h"
+#include "mozilla/StaticPrefs_image.h"
 #include "mozilla/StaticPrefs_network.h"
 #include "mozilla/StaticPrefs_privacy.h"
 #include "mozilla/StaticPrefs_security.h"
 #include "mozilla/StoragePrincipalHelper.h"
-#include "nsAsyncRedirectVerifyHelper.h"
-#include "nsSocketTransportService2.h"
-#include "ASpdySession.h"
-#include "EventTokenBucket.h"
-#include "Tickler.h"
-#include "nsIXULAppInfo.h"
-#include "nsICookieService.h"
-#include "nsIObserverService.h"
-#include "nsISiteIntegrityService.h"
-#include "nsISiteSecurityService.h"
-#include "nsIStreamConverterService.h"
-#include "nsCRT.h"
-#include "nsIParentalControlsService.h"
-#include "nsPIDOMWindow.h"
-#include "nsIHttpActivityObserver.h"
-#include "nsHttpChannelAuthProvider.h"
-#include "nsINetworkLinkService.h"
-#include "nsNetUtil.h"
-#include "nsServiceManagerUtils.h"
-#include "nsComponentManagerUtils.h"
-#include "nsSocketTransportService2.h"
-#include "nsIOService.h"
-#include "nsISupportsPrimitives.h"
-#include "nsIXULRuntime.h"
-#include "nsCharSeparatedTokenizer.h"
-#include "nsRFPService.h"
-#include "mozilla/net/rust_helper.h"
-#include "SerializedLoadContext.h"
-
-#include "mozilla/net/HttpConnectionMgrParent.h"
-#include "mozilla/net/NeckoChild.h"
-#include "mozilla/net/NeckoParent.h"
-#include "mozilla/net/RequestContextService.h"
-#include "mozilla/net/SocketProcessParent.h"
-#include "mozilla/net/SocketProcessChild.h"
-#include "mozilla/intl/LocaleService.h"
-#include "mozilla/ipc/URIUtils.h"
-#include "mozilla/glean/GleanPings.h"
-#include "mozilla/glean/NetwerkProtocolHttpMetrics.h"
-#include "mozilla/AntiTrackingRedirectHeuristic.h"
-#include "mozilla/DynamicFpiRedirectHeuristic.h"
-#include "mozilla/BasePrincipal.h"
-#include "mozilla/LazyIdleThread.h"
-#include "mozilla/OriginAttributesHashKey.h"
-#include "mozilla/StaticPrefs_image.h"
 #include "mozilla/SyncRunnable.h"
-
 #include "mozilla/dom/ContentParent.h"
 #include "mozilla/dom/Navigator.h"
 #include "mozilla/dom/Promise.h"
 #include "mozilla/dom/network/Connection.h"
-
+#include "mozilla/glean/GleanPings.h"
+#include "mozilla/glean/NetwerkProtocolHttpMetrics.h"
+#include "mozilla/intl/LocaleService.h"
+#include "mozilla/ipc/URIUtils.h"
+#include "mozilla/net/HttpConnectionMgrParent.h"
+#include "mozilla/net/NeckoChild.h"
+#include "mozilla/net/NeckoParent.h"
+#include "mozilla/net/RequestContextService.h"
+#include "mozilla/net/SocketProcessChild.h"
+#include "mozilla/net/SocketProcessParent.h"
+#include "mozilla/net/rust_helper.h"
+#include "nsAsyncRedirectVerifyHelper.h"
+#include "nsCOMPtr.h"
+#include "nsCORSListenerProxy.h"
+#include "nsCRT.h"
+#include "nsCategoryManagerUtils.h"
+#include "nsCharSeparatedTokenizer.h"
+#include "nsComponentManagerUtils.h"
+#include "nsDirectoryServiceDefs.h"
+#include "nsError.h"
+#include "nsHTTPCompressConv.h"
+#include "nsHttp.h"
+#include "nsHttpAuthCache.h"
+#include "nsHttpChannel.h"
+#include "nsHttpChannelAuthProvider.h"
+#include "nsHttpConnectionMgr.h"
+#include "nsICookieService.h"
+#include "nsIHttpActivityObserver.h"
+#include "nsINetworkLinkService.h"
+#include "nsIOService.h"
+#include "nsIObserverService.h"
+#include "nsIParentalControlsService.h"
+#include "nsISiteIntegrityService.h"
+#include "nsISiteSecurityService.h"
+#include "nsISocketProvider.h"
+#include "nsIStreamConverterService.h"
+#include "nsISupportsPrimitives.h"
+#include "nsIXULAppInfo.h"
+#include "nsIXULRuntime.h"
 #include "nsNSSComponent.h"
-#include "TRRServiceChannel.h"
-
-#include <bitset>
+#include "nsNetCID.h"
+#include "nsNetUtil.h"
+#include "nsPIDOMWindow.h"
+#include "nsPrintfCString.h"
+#include "nsRFPService.h"
+#include "nsServiceManagerUtils.h"
+#include "nsSocketProviderService.h"
+#include "nsSocketTransportService2.h"
+#include "nsStandardURL.h"
+#include "prsystem.h"
 
 #if defined(XP_UNIX)
 #  include <sys/utsname.h>
@@ -106,6 +101,7 @@
 
 #if defined(XP_WIN)
 #  include <windows.h>
+
 #  include "mozilla/WindowsVersion.h"
 #endif
 
@@ -131,6 +127,7 @@
 
 #define ACCEPT_HEADER_STYLE "text/css,*/*;q=0.1"
 #define ACCEPT_HEADER_JSON "application/json,*/*;q=0.5"
+#define ACCEPT_HEADER_TEXT "text/plain,*/*;q=0.5"
 #define ACCEPT_HEADER_ALL "*/*"
 
 #define UA_PREF(_pref) UA_PREF_PREFIX _pref
@@ -205,8 +202,14 @@ already_AddRefed<nsHttpHandler> nsHttpHandler::GetInstance() {
     DebugOnly<nsresult> rv = gHttpHandler->Init();
     MOZ_ASSERT(NS_SUCCEEDED(rv));
     // There is code that may be executed during the final cycle collection
-    // shutdown and still referencing gHttpHandler.
-    ClearOnShutdown(&gHttpHandler, ShutdownPhase::CCPostLastCycleCollection);
+    // shutdown and still referencing gHttpHandler. Not earlier than that:
+    // resolving an atom once the table is gone asserts.
+    RunOnShutdown(
+        [] {
+          gHttpHandler->Shutdown();
+          gHttpHandler = nullptr;
+        },
+        ShutdownPhase::CCPostLastCycleCollection);
   }
   RefPtr<nsHttpHandler> httpHandler = gHttpHandler;
   return httpHandler.forget();
@@ -275,12 +278,14 @@ nsHttpHandler::nsHttpHandler()
       mPrivateBrowsingIdempotencyKeySeed(mozilla::RandomUint64OrDie()),
       mDebugObservations(false),
       mEnableAltSvc(false),
-      mEnableAltSvcOE(false),
       mSpdyPingThreshold(PR_SecondsToInterval(
           StaticPrefs::network_http_http2_ping_threshold())),
       mSpdyPingTimeout(PR_SecondsToInterval(
           StaticPrefs::network_http_http2_ping_timeout())) {
   LOG(("Creating nsHttpHandler [this=%p].\n", this));
+
+  mAuthCache->Init();
+  mPrivateAuthCache->Init();
 
   mUserAgentOverride.SetIsVoid(true);
 
@@ -297,20 +302,22 @@ nsHttpHandler::nsHttpHandler()
 nsHttpHandler::~nsHttpHandler() {
   LOG(("Deleting nsHttpHandler [this=%p]\n", this));
 
-  // make sure the connection manager is shutdown
-  if (mConnMgr) {
-    nsresult rv = mConnMgr->Shutdown();
-    if (NS_FAILED(rv)) {
-      LOG(
-          ("nsHttpHandler [this=%p] "
-           "failed to shutdown connection manager (%08x)\n",
-           this, static_cast<uint32_t>(rv)));
-    }
-    mConnMgr = nullptr;
-  }
-
   // Note: don't call NeckoChild::DestroyNeckoChild() here, as it's too late
   // and it'll segfault.  NeckoChild will get cleaned up by process exit.
+
+  Shutdown();
+
+  mConnMgr = nullptr;
+}
+
+void nsHttpHandler::Shutdown() {
+  if (mShutdownCalled.exchange(true)) {
+    return;
+  }
+
+  LOG(("nsHttpHandler::Shutdown [this=%p]\n", this));
+
+  ShutdownConnectionManager();
 
   nsHttp::DestroyAtomTable();
 }
@@ -691,14 +698,6 @@ nsresult nsHttpHandler::AddAcceptAndDictionaryHeaders(
 
             nsAutoCStringN<64> encodedHash = ":"_ns + aDict->GetHash() + ":"_ns;
 
-            // Need to retain access to the dictionary until the request
-            // completes. Note that this includes if the dictionary we offered
-            // gets replaced by another request while we're waiting for a
-            // response; in that case we need to read in a copy of the
-            // dictionary into memory before overwriting it and store in dict
-            // temporarily.
-            aRequest->SetDictionary(aDict);
-
             // We want to make sure that the cache entry doesn't disappear out
             // from under us if we set the header, so do the callback to
             // Prefetch() the entry before adding the headers (so we don't
@@ -710,6 +709,14 @@ nsresult nsHttpHandler::AddAcceptAndDictionaryHeaders(
             if ((aCallback)(aNeedsResume, aDict)) {
               LOG_DICTIONARIES(
                   ("Setting Available-Dictionary: %s", encodedHash.get()));
+              // Need to retain access to the dictionary until the request
+              // completes. Note that this includes if the dictionary we offered
+              // gets replaced by another request while we're waiting for a
+              // response; in that case we need to read in a copy of the
+              // dictionary into memory before overwriting it and store in dict
+              // temporarily.
+              aRequest->SetDictionary(aDict);
+
               nsresult rv = aRequest->SetHeader(
                   nsHttp::Available_Dictionary, encodedHash, false,
                   nsHttpHeaderArray::eVarietyRequestOverride);
@@ -729,7 +736,7 @@ nsresult nsHttpHandler::AddAcceptAndDictionaryHeaders(
               return aRequest->SetHeader(
                   nsHttp::Accept_Encoding, self->mDictionaryAcceptEncodings,
                   false, nsHttpHeaderArray::eVarietyRequestOverride);
-            }
+            }  // else probably Prefetch failed
             return NS_OK;
           });
     }
@@ -765,6 +772,8 @@ nsresult nsHttpHandler::AddStandardRequestHeaders(
     accept.Assign(ACCEPT_HEADER_STYLE);
   } else if (aContentPolicyType == ExtContentPolicy::TYPE_JSON) {
     accept.Assign(ACCEPT_HEADER_JSON);
+  } else if (aContentPolicyType == ExtContentPolicy::TYPE_TEXT) {
+    accept.Assign(ACCEPT_HEADER_TEXT);
   } else {
     accept.Assign(ACCEPT_HEADER_ALL);
   }
@@ -1137,11 +1146,22 @@ void nsHttpHandler::InitUserAgentComponents() {
           (androidVersion.Length() >= 2 && std::isdigit(androidVersion[0]) &&
            (androidVersion[1] == u'.' || std::isdigit(androidVersion[1]))));
 
+  // Normalize: strip any minor-version suffix (everything from the first '.'
+  // onward, including the '.'). Some OEM firmwares report Build.VERSION.RELEASE
+  // as e.g. "14.0" while stock AOSP reports "14"; that variance splits the
+  // population into fingerprintable subsets without conveying any useful
+  // information about the OS. Bug 2043395.
+  int32_t dotIdx = androidVersion.FindChar(u'.');
+  if (dotIdx >= 0) {
+    androidVersion.Truncate(dotIdx);
+  }
+
   // Spoof version "Android 10" for Android OS versions < 10 to reduce their
   // fingerprintable user information. For Android OS versions >= 10, report
   // the real OS version because some enterprise websites only want to permit
-  // clients with recent OS version (like bug 1876742). Two leading digits
-  // in the version string means the version number is >= 10.
+  // clients with recent OS version (like bug 1876742). After the truncation
+  // above, all versions are bare integers; two digits means the version is
+  // >= 10.
   mPlatform += " ";
   if (NS_SUCCEEDED(rv) && androidVersion.Length() >= 2 &&
       std::isdigit(androidVersion[0]) && std::isdigit(androidVersion[1])) {
@@ -1622,11 +1642,6 @@ void nsHttpHandler::PrefsChanged(const char* pref) {
   if (PREF_CHANGED(HTTP_PREF("altsvc.enabled"))) {
     rv = Preferences::GetBool(HTTP_PREF("altsvc.enabled"), &cVar);
     if (NS_SUCCEEDED(rv)) mEnableAltSvc = cVar;
-  }
-
-  if (PREF_CHANGED(HTTP_PREF("altsvc.oe"))) {
-    rv = Preferences::GetBool(HTTP_PREF("altsvc.oe"), &cVar);
-    if (NS_SUCCEEDED(rv)) mEnableAltSvcOE = cVar;
   }
 
   if (PREF_CHANGED(HTTP_PREF("http2.push-allowance"))) {
@@ -2249,6 +2264,12 @@ nsHttpHandler::GetRfpUserAgent(nsACString& value) {
 }
 
 NS_IMETHODIMP
+nsHttpHandler::GetDocumentAcceptHeader(nsACString& value) {
+  value = mDocumentAcceptHeader;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
 nsHttpHandler::GetAppName(nsACString& value) {
   value = mLegacyAppName;
   return NS_OK;
@@ -2815,6 +2836,9 @@ bool nsHttpHandler::IsBeforeLastActiveTabLoadOptimization(
 
 void nsHttpHandler::ExcludeHttp2OrHttp3Internal(
     const nsHttpConnectionInfo* ci) {
+  if (ci->GetHappyEyeballsEnabled()) {
+    return;
+  }
   LOG(("nsHttpHandler::ExcludeHttp2OrHttp3Internal ci=%s",
        ci->HashKey().get()));
   // The excluded list needs to be stayed synced between parent process and

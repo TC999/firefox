@@ -2,18 +2,20 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include <string.h>
-#include "prprf.h"
-#include "prmem.h"
-#include "plbase64.h"
-#include "nsCRT.h"
-#include "nsTArray.h"
-#include "nsEscape.h"
 #include "nsMIMEHeaderParamImpl.h"
-#include "nsNativeCharsetUtils.h"
+
+#include <string.h>
+
 #include "mozilla/Encoding.h"
 #include "mozilla/TextUtils.h"
 #include "mozilla/Utf8.h"
+#include "nsCRT.h"
+#include "nsEscape.h"
+#include "nsNativeCharsetUtils.h"
+#include "nsTArray.h"
+#include "plbase64.h"
+#include "prmem.h"
+#include "prprf.h"
 
 using mozilla::Encoding;
 using mozilla::IsAscii;
@@ -795,7 +797,7 @@ nsresult internalDecodeRFC2047Header(const char* aHeaderVal,
     temp.ReplaceSubstring("\n\t", " ");
     temp.ReplaceSubstring("\r\t", " ");
     temp.StripCRLF();
-    aResult = temp;
+    aResult = std::move(temp);
   }
 
   return NS_OK;
@@ -961,7 +963,7 @@ nsresult internalDecodeParameter(const nsACString& aParamValue,
     rv = internalDecodeRFC2047Header(unQuoted.get(), aDefaultCharset,
                                      aOverrideCharset, true, decoded);
 
-    if (NS_SUCCEEDED(rv) && !decoded.IsEmpty()) aResult = decoded;
+    if (NS_SUCCEEDED(rv) && !decoded.IsEmpty()) aResult = std::move(decoded);
   }
 
   return rv;

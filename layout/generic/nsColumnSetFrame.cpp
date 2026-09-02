@@ -9,6 +9,7 @@
 #include "mozilla/ColumnUtils.h"
 #include "mozilla/Logging.h"
 #include "mozilla/PresShell.h"
+#include "mozilla/ReflowInput.h"
 #include "mozilla/StaticPrefs_layout.h"
 #include "mozilla/ToString.h"
 #include "nsCSSRendering.h"
@@ -42,7 +43,7 @@ class nsDisplayColumnRule final : public nsPaintedDisplayItem {
     return mFrame->InkOverflowRect() + ToReferenceFrame();
   }
 
-  bool CreateWebRenderCommands(
+  WebRenderCommandsResult CreateWebRenderCommands(
       mozilla::wr::DisplayListBuilder& aBuilder,
       mozilla::wr::IpcResourceUpdateQueue& aResources,
       const StackingContextHelper& aSc,
@@ -67,7 +68,7 @@ void nsDisplayColumnRule::Paint(nsDisplayListBuilder* aBuilder,
   }
 }
 
-bool nsDisplayColumnRule::CreateWebRenderCommands(
+WebRenderCommandsResult nsDisplayColumnRule::CreateWebRenderCommands(
     mozilla::wr::DisplayListBuilder& aBuilder,
     mozilla::wr::IpcResourceUpdateQueue& aResources,
     const StackingContextHelper& aSc,
@@ -75,7 +76,7 @@ bool nsDisplayColumnRule::CreateWebRenderCommands(
     nsDisplayListBuilder* aDisplayListBuilder) {
   RefPtr dt = gfxPlatform::GetPlatform()->ScreenReferenceDrawTarget();
   if (!dt || !dt->IsValid()) {
-    return false;
+    return Err("no valid screen reference draw target");
   }
   gfxContext screenRefCtx(dt);
 
@@ -85,14 +86,14 @@ bool nsDisplayColumnRule::CreateWebRenderCommands(
       ToReferenceFrame());
 
   if (mBorderRenderers.IsEmpty()) {
-    return true;
+    return Ok();
   }
 
   for (auto& renderer : mBorderRenderers) {
     renderer.CreateWebRenderCommands(this, aBuilder, aResources, aSc);
   }
 
-  return true;
+  return Ok();
 }
 
 // The maximum number of columns we support.
@@ -396,12 +397,6 @@ nsColumnSetFrame::ReflowConfig nsColumnSetFrame::ChooseColumnStrategy(
   return config;
 }
 
-static void MarkPrincipalChildrenDirty(nsIFrame* aFrame) {
-  for (nsIFrame* childFrame : aFrame->PrincipalChildList()) {
-    childFrame->MarkSubtreeDirty();
-  }
-}
-
 static void MoveChildTo(nsIFrame* aChild, LogicalPoint aOrigin, WritingMode aWM,
                         const nsSize& aContainerSize) {
   if (aChild->GetLogicalPosition(aWM, aContainerSize) == aOrigin) {
@@ -667,11 +662,14 @@ nsColumnSetFrame::ColumnBalanceData nsColumnSetFrame::ReflowColumns(
           aConfig.mIsLastBalancingReflow;
       kidReflowInput.mFlags.mIsInFragmentainerMeasuringReflow =
           aConfig.mIsInMeasuringReflow;
-      kidReflowInput.mBreakType = ReflowInput::BreakType::Column;
+      kidReflowInput.mBreakType = BreakType::Column;
 
-      // We need to reflow any float placeholders, even if our column block-size
-      // hasn't changed.
-      kidReflowInput.mFlags.mMustReflowPlaceholders = !changingBSize;
+      // We need to reflow any float placeholders even if our column block-size
+      // hasn't changed, or when reflowing the last column with an unconstrained
+      // available block-size, so floats pushed during an earlier reflow get
+      // reflowed again.
+      kidReflowInput.mFlags.mMustReflowPlaceholders =
+          !changingBSize || reflowLastColumnWithUnconstrainedAvailBSize;
 
       COLUMN_SET_LOG(
           "%s: Reflowing child #%d %p: availSize=(%d,%d), kidCBSize=(%d,%d), "
@@ -1130,7 +1128,7 @@ void nsColumnSetFrame::FindBestBalanceBSize(const ReflowInput& aReflowInput,
     aConfig.mColBSize = nextGuess;
 
     aUnboundedLastColumn = false;
-    MarkPrincipalChildrenDirty(this);
+    MarkPrincipalChildrenDirty();
     aColData =
         ReflowColumns(aDesiredSize, aReflowInput, aStatus, aConfig, false);
 
@@ -1188,7 +1186,7 @@ void nsColumnSetFrame::FindBestBalanceBSize(const ReflowInput& aReflowInput,
     const bool forceUnboundedLastColumn =
         aReflowInput.mParentReflowInput->AvailableBSize() ==
         NS_UNCONSTRAINEDSIZE;
-    MarkPrincipalChildrenDirty(this);
+    MarkPrincipalChildrenDirty();
     ReflowColumns(aDesiredSize, aReflowInput, aStatus, aConfig,
                   forceUnboundedLastColumn);
   }
@@ -1236,9 +1234,6 @@ void nsColumnSetFrame::Reflow(nsPresContext* aPresContext,
       aReflowInput, aReflowInput.ComputedISize() == NS_UNCONSTRAINEDSIZE);
 
   const bool shouldDoMeasuringReflow = [&]() {
-    if (!aPresContext->FragmentainerAwarePositioningEnabled()) {
-      return false;
-    }
     if (isNestedMulticol) {
       // Only the top-level multicol can initiate a measuring reflow. If we are
       // a nested multicol, perform a measuring reflow only when the top-level
@@ -1261,7 +1256,7 @@ void nsColumnSetFrame::Reflow(nsPresContext* aPresContext,
     if (!HasAnyStateBits(NS_FRAME_FIRST_REFLOW)) {
       // We need to reflow everything when we are in an incremental measuring
       // reflow.
-      MarkPrincipalChildrenDirty(this);
+      MarkPrincipalChildrenDirty();
     }
 
     ReflowConfig measuringConfig = config;
@@ -1287,7 +1282,7 @@ void nsColumnSetFrame::Reflow(nsPresContext* aPresContext,
     }
 
     // Mark columns dirty for normal reflow below.
-    MarkPrincipalChildrenDirty(this);
+    MarkPrincipalChildrenDirty();
   }
 
   // If balancing, then we allow the last column to grow to unbounded
@@ -1391,6 +1386,15 @@ Maybe<nscoord> nsColumnSetFrame::GetNaturalBaselineBOffset(
     }
   }
   return result;
+}
+
+bool nsColumnSetFrame::IsEmpty() {
+  for (nsIFrame* child : mFrames) {
+    if (!child->PrincipalChildList().IsEmpty()) {
+      return false;
+    }
+  }
+  return true;
 }
 
 #ifdef DEBUG

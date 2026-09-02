@@ -3,20 +3,15 @@
 
 "use strict";
 
+// Each task reopens about:preferences, whose Lit-based controls render very
+// slowly under the ChaosMode passes of test-verify on macOS. This file has the
+// most page reopens of the customize suite (the legacy-mode tests each reload
+// to re-render the load-time cookie-option visibility), so it needs the largest
+// headroom for those passes; normal runs finish in a couple of seconds.
+requestLongerTimeout(5);
+
 const CAT_PREF = "browser.contentblocking.category";
 const COOKIE_BEHAVIOR_PREF = "network.cookie.cookieBehavior";
-const TP_PREF = "privacy.trackingprotection.enabled";
-const TP_PBM_PREF = "privacy.trackingprotection.pbmode.enabled";
-const CRYPTOMINING_PREF = "privacy.trackingprotection.cryptomining.enabled";
-const FINGERPRINTING_PREF = "privacy.trackingprotection.fingerprinting.enabled";
-const SUSPECT_FP_PREF = "privacy.fingerprintingProtection";
-const SUSPECT_FP_PBM_PREF = "privacy.fingerprintingProtection.pbmode";
-
-add_setup(async function () {
-  await SpecialPowers.pushPrefEnv({
-    set: [["browser.settings-redesign.enabled", true]],
-  });
-});
 
 // Checks tracking protection toggle and scope dropdown interactions.
 add_task(async function test_custom_cookie_controls() {
@@ -49,6 +44,20 @@ add_task(async function test_custom_cookie_controls() {
 
   ok(cookieToggle.pressed, "Cookie toggle is pressed when enabled");
 
+  let getOption = value =>
+    [...cookieSelect.querySelectorAll("moz-option")].find(
+      o => o.value == value
+    );
+
+  ok(
+    getOption(Ci.nsICookieService.BEHAVIOR_LIMIT_FOREIGN.toString()).hidden,
+    "Legacy mode 3 option is hidden when not on a legacy mode"
+  );
+  ok(
+    getOption(Ci.nsICookieService.BEHAVIOR_REJECT_TRACKER.toString()).hidden,
+    "Legacy mode 4 option is hidden when not on a legacy mode"
+  );
+
   info("Select a stricter cookie behavior through the dropdown");
   let newBehavior = Ci.nsICookieService.BEHAVIOR_REJECT_FOREIGN.toString();
   await changeMozSelectValue(cookieSelect, newBehavior);
@@ -71,149 +80,103 @@ add_task(async function test_custom_cookie_controls() {
   gBrowser.removeCurrentTab();
 });
 
-add_task(async function test_custom_tracking_protection_controls() {
+add_task(async function test_legacy_cookie_mode_options() {
+  for (let legacyMode of [
+    Ci.nsICookieService.BEHAVIOR_LIMIT_FOREIGN,
+    Ci.nsICookieService.BEHAVIOR_REJECT_TRACKER,
+  ]) {
+    await SpecialPowers.pushPrefEnv({
+      set: [
+        [CAT_PREF, "custom"],
+        [COOKIE_BEHAVIOR_PREF, legacyMode],
+      ],
+    });
+
+    let { doc } = await openEtpCustomizePage();
+    let cookieSelect = getControl(doc, "cookieBehavior");
+    let getOption = value =>
+      [...cookieSelect.querySelectorAll("moz-option")].find(
+        o => o.value == value
+      );
+
+    ok(
+      !getOption(legacyMode.toString()).hidden,
+      `Current legacy mode ${legacyMode} option is visible`
+    );
+
+    let otherLegacyMode =
+      legacyMode === Ci.nsICookieService.BEHAVIOR_LIMIT_FOREIGN
+        ? Ci.nsICookieService.BEHAVIOR_REJECT_TRACKER
+        : Ci.nsICookieService.BEHAVIOR_LIMIT_FOREIGN;
+    ok(
+      getOption(otherLegacyMode.toString()).hidden,
+      `Other legacy mode ${otherLegacyMode} option is hidden`
+    );
+
+    gBrowser.removeCurrentTab();
+  }
+});
+
+add_task(async function test_legacy_cookie_mode_persists_within_session() {
   await SpecialPowers.pushPrefEnv({
     set: [
       [CAT_PREF, "custom"],
-      [TP_PREF, false],
-      [TP_PBM_PREF, true],
+      [COOKIE_BEHAVIOR_PREF, Ci.nsICookieService.BEHAVIOR_REJECT_TRACKER],
     ],
   });
 
   let { doc } = await openEtpCustomizePage();
-  let tpToggle = getControl(doc, "etpCustomTrackingProtectionEnabled");
-  let tpContext = getControl(doc, "etpCustomTrackingProtectionEnabledContext");
+  let cookieSelect = getControl(doc, "cookieBehavior");
+  let getOption = value =>
+    [...cookieSelect.querySelectorAll("moz-option")].find(
+      o => o.value == value
+    );
 
-  ok(tpToggle.pressed, "Tracking protection toggle starts enabled");
-
-  let prefChange = TestUtils.waitForPrefChange(
-    TP_PBM_PREF,
-    value => value === false
-  );
-  synthesizeClick(tpToggle.buttonEl);
-  await prefChange;
-
-  ok(!tpToggle.pressed, "Tracking protection toggle reflects disabled state");
   ok(
-    !Services.prefs.getBoolPref(TP_PREF),
-    "All-windows tracking protection pref remains false"
+    !getOption(Ci.nsICookieService.BEHAVIOR_REJECT_TRACKER.toString()).hidden,
+    "Mode 4 option is visible when it is the current value"
   );
 
-  prefChange = TestUtils.waitForPrefChange(
-    TP_PBM_PREF,
-    value => value === true
-  );
-  synthesizeClick(tpToggle.buttonEl);
-  await prefChange;
-  ok(tpToggle.pressed, "Tracking protection toggle enabled again");
-  ok(
-    !Services.prefs.getBoolPref(TP_PREF),
-    "All-windows tracking protection pref still false after re-enabling toggle"
+  info("Switch to behavior 5 (Total Cookie Protection)");
+  await changeMozSelectValue(
+    cookieSelect,
+    Ci.nsICookieService.BEHAVIOR_PARTITION_FOREIGN.toString()
   );
 
-  info("Switch context to protect all windows");
-  await changeMozSelectValue(tpContext, "all");
   ok(
-    Services.prefs.getBoolPref(TP_PREF),
-    "Tracking protection pref enabled for all windows"
-  );
-  ok(
-    Services.prefs.getBoolPref(TP_PBM_PREF),
-    "Tracking protection PBM pref stays enabled"
-  );
-
-  info("Switch back to private windows only");
-  await changeMozSelectValue(tpContext, "pbmOnly");
-  ok(
-    !Services.prefs.getBoolPref(TP_PREF),
-    "All windows pref disabled when choosing private only"
-  );
-  ok(
-    Services.prefs.getBoolPref(TP_PBM_PREF),
-    "Private windows pref stays enabled"
+    !getOption(Ci.nsICookieService.BEHAVIOR_REJECT_TRACKER.toString()).hidden,
+    "Mode 4 option remains visible within the same session after switching away"
   );
 
   gBrowser.removeCurrentTab();
-});
 
-// Covers cryptomining/fingerprinting toggles and suspect protection context behavior.
-add_task(async function test_custom_fingerprinting_controls() {
-  await SpecialPowers.pushPrefEnv({
-    set: [
-      [CAT_PREF, "custom"],
-      [CRYPTOMINING_PREF, false],
-      [FINGERPRINTING_PREF, false],
-      [SUSPECT_FP_PREF, false],
-      [SUSPECT_FP_PBM_PREF, false],
-    ],
-  });
+  info("Reload the preferences page");
+  ({ doc } = await openEtpCustomizePage());
+  cookieSelect = getControl(doc, "cookieBehavior");
+  getOption = value =>
+    [...cookieSelect.querySelectorAll("moz-option")].find(
+      o => o.value == value
+    );
 
-  let { doc } = await openEtpCustomizePage();
-  let cryptoToggle = getControl(doc, "etpCustomCryptominingProtectionEnabled");
-  let knownFpToggle = getControl(
-    doc,
-    "etpCustomKnownFingerprintingProtectionEnabled"
-  );
-  let suspectFpToggle = getControl(
-    doc,
-    "etpCustomSuspectFingerprintingProtectionEnabled"
-  );
-  let suspectContext = getControl(
-    doc,
-    "etpCustomSuspectFingerprintingProtectionEnabledContext"
-  );
+  for (let value of [
+    Ci.nsICookieService.BEHAVIOR_ACCEPT,
+    Ci.nsICookieService.BEHAVIOR_REJECT_FOREIGN,
+    Ci.nsICookieService.BEHAVIOR_REJECT,
+    Ci.nsICookieService.BEHAVIOR_PARTITION_FOREIGN,
+  ]) {
+    ok(
+      !getOption(value.toString()).hidden,
+      `mode ${value} is visible after reload`
+    );
+  }
 
-  info("Enable cryptomining protection");
-  let prefChange = waitForAndAssertPrefState(
-    CRYPTOMINING_PREF,
-    true,
-    "Cryptomining pref enabled"
-  );
-  synthesizeClick(cryptoToggle.buttonEl);
-  await prefChange;
-
-  info("Enable known fingerprinting protection");
-  prefChange = waitForAndAssertPrefState(
-    FINGERPRINTING_PREF,
-    true,
-    "Fingerprinting pref enabled"
-  );
-  synthesizeClick(knownFpToggle.buttonEl);
-  await prefChange;
-
-  info("Enable suspect fingerprinting protection");
-  prefChange = TestUtils.waitForPrefChange(
-    SUSPECT_FP_PBM_PREF,
-    value => value === true
-  );
-  synthesizeClick(suspectFpToggle.buttonEl);
-  await prefChange;
   ok(
-    !Services.prefs.getBoolPref(SUSPECT_FP_PREF),
-    "All-windows suspect fingerprinting pref remains false after toggle"
-  );
-
-  info("Switch suspect protection context to all windows");
-  await changeMozSelectValue(suspectContext, "all");
-  ok(
-    Services.prefs.getBoolPref(SUSPECT_FP_PREF),
-    "All-windows suspect fingerprinting pref enabled"
+    getOption(Ci.nsICookieService.BEHAVIOR_LIMIT_FOREIGN.toString()).hidden,
+    "Mode 3 is hidden after reload"
   );
   ok(
-    Services.prefs.getBoolPref(SUSPECT_FP_PBM_PREF),
-    "PBM suspect fingerprinting pref remains enabled"
-  );
-
-  info("Disable suspect protection through the toggle");
-  prefChange = TestUtils.waitForPrefChange(
-    SUSPECT_FP_PBM_PREF,
-    value => value === false
-  );
-  synthesizeClick(suspectFpToggle.buttonEl);
-  await prefChange;
-  ok(
-    !Services.prefs.getBoolPref(SUSPECT_FP_PREF),
-    "All-window suspect pref disabled after toggle off"
+    getOption(Ci.nsICookieService.BEHAVIOR_REJECT_TRACKER.toString()).hidden,
+    "Mode 4 is hidden after reload"
   );
 
   gBrowser.removeCurrentTab();

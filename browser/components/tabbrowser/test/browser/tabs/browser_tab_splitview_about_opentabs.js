@@ -100,7 +100,7 @@ add_task(async function test_contextMenuMoveTabsToNewSplitView() {
       () =>
         !moveTabToNewSplitViewItem.hidden &&
         !moveTabToNewSplitViewItem.disabled,
-      "moveTabToNewSplitViewItem is visible and not disabled"
+      { msg: "moveTabToNewSplitViewItem is visible and not disabled" }
     );
     Assert.ok(
       !moveTabToNewSplitViewItem.hidden && !moveTabToNewSplitViewItem.disabled,
@@ -148,13 +148,13 @@ add_task(async function test_contextMenuMoveTabsToNewSplitView() {
     openTabsComponent.sidebarTabList.shadowRoot,
     { childList: true, subtree: true },
     () => openTabsComponent.sidebarTabList.rowEls.length === 3,
-    "Tabs are shown in the open tabs list"
+    { msg: "Tabs are shown in the open tabs list" }
   );
 
   Assert.ok(
-    openTabsComponent.sidebarTabList.rowEls[1].__url ===
+    openTabsComponent.sidebarTabList.rowEls[1].url ===
       tab2.linkedBrowser.currentURI.spec &&
-      openTabsComponent.sidebarTabList.rowEls[2].__url ===
+      openTabsComponent.sidebarTabList.rowEls[2].url ===
         tab3.linkedBrowser.currentURI.spec,
     "tab2 and tab3 are listed on the about:opentabs page"
   );
@@ -225,7 +225,7 @@ add_task(async function test_contextMenuMoveTabsToNewSplitView() {
       () =>
         !moveTabToNewSplitViewItem.hidden &&
         !moveTabToNewSplitViewItem.disabled,
-      "moveTabToNewSplitViewItem is visible and not disabled"
+      { msg: "moveTabToNewSplitViewItem is visible and not disabled" }
     );
     Assert.ok(
       !moveTabToNewSplitViewItem.hidden && !moveTabToNewSplitViewItem.disabled,
@@ -251,7 +251,7 @@ add_task(async function test_contextMenuMoveTabsToNewSplitView() {
         unsplitTabItem,
         { attributes: true },
         () => !unsplitTabItem.hidden,
-        "unsplitTabItem is visible"
+        { msg: "unsplitTabItem is visible" }
       );
       Assert.ok(!unsplitTabItem.hidden, "unsplitTabItem is visible");
 
@@ -316,7 +316,7 @@ add_task(async function test_containerIndicators() {
       () =>
         !moveTabToNewSplitViewItem.hidden &&
         !moveTabToNewSplitViewItem.disabled,
-      "moveTabToNewSplitViewItem is visible and not disabled"
+      { msg: "moveTabToNewSplitViewItem is visible and not disabled" }
     );
     Assert.ok(
       !moveTabToNewSplitViewItem.hidden && !moveTabToNewSplitViewItem.disabled,
@@ -364,13 +364,13 @@ add_task(async function test_containerIndicators() {
     openTabsComponent.sidebarTabList.shadowRoot,
     { childList: true, subtree: true },
     () => openTabsComponent.sidebarTabList.rowEls.length === 3,
-    "Tabs are shown in the open tabs list"
+    { msg: "Tabs are shown in the open tabs list" }
   );
 
   Assert.ok(
-    openTabsComponent.sidebarTabList.rowEls[1].__url ===
+    openTabsComponent.sidebarTabList.rowEls[1].url ===
       tab2.linkedBrowser.currentURI.spec &&
-      openTabsComponent.sidebarTabList.rowEls[2].__url ===
+      openTabsComponent.sidebarTabList.rowEls[2].url ===
         containerTab.linkedBrowser.currentURI.spec,
     "tab2 and tab3 are listed on the about:opentabs page"
   );
@@ -435,7 +435,7 @@ add_task(async function test_aboutOpenTabsReplacedWhenLeftViewActive() {
       () =>
         !moveTabToNewSplitViewItem.hidden &&
         !moveTabToNewSplitViewItem.disabled,
-      "moveTabToNewSplitViewItem is visible and not disabled"
+      { msg: "moveTabToNewSplitViewItem is visible and not disabled" }
     );
 
     info("Click menu option to add new split view");
@@ -481,11 +481,11 @@ add_task(async function test_aboutOpenTabsReplacedWhenLeftViewActive() {
     openTabsComponent.sidebarTabList.shadowRoot,
     { childList: true, subtree: true },
     () => openTabsComponent.sidebarTabList.rowEls.length,
-    "Tabs are shown in the open tabs list"
+    { msg: "Tabs are shown in the open tabs list" }
   );
 
   let tabRowForTab2 = Array.from(openTabsComponent.sidebarTabList.rowEls).find(
-    rowEl => rowEl.__url === tab2.linkedBrowser.currentURI.spec
+    rowEl => rowEl.url === tab2.linkedBrowser.currentURI.spec
   );
   Assert.ok(tabRowForTab2, "Found the row element for tab2");
 
@@ -495,7 +495,7 @@ add_task(async function test_aboutOpenTabsReplacedWhenLeftViewActive() {
   EventUtils.synthesizeMouseAtCenter(
     tabRowForTab2,
     {},
-    tabRowForTab2.ownerGlobal
+    tabRowForTab2.documentGlobal
   );
 
   await TestUtils.waitForCondition(
@@ -552,7 +552,7 @@ add_task(async function test_splitview_with_unloaded_tab() {
         unloadTabItem,
         { attributes: true },
         () => !unloadTabItem.hidden && !unloadTabItem.disabled,
-        "unloadTabItem is visible and not disabled"
+        { msg: "unloadTabItem is visible and not disabled" }
       );
       Assert.ok(
         !unloadTabItem.hidden && !unloadTabItem.disabled,
@@ -565,7 +565,7 @@ add_task(async function test_splitview_with_unloaded_tab() {
         tab1,
         { attributes: true },
         () => tab1.hasAttribute("discarded"),
-        "tab1 has been unloaded"
+        { msg: "tab1 has been unloaded" }
       );
       info("Tab has been unloaded");
     }
@@ -578,7 +578,7 @@ add_task(async function test_splitview_with_unloaded_tab() {
       () =>
         !moveTabToNewSplitViewItem.hidden &&
         !moveTabToNewSplitViewItem.disabled,
-      "moveTabToNewSplitViewItem is visible and not disabled"
+      { msg: "moveTabToNewSplitViewItem is visible and not disabled" }
     );
     Assert.ok(
       !moveTabToNewSplitViewItem.hidden && !moveTabToNewSplitViewItem.disabled,
@@ -627,7 +627,7 @@ add_task(async function test_about_opentabs_reverts_to_newtab_when_no_tabs() {
       () =>
         !moveTabToNewSplitViewItem.hidden &&
         !moveTabToNewSplitViewItem.disabled,
-      "moveTabToNewSplitViewItem is visible and not disabled"
+      { msg: "moveTabToNewSplitViewItem is visible and not disabled" }
     );
 
     info("Click menu option to add new split view");
@@ -693,7 +693,7 @@ add_task(async function test_about_opentabs_reverts_to_newtab_when_no_tabs() {
 
 add_task(async function test_opentabs_search() {
   const tab1 = await addTab();
-  // eslint-disable-next-line @microsoft/sdl/no-insecure-url
+  // eslint-disable-next-line sdl/no-insecure-url
   const tab2 = BrowserTestUtils.addTab(gBrowser, "http://example.com/");
   await BrowserTestUtils.browserLoaded(tab2.linkedBrowser);
   const tab3 = BrowserTestUtils.addTab(gBrowser, "http://mochi.test:8888/");
@@ -757,7 +757,7 @@ add_task(async function test_opentabs_search() {
     return (
       tabList &&
       tabList.rowEls.length === 1 &&
-      tabList.rowEls[0].__url.includes("example.com")
+      tabList.rowEls[0].url.includes("example.com")
     );
   }, "Only the tab with 'example' in the URL is shown in search results");
 
@@ -972,3 +972,78 @@ add_task(
     }
   }
 );
+
+add_task(async function test_about_opentabs_cannot_be_pinned() {
+  const tab1 = await addTab();
+  const tab2 = await addTab();
+
+  EventUtils.synthesizeMouseAtCenter(tab1, {});
+
+  let openTabsPromise = BrowserTestUtils.waitForNewTab(
+    gBrowser,
+    "about:opentabs"
+  );
+  let splitViewCreated = BrowserTestUtils.waitForEvent(
+    gBrowser.tabContainer,
+    "SplitViewCreated"
+  );
+  await withTabMenu(tab1, async moveTabToNewSplitViewItem => {
+    await BrowserTestUtils.waitForMutationCondition(
+      moveTabToNewSplitViewItem,
+      { attributes: true },
+      () =>
+        !moveTabToNewSplitViewItem.hidden &&
+        !moveTabToNewSplitViewItem.disabled,
+      { msg: "moveTabToNewSplitViewItem is visible and not disabled" }
+    );
+
+    info("Click menu option to add new split view");
+    moveTabToNewSplitViewItem.click();
+    await splitViewCreated;
+    await openTabsPromise;
+  });
+
+  let aboutOpenTabsTab = gBrowser.selectedTab;
+  Assert.equal(
+    aboutOpenTabsTab.linkedBrowser.currentURI.spec,
+    "about:opentabs",
+    "about:opentabs is the selected tab"
+  );
+
+  let menuItemPinTab = document.getElementById("context_pinTab");
+  let menuItemPinSelectedTabs = document.getElementById(
+    "context_pinSelectedTabs"
+  );
+
+  // Right-click the about:opentabs tab on its own.
+  updateTabContextMenu(aboutOpenTabsTab);
+  Assert.ok(
+    menuItemPinTab.hidden,
+    "Pin Tab is hidden when right-clicking the about:opentabs tab"
+  );
+
+  // Multi-select the about:opentabs tab alongside another tab and confirm
+  // Pin Selected Tabs is hidden.
+  await triggerClickOn(tab2, { ctrlKey: true });
+  Assert.ok(aboutOpenTabsTab.multiselected, "about:opentabs is multiselected");
+  Assert.ok(tab2.multiselected, "tab2 is multiselected");
+
+  updateTabContextMenu(aboutOpenTabsTab);
+  Assert.ok(
+    menuItemPinSelectedTabs.hidden,
+    "Pin Selected Tabs is hidden when about:opentabs is in the selection"
+  );
+
+  // Right-clicking a different multiselected tab should still hide the item
+  // because the selection contains about:opentabs.
+  updateTabContextMenu(tab2);
+  Assert.ok(
+    menuItemPinSelectedTabs.hidden,
+    "Pin Selected Tabs is hidden when right-clicking a sibling of about:opentabs"
+  );
+
+  tab1.splitview.unsplitTabs();
+  while (gBrowser.tabs.length > 1) {
+    BrowserTestUtils.removeTab(gBrowser.tabs.at(-1));
+  }
+});

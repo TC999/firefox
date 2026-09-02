@@ -4,6 +4,9 @@
 
 #include "jsapi/RTCEncodedFrameBase.h"
 
+#include <cstddef>
+#include <span>
+
 #include "api/frame_transformer_interface.h"
 #include "js/ArrayBuffer.h"
 #include "js/GCAPI.h"
@@ -16,8 +19,6 @@ namespace mozilla::dom {
 
 NS_IMPL_CYCLE_COLLECTION_CLASS(RTCEncodedFrameBase)
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(RTCEncodedFrameBase)
-  using ::ImplCycleCollectionUnlink;
-  tmp->DetachData();
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mOwner, mGlobal)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mData)
   NS_IMPL_CYCLE_COLLECTION_UNLINK_PRESERVED_WRAPPER
@@ -50,10 +51,16 @@ RTCEncodedFrameBase::RTCEncodedFrameBase(nsIGlobalObject* aGlobal,
 
   mozilla::HoldJSObjects(this);
 
-  // Avoid a copy
-  mData = JS::NewArrayBufferWithUserOwnedContents(
-      jsapi.cx(), mState.mFrame->GetData().size(),
-      (void*)(mState.mFrame->GetData().data()));
+  const auto& frame = mState.mFrame->GetData();
+  if (frame.data()) {
+    UniquePtr<void, JS::FreePolicy> data(js_pod_arena_malloc<uint8_t>(
+        js::ArrayBufferContentsArena, frame.size()));
+    memcpy(data.get(), frame.data(), frame.size());
+    mData = JS::NewArrayBufferWithContents(jsapi.cx(), frame.size(),
+                                           std::move(data));
+  } else {
+    mData = JS::NewArrayBuffer(jsapi.cx(), 0);
+  }
 }
 
 RTCEncodedFrameState::RTCEncodedFrameState(
@@ -63,7 +70,6 @@ RTCEncodedFrameState::RTCEncodedFrameState(
 
 RTCEncodedFrameBase::~RTCEncodedFrameBase() {
   DetachData();
-  mData = nullptr;
   mozilla::DropJSObjects(this);
 }
 
@@ -91,12 +97,11 @@ unsigned long RTCEncodedFrameBase::Timestamp() const {
 }
 
 void RTCEncodedFrameBase::SetData(const ArrayBuffer& aData) {
-  DetachData();
   mData.set(aData.Obj());
   if (mState.mFrame) {
     aData.ProcessData([&](const Span<uint8_t>& aData, JS::AutoCheckCannotGC&&) {
       mState.mFrame->SetData(
-          webrtc::ArrayView<const uint8_t>(aData.Elements(), aData.Length()));
+          std::span<const uint8_t>(aData.Elements(), aData.Length()));
     });
   }
 }
@@ -112,6 +117,10 @@ std::unique_ptr<webrtc::TransformableFrameInterface>
 RTCEncodedFrameBase::TakeFrame() {
   DetachData();
   return std::move(mState.mFrame);
+}
+
+size_t RTCEncodedFrameBase::Size() const {
+  return GetArrayBufferByteLength(mData);
 }
 
 RTCEncodedFrameState::~RTCEncodedFrameState() = default;

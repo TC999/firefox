@@ -9,6 +9,7 @@ import androidx.fragment.app.Fragment
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.coroutineScope
 import androidx.navigation.NavController
+import mozilla.components.browser.state.selector.selectedTab
 import mozilla.components.browser.state.state.CustomTabSessionState
 import mozilla.components.browser.state.store.BrowserStore
 import mozilla.components.browser.thumbnails.BrowserThumbnails
@@ -32,11 +33,10 @@ import org.mozilla.fenix.ext.isTallWindow
 import org.mozilla.fenix.ext.isWideWindow
 import org.mozilla.fenix.search.BrowserToolbarSearchMiddleware
 import org.mozilla.fenix.search.BrowserToolbarSearchStatusSyncMiddleware
-import org.mozilla.fenix.utils.Settings
+import org.mozilla.fenix.summarization.SummarizationNavigator
+import org.mozilla.fenix.translations.TranslationsEnabledSettings
 
-/**
- * Delegate for building the [BrowserToolbarStore] used in the browser screen.
- */
+/** Delegate for building the [BrowserToolbarStore] used in the browser screen. */
 object BrowserToolbarStoreBuilder {
 
     /**
@@ -52,7 +52,6 @@ object BrowserToolbarStoreBuilder {
      * @param browsingModeManager [BrowsingModeManager] for querying the current browsing mode.
      * @param thumbnailsFeature [BrowserThumbnails] for requesting screenshots of the current tab.
      * @param readerModeController [ReaderModeController] for managing the reader mode.
-     * @param settings [Settings] object to get the toolbar position and other settings.
      * @param customTabSession [CustomTabSessionState] if the toolbar is shown in a custom tab.
      * @param isSandboxCustomTab Whether the custom tab is sandboxed.
      */
@@ -68,87 +67,100 @@ object BrowserToolbarStoreBuilder {
         browsingModeManager: BrowsingModeManager,
         thumbnailsFeature: () -> BrowserThumbnails?,
         readerModeController: ReaderModeController,
-        settings: Settings,
         customTabSession: CustomTabSessionState? = null,
         isSandboxCustomTab: Boolean = false,
-    ) = fragment.fragmentStore(
-        BrowserToolbarState(
-            displayState = DisplayState(
-                pageOrigin = PageOrigin(
-                    hint = R.string.search_hint,
-                    title = null,
-                    url = null,
-                    onClick = object : BrowserToolbarEvent {},
-                ),
-            ),
-        ),
-    ) {
-        val lifecycleScope = fragment.viewLifecycleOwner.lifecycle.coroutineScope
+    ) =
+        fragment.fragmentStore(
+            BrowserToolbarState(
+                displayState =
+                    DisplayState(
+                        pageOrigin =
+                            PageOrigin(
+                                hint = R.string.search_hint,
+                                title = null,
+                                url = null,
+                                onClick = object : BrowserToolbarEvent {},
+                            )
+                    )
+            )
+        ) {
+            val lifecycleScope = fragment.viewLifecycleOwner.lifecycle.coroutineScope
 
-        BrowserToolbarStore(
-            initialState = it,
-            middleware = when (customTabSession) {
-                null -> listOf(
-                    BrowserToolbarMiddleware(
-                        uiContext = activity,
-                        appStore = appStore,
-                        browserScreenStore = browserScreenStore,
-                        browserStore = browserStore,
-                        permissionsStorage = components.core.geckoSitePermissionsStorage,
-                        cookieBannersStorage = components.core.cookieBannersStorage,
-                        bookmarksStorage = activity.components.core.bookmarksStorage,
-                        trackingProtectionUseCases = components.useCases.trackingProtectionUseCases,
-                        useCases = components.useCases,
-                        nimbusComponents = components.nimbus,
-                        clipboard = activity.components.clipboardHandler,
-                        publicSuffixList = components.publicSuffixList,
-                        settings = settings,
-                        navController = navController,
-                        browsingModeManager = browsingModeManager,
-                        readerModeController = readerModeController,
-                        thumbnailsFeature = thumbnailsFeature,
-                        isWideScreen = { fragment.isWideWindow() },
-                        isTallScreen = { fragment.isTallWindow() },
-                        scope = lifecycleScope,
-                    ),
-                    BrowserToolbarSearchStatusSyncMiddleware(
-                        appStore = appStore,
-                        browsingModeManager = browsingModeManager,
-                        scope = lifecycleScope,
-                    ),
-                    BrowserToolbarSearchMiddleware(
-                        uiContext = activity,
-                        appStore = appStore,
-                        browserStore = browserStore,
-                        components = components,
-                        navController = navController,
-                        browsingModeManager = browsingModeManager,
-                        settings = settings,
-                        scope = lifecycleScope,
-                    ),
-                    BrowserToolbarTelemetryMiddleware(),
-                )
+            BrowserToolbarStore(
+                initialState = it,
+                middleware =
+                    when (customTabSession) {
+                        null ->
+                            listOf(
+                                BrowserToolbarMiddleware(
+                                    uiContext = activity,
+                                    appStore = appStore,
+                                    browserScreenStore = browserScreenStore,
+                                    browserStore = browserStore,
+                                    ipProtectionStore = components.ipProtection.store,
+                                    permissionsStorage = components.core.geckoSitePermissionsStorage,
+                                    bookmarksStorage = activity.components.core.bookmarksStorage,
+                                    trackingProtectionUseCases = components.useCases.trackingProtectionUseCases,
+                                    useCases = components.useCases,
+                                    nimbusComponents = components.nimbus,
+                                    clipboard = activity.components.clipboardHandler,
+                                    publicSuffixList = components.publicSuffixList,
+                                    settings = components.settings,
+                                    summarizationFeatureSettings = components.core.summarizeFeatureSettings,
+                                    translationsFeatureSettings = TranslationsEnabledSettings.dataStore(activity),
+                                    shareUseCases = components.useCases.shareUseCases,
+                                    navController = navController,
+                                    summarizationNavigator =
+                                        SummarizationNavigator(
+                                            summarizationSettings = components.core.summarizationSettingsBinding,
+                                            eligibilityChecker = components.core.summarizationEligibilityChecker,
+                                            getCurrentTab = { browserStore.state.selectedTab },
+                                        ),
+                                    browsingModeManager = browsingModeManager,
+                                    readerModeController = readerModeController,
+                                    thumbnailsFeature = thumbnailsFeature,
+                                    isWideScreen = { fragment.isWideWindow() },
+                                    isTallScreen = { fragment.isTallWindow() },
+                                    scope = lifecycleScope,
+                                ),
+                                BrowserToolbarSearchStatusSyncMiddleware(
+                                    appStore = appStore,
+                                    browsingModeManager = browsingModeManager,
+                                    scope = lifecycleScope,
+                                ),
+                                BrowserToolbarSearchMiddleware(
+                                    uiContext = activity,
+                                    appStore = appStore,
+                                    browserStore = browserStore,
+                                    components = components,
+                                    navController = navController,
+                                    browsingModeManager = browsingModeManager,
+                                    settings = components.settings,
+                                    scope = lifecycleScope,
+                                ),
+                                BrowserToolbarTelemetryMiddleware(),
+                            )
 
-                else -> listOf(
-                    CustomTabBrowserToolbarMiddleware(
-                        uiContext = activity,
-                        requireNotNull(customTabSession).id,
-                        browserStore = browserStore,
-                        appStore = appStore,
-                        permissionsStorage = components.core.geckoSitePermissionsStorage,
-                        cookieBannersStorage = components.core.cookieBannersStorage,
-                        useCases = components.useCases.customTabsUseCases,
-                        trackingProtectionUseCases = components.useCases.trackingProtectionUseCases,
-                        publicSuffixList = components.publicSuffixList,
-                        clipboard = activity.components.clipboardHandler,
-                        navController = navController,
-                        closeTabDelegate = { activity.finishAndRemoveTask() },
-                        settings = settings,
-                        scope = lifecycleScope,
-                        isSandboxCustomTab = isSandboxCustomTab,
-                    ),
-                )
-            },
-        )
-    }
+                        else ->
+                            listOf(
+                                CustomTabBrowserToolbarMiddleware(
+                                    uiContext = activity,
+                                    requireNotNull(customTabSession).id,
+                                    browserStore = browserStore,
+                                    appStore = appStore,
+                                    ipProtectionStore = components.ipProtection.store,
+                                    permissionsStorage = components.core.geckoSitePermissionsStorage,
+                                    useCases = components.useCases.customTabsUseCases,
+                                    trackingProtectionUseCases = components.useCases.trackingProtectionUseCases,
+                                    publicSuffixList = components.publicSuffixList,
+                                    clipboard = activity.components.clipboardHandler,
+                                    navController = navController,
+                                    closeTabDelegate = { activity.finishAndRemoveTask() },
+                                    scope = lifecycleScope,
+                                    isSandboxCustomTab = isSandboxCustomTab,
+                                )
+                            )
+                    },
+            )
+        }
 }

@@ -39,11 +39,10 @@
 #include "mozilla/gfx/GPUProcessManager.h"
 #include "mozilla/gfx/gfxVars.h"
 #include "mozilla/layers/APZCCallbackHelper.h"
-#include "mozilla/layers/AsyncDragMetrics.h"
-#include "mozilla/layers/TouchActionHelper.h"
 #include "mozilla/layers/APZEventState.h"
 #include "mozilla/layers/APZInputBridge.h"
 #include "mozilla/layers/APZThreadUtils.h"
+#include "mozilla/layers/AsyncDragMetrics.h"
 #include "mozilla/layers/ChromeProcessController.h"
 #include "mozilla/layers/Compositor.h"
 #include "mozilla/layers/CompositorBridgeChild.h"
@@ -52,6 +51,7 @@
 #include "mozilla/layers/IAPZCTreeManager.h"
 #include "mozilla/layers/ImageBridgeChild.h"
 #include "mozilla/layers/InputAPZContext.h"
+#include "mozilla/layers/TouchActionHelper.h"
 #include "mozilla/layers/WebRenderLayerManager.h"
 #include "mozilla/webrender/WebRenderTypes.h"
 #include "mozilla/widget/ScreenManager.h"
@@ -78,11 +78,10 @@
 #ifdef ACCESSIBILITY
 #  include "nsAccessibilityService.h"
 #endif
+#include "VRManagerChild.h"
 #include "gfxConfig.h"
 #include "gfxUtils.h"  // for ToDeviceColor
 #include "mozilla/layers/CompositorSession.h"
-#include "VRManagerChild.h"
-#include "gfxConfig.h"
 
 static mozilla::LazyLogModule sBaseWidgetLog("BaseWidget");
 
@@ -107,7 +106,7 @@ namespace mozilla::widget {
 
 // Helper class used in shutting down gfx related code.
 class WidgetShutdownObserver final : public nsIObserver {
-  ~WidgetShutdownObserver();
+  ~WidgetShutdownObserver() = default;
 
  public:
   explicit WidgetShutdownObserver(nsIWidget* aWidget);
@@ -132,7 +131,6 @@ WidgetShutdownObserver::WidgetShutdownObserver(nsIWidget* aWidget)
 // No need to call Unregister(), we can't be destroyed until nsIWidget
 // gets torn down. The observer service and nsIWidget.have a ref on us
 // so nsIWidget.has to call Unregister and then clear its ref.
-WidgetShutdownObserver::~WidgetShutdownObserver() = default;
 
 NS_IMETHODIMP
 WidgetShutdownObserver::Observe(nsISupports* aSubject, const char* aTopic,
@@ -192,7 +190,10 @@ void WidgetShutdownObserver::Unregister() {
 
 // Helper class used for observing locales change.
 class LocalesChangedObserver final : public nsIObserver {
-  ~LocalesChangedObserver();
+  // No need to call Unregister(), we can't be destroyed until nsIWidget
+  // gets torn down. The observer service and nsIWidget.have a ref on us
+  // so nsIWidget.has to call Unregister and then clear its ref.
+  ~LocalesChangedObserver() = default;
 
  public:
   explicit LocalesChangedObserver(nsIWidget* aWidget);
@@ -214,11 +215,6 @@ LocalesChangedObserver::LocalesChangedObserver(nsIWidget* aWidget)
   Register();
 }
 
-// No need to call Unregister(), we can't be destroyed until nsIWidget
-// gets torn down. The observer service and nsIWidget.have a ref on us
-// so nsIWidget.has to call Unregister and then clear its ref.
-LocalesChangedObserver::~LocalesChangedObserver() = default;
-
 NS_IMETHODIMP
 LocalesChangedObserver::Observe(nsISupports* aSubject, const char* aTopic,
                                 const char16_t* aData) {
@@ -239,7 +235,8 @@ void LocalesChangedObserver::Register() {
 
   nsCOMPtr<nsIObserverService> obs = mozilla::services::GetObserverService();
   if (obs) {
-    obs->AddObserver(this, INTL_APP_LOCALES_CHANGED, true);
+    MOZ_ALWAYS_SUCCEEDS(
+        obs->AddObserver(this, INTL_APP_LOCALES_CHANGED, false));
   }
 
   // Locale might be update before registering
@@ -330,6 +327,12 @@ void nsIWidget::Shutdown() {
 void nsIWidget::QuitIME() {
   IMEStateManager::WidgetOnQuit(this);
   this->mIMEHasQuit = true;
+}
+
+void nsIWidget::SetIsTiled(bool aIsTiled) {
+  // TODO: Do we want to report an event here or something when stuff changes?
+  // For now this is propagated in a somewhat out-of-band way via AppWindow.
+  mIsTiled = aIsTiled;
 }
 
 void nsIWidget::DestroyCompositor() {
@@ -595,7 +598,12 @@ nsIWidget* nsIWidget::GetTopLevelWidget() {
   return cur;
 }
 
-float nsIWidget::GetDPI() { return 96.0f; }
+float nsIWidget::GetDPI() {
+  if (RefPtr<Screen> screen = GetWidgetScreen()) {
+    return screen->GetDPI();
+  }
+  return GetFallbackDPI();
+}
 
 void nsIWidget::NotifyAPZOfDPIChange() {
   if (mAPZC) {
@@ -1026,8 +1034,8 @@ void nsIWidget::PauseOrResumeCompositor(bool aPause) {
 
 already_AddRefed<GeckoContentController>
 nsIWidget::CreateRootContentController() {
-  RefPtr<GeckoContentController> controller =
-      new ChromeProcessController(this, mAPZEventState, mAPZC);
+  auto controller =
+      MakeRefPtr<ChromeProcessController>(this, mAPZEventState, mAPZC);
   return controller.forget();
 }
 
@@ -1650,16 +1658,17 @@ WindowRenderer* nsIWidget::GetWindowRenderer() {
   return mWindowRenderer;
 }
 
-WindowRenderer* nsIWidget::CreateFallbackRenderer() {
+already_AddRefed<WindowRenderer> nsIWidget::CreateFallbackRenderer() {
   // We don't provide a reference to ourself because we want to stay with the
   // fallback renderer regardless of changes in compositing.
-  return new DefaultFallbackRenderer();
+  return MakeAndAddRef<DefaultFallbackRenderer>();
 }
 
-WindowRenderer* nsIWidget::CreateBackgroundedFallbackRenderer() {
+already_AddRefed<WindowRenderer>
+nsIWidget::CreateBackgroundedFallbackRenderer() {
   // Provide a reference back to ourself so that when the GPU process and
   // hardware compositing is once again available, we can return to it.
-  return new BackgroundedFallbackRenderer(this);
+  return MakeAndAddRef<BackgroundedFallbackRenderer>(this);
 }
 
 CompositorBridgeChild* nsIWidget::GetRemoteRenderer() {
@@ -1882,12 +1891,12 @@ void nsIWidget::SetSizeConstraints(const SizeConstraints& aConstraints) {
   // the new constraints don't affect the current size, because Resize
   // implementation on some platforms may touch other geometry even if
   // the size don't need to change.
-  LayoutDeviceIntSize curSize = GetBounds().Size();
-  LayoutDeviceIntSize clampedSize =
+  DesktopIntSize curSize =
+      DesktopIntSize::Round(GetBounds().Size() / GetDesktopToDeviceScale());
+  DesktopIntSize clampedSize =
       Max(aConstraints.mMinSize, Min(aConstraints.mMaxSize, curSize));
   if (clampedSize != curSize) {
-    DesktopSize desktopSize = clampedSize / GetDesktopToDeviceScale();
-    Resize(desktopSize, true);
+    Resize(DesktopSize(clampedSize), true);
   }
 }
 
@@ -1926,7 +1935,8 @@ void nsIWidget::NotifyWindowMoved(const LayoutDeviceIntPoint& aPoint,
 void nsIWidget::NotifyWindowMoved(const DesktopIntPoint& aPoint,
                                   ByMoveToRect aByMoveToRect) {
   return NotifyWindowMoved(
-      LayoutDeviceIntPoint::Round(aPoint * GetDesktopToDeviceScale()));
+      LayoutDeviceIntPoint::Round(aPoint * GetDesktopToDeviceScale()),
+      aByMoveToRect);
 }
 
 void nsIWidget::NotifySizeMoveDone() {
@@ -2338,7 +2348,8 @@ WidgetWheelEvent nsIWidget::MayStartSwipeForAPZ(
     return event;
   }
 
-  if (aPanInput.mHandledByAPZ && aPanInput.AllowsSwipe()) {
+  if (aPanInput.mHandledByAPZ && aPanInput.AllowsSwipe() &&
+      !aApzResult.mTargetCanScrollHorizontally) {
     SwipeInfo swipeInfo = SendMayStartSwipe(aPanInput);
     event.mCanTriggerSwipe = swipeInfo.wantsSwipe;
     if (swipeInfo.wantsSwipe) {

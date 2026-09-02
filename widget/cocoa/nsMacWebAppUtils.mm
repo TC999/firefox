@@ -4,9 +4,9 @@
 
 #import <Cocoa/Cocoa.h>
 
-#include "nsMacWebAppUtils.h"
 #include "nsCOMPtr.h"
 #include "nsCocoaUtils.h"
+#include "nsMacWebAppUtils.h"
 #include "nsString.h"
 
 // This must be included last:
@@ -62,7 +62,7 @@ NS_IMETHODIMP nsMacWebAppUtils::LaunchAppWithIdentifier(
                              length:((nsString)bundleIdentifier).Length()]
                              options:(NSWorkspaceLaunchOptions)0
       additionalEventParamDescriptor:nil
-                    launchIdentifier:NULL];
+                    launchIdentifier:nullptr];
 
   return success ? NS_OK : NS_ERROR_FAILURE;
 

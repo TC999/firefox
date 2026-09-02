@@ -53,10 +53,12 @@ UNIFIED_SOURCES += [
 
 if CONFIG["MOZ_WIDGET_TOOLKIT"] in ("cocoa", "uikit"):
     EXPORTS.mozilla.webrender += [
+        "MetalDeviceManager.h",
         "RenderCompositorNative.h",
         "RenderMacIOSurfaceTextureHost.h",
     ]
     UNIFIED_SOURCES += [
+        "MetalDeviceManager.mm",
         "RenderCompositorNative.cpp",
         "RenderMacIOSurfaceTextureHost.cpp",
     ]
@@ -64,10 +66,12 @@ if CONFIG["MOZ_WIDGET_TOOLKIT"] in ("cocoa", "uikit"):
 if CONFIG["MOZ_WIDGET_TOOLKIT"] == "android":
     EXPORTS.mozilla.webrender += [
         "RenderAndroidHardwareBufferTextureHost.h",
+        "RenderAndroidImageReaderImageTextureHost.h",
         "RenderAndroidSurfaceTextureHost.h",
     ]
     UNIFIED_SOURCES += [
         "RenderAndroidHardwareBufferTextureHost.cpp",
+        "RenderAndroidImageReaderImageTextureHost.cpp",
         "RenderAndroidSurfaceTextureHost.cpp",
     ]
 

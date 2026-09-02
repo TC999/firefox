@@ -35,6 +35,7 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN_INHERITED(PlaceholderTransaction,
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mEditorBase);
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mStartSel);
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mEndSel);
+  NS_IMPL_CYCLE_COLLECTION_UNLINK_WEAK_PTR
 NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INHERITED(PlaceholderTransaction,
@@ -317,13 +318,11 @@ nsresult PlaceholderTransaction::EndPlaceHolderBatch() {
   mAbsorb = false;
 
   if (mForwardingTransaction) {
-    if (mForwardingTransaction) {
-      DebugOnly<nsresult> rvIgnored =
-          mForwardingTransaction->EndPlaceHolderBatch();
-      NS_WARNING_ASSERTION(
-          NS_SUCCEEDED(rvIgnored),
-          "PlaceholderTransaction::EndPlaceHolderBatch() failed, but ignored");
-    }
+    DebugOnly<nsresult> rvIgnored =
+        mForwardingTransaction->EndPlaceHolderBatch();
+    NS_WARNING_ASSERTION(
+        NS_SUCCEEDED(rvIgnored),
+        "PlaceholderTransaction::EndPlaceHolderBatch() failed, but ignored");
   }
   // remember our selection state.
   nsresult rv = RememberEndingSelection();

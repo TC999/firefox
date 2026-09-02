@@ -11,6 +11,7 @@
 #include "mozilla/UniquePtr.h"
 #include "mozilla/dom/BlobImpl.h"
 #include "mozilla/dom/GetFilesHelper.h"
+#include "mozilla/dom/LoadedOriginSet.h"
 #include "mozilla/dom/PContentChild.h"
 #include "mozilla/dom/ProcessActor.h"
 #include "mozilla/dom/RemoteType.h"
@@ -68,6 +69,7 @@ class SharedMap;
 
 class ConsoleListener;
 class BrowserChild;
+class IPCTabContext;
 class TabContext;
 enum class CallerType : uint32_t;
 
@@ -143,6 +145,29 @@ class ContentChild final : public PContentChild,
   bool IsAlive() const;
 
   bool IsShuttingDown() const;
+
+  /**
+   * Early during startup, a content process has not yet loaded any untrusted
+   * content, so it can be considered "trusted" for the purposes of doing
+   * security-sensitive work (such as writing into the shared script cache).
+   *
+   * After a certain point during startup, most processes load untrusted
+   * content, becoming "untrusted". At this point, the flag will be flipped, and
+   * the parent process will be notified.
+   *
+   * Safe to call on any thread.
+   */
+  [[nodiscard]] static bool IsUntrusted();
+
+  /** Observer topic fired when the current process becomes untrusted. */
+  static constexpr nsLiteralCString kBecameUntrustedTopic =
+      "content-process-became-untrusted"_ns;
+
+  /**
+   * Called to mark the content process as untrusted on the main thread.
+   * No-op in non-content processes and the privilegedabout process.
+   */
+  static void MaybeBecomeUntrusted();
 
   ipc::SharedMap* SharedData() { return mSharedData; };
 
@@ -369,14 +394,14 @@ class ContentChild final : public PContentChild,
       const nsCString& UAName, const nsCString& ID, const nsCString& vendor,
       const nsCString& sourceURL, const nsCString& updateURL);
 
-  mozilla::ipc::IPCResult RecvRemoteType(const nsCString& aRemoteType,
-                                         const nsCString& aProfile);
+  mozilla::ipc::IPCResult RecvSetRemoteType(const RemoteType& aRemoteType,
+                                            const nsCString& aProfile);
 
   void PreallocInit();
 
-  // Call RemoteTypePrefix() on the result to remove URIs if you want to use
-  // this for telemetry.
-  const nsACString& GetRemoteType() const override;
+  const RemoteType& GetRemoteType() const override;
+
+  mozilla::ipc::IPCResult RecvAddLoadedOrigin(nsIPrincipal* aPrincipal);
 
   mozilla::ipc::IPCResult RecvInitRemoteWorkerService(
       Endpoint<PRemoteWorkerServiceChild>&& aEndpoint,
@@ -459,7 +484,8 @@ class ContentChild final : public PContentChild,
   PContentPermissionRequestChild* AllocPContentPermissionRequestChild(
       Span<const PermissionRequest> aRequests, nsIPrincipal* aPrincipal,
       nsIPrincipal* aTopLevelPrincipal, const bool& aIsHandlingUserInput,
-      const bool& aMaybeUnsafePermissionDelegate, const TabId& aTabId);
+      const bool& aMaybeUnsafePermissionDelegate, const TabId& aTabId,
+      const bool& aIgnoreAllowSitePermission);
   bool DeallocPContentPermissionRequestChild(
       PContentPermissionRequestChild* actor);
 
@@ -475,7 +501,7 @@ class ContentChild final : public PContentChild,
       const nsID& aUUID, const GetFilesResponseResult& aResult);
 
   mozilla::ipc::IPCResult RecvBlobURLRegistration(
-      const nsCString& aURI, const IPCBlob& aBlob, nsIPrincipal* aPrincipal,
+      const nsCString& aURI, nsIPrincipal* aPrincipal,
       const nsCString& aPartitionKey);
 
   mozilla::ipc::IPCResult RecvBlobURLUnregistration(
@@ -588,6 +614,10 @@ class ContentChild final : public PContentChild,
       const MaybeDiscarded<BrowsingContext>& aContext,
       const MediaControlAction& aAction);
 
+  mozilla::ipc::IPCResult RecvUpdateMediaSessionInterrupt(
+      const MaybeDiscarded<BrowsingContext>& aContext,
+      const AudioFocusInterruptAction& aAction);
+
   // See `BrowsingContext::mEpochs` for an explanation of this field.
   uint64_t GetBrowsingContextFieldEpoch() const {
     return mBrowsingContextFieldEpoch;
@@ -649,7 +679,7 @@ class ContentChild final : public PContentChild,
   mozilla::ipc::IPCResult RecvSetUseOriginAgentCluster(
       uint64_t aGroupId, nsIPrincipal* aPrincipal, bool aUseOriginAgentCluster);
 
-  mozilla::ipc::IPCResult RecvWindowClose(
+  MOZ_CAN_RUN_SCRIPT_BOUNDARY mozilla::ipc::IPCResult RecvWindowClose(
       const MaybeDiscarded<BrowsingContext>& aContext, bool aTrustedCaller);
   mozilla::ipc::IPCResult RecvWindowFocus(
       const MaybeDiscarded<BrowsingContext>& aContext, CallerType aCallerType,
@@ -729,8 +759,7 @@ class ContentChild final : public PContentChild,
 
   mozilla::ipc::IPCResult RecvLoadURI(
       const MaybeDiscarded<BrowsingContext>& aContext,
-      nsDocShellLoadState* aLoadState, bool aSetNavigating,
-      LoadURIResolver&& aResolve);
+      nsDocShellLoadState* aLoadState, bool aSetNavigating);
 
   mozilla::ipc::IPCResult RecvInternalLoad(nsDocShellLoadState* aLoadState);
 
@@ -777,9 +806,11 @@ class ContentChild final : public PContentChild,
                                         ErrorResult& aRv) override;
   mozilla::ipc::IProtocol* AsNativeActor() override { return this; }
 
+  MOZ_CAN_RUN_SCRIPT_BOUNDARY
   mozilla::ipc::IPCResult RecvHistoryCommitIndexAndLength(
       const MaybeDiscarded<BrowsingContext>& aContext, const uint32_t& aIndex,
-      const uint32_t& aLength, const nsID& aChangeID);
+      const uint32_t& aLength, const nsID& aChangeID,
+      nsTArray<NavigationEntriesTruncation>&& aTruncations);
 
   mozilla::ipc::IPCResult RecvConsumeHistoryActivation(
       const MaybeDiscarded<BrowsingContext>& aTop);
@@ -793,13 +824,14 @@ class ContentChild final : public PContentChild,
 
   mozilla::ipc::IPCResult RecvDispatchBeforeUnloadToSubtree(
       const MaybeDiscarded<BrowsingContext>& aStartingAt,
-      const mozilla::Maybe<SessionHistoryInfo>& aInfo,
+      const mozilla::Maybe<mozilla::NotNull<RefPtr<nsDocShellLoadState>>>&
+          aLoadState,
       DispatchBeforeUnloadToSubtreeResolver&& aResolver);
 
   MOZ_CAN_RUN_SCRIPT_BOUNDARY
   mozilla::ipc::IPCResult RecvDispatchNavigateToTraversable(
       const MaybeDiscarded<BrowsingContext>& aTraversable,
-      const mozilla::Maybe<SessionHistoryInfo>& aInfo,
+      const mozilla::NotNull<RefPtr<nsDocShellLoadState>>& aLoadState,
       DispatchNavigateToTraversableResolver&& aResolver);
 
   mozilla::ipc::IPCResult RecvInitNextGenLocalStorageEnabled(
@@ -808,7 +840,8 @@ class ContentChild final : public PContentChild,
  public:
   static void DispatchBeforeUnloadToSubtree(
       BrowsingContext* aStartingAt,
-      const mozilla::Maybe<SessionHistoryInfo>& aInfo,
+      const mozilla::Maybe<mozilla::NotNull<RefPtr<nsDocShellLoadState>>>&
+          aLoadState,
       const DispatchBeforeUnloadToSubtreeResolver& aResolver);
 
   hal::ProcessPriority GetProcessPriority() const { return mProcessPriority; }
@@ -827,7 +860,13 @@ class ContentChild final : public PContentChild,
 
  private:
   void AddProfileToProcessName(const nsACString& aProfile);
+  mozilla::ipc::IPCResult RecvCreateFOGTransport(
+      Endpoint<PFOGTransportChild>&& aChildEndpoint);
+
   mozilla::ipc::IPCResult RecvFlushFOGData(FlushFOGDataResolver&& aResolver);
+
+  mozilla::ipc::IPCResult RecvSystemPermissionChanged(PermissionName aName,
+                                                      PermissionState aState);
 
   mozilla::ipc::IPCResult RecvUpdateMediaCodecsSupported(
       RemoteMediaIn aLocation, const media::MediaCodecsSupported& aSupported);
@@ -866,7 +905,7 @@ class ContentChild final : public PContentChild,
   AppInfo mAppInfo;
 
   bool mIsForBrowser;
-  nsCString mRemoteType = NOT_REMOTE_TYPE;
+  RemoteType mRemoteType;
   bool mIsAlive;
   nsCString mProcessName;
 
@@ -918,6 +957,12 @@ class ContentChild final : public PContentChild,
 inline nsISupports* ToSupports(mozilla::dom::ContentChild* aContentChild) {
   return static_cast<nsIDOMProcessChild*>(aContentChild);
 }
+
+// Threadsafe getter for the current process's RemoteType.
+RemoteType CurrentRemoteType();
+
+// Threadsafe getter for the current process's loaded origins.
+already_AddRefed<LoadedOriginSet> CurrentLoadedOriginSet();
 
 }  // namespace dom
 }  // namespace mozilla

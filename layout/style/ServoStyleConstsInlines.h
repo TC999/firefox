@@ -63,6 +63,46 @@ template struct StyleStrong<StyleLockedPositionTryRule>;
 template struct StyleStrong<StyleLockedNestedDeclarationsRule>;
 template struct StyleStrong<StyleViewTransitionRule>;
 
+template <typename T, size_t N>
+inline StyleOwnedArray<T, N>::StyleOwnedArray(const StyleOwnedArray& aOther)
+    : ptr(static_cast<T*>(moz_xmalloc(N * sizeof(T)))) {
+  for (size_t i = 0; i < N; ++i) {
+    new (&ptr[i]) T(aOther.ptr[i]);
+  }
+}
+
+template <typename T, size_t N>
+template <typename... Args>
+  requires(sizeof...(Args) == N)
+inline StyleOwnedArray<T, N>::StyleOwnedArray(Args&&... aArgs)
+    : ptr(static_cast<T*>(malloc(N * sizeof(T)))) {
+  size_t i = 0;
+  (new (&ptr[i++]) T(std::forward<Args>(aArgs)), ...);
+}
+
+template <typename T, size_t N>
+inline StyleOwnedArray<T, N>& StyleOwnedArray<T, N>::operator=(
+    const StyleOwnedArray& aOther) {
+  if (this == &aOther) {
+    return *this;
+  }
+  for (size_t i = 0; i < N; ++i) {
+    ptr[i].~T();
+  }
+  for (size_t i = 0; i < N; ++i) {
+    new (&ptr[i]) T(aOther.ptr[i]);
+  }
+  return *this;
+}
+
+template <typename T, size_t N>
+inline StyleOwnedArray<T, N>::~StyleOwnedArray() {
+  for (size_t i = 0; i < N; ++i) {
+    ptr[i].~T();
+  }
+  free(ptr);
+}
+
 template <typename T>
 inline void StyleOwnedSlice<T>::Clear() {
   if (!len) {
@@ -191,12 +231,6 @@ inline bool StyleHeaderSlice<H, T>::operator==(
 }
 
 template <typename H, typename T>
-inline bool StyleHeaderSlice<H, T>::operator!=(
-    const StyleHeaderSlice& aOther) const {
-  return !(*this == aOther);
-}
-
-template <typename H, typename T>
 inline StyleHeaderSlice<H, T>::~StyleHeaderSlice() {
   for (T& elem : Span(data, len)) {
     elem.~T();
@@ -288,7 +322,7 @@ inline bool StyleAtom::IsStatic() const { return !!(_0 & 1); }
 
 inline nsAtom* StyleAtom::AsAtom() const {
   if (IsStatic()) {
-    return const_cast<nsStaticAtom*>(&detail::gGkAtoms.mAtoms[_0 >> 1]);
+    return nsGkAtoms::GetAtomByIndex(_0 >> 1);
   }
   return reinterpret_cast<nsAtom*>(_0);
 }
@@ -308,7 +342,7 @@ inline void StyleAtom::Release() {
 inline StyleAtom::StyleAtom(already_AddRefed<nsAtom> aAtom) {
   nsAtom* atom = aAtom.take();
   if (atom->IsStatic()) {
-    size_t index = atom->AsStatic() - &detail::gGkAtoms.mAtoms[0];
+    size_t index = nsGkAtoms::IndexOf(atom->AsStatic());
     _0 = (index << 1) | 1;
   } else {
     _0 = reinterpret_cast<uintptr_t>(atom);
@@ -358,7 +392,7 @@ inline StyleAngle StyleAngle::Zero() { return {0.0f}; }
 inline float StyleAngle::ToDegrees() const { return _0; }
 
 inline double StyleAngle::ToRadians() const {
-  return double(ToDegrees()) * M_PI / 180.0;
+  return double(ToDegrees()) * kRadPerDegree;
 }
 
 inline bool StyleUrlExtraData::IsShared() const { return !!(_0 & 1); }
@@ -502,6 +536,10 @@ StyleGradient::ColorInterpolationMethod() const {
   return AsConic().color_interpolation_method;
 }
 
+inline StyleAnimationName::StyleAnimationName() : _0(nsGkAtoms::_empty) {};
+
+inline StyleTimelineIdent::StyleTimelineIdent() : _0(nsGkAtoms::_empty) {};
+
 template <typename Integer>
 inline StyleGenericGridLine<Integer>::StyleGenericGridLine()
     : ident{StyleAtom(nsGkAtoms::_empty)}, line_num(0), is_span(false) {}
@@ -528,6 +566,7 @@ using LengthOrAuto = StyleLengthOrAuto;
 using NonNegativeLength = StyleNonNegativeLength;
 using NonNegativeLengthOrAuto = StyleNonNegativeLengthOrAuto;
 using BorderRadius = StyleBorderRadius;
+using CornerShapeRect = StyleCornerShapeRect;
 
 bool StyleCSSPixelLength::IsZero() const { return _0 == 0.0f; }
 
@@ -564,45 +603,49 @@ nscoord StyleCSSPixelLength::ToAppUnits() const {
   return detail::DefaultLengthToAppUnits(_0);
 }
 
-bool LengthPercentage::IsLength() const { return Tag() == TAG_LENGTH; }
+static_assert(sizeof(LengthPercentage) == sizeof(uint64_t), "");
 
-StyleLengthPercentageUnion::StyleLengthPercentageUnion() {
-  length = {TAG_LENGTH, {0.0f}};
-  MOZ_ASSERT(IsLength());
+bool LengthPercentage::IsLengthOrPercentage() const {
+  return (_0._0.tag.tag & StyleNUMERIC_UNION_TAG_INLINE) != 0;
 }
 
-static_assert(sizeof(LengthPercentage) == sizeof(uint64_t), "");
+bool LengthPercentage::IsLength() const {
+  return IsLengthOrPercentage() &&
+         _0._0.inl.numeric_tag == StyleLengthPercentageTag::Length;
+}
+
+bool LengthPercentage::IsPercentage() const {
+  return IsLengthOrPercentage() &&
+         _0._0.inl.numeric_tag == StyleLengthPercentageTag::Percentage;
+}
+
+bool LengthPercentage::IsCalc() const { return !IsLengthOrPercentage(); }
 
 Length& LengthPercentage::AsLength() {
   MOZ_ASSERT(IsLength());
-  return length.length;
+  return *reinterpret_cast<Length*>(&_0._0.inl.value);
 }
 
 const Length& LengthPercentage::AsLength() const {
   return const_cast<LengthPercentage*>(this)->AsLength();
 }
 
-bool LengthPercentage::IsPercentage() const { return Tag() == TAG_PERCENTAGE; }
-
 StylePercentage& LengthPercentage::AsPercentage() {
   MOZ_ASSERT(IsPercentage());
-  return percentage.percentage;
+  return *reinterpret_cast<StylePercentage*>(&_0._0.inl.value);
 }
 
 const StylePercentage& LengthPercentage::AsPercentage() const {
   return const_cast<LengthPercentage*>(this)->AsPercentage();
 }
 
-bool LengthPercentage::IsCalc() const { return Tag() == TAG_CALC; }
-
 StyleCalcLengthPercentage& LengthPercentage::AsCalc() {
   MOZ_ASSERT(IsCalc());
-  // NOTE: in 32-bits, the pointer is not swapped, and goes along with the tag.
 #ifdef SERVO_32_BITS
-  return *reinterpret_cast<StyleCalcLengthPercentage*>(calc.ptr);
+  return *reinterpret_cast<StyleCalcLengthPercentage*>(_0._0.boxed.ptr);
 #else
   return *reinterpret_cast<StyleCalcLengthPercentage*>(
-      NativeEndian::swapFromLittleEndian(calc.ptr));
+      NativeEndian::swapFromLittleEndian(_0._0.boxed.ptr));
 #endif
 }
 
@@ -610,29 +653,28 @@ const StyleCalcLengthPercentage& LengthPercentage::AsCalc() const {
   return const_cast<LengthPercentage*>(this)->AsCalc();
 }
 
-StyleLengthPercentageUnion::StyleLengthPercentageUnion(const Self& aOther) {
-  if (aOther.IsLength()) {
-    length = {TAG_LENGTH, aOther.AsLength()};
-  } else if (aOther.IsPercentage()) {
-    percentage = {TAG_PERCENTAGE, aOther.AsPercentage()};
+StyleLengthPercentage::StyleLengthPercentage() {
+  _0._0.inl = {StyleNUMERIC_UNION_TAG_INLINE, StyleLengthPercentageTag::Length,
+               0.0f};
+  MOZ_ASSERT(IsLength());
+}
+
+StyleLengthPercentage::StyleLengthPercentage(const Self& aOther) {
+  if (aOther.IsLengthOrPercentage()) {
+    _0._0.inl = aOther._0._0.inl;
   } else {
     MOZ_ASSERT(aOther.IsCalc());
     auto* ptr = new StyleCalcLengthPercentage(aOther.AsCalc());
-    // NOTE: in 32-bits, the pointer is not swapped, and goes along with the
-    // tag.
-    calc = {
 #ifdef SERVO_32_BITS
-        TAG_CALC,
-        ptr,
+    _0._0.boxed = {0, ptr};
 #else
-        NativeEndian::swapToLittleEndian(reinterpret_cast<uintptr_t>(ptr)),
+    _0._0.boxed = {
+        NativeEndian::swapToLittleEndian(reinterpret_cast<uintptr_t>(ptr))};
 #endif
-    };
   }
-  MOZ_ASSERT(Tag() == aOther.Tag());
 }
 
-StyleLengthPercentageUnion::~StyleLengthPercentageUnion() {
+LengthPercentage::~StyleLengthPercentage() {
   if (IsCalc()) {
     delete &AsCalc();
   }
@@ -647,20 +689,13 @@ LengthPercentage& LengthPercentage::operator=(const LengthPercentage& aOther) {
 }
 
 bool LengthPercentage::operator==(const LengthPercentage& aOther) const {
-  if (Tag() != aOther.Tag()) {
-    return false;
-  }
   if (IsLength()) {
-    return AsLength() == aOther.AsLength();
+    return aOther.IsLength() && AsLength() == aOther.AsLength();
   }
   if (IsPercentage()) {
-    return AsPercentage() == aOther.AsPercentage();
+    return aOther.IsPercentage() && AsPercentage() == aOther.AsPercentage();
   }
-  return AsCalc() == aOther.AsCalc();
-}
-
-bool LengthPercentage::operator!=(const LengthPercentage& aOther) const {
-  return !(*this == aOther);
+  return aOther.IsCalc() && AsCalc() == aOther.AsCalc();
 }
 
 LengthPercentage LengthPercentage::Zero() { return {}; }
@@ -668,7 +703,7 @@ LengthPercentage LengthPercentage::Zero() { return {}; }
 LengthPercentage LengthPercentage::FromPixels(CSSCoord aCoord) {
   LengthPercentage l;
   MOZ_ASSERT(l.IsLength());
-  l.length.length = {aCoord};
+  l._0._0.inl.value = aCoord;
   return l;
 }
 
@@ -678,7 +713,8 @@ LengthPercentage LengthPercentage::FromAppUnits(nscoord aCoord) {
 
 LengthPercentage LengthPercentage::FromPercentage(float aPercentage) {
   LengthPercentage l;
-  l.percentage = {TAG_PERCENTAGE, {aPercentage}};
+  l._0._0.inl = {StyleNUMERIC_UNION_TAG_INLINE,
+                 StyleLengthPercentageTag::Percentage, aPercentage};
   return l;
 }
 
@@ -735,9 +771,6 @@ nscoord StyleCalcLengthPercentage::Resolve(nscoord aBasis,
   return aRounder(result * AppUnitsPerCSSPixel());
 }
 
-template <>
-void StyleCalcNode::ScaleLengthsBy(float);
-
 CSSCoord LengthPercentage::ResolveToCSSPixels(CSSCoord aPercentageBasis) const {
   if (IsLength()) {
     return AsLength().ToCSSPixels();
@@ -788,15 +821,6 @@ template <typename Rounder>
 nscoord LengthPercentage::Resolve(nscoord aPercentageBasis,
                                   Rounder aRounder) const {
   return Resolve([aPercentageBasis] { return aPercentageBasis; }, aRounder);
-}
-
-void LengthPercentage::ScaleLengthsBy(float aScale) {
-  if (IsLength()) {
-    AsLength().ScaleBy(aScale);
-  }
-  if (IsCalc()) {
-    AsCalc().node.ScaleLengthsBy(aScale);
-  }
 }
 
 #define IMPL_LENGTHPERCENTAGE_FORWARDS(ty_)                                 \
@@ -1100,8 +1124,8 @@ inline void StyleFontWeight::ToString(nsACString& aString) const {
   Servo_FontWeight_ToCss(this, &aString);
 }
 
-inline void StyleFontStretch::ToString(nsACString& aString) const {
-  Servo_FontStretch_ToCss(this, &aString);
+inline void StyleFontWidth::ToString(nsACString& aString) const {
+  Servo_FontWidth_ToCss(this, &aString);
 }
 
 inline void StyleFontStyle::ToString(nsACString& aString) const {
@@ -1125,9 +1149,13 @@ inline float StyleFontStyle::SlantAngle() const {
   return IsNormal() ? 0 : IsItalic() ? DEFAULT_OBLIQUE_DEGREES : ObliqueAngle();
 }
 
-using FontStretch = StyleFontStretch;
+using FontWidth = StyleFontWidth;
 using FontSlantStyle = StyleFontStyle;
 using FontWeight = StyleFontWeight;
+
+inline StyleFontPalette StyleFontPalette::Normal() {
+  return StyleFontPalette{StyleAtom(nsGkAtoms::normal->ToAddRefed())};
+}
 
 template <>
 inline double StyleComputedTimingFunction::At(double aPortion,
@@ -1492,6 +1520,84 @@ template <>
 inline Span<const mozilla::StyleAtom>
 StyleTreeScoped<StyleAnchorNameIdent>::AsSpan() const {
   return value.AsSpan();
+}
+
+inline StyleNumericType::StyleNumericType()
+    : exponents{},
+      percent_hint(StyleOptional<StyleNumericBaseType>::None()),
+      non_zero_count(0),
+      non_zero_except_percent_count(0) {}
+
+inline StyleNumericType StyleNumericType::Empty() { return StyleNumericType(); }
+
+// See declaration for synchronization requirements.
+inline StyleNumericType StyleNumericType::WithBaseType(
+    StyleNumericBaseType aBaseType) {
+  auto result = Empty();
+  result.exponents[static_cast<size_t>(aBaseType)] = 1;
+  result.non_zero_count = 1;
+
+  if (aBaseType != StyleNumericBaseType::Percent) {
+    result.non_zero_except_percent_count = 1;
+  }
+
+  return result;
+}
+
+inline StyleNumericType StyleNumericType::Number() { return Empty(); }
+
+inline StyleNumericType StyleNumericType::Percent() {
+  return WithBaseType(StyleNumericBaseType::Percent);
+}
+
+inline StyleNumericType StyleNumericType::Length() {
+  return WithBaseType(StyleNumericBaseType::Length);
+}
+
+inline StyleNumericType StyleNumericType::Angle() {
+  return WithBaseType(StyleNumericBaseType::Angle);
+}
+
+inline StyleNumericType StyleNumericType::Time() {
+  return WithBaseType(StyleNumericBaseType::Time);
+}
+
+inline StyleNumericType StyleNumericType::Frequency() {
+  return WithBaseType(StyleNumericBaseType::Frequency);
+}
+
+inline StyleNumericType StyleNumericType::Resolution() {
+  return WithBaseType(StyleNumericBaseType::Resolution);
+}
+
+inline StyleNumericType StyleNumericType::Flex() {
+  return WithBaseType(StyleNumericBaseType::Flex);
+}
+
+inline int32_t StyleNumericType::Exponent(
+    StyleNumericBaseType aBaseType) const {
+  return exponents[static_cast<size_t>(aBaseType)];
+}
+
+inline bool StyleNumericType::MatchesLength() const {
+  return Servo_NumericType_MatchesLength(this);
+}
+
+inline bool StyleNumericType::MatchesAngle() const {
+  return Servo_NumericType_MatchesAngle(this);
+}
+
+inline bool StyleNumericType::MatchesLengthPercentage() const {
+  return Servo_NumericType_MatchesLengthPercentage(this);
+}
+
+inline bool StyleNumericType::MatchesNumber() const {
+  return Servo_NumericType_MatchesNumber(this);
+}
+
+inline bool StyleNumericType::operator==(const StyleNumericType& aOther) const {
+  return ArrayEqual(exponents, aOther.exponents) &&
+         percent_hint == aOther.percent_hint;
 }
 
 }  // namespace mozilla

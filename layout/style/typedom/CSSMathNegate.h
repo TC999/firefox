@@ -6,8 +6,12 @@
 #define LAYOUT_STYLE_TYPEDOM_CSSMATHNEGATE_H_
 
 #include "js/TypeDecls.h"
+#include "mozilla/RefPtr.h"
+#include "mozilla/UniquePtr.h"
 #include "mozilla/dom/CSSMathValue.h"
 #include "mozilla/dom/CSSNumericValueBindingFwd.h"
+#include "nsCycleCollectionParticipant.h"
+#include "nsISupportsImpl.h"
 
 template <class T>
 struct already_AddRefed;
@@ -17,7 +21,10 @@ class nsISupports;
 
 namespace mozilla {
 
-class ErrorResult;
+struct CSSPropertyId;
+template <typename T>
+class MovingNotNull;
+struct StyleMathNegate;
 
 namespace dom {
 
@@ -25,22 +32,39 @@ class GlobalObject;
 
 class CSSMathNegate final : public CSSMathValue {
  public:
-  explicit CSSMathNegate(nsCOMPtr<nsISupports> aParent);
+  CSSMathNegate(nsCOMPtr<nsISupports> aParent,
+                MovingNotNull<UniquePtr<StyleNumericType>> aNumericType,
+                RefPtr<CSSNumericValue> aValue);
+
+  static RefPtr<CSSMathNegate> Create(nsCOMPtr<nsISupports> aParent,
+                                      const StyleMathNegate& aMathNegate);
+
+  NS_DECL_ISUPPORTS_INHERITED
+  NS_DECL_CYCLE_COLLECTION_CLASS_INHERITED(CSSMathNegate, CSSMathValue)
 
   JSObject* WrapObject(JSContext* aCx,
                        JS::Handle<JSObject*> aGivenProto) override;
 
   // start of CSSMathNegate Web IDL declarations
 
+  // https://drafts.css-houdini.org/css-typed-om-1/#dom-cssmathnegate-cssmathnegate
   static already_AddRefed<CSSMathNegate> Constructor(
       const GlobalObject& aGlobal, const CSSNumberish& aArg);
 
-  CSSNumericValue* GetValue(ErrorResult& aRv) const;
+  CSSNumericValue* Value() const;
 
   // end of CSSMathNegate Web IDL declarations
 
+  void ToCssTextWithProperty(const CSSPropertyId& aPropertyId,
+                             const SerializationContext& aContext,
+                             nsACString& aDest) const;
+
+  StyleMathNegate ToStyleMathNegate() const;
+
  private:
   virtual ~CSSMathNegate() = default;
+
+  RefPtr<CSSNumericValue> mValue;
 };
 
 }  // namespace dom

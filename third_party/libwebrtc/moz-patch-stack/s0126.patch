@@ -1,22 +1,31 @@
-From: Jan-Ivar Bruaroey <jib@mozilla.com>
-Date: Wed, 8 Oct 2025 17:05:00 +0000
-Subject: Bug 1868223 - Add api:frame_transformer_factory to BUILD.gn r=mjf
+From: Michael Froman <mfroman@mozilla.com>
+Date: Fri, 30 Jan 2026 18:55:00 +0000
+Subject: Bug 2005262 - better logging in
+ ModuleRtpRtcpImpl2::RegisterRtpHeaderExtension. r=ng
 
-Differential Revision: https://phabricator.services.mozilla.com/D267541
-Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/8e7778c59894c284b8bddd39b731e999fe2e807c
+Differential Revision: https://phabricator.services.mozilla.com/D281051
+Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/b44955c4c033ebaf31b40701f12f7cb0dc035ba8
 ---
- BUILD.gn | 1 +
- 1 file changed, 1 insertion(+)
+ modules/rtp_rtcp/source/rtp_rtcp_impl2.cc | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
 
-diff --git a/BUILD.gn b/BUILD.gn
-index aedc27c143..f5b81d1963 100644
---- a/BUILD.gn
-+++ b/BUILD.gn
-@@ -602,6 +602,7 @@ if (!build_with_chromium) {
+diff --git a/modules/rtp_rtcp/source/rtp_rtcp_impl2.cc b/modules/rtp_rtcp/source/rtp_rtcp_impl2.cc
+index 53b0edca26..8d56ca17fb 100644
+--- a/modules/rtp_rtcp/source/rtp_rtcp_impl2.cc
++++ b/modules/rtp_rtcp/source/rtp_rtcp_impl2.cc
+@@ -593,9 +593,14 @@ void ModuleRtpRtcpImpl2::SetExtmapAllowMixed(bool extmap_allow_mixed) {
+ void ModuleRtpRtcpImpl2::RegisterRtpHeaderExtension(absl::string_view uri,
+                                                     RtpHeaderExtensionId id) {
+   RTC_CHECK(rtp_sender_ != nullptr);
++  RTC_LOG(LS_INFO) << "RegisterRtpHeaderExtension uri:'" << uri
++                   << "' id: " << id;
+   bool registered =
+       rtp_sender_->packet_generator.RegisterRtpHeaderExtension(uri, id);
+-  RTC_CHECK(registered);
++  if (!registered) {
++    RTC_LOG(LS_WARNING) << "RegisterRtpHeaderExtension failed to register uri:'" << uri << "' id: " << id;
++  }
++  RTC_DCHECK(registered);
+ }
  
-     if (build_with_mozilla) {
-       deps += [
-+        "api:frame_transformer_factory",
-         "api/audio:builtin_audio_processing_builder",
-         "api/environment:environment_factory",
-         "api/video:video_frame",
+ void ModuleRtpRtcpImpl2::DeregisterSendRtpHeaderExtension(

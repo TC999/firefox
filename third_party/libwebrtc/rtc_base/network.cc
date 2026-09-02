@@ -16,6 +16,7 @@
 #include <cstring>
 #include <map>
 #include <memory>
+#include <span>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -26,7 +27,6 @@
 #include "absl/functional/any_invocable.h"
 #include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
-#include "api/array_view.h"
 #include "api/environment/environment.h"
 #include "api/field_trials_view.h"
 #include "api/sequence_checker.h"
@@ -284,7 +284,11 @@ AdapterType GetAdapterTypeFromName(absl::string_view network_name) {
   if (MatchTypeNameWithIndexPattern(network_name, "ipsec") ||
       MatchTypeNameWithIndexPattern(network_name, "tun") ||
       MatchTypeNameWithIndexPattern(network_name, "utun") ||
-      MatchTypeNameWithIndexPattern(network_name, "tap")) {
+      MatchTypeNameWithIndexPattern(network_name, "tap") ||
+      // Tailscale on Linux; on macOS and iOS it uses utun<index>.
+      MatchTypeNameWithIndexPattern(network_name, "tailscale") ||
+      // Tailscale on Windows.
+      MatchTypeNameWithIndexPattern(network_name, "Tailscale")) {
     return ADAPTER_TYPE_VPN;
   }
 #if defined(WEBRTC_IOS)
@@ -327,6 +331,12 @@ MdnsResponderInterface* NetworkManager::GetMdnsResponder() const {
   return nullptr;
 }
 
+NetworkManager::NetworkManager(NetworksChangedCallback callback) {
+  RTC_CHECK(callback.callback != nullptr);
+  networks_changed_callbacks_.AddReceiver(callback.removal_tag,
+                                          std::move(callback.callback));
+}
+
 void NetworkManager::SubscribeNetworksChanged(
     absl::AnyInvocable<void()> callback) {
   networks_changed_callbacks_.AddReceiver(std::move(callback));
@@ -353,6 +363,10 @@ void NetworkManager::UnsubscribeError(void* tag) {
 
 NetworkManagerBase::NetworkManagerBase()
     : enumeration_permission_(NetworkManager::ENUMERATION_ALLOWED) {}
+
+NetworkManagerBase::NetworkManagerBase(NetworksChangedCallback callback)
+    : NetworkManager(std::move(callback)),
+      enumeration_permission_(NetworkManager::ENUMERATION_ALLOWED) {}
 
 NetworkManager::EnumerationPermission
 NetworkManagerBase::enumeration_permission() const {
@@ -402,14 +416,6 @@ std::vector<const Network*> NetworkManagerBase::GetNetworks() const {
 void NetworkManagerBase::MergeNetworkList(
     std::vector<std::unique_ptr<Network>> new_networks,
     bool* changed) {
-  NetworkManager::Stats stats;
-  MergeNetworkList(std::move(new_networks), changed, &stats);
-}
-
-void NetworkManagerBase::MergeNetworkList(
-    std::vector<std::unique_ptr<Network>> new_networks,
-    bool* changed,
-    NetworkManager::Stats* stats) {
   *changed = false;
   // AddressList in this map will track IP addresses for all Networks
   // with the same key.
@@ -417,7 +423,6 @@ void NetworkManagerBase::MergeNetworkList(
   absl::c_sort(new_networks, webrtc_network_internal::CompareNetworks);
   // First, build a set of network-keys to the ipaddresses.
   for (auto& network : new_networks) {
-    bool might_add_to_merged_list = false;
     std::string key = MakeNetworkKey(network->name(), network->prefix(),
                                      network->prefix_length());
     const std::vector<InterfaceAddress>& addresses = network->GetIPs();
@@ -426,19 +431,10 @@ void NetworkManagerBase::MergeNetworkList(
       AddressList addrlist;
       addrlist.net = std::move(network);
       consolidated_address_list[key] = std::move(addrlist);
-      might_add_to_merged_list = true;
     }
     AddressList& current_list = consolidated_address_list[key];
     for (const InterfaceAddress& address : addresses) {
       current_list.ips.push_back(address);
-    }
-    if (might_add_to_merged_list) {
-      if (current_list.ips[0].family() == AF_INET) {
-        stats->ipv4_network_count++;
-      } else {
-        RTC_DCHECK(current_list.ips[0].family() == AF_INET6);
-        stats->ipv6_network_count++;
-      }
     }
   }
 
@@ -567,7 +563,7 @@ Network* NetworkManagerBase::GetNetworkFromAddress(const IPAddress& ip) const {
   return nullptr;
 }
 
-bool NetworkManagerBase::IsVpnMacAddress(ArrayView<const uint8_t> address) {
+bool NetworkManagerBase::IsVpnMacAddress(std::span<const uint8_t> address) {
   if (address.data() == nullptr && address.empty()) {
     return false;
   }
@@ -585,6 +581,22 @@ BasicNetworkManager::BasicNetworkManager(
     SocketFactory* absl_nonnull socket_factory,
     NetworkMonitorFactory* absl_nullable network_monitor_factory)
     : env_(env),
+      network_monitor_factory_(network_monitor_factory),
+      socket_factory_(socket_factory),
+      allow_mac_based_ipv6_(
+          env_.field_trials().IsEnabled("WebRTC-AllowMACBasedIPv6")),
+      bind_using_ifname_(
+          !env_.field_trials().IsDisabled("WebRTC-BindUsingInterfaceName")) {
+  RTC_DCHECK(socket_factory_);
+}
+
+BasicNetworkManager::BasicNetworkManager(
+    const Environment& env,
+    SocketFactory* absl_nonnull socket_factory,
+    NetworksChangedCallback callback,
+    NetworkMonitorFactory* absl_nullable network_monitor_factory)
+    : NetworkManagerBase(std::move(callback)),
+      env_(env),
       network_monitor_factory_(network_monitor_factory),
       socket_factory_(socket_factory),
       allow_mac_based_ipv6_(
@@ -910,7 +922,7 @@ bool BasicNetworkManager::CreateNetworks(
             adapter_type = ADAPTER_TYPE_VPN;
           }
           if (adapter_type != ADAPTER_TYPE_VPN &&
-              IsVpnMacAddress(ArrayView<const uint8_t>(
+              IsVpnMacAddress(std::span<const uint8_t>(
                   reinterpret_cast<const uint8_t*>(
                       adapter_addrs->PhysicalAddress),
                   adapter_addrs->PhysicalAddressLength))) {
@@ -1092,8 +1104,7 @@ void BasicNetworkManager::UpdateNetworksOnce() {
     NotifyError();
   } else {
     bool changed;
-    NetworkManager::Stats stats;
-    MergeNetworkList(std::move(list), &changed, &stats);
+    MergeNetworkList(std::move(list), &changed);
     set_default_local_addresses(QueryDefaultLocalAddress(AF_INET),
                                 QueryDefaultLocalAddress(AF_INET6));
     if (changed || !sent_first_update_) {
@@ -1167,6 +1178,7 @@ std::unique_ptr<Network> Network::Clone() const {
   clone->active_ = active_;
   clone->id_ = id_;
   clone->network_preference_ = network_preference_;
+  clone->network_slice_ = network_slice_;
   return clone;
 }
 
@@ -1323,6 +1335,9 @@ std::string Network::ToString() const {
      << AdapterTypeToString(type_);
   if (IsVpn()) {
     ss << "/" << AdapterTypeToString(underlying_type_for_vpn_);
+  }
+  if (network_slice() != NetworkSlice::NO_SLICE) {
+    ss << "/" << NetworkSliceToString(network_slice());
   }
   ss << ":id=" << id_ << "]";
   return ss.Release();

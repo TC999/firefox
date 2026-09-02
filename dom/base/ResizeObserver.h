@@ -119,9 +119,11 @@ class ResizeObservation final : public LinkedListElement<ResizeObservation> {
  * ResizeObserver interfaces and algorithms are based on
  * https://drafts.csswg.org/resize-observer/#api
  */
-class ResizeObserver final : public nsISupports, public nsWrapperCache {
+class ResizeObserver final : public nsISupports,
+                             public nsWrapperCache,
+                             public LinkedListElement<ResizeObserver> {
  public:
-  NS_DECL_CYCLE_COLLECTING_ISUPPORTS
+  NS_DECL_CYCLE_COLLECTING_ISUPPORTS_FINAL
   NS_DECL_CYCLE_COLLECTION_WRAPPERCACHE_CLASS(ResizeObserver)
 
   ResizeObserver(nsCOMPtr<nsPIDOMWindowInner>&& aOwner, Document* aDocument,
@@ -207,6 +209,13 @@ class ResizeObserver final : public nsISupports, public nsWrapperCache {
       Element* aTarget, ResizeObserverBoxOptions aBox,
       bool aForceFragmentHandling = false);
 
+  /**
+   * Returns whether this ResizeObserver is currently observing |aElement|.
+   */
+  bool Observes(Element& aElement) const {
+    return mObservationMap.Contains(&aElement);
+  }
+
  protected:
   ~ResizeObserver() { Disconnect(); }
 
@@ -238,7 +247,7 @@ class ResizeObserver final : public nsISupports, public nsWrapperCache {
  */
 class ResizeObserverEntry final : public nsISupports, public nsWrapperCache {
  public:
-  NS_DECL_CYCLE_COLLECTING_ISUPPORTS
+  NS_DECL_CYCLE_COLLECTING_ISUPPORTS_FINAL
   NS_DECL_CYCLE_COLLECTION_WRAPPERCACHE_CLASS(ResizeObserverEntry)
 
   ResizeObserverEntry(
@@ -300,7 +309,7 @@ class ResizeObserverEntry final : public nsISupports, public nsWrapperCache {
 
 class ResizeObserverSize final : public nsISupports, public nsWrapperCache {
  public:
-  NS_DECL_CYCLE_COLLECTING_ISUPPORTS
+  NS_DECL_CYCLE_COLLECTING_ISUPPORTS_FINAL
   NS_DECL_CYCLE_COLLECTION_WRAPPERCACHE_CLASS(ResizeObserverSize)
 
   ResizeObserverSize(nsISupports* aOwner, const LogicalPixelSize& aSize)

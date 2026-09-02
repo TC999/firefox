@@ -3,22 +3,37 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "SocketProcessChild.h"
-#include "SocketProcessLogging.h"
 
-#include "base/task.h"
-#include "InputChannelThrottleQueueChild.h"
+#include "HttpConnectionMgrChild.h"
 #include "HttpInfo.h"
 #include "HttpTransactionChild.h"
-#include "HttpConnectionMgrChild.h"
+#include "InputChannelThrottleQueueChild.h"
+#include "MockNetworkLayerController.h"
+#include "NetworkConnectivityService.h"
+#include "SSLTokensCache.h"
+#include "SocketProcessBridgeParent.h"
+#include "SocketProcessLogging.h"
+#include "XPCSelfHostedShmem.h"
+#include "base/task.h"
+#include "js/Initialization.h"
+#include "js/Prefs.h"
+#include "jsapi.h"
 #include "mozilla/Assertions.h"
 #include "mozilla/Atomics.h"
 #include "mozilla/Components.h"
-#include "mozilla/dom/MemoryReportRequest.h"
 #include "mozilla/FOGIPC.h"
+#include "mozilla/Preferences.h"
+#include "mozilla/RemoteLazyInputStreamChild.h"
+#include "mozilla/StaticPrefs_javascript.h"
+#include "mozilla/StaticPrefs_network.h"
+#include "mozilla/Telemetry.h"
+#include "mozilla/dom/MemoryReportRequest.h"
 #include "mozilla/glean/GleanTestsTestMetrics.h"
 #include "mozilla/ipc/CrashReporterClient.h"
 #include "mozilla/ipc/ProcessChild.h"
+#include "mozilla/ipc/ProcessUtils.h"
 #include "mozilla/net/AltSvcTransactionChild.h"
+#include "mozilla/net/AppleFastDatapathProbe.h"
 #include "mozilla/net/BackgroundDataBridgeParent.h"
 #include "mozilla/net/DNSRequestChild.h"
 #include "mozilla/net/DNSRequestParent.h"
@@ -26,30 +41,17 @@
 #include "mozilla/net/ProxyAutoConfigChild.h"
 #include "mozilla/net/SocketProcessBackgroundChild.h"
 #include "mozilla/net/TRRServiceChild.h"
-#include "mozilla/ipc/ProcessUtils.h"
-#include "mozilla/Preferences.h"
-#include "mozilla/RemoteLazyInputStreamChild.h"
-#include "mozilla/StaticPrefs_javascript.h"
-#include "mozilla/StaticPrefs_network.h"
-#include "mozilla/Telemetry.h"
-#include "MockNetworkLayerController.h"
-#include "NetworkConnectivityService.h"
 #include "nsDebugImpl.h"
 #include "nsHttpConnectionInfo.h"
 #include "nsHttpHandler.h"
 #include "nsIDNSService.h"
 #include "nsIHttpActivityObserver.h"
 #include "nsIXULRuntime.h"
+#include "nsNSSComponent.h"
 #include "nsNetAddr.h"
 #include "nsNetUtil.h"
-#include "nsNSSComponent.h"
 #include "nsSocketTransportService2.h"
 #include "nsThreadManager.h"
-#include "SocketProcessBridgeParent.h"
-#include "jsapi.h"
-#include "js/Initialization.h"
-#include "js/Prefs.h"
-#include "XPCSelfHostedShmem.h"
 
 #if defined(XP_WIN)
 #  include <process.h>
@@ -65,10 +67,6 @@
 #endif
 
 #include "ChildProfilerController.h"
-
-#ifdef MOZ_WEBRTC
-#  include "mozilla/net/WebrtcTCPSocketChild.h"
-#endif
 
 #if defined(MOZ_SANDBOX) && defined(MOZ_DEBUG) && defined(ENABLE_TESTS)
 #  include "mozilla/SandboxTestingChild.h"
@@ -282,7 +280,7 @@ void SocketProcessChild::CleanUp() {
 }
 
 mozilla::ipc::IPCResult SocketProcessChild::RecvInit(
-    const SocketPorcessInitAttributes& aAttributes) {
+    const SocketProcessInitAttributes& aAttributes) {
   (void)RecvSetOffline(aAttributes.mOffline());
   (void)RecvSetConnectivity(aAttributes.mConnectivity());
   if (aAttributes.mInitSandbox()) {
@@ -294,6 +292,22 @@ mozilla::ipc::IPCResult SocketProcessChild::RecvInit(
   dllSvc->StartUntrustedModulesProcessor(
       aAttributes.mIsReadyForBackgroundProcessing());
 #endif  // defined(XP_WIN)
+
+#if defined(XP_MACOSX) || defined(XP_IOS)
+  if (aAttributes.mAppleFastDatapathProbeAllowed()) {
+    NS_DispatchBackgroundTask(
+        NS_NewRunnableFunction("net::AppleFastDatapathProbe", []() {
+          bool result = InitAppleFastDatapathProbe();
+          NS_DispatchToMainThread(NS_NewRunnableFunction(
+              "net::AppleFastDatapathProbeResult", [result]() {
+                if (SocketProcessChild* child =
+                        SocketProcessChild::GetSingleton()) {
+                  (void)child->SendAppleFastDatapathProbeResult(result);
+                }
+              }));
+        }));
+  }
+#endif  // defined(XP_MACOSX) || defined(XP_IOS)
 
   return IPC_OK();
 }
@@ -401,25 +415,6 @@ void SocketProcessChild::DestroySocketProcessBridgeParent(ProcessId aId) {
   mSocketProcessBridgeParentMap.Remove(aId);
 }
 
-PWebrtcTCPSocketChild* SocketProcessChild::AllocPWebrtcTCPSocketChild(
-    const Maybe<TabId>& tabId) {
-  // We don't allocate here: instead we always use IPDL constructor that takes
-  // an existing object
-  MOZ_ASSERT_UNREACHABLE(
-      "AllocPWebrtcTCPSocketChild should not be called on"
-      " socket child");
-  return nullptr;
-}
-
-bool SocketProcessChild::DeallocPWebrtcTCPSocketChild(
-    PWebrtcTCPSocketChild* aActor) {
-#ifdef MOZ_WEBRTC
-  WebrtcTCPSocketChild* child = static_cast<WebrtcTCPSocketChild*>(aActor);
-  child->ReleaseIPDLReference();
-#endif
-  return true;
-}
-
 already_AddRefed<PHttpTransactionChild>
 SocketProcessChild::AllocPHttpTransactionChild() {
   RefPtr<HttpTransactionChild> actor = new HttpTransactionChild();
@@ -510,7 +505,8 @@ mozilla::ipc::IPCResult SocketProcessChild::RecvPDNSRequestConstructor(
     const nsACString& aTrrServer, const int32_t& aPort, const uint16_t& aType,
     const OriginAttributes& aOriginAttributes,
     const nsIDNSService::DNSFlags& aFlags) {
-  RefPtr<DNSRequestChild> actor = static_cast<DNSRequestChild*>(aActor);
+  RefPtr<DNSRequestChild> actor =
+      mozilla::ipc::ActorCast<DNSRequestChild>(aActor);
   RefPtr<DNSRequestHandler> handler =
       actor->GetDNSRequest()->AsDNSRequestHandler();
   handler->DoAsyncResolve(aHost, aTrrServer, aPort, aType, aOriginAttributes,
@@ -537,7 +533,15 @@ SocketProcessChild::GetAndRemoveDataBridge(uint64_t aChannelId) {
 
 mozilla::ipc::IPCResult SocketProcessChild::RecvClearSessionCache(
     ClearSessionCacheResolver&& aResolve) {
-  nsNSSComponent::DoClearSSLExternalAndInternalSessionCache();
+  SSLTokensCache::ClearSessionCacheAndTokens();
+  aResolve(void_t{});
+  return IPC_OK();
+}
+
+mozilla::ipc::IPCResult
+SocketProcessChild::RecvClearPrivateBrowsingSessionCache(
+    ClearPrivateBrowsingSessionCacheResolver&& aResolve) {
+  SSLTokensCache::ClearSessionCacheAndPBMTokens();
   aResolve(void_t{});
   return IPC_OK();
 }
@@ -552,7 +556,7 @@ already_AddRefed<PTRRServiceChild> SocketProcessChild::AllocPTRRServiceChild(
 mozilla::ipc::IPCResult SocketProcessChild::RecvPTRRServiceConstructor(
     PTRRServiceChild* aActor, const bool& aCaptiveIsPassed,
     const bool& aParentalControlEnabled, nsTArray<nsCString>&& aDNSSuffixList) {
-  static_cast<TRRServiceChild*>(aActor)->Init(
+  mozilla::ipc::ActorCast<TRRServiceChild>(aActor)->Init(
       aCaptiveIsPassed, aParentalControlEnabled, std::move(aDNSSuffixList));
   return IPC_OK();
 }
@@ -767,6 +771,27 @@ mozilla::ipc::IPCResult SocketProcessChild::RecvRecheckDNS() {
 mozilla::ipc::IPCResult SocketProcessChild::RecvFlushFOGData(
     FlushFOGDataResolver&& aResolver) {
   glean::FlushFOGData(std::move(aResolver));
+  return IPC_OK();
+}
+
+mozilla::ipc::IPCResult SocketProcessChild::RecvLoadSSLTokensCache(
+    nsTArray<SSLTokensCacheRecordInfo>&& aRecords) {
+  SSLTokensCache::DeserializeFromIPCAsync(std::move(aRecords),
+                                          /* aRestored */ true);
+  return IPC_OK();
+}
+
+mozilla::ipc::IPCResult SocketProcessChild::RecvFlushSSLTokensCache(
+    FlushSSLTokensCacheResolver&& aResolver) {
+  aResolver(SSLTokensCache::SerializeForIPC());
+  return IPC_OK();
+}
+
+mozilla::ipc::IPCResult SocketProcessChild::RecvGetSSLTokensCacheData(
+    GetSSLTokensCacheDataResolver&& aResolve) {
+  nsTArray<SSLTokensCacheRecordInfo> records;
+  SSLTokensCache::GetAllRecords(records);
+  aResolve(std::move(records));
   return IPC_OK();
 }
 

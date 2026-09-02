@@ -28,6 +28,13 @@ export class GeckoViewPermissionParent extends GeckoViewActorParent {
     return granted;
   }
 
+  async getContentPermission(aData) {
+    return this.eventDispatcher.sendRequestForResult(
+      "GeckoView:ContentPermission",
+      aData
+    );
+  }
+
   addCameraPermission() {
     const principal =
       Services.scriptSecurityManager.createContentPrincipalFromOrigin(
@@ -50,27 +57,21 @@ export class GeckoViewPermissionParent extends GeckoViewActorParent {
     debug`receiveMessage ${aMessage.name}`;
 
     switch (aMessage.name) {
-      case "GetAppPermissions": {
-        return this.getAppPermissions(aMessage.data);
-      }
-      case "AddCameraPermission": {
+      case "GeckoView:AddCameraPermission": {
         return this.addCameraPermission();
       }
       case "GeckoView:MediaPermission": {
         return this.eventDispatcher.sendRequestForResult(
           "GeckoView:MediaPermission",
-          aMessage.data
+          {
+            ...aMessage.data,
+            uri: this.manager.documentURI?.spec ?? "",
+          }
         );
       }
       case "GeckoView:MediaRecordingStatusChanged": {
         return this.eventDispatcher.sendRequest(
           "GeckoView:MediaRecordingStatusChanged",
-          aMessage.data
-        );
-      }
-      case "GeckoView:ContentPermission": {
-        return this.eventDispatcher.sendRequestForResult(
-          "GeckoView:ContentPermission",
           aMessage.data
         );
       }

@@ -19,6 +19,7 @@ class WeakRefObject : public gc::ObserverListObject {
 
   Value target();
 
+  void setTarget(Value target);
   void setTargetUnbarriered(Value target);
   void clearTargetAndUnlink();
 
@@ -31,8 +32,6 @@ class WeakRefObject : public gc::ObserverListObject {
   [[nodiscard]] static bool construct(JSContext* cx, unsigned argc, Value* vp);
   static void trace(JSTracer* trc, JSObject* obj);
   static void finalize(JS::GCContext* gcx, JSObject* obj);
-
-  static bool preserveDOMWrapper(JSContext* cx, HandleObject obj);
 
   static bool deref(JSContext* cx, unsigned argc, Value* vp);
   static void readBarrier(JSContext* cx, Handle<WeakRefObject*> self);

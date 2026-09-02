@@ -53,8 +53,10 @@ pub struct Args {
     /// Channel of the updates under test. Needed to fully unpack `from` and `to` builds.
     pub channel: String,
     /// Product of the updates under test. Needed to accurately assess acceptable differences
-    /// found.
-    pub appname: String,
+    /// found, and construct various filenames and paths. Note: this must be the name used
+    /// internally, eg: in the installer name. For DevEdition, this means "firefox"
+    /// is the correct string.
+    pub product: String,
     /// Directory to put artifacts, eg: diffs
     pub artifact_dir: PathBuf,
     /// Information about a `from` build to test, separated by a `|`:
@@ -70,26 +72,17 @@ pub struct Args {
     /// `--cert-replace-script` and `--cert-dir` must also be passed.
     #[arg(long)]
     pub cert_override: Vec<CertOverride>,
-    /// Path to replace-updater-certs.py. Required when --cert-override is given.
-    #[arg(long)]
-    pub cert_replace_script: Option<PathBuf>,
     /// Path to directory that contains mar certs. Required when --cert-override is given.
     #[arg(long)]
     pub cert_dir: Option<PathBuf>,
+    #[arg(short = 'j', long)]
+    pub parallelism: Option<usize>,
 }
 
 impl Args {
     pub fn parse_and_validate() -> Self {
         let mut args = Self::parse();
         if !args.cert_override.is_empty() {
-            if args.cert_replace_script.is_none() {
-                Self::command()
-                    .error(
-                        clap::error::ErrorKind::MissingRequiredArgument,
-                        "--cert-replace-script is required when --cert-override is given",
-                    )
-                    .exit();
-            }
             if args.cert_dir.is_none() {
                 Self::command()
                     .error(
@@ -98,15 +91,44 @@ impl Args {
                     )
                     .exit();
             }
+
+            let cert_dir = args.cert_dir.as_ref().unwrap();
+            for cert_pair in &args.cert_override {
+                let orig_len = std::fs::metadata(cert_dir.join(&cert_pair.orig))
+                    .unwrap_or_else(|e| {
+                        Self::command()
+                            .error(
+                                clap::error::ErrorKind::InvalidValue,
+                                format!("Failed to stat cert '{}': {e}", cert_pair.orig),
+                            )
+                            .exit()
+                    })
+                    .len();
+                let replacement_len = std::fs::metadata(cert_dir.join(&cert_pair.replacement))
+                    .unwrap_or_else(|e| {
+                        Self::command()
+                            .error(
+                                clap::error::ErrorKind::InvalidValue,
+                                format!("Failed to stat cert '{}': {e}", cert_pair.replacement),
+                            )
+                            .exit()
+                    })
+                    .len();
+                if orig_len != replacement_len {
+                    Self::command()
+                        .error(
+                            clap::error::ErrorKind::InvalidValue,
+                            format!(
+                                "certs '{}' and '{}' must be the same length, but are {} and {} bytes respectively",
+                                cert_pair.orig, cert_pair.replacement, orig_len, replacement_len
+                            ),
+                        )
+                        .exit();
+                }
+            }
         }
         args.check_updates_script = absolute(args.check_updates_script)
             .expect("Failed to convert check updates script into an absolute path!");
-        if let Some(script) = args.cert_replace_script {
-            args.cert_replace_script = Some(
-                absolute(script)
-                    .expect("Failed to convert cert replace script into an absolute path!"),
-            );
-        }
         return args;
     }
 }

@@ -13,6 +13,7 @@
 #  include "PlatformDecoderModule.h"
 #  include "SeekTarget.h"
 #  include "mozilla/Atomics.h"
+#  include "mozilla/CumulativeAverage.h"
 #  include "mozilla/Maybe.h"
 #  include "mozilla/MozPromise.h"
 #  include "mozilla/Mutex.h"
@@ -691,27 +692,38 @@ class MediaFormatReader final
     // on reader's task queue,
     bool mHasReportedVideoHardwareSupportTelemtry = false;
 
-    class {
+    // Running frame-rate estimate over valid demuxed samples for the current
+    // stream source.
+    class FrameRateEstimator {
      public:
-      float Mean() const { return mMean; }
+      double Rate() const {
+        MOZ_ASSERT_IF(!mMeanDuration.empty(), mMeanDuration.mean() > 0.0);
+        return mMeanDuration.empty() ? 0.0 : 1.0 / mMeanDuration.mean();
+      }
 
-      void Update(const media::TimeUnit& aValue) {
-        if (aValue == media::TimeUnit::Zero()) {
+      void Observe(const MediaRawData& aSample) {
+        // mTrackInfo is a sparse stream-change marker.
+        if (aSample.mTrackInfo &&
+            (mSourceID.isNothing() ||
+             mSourceID.ref() != aSample.mTrackInfo->GetID())) {
+          Reset();
+          mSourceID = Some(aSample.mTrackInfo->GetID());
+        }
+
+        const media::TimeUnit& duration = aSample.mDuration;
+        if (!duration.IsValid() || !duration.IsPositive() ||
+            duration.IsInfinite()) {
           return;
         }
-        mMean += static_cast<float>((1.0f / aValue.ToSeconds() - mMean) /
-                                    static_cast<double>(++mCount));
+        mMeanDuration.insert(duration.ToSeconds());
       }
 
-      void Reset() {
-        mMean = 0;
-        mCount = 0;
-      }
+      void Reset() { mMeanDuration.reset(); }
 
      private:
-      float mMean = 0;
-      uint64_t mCount = 0;
-    } mMeanRate;
+      CumulativeAverage<double> mMeanDuration;
+      Maybe<uint32_t> mSourceID;
+    } mFrameRateEstimator;
   };
 
   template <typename Type>
@@ -851,6 +863,11 @@ class MediaFormatReader final
   // Temporary seek information while we wait for the data
   Maybe<media::TimeUnit> mFallbackSeekTime;
   Maybe<media::TimeUnit> mPendingSeekTime;
+  // Decode threshold computed when a video seek completes, remembered so it can
+  // be delivered once the decoder is restarted: a cold start during the seek
+  // releases and recreates the decoder after IsSeeking() is already false,
+  // which would otherwise drop the threshold before it reaches the new decoder.
+  Maybe<media::TimeUnit> mPendingVideoSeekThreshold;
   MozPromiseHolder<SeekPromise> mSeekPromise;
 
   RefPtr<VideoFrameContainer> mVideoFrameContainer;

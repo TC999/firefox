@@ -23,7 +23,7 @@ use crate::error::*;
 use core::marker::PhantomData;
 
 pub use ec::{Curve, EcKey};
-use nss::{ec, ecdh};
+use nss_as::{ec, ecdh};
 
 pub type EphemeralKeyPair = KeyPair<Ephemeral>;
 
@@ -254,7 +254,7 @@ impl InputKeyMaterial {
 mod tests {
     use super::*;
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-    use nss::ensure_initialized;
+    use nss_as::ensure_initialized;
 
     // Test vectors copied from:
     // https://chromium.googlesource.com/chromium/src/+/56f1232/components/test/data/webcrypto/ecdh.json#5
@@ -394,11 +394,10 @@ mod tests {
             .agree_static(&UnparsedPublicKey::new(&ECDH_P256, &invalid_pub_key))
             .is_err());
 
-        let mut invalid_pub_key = [0u8; 65];
+        let invalid_pub_key = [0u8; 65];
         assert!(prv_key
             .agree_static(&UnparsedPublicKey::new(&ECDH_P256, &invalid_pub_key))
             .is_err());
-        invalid_pub_key[0] = 0x04;
 
         let mut invalid_pub_key = URL_SAFE_NO_PAD.decode(PUB_KEY_1_B64).unwrap().to_vec();
         invalid_pub_key = invalid_pub_key[0..64].to_vec();

@@ -9,6 +9,6 @@ embedHelperLib.initEmbedShim({
   scriptURL: "https://platform.twitter.com/widgets.js",
   embedLogoURL: "https://smartblock.firefox.etp/x-logo.svg",
   embedSelector:
-    ".twitter-tweet, .twitter-timeline, .twitter-video, .tweet-embed",
+    '.twitter-tweet, .twitter-timeline, .twitter-video, .tweet-embed, iframe[src*="platform.twitter.com/embed/"], iframe[src*="platform.x.com/embed/"], embed-component[media-url*="twitter.com/"], embed-component[media-url*="x.com/"]',
   isTestShim: false,
 });

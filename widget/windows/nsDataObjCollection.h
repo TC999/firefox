@@ -8,9 +8,9 @@
 #include <oleidl.h>
 
 #include "mozilla/RefPtr.h"
+#include "nsDataObj.h"
 #include "nsString.h"
 #include "nsTArray.h"
-#include "nsDataObj.h"
 
 #define MULTI_MIME "Mozilla/IDataObjectCollectionFormat"
 
@@ -31,7 +31,7 @@ class nsIDataObjCollection : public IUnknown {
 class nsDataObjCollection final : public nsIDataObjCollection,
                                   public nsDataObj {
  public:
-  nsDataObjCollection();
+  nsDataObjCollection() = default;
 
  private:
   ~nsDataObjCollection() final;
@@ -43,10 +43,13 @@ class nsDataObjCollection final : public nsIDataObjCollection,
 
  private:  // DataGet and DataSet helper methods
   HRESULT GetFile(LPFORMATETC pFE, LPSTGMEDIUM pSTM);
-  HRESULT GetText(LPFORMATETC pFE, LPSTGMEDIUM pSTM);
-  HRESULT GetFileDescriptors(LPFORMATETC pFE, LPSTGMEDIUM pSTM);
+  HRESULT GetFileDescriptors(LPFORMATETC pFE, LPSTGMEDIUM pSTM,
+                             bool aIsWideChar);
   HRESULT GetFileContents(LPFORMATETC pFE, LPSTGMEDIUM pSTM);
   HRESULT GetFirstSupporting(LPFORMATETC pFE, LPSTGMEDIUM pSTM);
+
+  template <typename CharT, typename StringT>
+  HRESULT GetText(LPFORMATETC pFE, LPSTGMEDIUM pSTM);
 
   using nsDataObj::GetFile;
   using nsDataObj::GetFileContents;

@@ -11,14 +11,13 @@
 #include "mozilla/Logging.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/Mutex.h"
+#include "mozilla/Queue.h"
 #include "mozilla/RWLock.h"
 #include "mozilla/TimeStamp.h"
-#include "mozilla/Queue.h"
-
 #include "mozilla/UniquePtr.h"
 #include "mozilla/net/DashboardTypes.h"
-#include "nsCOMPtr.h"
 #include "nsASocketHandler.h"
+#include "nsCOMPtr.h"
 #include "nsIDirectTaskDispatcher.h"
 #include "nsIObserver.h"
 #include "nsIRunnable.h"
@@ -201,8 +200,7 @@ class nsSocketTransportService final : public nsPISocketTransportService,
 
   class SocketContext {
    public:
-    SocketContext(PRFileDesc* aFD,
-                  already_AddRefed<nsASocketHandler>&& aHandler,
+    SocketContext(PRFileDesc* aFD, already_AddRefed<nsASocketHandler> aHandler,
                   PRIntervalTime aPollStartEpoch)
         : mFD(aFD), mHandler(aHandler), mPollStartEpoch(aPollStartEpoch) {}
     SocketContext(PRFileDesc* aFD, nsASocketHandler* aHandler,
@@ -292,7 +290,7 @@ class nsSocketTransportService final : public nsPISocketTransportService,
   // Number of keepalive probes to send.
   int32_t mKeepaliveProbeCount{kDefaultTCPKeepCount};
   // True if TCP keepalive is enabled globally.
-  bool mKeepaliveEnabledPref{false};
+  Atomic<bool, Relaxed> mKeepaliveEnabledPref{false};
   // Timeout of pollable event signalling.
   TimeDuration mPollableEventTimeout MOZ_GUARDED_BY(mLock);
 
@@ -357,6 +355,12 @@ class nsSocketTransportService final : public nsPISocketTransportService,
 
 extern nsSocketTransportService* gSocketTransportService;
 bool OnSocketThread();
+
+// Unlike NS_DispatchToCurrentThread, this function tries to dispatch
+// to the currentSerialEventTarget, so the prioritization logic in
+// nsSocketTransportService::Dispatch gets to run.
+nsresult DispatchToCurrent(already_AddRefed<nsIRunnable> aEvent);
+nsresult DispatchToCurrent(nsIRunnable* aEvent);
 
 }  // namespace net
 }  // namespace mozilla

@@ -13,7 +13,8 @@ import org.mozilla.fenix.ui.efficiency.navigation.NavigationStep
 import org.mozilla.fenix.ui.efficiency.selectors.SettingsCustomizeSelectors
 import org.mozilla.fenix.ui.efficiency.selectors.SettingsSelectors
 
-class SettingsCustomizePage(composeRule: AndroidComposeTestRule<HomeActivityIntentTestRule, *>) : BasePage(composeRule) {
+class SettingsCustomizePage(composeRule: AndroidComposeTestRule<HomeActivityIntentTestRule, *>) :
+    BasePage(composeRule) {
     override val pageName = "SettingsCustomizePage"
 
     init {
@@ -22,6 +23,26 @@ class SettingsCustomizePage(composeRule: AndroidComposeTestRule<HomeActivityInte
             to = "SettingsPage",
             steps = listOf(NavigationStep.Click(SettingsSelectors.GO_BACK_BUTTON)),
         )
+
+        NavigationRegistry.register(
+            from = pageName,
+            to = "BrowserPage",
+            steps =
+                listOf(
+                    NavigationStep.Click(SettingsCustomizeSelectors.NAVIGATE_BACK_TOOLBAR_BUTTON),
+                    NavigationStep.Click(SettingsSelectors.GO_BACK_BUTTON),
+                ),
+        )
+    }
+
+    override fun navigateToPage(url: String, forceNavigation: Boolean): SettingsCustomizePage {
+        super.navigateToPage(url, forceNavigation)
+        return this
+    }
+
+    fun verifyOptionIsSelected(selector: Selector): SettingsCustomizePage {
+        mozVerifyElementHasCheckedSiblingByResName(selector, "radio_button")
+        return this
     }
 
     override fun mozGetSelectorsByGroup(group: String): List<Selector> {

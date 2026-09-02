@@ -4,6 +4,7 @@
 
 #include "jit/MIR.h"
 
+#include "mozilla/Casting.h"
 #include "mozilla/FloatingPoint.h"
 #include "mozilla/MathAlgorithms.h"
 #include "mozilla/Maybe.h"
@@ -13,6 +14,7 @@
 #include <bit>
 #include <utility>
 
+#include "builtin/Date.h"
 #include "builtin/Math.h"
 #include "builtin/Number.h"
 #include "builtin/RegExp.h"
@@ -26,6 +28,7 @@
 #include "jit/WarpBuilderShared.h"
 #include "jit/WarpSnapshot.h"
 #include "js/Conversions.h"
+#include "js/Date.h"
 #include "js/experimental/JitInfo.h"  // JSJitInfo, JSTypedMethodJitInfo
 #include "js/ScalarType.h"            // js::Scalar::Type
 #include "util/PortableMath.h"
@@ -709,6 +712,16 @@ void MInstruction::stealResumePoint(MInstruction* other) {
 
   resumePoint->resetInstruction();
   setResumePoint(resumePoint);
+}
+
+bool MInstruction::copyResumePointFrom(TempAllocator& alloc,
+                                       MInstruction* previous) {
+  MResumePoint* rp = previous->resumePoint_->clone(alloc);
+  if (!rp) {
+    return false;
+  }
+  setResumePoint(rp);
+  return true;
 }
 
 void MInstruction::moveResumePointAsEntry() {
@@ -2238,6 +2251,18 @@ MDefinition* MCodePointAt::foldsTo(TempAllocator& alloc) {
   return MConstant::NewInt32(alloc, first);
 }
 
+MDefinition* MLinearizeString::foldsTo(TempAllocator& alloc) {
+  MDefinition* string = this->string();
+  if (!string->isConstant()) {
+    return this;
+  }
+
+  // Constant strings are atoms, which are guaranteed to be linear.
+  static_assert(std::is_same_v<decltype(string->toConstant()->toString()),
+                               JSOffThreadAtom*>);
+  return string;
+}
+
 MDefinition* MToRelativeStringIndex::foldsTo(TempAllocator& alloc) {
   MDefinition* index = this->index();
   MDefinition* length = this->length();
@@ -2732,25 +2757,6 @@ bool MPhi::markIteratorPhis(const PhiVector& iterators) {
   return true;
 }
 
-bool MPhi::typeIncludes(MDefinition* def) {
-  MOZ_ASSERT(!IsMagicType(def->type()));
-
-  if (def->type() == this->type()) {
-    return true;
-  }
-
-  // This phi must be able to be any value.
-  if (this->type() == MIRType::Value) {
-    return true;
-  }
-
-  if (def->type() == MIRType::Int32 && this->type() == MIRType::Double) {
-    return true;
-  }
-
-  return false;
-}
-
 void MCallBase::addArg(size_t argnum, MDefinition* arg) {
   // The operand vector is initialized in reverse order by WarpBuilder.
   // It cannot be checked for consistency until all arguments are added.
@@ -2803,9 +2809,8 @@ MDefinition* MBinaryBitwiseInstruction::foldsTo(TempAllocator& alloc) {
 }
 
 MDefinition* MBinaryBitwiseInstruction::foldUnnecessaryBitop() {
-  // It's probably OK to perform this optimization only for int32, as it will
-  // have the greatest effect for asm.js code that is compiled with the JS
-  // pipeline, and that code will not see int64 values.
+  // It's probably OK to perform this optimization only for int32, as JS
+  // bytecode does not see int64 values.
 
   if (type() != MIRType::Int32) {
     return this;
@@ -3060,9 +3065,8 @@ MDefinition* MRsh::foldsTo(TempAllocator& alloc) {
   MDefinition* lhs = getOperand(0);
   MDefinition* rhs = getOperand(1);
 
-  // It's probably OK to perform this optimization only for int32, as it will
-  // have the greatest effect for asm.js code that is compiled with the JS
-  // pipeline, and that code will not see int64 values.
+  // It's probably OK to perform this optimization only for int32, as JS
+  // bytecode does not see int64 values.
 
   if (!lhs->isLsh() || !rhs->isConstant() || rhs->type() != MIRType::Int32) {
     return this;
@@ -4268,6 +4272,11 @@ static void AssertKnownClass(TempAllocator& alloc, MInstruction* ins,
 MDefinition* MBoxNonStrictThis::foldsTo(TempAllocator& alloc) {
   MDefinition* in = input();
 
+  // BoxNonStrictThis is a no-op on objects.
+  if (in->type() == MIRType::Object) {
+    return in;
+  }
+
   if (!in->isBox()) {
     return this;
   }
@@ -4408,6 +4417,19 @@ MResumePoint* MResumePoint::New(TempAllocator& alloc, MBasicBlock* block,
     return nullptr;
   }
   resume->inherit(block);
+  return resume;
+}
+
+MResumePoint* MResumePoint::clone(TempAllocator& alloc) {
+  MResumePoint* resume = new (alloc) MResumePoint(block(), pc_, mode_);
+  size_t n = this->numOperands();
+  if (!resume->operands_.init(alloc, n)) {
+    return nullptr;
+  }
+  for (size_t i = 0; i < n; i++) {
+    resume->initOperand(i, getOperand(i));
+  }
+  resume->stores_.copy(this->stores_);
   return resume;
 }
 
@@ -4868,13 +4890,19 @@ MDefinition* MToFloat16::foldsTo(TempAllocator& alloc) {
       return def;
     }
 
+    // Unwrap CanonicalizeNaN added after load instructions.
+    MDefinition* load = def;
+    if (load->isCanonicalizeNaN()) {
+      load = load->toCanonicalizeNaN()->input();
+    }
+
     // ToFloat16(LoadFloat16(x)) => LoadFloat16(x)
-    if (def->isLoadUnboxedScalar() &&
-        def->toLoadUnboxedScalar()->storageType() == Scalar::Float16) {
+    if (load->isLoadUnboxedScalar() &&
+        load->toLoadUnboxedScalar()->storageType() == Scalar::Float16) {
       return def;
     }
-    if (def->isLoadDataViewElement() &&
-        def->toLoadDataViewElement()->storageType() == Scalar::Float16) {
+    if (load->isLoadDataViewElement() &&
+        load->toLoadDataViewElement()->storageType() == Scalar::Float16) {
       return def;
     }
     return nullptr;
@@ -5681,6 +5709,80 @@ MDefinition* MCompare::tryFoldStringIndexOf(TempAllocator& alloc) {
   return MNot::New(alloc, startsWith);
 }
 
+/**
+ * Most architectures can generate smaller code for comparison against zero, so
+ * the macro-assemblers special-case a zero immediate when emitting
+ * compare-and-branch instructions.
+ *
+ * Some comparisons against one resp. negative one can instead be written as a
+ * comparison against zero. Handle these cases here to avoid duplicating the
+ * same code across all architectures.
+ */
+static bool CanCompareAgainstZero(int64_t value, JSOp op, bool isSigned) {
+  switch (op) {
+    case JSOp::Lt:
+    case JSOp::Ge:
+      // Can rewrite |operand < 1| as |operand <= 0|.
+      // Can rewrite |operand >= 1| as |operand > 0|.
+      return value == 1;
+
+    case JSOp::Le:
+    case JSOp::Gt:
+      // Can rewrite |operand <= -1| as |operand < 0|.
+      // Can rewrite |operand > -1| as |operand >= 0|.
+      return isSigned && value == -1;
+
+    default:
+      return false;
+  }
+}
+
+MCompare* MCompare::newCompareInt(TempAllocator& alloc, MDefinition* operand,
+                                  int64_t value, JSOp op, bool isSigned) {
+  MOZ_ASSERT(IsIntType(operand->type()) || operand->type() == MIRType::BigInt);
+  MOZ_ASSERT_IF(operand->type() == MIRType::BigInt, isSigned);
+
+  // Prefer comparison against zero if possible.
+  if (CanCompareAgainstZero(value, op, isSigned)) {
+    value = 0;
+
+    // Update operator: (Lt -> Le), (Le -> Lt), (Gt -> Ge), (Ge -> Gt).
+    op = ReverseCompareOp(NegateCompareOp(op));
+  }
+
+  MConstant* cst;
+  CompareType compareType;
+  switch (operand->type()) {
+    case MIRType::Int32:
+      cst = MConstant::NewInt32(alloc, mozilla::AssertedCast<int32_t>(value));
+      compareType = isSigned ? Compare_Int32 : Compare_UInt32;
+      break;
+
+    case MIRType::Int64:
+      cst = MConstant::NewInt64(alloc, value);
+      compareType = isSigned ? Compare_Int64 : Compare_UInt64;
+      break;
+
+    case MIRType::IntPtr:
+      cst = MConstant::NewIntPtr(alloc, mozilla::AssertedCast<intptr_t>(value));
+      compareType = isSigned ? Compare_IntPtr : Compare_UIntPtr;
+      break;
+
+    case MIRType::BigInt:
+      cst = MConstant::NewInt32(alloc, mozilla::AssertedCast<int32_t>(value));
+      compareType = Compare_BigInt_Int32;
+      break;
+
+    default:
+      MOZ_CRASH("unexpected operand type");
+  }
+  block()->insertBefore(this, cst);
+
+  auto* ins = MCompare::New(alloc, operand, cst, op, compareType);
+  ins->setResultType(type());
+  return ins;
+}
+
 MDefinition* MCompare::tryFoldBigInt64(TempAllocator& alloc) {
   if (compareType() == Compare_BigInt) {
     auto* left = lhs();
@@ -5778,17 +5880,11 @@ MDefinition* MCompare::tryFoldBigInt64(TempAllocator& alloc) {
       return MConstant::NewBoolean(alloc, result);
     }
 
-    auto* cst = MConstant::NewInt64(alloc, *value);
-    block()->insertBefore(this, cst);
-
-    auto compareType =
-        isSigned ? MCompare::Compare_Int64 : MCompare::Compare_UInt64;
-    if (left == int64ToBigInt) {
-      return MCompare::New(alloc, int64ToBigInt->input(), cst, jsop_,
-                           compareType);
+    JSOp op = jsop();
+    if (right == int64ToBigInt) {
+      op = ReverseCompareOp(op);
     }
-    return MCompare::New(alloc, cst, int64ToBigInt->input(), jsop_,
-                         compareType);
+    return newCompareInt(alloc, int64ToBigInt->input(), *value, op, isSigned);
   }
 
   if (compareType() == Compare_BigInt_Int32) {
@@ -5814,13 +5910,8 @@ MDefinition* MCompare::tryFoldBigInt64(TempAllocator& alloc) {
       return MConstant::NewBoolean(alloc, result);
     }
 
-    auto* cst = MConstant::NewInt64(alloc, int64_t(constInt32));
-    block()->insertBefore(this, cst);
-
-    auto compareType =
-        isSigned ? MCompare::Compare_Int64 : MCompare::Compare_UInt64;
-    return MCompare::New(alloc, int64ToBigInt->input(), cst, jsop_,
-                         compareType);
+    return newCompareInt(alloc, int64ToBigInt->input(), constInt32, jsop(),
+                         isSigned);
   }
 
   return this;
@@ -5875,17 +5966,11 @@ MDefinition* MCompare::tryFoldBigIntPtr(TempAllocator& alloc) {
       return MConstant::NewBoolean(alloc, result);
     }
 
-    auto* cst = MConstant::NewIntPtr(alloc, value);
-    block()->insertBefore(this, cst);
-
-    if (left == intPtrToBigInt) {
-      left = intPtrToBigInt->input();
-      right = cst;
-    } else {
-      left = cst;
-      right = intPtrToBigInt->input();
+    JSOp op = jsop();
+    if (right == intPtrToBigInt) {
+      op = ReverseCompareOp(op);
     }
-    return MCompare::New(alloc, left, right, jsop_, MCompare::Compare_IntPtr);
+    return newCompareInt(alloc, intPtrToBigInt->input(), value, op);
   }
 
   if (compareType() == Compare_BigInt_Int32) {
@@ -5900,12 +5985,8 @@ MDefinition* MCompare::tryFoldBigIntPtr(TempAllocator& alloc) {
       return this;
     }
 
-    auto* cst =
-        MConstant::NewIntPtr(alloc, intptr_t(right->toConstant()->toInt32()));
-    block()->insertBefore(this, cst);
-
-    return MCompare::New(alloc, left->toIntPtrToBigInt()->input(), cst, jsop_,
-                         MCompare::Compare_IntPtr);
+    return newCompareInt(alloc, left->toIntPtrToBigInt()->input(),
+                         right->toConstant()->toInt32(), jsop());
   }
 
   return this;
@@ -5937,9 +6018,6 @@ MDefinition* MCompare::tryFoldBigInt(TempAllocator& alloc) {
     return this;
   }
 
-  MConstant* int32Const = MConstant::NewInt32(alloc, x);
-  block()->insertBefore(this, int32Const);
-
   auto op = jsop();
   if (IsStrictEqualityOp(op)) {
     // Compare_BigInt_Int32 is only valid for loose comparison.
@@ -5948,9 +6026,87 @@ MDefinition* MCompare::tryFoldBigInt(TempAllocator& alloc) {
     // Reverse the comparison operator if the operands were reordered.
     op = ReverseCompareOp(op);
   }
+  return newCompareInt(alloc, operand, x, op);
+}
 
-  return MCompare::New(alloc, operand, int32Const, op,
-                       MCompare::Compare_BigInt_Int32);
+MDefinition* MCompare::tryFoldIntZero(TempAllocator& alloc) {
+  // Expect signed or unsigned integer relational comparison.
+  if (!IsRelationalOp(jsop())) {
+    return this;
+  }
+
+  bool isSigned;
+  switch (compareType()) {
+    case Compare_Int32:
+    case Compare_Int64:
+    case Compare_IntPtr:
+      isSigned = true;
+      break;
+
+    case Compare_UInt32:
+    case Compare_UInt64:
+    case Compare_UIntPtr:
+      isSigned = false;
+      break;
+
+    case Compare_Undefined:
+    case Compare_Null:
+    case Compare_Double:
+    case Compare_Float32:
+    case Compare_String:
+    case Compare_Symbol:
+    case Compare_Object:
+    case Compare_BigInt:
+    case Compare_BigInt_Int32:
+    case Compare_BigInt_Double:
+    case Compare_BigInt_String:
+    case Compare_WasmAnyRef:
+      return this;
+  }
+
+  auto* left = lhs();
+  auto* right = rhs();
+
+  // Both operands have the same Int type.
+  MOZ_ASSERT(left->type() == right->type());
+  MOZ_ASSERT(IsIntType(left->type()));
+
+  // One operand must be a constant.
+  if (!left->isConstant() && !right->isConstant()) {
+    return this;
+  }
+
+  auto* constant =
+      left->isConstant() ? left->toConstant() : right->toConstant();
+  auto* operand = left->isConstant() ? right : left;
+
+  int64_t value;
+  switch (constant->type()) {
+    case MIRType::Int32:
+      value = constant->toInt32();
+      break;
+
+    case MIRType::Int64:
+      value = constant->toInt64();
+      break;
+
+    case MIRType::IntPtr:
+      value = constant->toIntPtr();
+      break;
+
+    default:
+      MOZ_CRASH("unexpected int type");
+  }
+
+  auto op = jsop();
+  if (operand == right) {
+    op = ReverseCompareOp(op);
+  }
+
+  if (!CanCompareAgainstZero(value, op, isSigned)) {
+    return this;
+  }
+  return newCompareInt(alloc, operand, value, op, isSigned);
 }
 
 MDefinition* MCompare::foldsTo(TempAllocator& alloc) {
@@ -5994,6 +6150,10 @@ MDefinition* MCompare::foldsTo(TempAllocator& alloc) {
   }
 
   if (MDefinition* folded = tryFoldBigInt(alloc); folded != this) {
+    return folded;
+  }
+
+  if (MDefinition* folded = tryFoldIntZero(alloc); folded != this) {
     return folded;
   }
 
@@ -6064,6 +6224,29 @@ MDefinition* MStrictConstantCompareBoolean::foldsTo(TempAllocator& alloc) {
     block()->insertBefore(this, cst);
 
     return MCompare::New(alloc, inputI32, cst, jsop(), MCompare::Compare_Int32);
+  }
+
+  return MConstant::NewBoolean(alloc, jsop() == JSOp::StrictNe);
+}
+
+MDefinition* MStrictConstantCompareString::foldsTo(TempAllocator& alloc) {
+  if (!value()->isBox()) {
+    return this;
+  }
+  MDefinition* unboxed = value()->toBox()->input();
+
+  if (unboxed->type() == MIRType::String) {
+    if (unboxed->isConstant()) {
+      int32_t comp =
+          CompareStrings(unboxed->toConstant()->toString(), constant());
+      bool result = FoldComparison(jsop(), comp, 0);
+      return MConstant::NewBoolean(alloc, result);
+    }
+
+    auto* cst = MConstant::NewString(alloc, constant()->unwrap());
+    block()->insertBefore(this, cst);
+
+    return MCompare::New(alloc, unboxed, cst, jsop(), MCompare::Compare_String);
   }
 
   return MConstant::NewBoolean(alloc, jsop() == JSOp::StrictNe);
@@ -6261,6 +6444,8 @@ JSObject* MObjectState::templateObjectOf(MDefinition* obj) {
     return obj->toNewCallObject()->templateObject();
   } else if (obj->isNewIterator()) {
     return obj->toNewIterator()->templateObject();
+  } else if (obj->isNewBoundFunction()) {
+    return obj->toNewBoundFunction()->templateObj();
   }
 
   MOZ_CRASH("unreachable");
@@ -6533,6 +6718,10 @@ MDefinition* MFunctionEnvironment::foldsTo(TempAllocator& alloc) {
 }
 
 static bool AddIsANonZeroAdditionOf(MAdd* add, MDefinition* ins) {
+  if (add->type() != MIRType::Int32 && add->type() != MIRType::Double) {
+    return false;
+  }
+
   if (add->lhs() != ins && add->rhs() != ins) {
     return false;
   }
@@ -6543,7 +6732,11 @@ static bool AddIsANonZeroAdditionOf(MAdd* add, MDefinition* ins) {
   if (!other->isConstant()) {
     return false;
   }
-  if (other->toConstant()->numberToDouble() == 0) {
+  // The constant must be representable as a non-zero int32. Other doubles may
+  // leave the index unchanged after conversion.
+  int32_t n;
+  if (!mozilla::NumberIsInt32(other->toConstant()->numberToDouble(), &n) ||
+      n == 0) {
     return false;
   }
   return true;
@@ -7273,6 +7466,7 @@ MDefinition* MGuardIsNotArrayBufferMaybeShared::foldsTo(TempAllocator& alloc) {
     case KnownClass::Array:
     case KnownClass::Function:
     case KnownClass::RegExp:
+    case KnownClass::Date:
     case KnownClass::ArrayIterator:
     case KnownClass::StringIterator:
     case KnownClass::RegExpStringIterator: {
@@ -7596,123 +7790,6 @@ MInlineArgumentsSlice* MInlineArgumentsSlice::New(
   return ins;
 }
 
-MDefinition* MArrayLength::foldsTo(TempAllocator& alloc) {
-  // Object.keys() is potentially effectful, in case of Proxies. Otherwise, when
-  // it is only computed for its length property, there is no need to
-  // materialize the Array which results from it and it can be marked as
-  // recovered on bailout as long as no properties are added to / removed from
-  // the object.
-  MDefinition* elems = elements();
-  if (!elems->isElements()) {
-    return this;
-  }
-
-  MDefinition* guardshape = elems->toElements()->object();
-  if (!guardshape->isGuardShape()) {
-    return this;
-  }
-
-  // The Guard shape is guarding the shape of the object returned by
-  // Object.keys, this guard can be removed as knowing the function is good
-  // enough to infer that we are returning an array.
-  MDefinition* keys = guardshape->toGuardShape()->object();
-  if (!keys->isObjectKeys()) {
-    return this;
-  }
-
-  // Object.keys() inline cache guards against proxies when creating the IC. We
-  // rely on this here as we are looking to elide `Object.keys(...)` call, which
-  // is only possible if we know for sure that no side-effect might have
-  // happened.
-  MDefinition* noproxy = keys->toObjectKeys()->object();
-  if (!noproxy->isGuardIsNotProxy()) {
-    // The guard might have been replaced by an assertion, in case the class is
-    // known at compile time. IF the guard has been removed check whether check
-    // has been removed.
-    MOZ_RELEASE_ASSERT(GetObjectKnownClass(noproxy) != KnownClass::None);
-    MOZ_RELEASE_ASSERT(!GetObjectKnownJSClass(noproxy)->isProxyObject());
-  }
-
-  // Check if both the elements and the Object.keys() have a single use. We only
-  // check for live uses, and are ok if a branch which was previously using the
-  // keys array has been removed since.
-  if (!elems->hasOneLiveDefUse() || !guardshape->hasOneLiveDefUse() ||
-      !keys->hasOneLiveDefUse()) {
-    return this;
-  }
-
-  // Check that the latest active resume point is the one from Object.keys(), in
-  // order to steal it. If this is not the latest active resume point then some
-  // side-effect might happen which updates the content of the object, making
-  // any recovery of the keys exhibit a different behavior than expected.
-  if (keys->toObjectKeys()->resumePoint() != block()->activeResumePoint(this)) {
-    return this;
-  }
-
-  // Verify whether any resume point captures the keys array after any aliasing
-  // mutations. If this were to be the case the recovery of ObjectKeys on
-  // bailout might compute a version which might not match with the elided
-  // result.
-  //
-  // Iterate over the resume point uses of ObjectKeys, and check whether the
-  // instructions they are attached to are aliasing Object fields. If so, skip
-  // this optimization.
-  AliasSet enumKeysAliasSet = AliasSet::Load(AliasSet::Flag::ObjectFields);
-  for (auto* use : UsesIterator(keys)) {
-    if (!use->consumer()->isResumePoint()) {
-      // There is only a single use, and this is the length computation as
-      // asserted with `hasOneLiveDefUse`.
-      continue;
-    }
-
-    MResumePoint* rp = use->consumer()->toResumePoint();
-    if (!rp->instruction()) {
-      // If there is no instruction, this is a resume point which is attached to
-      // the entry of a block. Thus no risk of mutating the object on which the
-      // keys are queried.
-      continue;
-    }
-
-    MInstruction* ins = rp->instruction();
-    if (ins == keys) {
-      continue;
-    }
-
-    // Check whether the instruction can potentially alias the object fields of
-    // the object from which we are querying the keys.
-    AliasSet mightAlias = ins->getAliasSet() & enumKeysAliasSet;
-    if (!mightAlias.isNone()) {
-      return this;
-    }
-  }
-
-  // Flag every instructions since Object.keys(..) as recovered on bailout, and
-  // make Object.keys(..) be the recovered value in-place of the shape guard.
-  setRecoveredOnBailout();
-  elems->setRecoveredOnBailout();
-  guardshape->replaceAllUsesWith(keys);
-  guardshape->block()->discard(guardshape->toGuardShape());
-  keys->setRecoveredOnBailout();
-
-  // Steal the resume point from Object.keys, which is ok as we confirmed that
-  // there is no other resume point in-between.
-  MObjectKeysLength* keysLength = MObjectKeysLength::New(alloc, noproxy);
-  keysLength->stealResumePoint(keys->toObjectKeys());
-
-  // Set the dependency of the newly created instruction. Unfortunately
-  // MObjectKeys (keys) is an instruction with a Store(Any) alias set, as it
-  // could be used with proxies which can re-enter JavaScript.
-  //
-  // Thus, the loadDependency field of MObjectKeys is null. On the other hand
-  // MObjectKeysLength has a Load alias set. Thus, instead of reconstructing the
-  // Alias Analysis by updating every instructions which depends on MObjectKeys
-  // and finding the matching store instruction, we reuse the MObjectKeys as any
-  // store instruction, despite it being marked as recovered-on-bailout.
-  keysLength->setDependency(keys);
-
-  return keysLength;
-}
-
 MDefinition* MNormalizeSliceTerm::foldsTo(TempAllocator& alloc) {
   auto* length = this->length();
   if (!length->isConstant() && !length->isArgumentsLength()) {
@@ -7820,31 +7897,66 @@ MDefinition* MToIntegerIndex::foldsTo(TempAllocator& alloc) {
   return this;
 }
 
-// Returns `false` if it can be proven that (1) both `mtyA` and `mtyB` are
-// struct types and (2) they are not related by inheritance.  Returns `true` in
-// all other cases.  `true` is the safe-but-possibly-suboptimal return value.
-static bool StructTypesMightBeRelatedByInheritance(wasm::MaybeRefType mtyA,
-                                                   wasm::MaybeRefType mtyB) {
-  if (!mtyA.isSome() || !mtyB.isSome()) {
-    // The "Track Wasm ref types" pass couldn't establish that both `mtyA` and
-    // `mtyB` are ref types.  Give up.
-    return true;
+MDefinition* MDateParse::foldsTo(TempAllocator& alloc) {
+  auto* string = this->string();
+  if (!string->isConstant()) {
+    return this;
+  }
+  JSOffThreadAtom* str = string->toConstant()->toString();
+
+  ParsedDate parsed;
+  if (!DateParse(str, &parsed)) {
+    // Can't parse as date, always NaN.
+    return MConstant::NewDouble(alloc, JS::GenericNaN());
+  }
+  auto [date, isLocalTime] = parsed;
+
+  if (isLocalTime) {
+    auto* localTime = MConstant::NewInt64(alloc, date);
+    block()->insertBefore(this, localTime);
+    return MLocalTimeToUTC::New(alloc, localTime);
   }
 
-  wasm::RefType tyA = mtyA.value();
-  wasm::RefType tyB = mtyB.value();
-  if (!tyA.isTypeRef() || !tyA.typeDef()->isStructType() || !tyB.isTypeRef() ||
-      !tyB.typeDef()->isStructType()) {
-    // They aren't both struct types.  Give up.
-    return true;
-  }
-
-  // They are both struct types.  So they are related by inheritance if one is
-  // a subtype of the other.  (Which is also the case if they are the same
-  // type.)
-  return wasm::RefType::valuesMightAlias(tyA, tyB);
+  MOZ_ASSERT(JS::TimeClip(date).isValid());
+  return MConstant::NewDouble(alloc, double(date));
 }
 
+MDefinition* MTimeClip::foldsTo(TempAllocator& alloc) {
+  auto* time = this->time();
+  if (!time->isConstant()) {
+    return this;
+  }
+
+  // NB: TimeClip can return non-canonicalize doubles.
+  auto clipped = JS::TimeClip(time->toConstant()->toDouble());
+  return MConstant::NewDouble(alloc, JS::CanonicalizeNaN(clipped.toDouble()));
+}
+
+JSOp MBinaryCache::jsop() const { return JSOp(*resumePoint()->pc()); }
+
+template <typename T>
+static wasm::MaybeRefType GetBaseRefTypeForWasmLoadOrStore(T ins) {
+  const MDefinition* structObject;
+  if (ins->base()->type() == MIRType::WasmStructData) {
+    MOZ_RELEASE_ASSERT(ins->base()->isWasmLoadField());
+    structObject = ins->base()->toWasmLoadField()->base();
+  } else {
+    structObject = ins->base();
+  }
+  return structObject->wasmRefType().asNonNullable();
+}
+
+// Wasm loads and stores can be proven not to alias if their offsets are
+// different or their ref types are known and disjoint. (Disjoint alias sets
+// also mean no aliasing, but this is obvious because that's just what alias
+// sets already do.)
+//
+// Different offsets -> NoAlias is true because each field (whether GC data or
+// internal data) has one and only one offset that is used to access it.
+// Disjoint types -> NoAlias is true because, well, types. When considering
+// types here, we exclude null because null loads and stores will trap anyway.
+//
+// For more rationale, see bug 2061530.
 MDefinition::AliasType MWasmLoadField::mightAlias(
     const MDefinition* ins) const {
   if (!(getAliasSet().flags() & ins->getAliasSet().flags())) {
@@ -7852,25 +7964,27 @@ MDefinition::AliasType MWasmLoadField::mightAlias(
   }
   MOZ_ASSERT(!isEffectful() && ins->isEffectful());
 
-  // Pick off cases where we can easily prove non-aliasing.  The idea is that
-  // two struct field accesses can't alias if either they are at different
-  // offsets, or the struct types are unrelated (which implies that the struct
-  // base pointer for one of the accesses could not validly be handed to the
-  // other access).
+  wasm::MaybeRefType insType;
+  uint32_t insOffset;
   if (ins->isWasmStoreField()) {
     const MWasmStoreField* store = ins->toWasmStoreField();
-    if (offset() != store->offset() ||
-        !StructTypesMightBeRelatedByInheritance(base()->wasmRefType(),
-                                                store->base()->wasmRefType())) {
-      return AliasType::NoAlias;
-    }
+    insType = GetBaseRefTypeForWasmLoadOrStore(store);
+    insOffset = store->offset();
   } else if (ins->isWasmStoreFieldRef()) {
     const MWasmStoreFieldRef* store = ins->toWasmStoreFieldRef();
-    if (offset() != store->offset() ||
-        !StructTypesMightBeRelatedByInheritance(base()->wasmRefType(),
-                                                store->base()->wasmRefType())) {
-      return AliasType::NoAlias;
-    }
+    insType = GetBaseRefTypeForWasmLoadOrStore(store);
+    insOffset = store->offset();
+  } else {
+    // Safe default, but any other type of store that can operate on the same
+    // values as a (performance-sensitive) MWasmLoadField should probably be
+    // added above.
+    return AliasType::MayAlias;
+  }
+
+  wasm::MaybeRefType thisType = GetBaseRefTypeForWasmLoadOrStore(this);
+  if (offset() != insOffset ||
+      !wasm::MaybeRefType::mayHaveValuesInCommon(thisType, insType)) {
+    return AliasType::NoAlias;
   }
 
   return AliasType::MayAlias;

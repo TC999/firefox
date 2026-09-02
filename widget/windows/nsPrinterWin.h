@@ -5,8 +5,8 @@
 #ifndef nsPrinterWin_h_
 #define nsPrinterWin_h_
 
-#include "nsPrinterBase.h"
 #include "mozilla/DataMutex.h"
+#include "nsPrinterBase.h"
 #include "nsTArrayForwardDeclare.h"
 
 class nsPrinterWin final : public nsPrinterBase {
@@ -25,11 +25,11 @@ class nsPrinterWin final : public nsPrinterBase {
   nsPrinterWin() = delete;
   static already_AddRefed<nsPrinterWin> Create(
       const mozilla::CommonPaperInfoArray* aPaperInfoArray,
-      const nsAString& aName);
+      const nsAString& aName, bool aSortAfterLocal);
 
  private:
   nsPrinterWin(const mozilla::CommonPaperInfoArray* aPaperInfoArray,
-               const nsAString& aName);
+               const nsAString& aName, bool aSortAfterLocal);
   ~nsPrinterWin() = default;
 
   PrintSettingsInitializer GetValidatedSettings(

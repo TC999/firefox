@@ -5,21 +5,21 @@
 #ifndef mozilla_layers_NativeLayerCA_h
 #define mozilla_layers_NativeLayerCA_h
 
+#include <CoreMedia/CoreMedia.h>
 #include <IOSurface/IOSurfaceRef.h>
 
-#include <deque>
 #include <ostream>
 
 #include "mozilla/Mutex.h"
 #include "mozilla/TimeStamp.h"
 
+#include "CFTypeRefPtr.h"
 #include "mozilla/gfx/MacIOSurface.h"
 #include "mozilla/layers/NativeLayer.h"
 #include "mozilla/layers/NativeLayerMacSurfaceHandler.h"
 #include "mozilla/webrender/RenderMacIOSurfaceTextureHost.h"
-#include "CFTypeRefPtr.h"
-#include "nsRegion.h"
 #include "nsISupportsImpl.h"
+#include "nsRegion.h"
 
 #ifdef __OBJC__
 @class CALayer;
@@ -292,7 +292,7 @@ struct NativeLayerCARepresentation {
     return mWrappingCALayerHasExtent ? mWrappingCALayer : nullptr;
   }
 
-  bool EnqueueSurface(IOSurfaceRef aSurfaceRef);
+  bool EnqueueSurface(IOSurfaceRef aSurfaceRef, bool aIsHDR);
 
   // Applies buffered changes to the native CALayers. The contract with the
   // caller is as follows: If any of these values have changed since the last
@@ -312,8 +312,8 @@ struct NativeLayerCARepresentation {
                     float aBackingScale, bool aSurfaceIsFlipped,
                     gfx::SamplingFilter aSamplingFilter, bool aSpecializeVideo,
                     const CFTypeRefPtr<IOSurfaceRef>& aFrontSurface,
-                    const Maybe<gfx::DeviceColor>& aColor, bool aIsDRM,
-                    bool aIsVideo);
+                    const Maybe<gfx::DeviceColor>& aColor, bool aIsVideo,
+                    bool aIsDRM, bool aIsHDR);
 
   // Return whether any aspects of this layer representation have been mutated
   // since the last call to ApplyChanges, i.e. whether ApplyChanges needs to
@@ -351,6 +351,7 @@ struct NativeLayerCARepresentation {
   bool mMutatedSamplingFilter : 1;
   bool mMutatedSpecializeVideo : 1;
   bool mMutatedIsDRM : 1;
+  bool mMutatedIsHDR : 1;
   // Don't forget to update the constructor when you add a field here.
 };
 
@@ -400,6 +401,9 @@ class NativeLayerCA : public NativeLayer {
                            gfx::IntSize& aSize, bool aIsDRM, bool aIsHDR);
 
   void DumpLayer(std::ostream& aOutputStream);
+  static void LogSurface(const nsACString& aHeader, IOSurfaceRef aSurfaceRef,
+                         CVPixelBufferRef aBuffer,
+                         CMVideoFormatDescriptionRef aFormat);
 
   void AttachExternalImage(wr::RenderTextureHost* aExternalImage) override;
   GpuFence* GetGpuFence() override;

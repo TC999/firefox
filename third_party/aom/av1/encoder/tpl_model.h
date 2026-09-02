@@ -150,6 +150,7 @@ typedef struct TplDepFrame {
   YV12_BUFFER_CONFIG *rec_picture;
   int ref_map_index[REF_FRAMES];
   int stride;
+  // width and height here is in the unit of 16x16 block.
   int width;
   int height;
   int mi_rows;
@@ -241,6 +242,11 @@ typedef struct TplParams {
    * The buffer for the past gop's last frame's src.
    */
   YV12_BUFFER_CONFIG prev_gop_arf_src;
+
+  /*!
+   * The buffer for the past gop's last frame's tpl recon.
+   */
+  YV12_BUFFER_CONFIG prev_gop_arf_tpl_recon;
 
   /*!
    * Display order of the past gop's last frame.

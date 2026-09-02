@@ -25,7 +25,7 @@
 #include "mozilla/LookAndFeel.h"
 #include "mozilla/Mutex.h"
 #include "mozilla/Preferences.h"
-#include "mozilla/RWLock.h"
+#include "mozilla/ReflowInput.h"
 #include "mozilla/RestyleManager.h"
 #include "mozilla/ServoBindings.h"
 #include "mozilla/ServoElementSnapshot.h"
@@ -88,32 +88,9 @@ using namespace mozilla;
 using namespace mozilla::css;
 using namespace mozilla::dom;
 
-// Definitions of the global traversal stats.
-bool ServoTraversalStatistics::sActive = false;
-ServoTraversalStatistics ServoTraversalStatistics::sSingleton;
+ServoTraversalStatistics* ServoTraversalStatistics::sSingleton = nullptr;
 
-static StaticAutoPtr<RWLock> sServoFFILock;
-
-static const LangGroupFontPrefs* ThreadSafeGetLangGroupFontPrefs(
-    const Document& aDocument, nsAtom* aLanguage) {
-  bool needsCache = false;
-  {
-    AutoReadLock guard(*sServoFFILock);
-    if (auto* prefs = aDocument.GetFontPrefsForLang(aLanguage, &needsCache)) {
-      return prefs;
-    }
-  }
-  MOZ_ASSERT(needsCache);
-  AutoWriteLock guard(*sServoFFILock);
-  return aDocument.GetFontPrefsForLang(aLanguage);
-}
-
-static const nsFont& ThreadSafeGetDefaultVariableFont(const Document& aDocument,
-                                                      nsAtom* aLanguage) {
-  return ThreadSafeGetLangGroupFontPrefs(aDocument, aLanguage)
-      ->mDefaultVariableFont;
-}
-
+static StaticAutoPtr<Mutex> sServoFFILock;
 /*
  * Does this child count as significant for selector matching?
  *
@@ -136,20 +113,7 @@ const nsINode* Gecko_GetFlattenedTreeParentNode(const nsINode* aNode) {
 void Gecko_GetAnonymousContentForElement(const Element* aElement,
                                          nsTArray<nsIContent*>* aArray) {
   MOZ_ASSERT(aElement->MayHaveAnonymousChildren());
-  if (aElement->HasProperties()) {
-    if (auto* backdrop = nsLayoutUtils::GetBackdropPseudo(aElement)) {
-      aArray->AppendElement(backdrop);
-    }
-    if (auto* marker = nsLayoutUtils::GetMarkerPseudo(aElement)) {
-      aArray->AppendElement(marker);
-    }
-    if (auto* before = nsLayoutUtils::GetBeforePseudo(aElement)) {
-      aArray->AppendElement(before);
-    }
-    if (auto* after = nsLayoutUtils::GetAfterPseudo(aElement)) {
-      aArray->AppendElement(after);
-    }
-  }
+  nsLayoutUtils::AppendGeneratedContentPseudos(aElement, *aArray);
   nsContentUtils::AppendNativeAnonymousChildren(
       aElement, *aArray, nsIContent::eSkipDocumentLevelNativeAnonymousContent);
 }
@@ -375,10 +339,20 @@ nscoord Gecko_CalcLineHeight(const StyleLineHeight* aLh,
                              const nsStyleFont* aAgainstFont,
                              const mozilla::dom::Element* aElement) {
   // Normal line-height depends on font metrics.
-  AutoWriteLock guard(*sServoFFILock);
+  MutexAutoLock guard(*sServoFFILock);
   return ReflowInput::CalcLineHeight(*aLh, *aAgainstFont,
                                      const_cast<nsPresContext*>(aPc), aVertical,
-                                     aElement, NS_UNCONSTRAINEDSIZE, 1.0f);
+                                     aElement, 1.0f);
+}
+
+float Gecko_CalcAutoDecorationInset(float aFontSize) {
+  // Use an inset factor of 1/12.5, so we get 2px of inset (resulting in 4px
+  // gap between adjacent lines) at font-size 25px.
+  constexpr float kAutoInsetFactor = 1.0 / 12.5;
+
+  // Use the em size multiplied by kAutoInsetFactor, with a minimum of one
+  // CSS pixel to ensure that at least some separation occurs.
+  return std::max(1.0f, aFontSize * kAutoInsetFactor);
 }
 
 const ServoElementSnapshot* Gecko_GetElementSnapshot(
@@ -401,19 +375,7 @@ bool Gecko_HaveSeenPtr(SeenPtrs* aTable, const void* aPtr) {
 
 const StyleLockedDeclarationBlock* Gecko_GetStyleAttrDeclarationBlock(
     const Element* aElement) {
-  DeclarationBlock* decl = aElement->GetInlineStyleDeclaration();
-  if (!decl) {
-    return nullptr;
-  }
-  return decl->Raw();
-}
-
-void Gecko_UnsetDirtyStyleAttr(const Element* aElement) {
-  DeclarationBlock* decl = aElement->GetInlineStyleDeclaration();
-  if (!decl) {
-    return;
-  }
-  decl->UnsetDirty();
+  return aElement->GetInlineStyleDeclaration();
 }
 
 const StyleLockedDeclarationBlock*
@@ -579,20 +541,25 @@ void Gecko_UpdateAnimations(const Element* aElement,
   if (aTasks & UpdateAnimationsTasks::TimelineScopes) {
     presContext->TimelineManager()->UpdateTimelineScopes(element,
                                                          aComputedData);
+    // We could try to limit the impact here, at least for changes involving not
+    // `all`. However, defer any such optimization until after bug 2024012.
+    presContext->AnimationManager()->UpdateAllNamedTimelineAnimations();
   }
 
   // Handle scroll/view timelines first because CSS animations may refer to the
   // timeline defined by itself.
   if (aTasks & UpdateAnimationsTasks::ScrollTimelines) {
-    presContext->TimelineManager()->UpdateTimelines(
+    const auto affected = presContext->TimelineManager()->UpdateTimelines(
         const_cast<Element*>(element), pseudoRequest, aComputedData,
         TimelineManager::ProgressTimelineType::Scroll);
+    presContext->AnimationManager()->UpdateNamedTimelineAnimations(affected);
   }
 
   if (aTasks & UpdateAnimationsTasks::ViewTimelines) {
-    presContext->TimelineManager()->UpdateTimelines(
+    const auto affected = presContext->TimelineManager()->UpdateTimelines(
         const_cast<Element*>(element), pseudoRequest, aComputedData,
         TimelineManager::ProgressTimelineType::View);
+    presContext->AnimationManager()->UpdateNamedTimelineAnimations(affected);
   }
 
   if (aTasks & UpdateAnimationsTasks::CSSAnimations) {
@@ -827,11 +794,15 @@ bool Gecko_MatchViewTransitionClass(
   const Document* doc = aElement->OwnerDoc();
   MOZ_ASSERT(doc);
   const ViewTransition* vt = doc->GetActiveViewTransition();
-  MOZ_ASSERT(
-      vt, "We should have an active view transition for this pseudo-element");
-
+  if (!vt) {
+    // We can get here while lazily resolving the style of a named view
+    // transition pseudo-element that doesn't exist.
+    return false;
+  }
   nsAtom* name = Gecko_GetImplementedPseudoIdentifier(aElement);
-  MOZ_ASSERT(name);
+  if (!name) {
+    return false;
+  }
   return vt->MatchClassList(name, *aPtNameAndClassSelector);
 }
 
@@ -901,11 +872,20 @@ bool Gecko_IsSelectListBox(const Element* aElement) {
 }
 
 bool Gecko_LookupAttrValue(const Element* aElement, nsAtom& aNamespace,
-                           const nsAtom& aName, nsAString& aResult) {
+                           nsAtom& aName, nsAString& aResult) {
   int32_t attrNameSpace = kNameSpaceID_None;
   if (!aNamespace.IsEmpty()) {
     attrNameSpace = nsNameSpaceManager::GetInstance()->GetNameSpaceID(
         &aNamespace, nsContentUtils::IsChromeDoc(aElement->OwnerDoc()));
+  }
+  // All attribute names on HTML elements in HTML docs match
+  // ASCII-case-insensitively. See note in:
+  // https://html.spec.whatwg.org/multipage/dom.html#custom-data-attribute
+  if (!aName.IsAsciiLowercase() && aElement->OwnerDoc()->IsHTMLDocument() &&
+      aElement->IsHTMLElement()) {
+    RefPtr<nsAtom> lowercaseName(&aName);
+    ToLowerCaseASCII(lowercaseName);
+    return aElement->GetAttr(attrNameSpace, lowercaseName, aResult);
   }
   return aElement->GetAttr(attrNameSpace, &aName, aResult);
 }
@@ -933,18 +913,13 @@ bool Gecko_AttrEquals(const nsAttrValue* aValue, const nsAtom* aStr,
   return aValue->Equals(aStr, aIgnoreCase ? eIgnoreCase : eCaseMatters);
 }
 
-#define WITH_COMPARATOR(ignore_case_, c_, expr_)                    \
-  auto c_ = (ignore_case_) ? nsASCIICaseInsensitiveStringComparator \
-                           : nsTDefaultStringComparator<char16_t>;  \
-  return expr_;
-
 bool Gecko_AttrDashEquals(const nsAttrValue* aValue, const nsAtom* aStr,
                           bool aIgnoreCase) {
   nsAutoString str;
   aValue->ToString(str);
-  WITH_COMPARATOR(
-      aIgnoreCase, c,
-      nsStyleUtil::DashMatchCompare(str, nsDependentAtomString(aStr), c))
+  return nsStyleUtil::DashMatchCompare(
+      str, nsDependentAtomString(aStr),
+      aIgnoreCase ? eIgnoreCase : eCaseMatters);
 }
 
 bool Gecko_AttrIncludes(const nsAttrValue* aValue, const nsAtom* aStr,
@@ -954,9 +929,8 @@ bool Gecko_AttrIncludes(const nsAttrValue* aValue, const nsAtom* aStr,
   }
   nsAutoString str;
   aValue->ToString(str);
-  WITH_COMPARATOR(
-      aIgnoreCase, c,
-      nsStyleUtil::ValueIncludes(str, nsDependentAtomString(aStr), c))
+  return nsStyleUtil::ValueIncludes(str, nsDependentAtomString(aStr),
+                                    aIgnoreCase ? eIgnoreCase : eCaseMatters);
 }
 
 bool Gecko_AttrHasSubstring(const nsAttrValue* aValue, const nsAtom* aStr,
@@ -1007,7 +981,7 @@ void Gecko_nsFont_InitSystem(nsFont* aDest, StyleSystemFont aFontId,
                              const nsStyleFont* aFont,
                              const Document* aDocument) {
   const nsFont& defaultVariableFont =
-      ThreadSafeGetDefaultVariableFont(*aDocument, aFont->mLanguage);
+      aDocument->GetFontPrefsForLang(aFont->mLanguage)->mDefaultVariableFont;
 
   // We have passed uninitialized memory to this function,
   // initialize it. We can't simply return an nsFont because then
@@ -1023,14 +997,12 @@ void Gecko_nsFont_Destroy(nsFont* aDest) { aDest->~nsFont(); }
 
 StyleGenericFontFamily Gecko_nsStyleFont_ComputeFallbackFontTypeForLanguage(
     const Document* aDoc, nsAtom* aLanguage) {
-  return ThreadSafeGetLangGroupFontPrefs(*aDoc, aLanguage)->GetDefaultGeneric();
+  return aDoc->GetFontPrefsForLang(aLanguage)->GetDefaultGeneric();
 }
 
 Length Gecko_GetBaseSize(const Document* aDoc, nsAtom* aLang,
                          StyleGenericFontFamily aGeneric) {
-  return ThreadSafeGetLangGroupFontPrefs(*aDoc, aLang)
-      ->GetDefaultFont(aGeneric)
-      ->size;
+  return aDoc->GetFontPrefsForLang(aLang)->GetDefaultFont(aGeneric)->size;
 }
 
 gfxFontFeatureValueSet* Gecko_ConstructFontFeatureValueSet() {
@@ -1107,87 +1079,69 @@ void Gecko_EnsureStyleViewTimelineArrayLength(void* aArray, size_t aLen) {
   EnsureStyleAutoArrayLength(base, aLen);
 }
 
-enum class KeyframeSearchDirection {
-  Forwards,
-  Backwards,
-};
-
-enum class KeyframeInsertPosition {
-  Prepend,
-  LastForOffset,
-};
-
-static Keyframe* GetOrCreateKeyframe(
-    nsTArray<Keyframe>* aKeyframes, float aOffset,
-    const StyleComputedTimingFunction* aTimingFunction,
-    const CompositeOperationOrAuto aComposition,
-    KeyframeSearchDirection aSearchDirection,
-    KeyframeInsertPosition aInsertPosition) {
+// Note: There is a specialized version, FindOrInsertInitialOrFinalKeyframe(),
+// in CSSAnimation.cpp, and it finds the matched keyframes based on the computed
+// offset. However, this function is to find or create the matched keyframe
+// based on the specified <keyframe-selector>, for grouping them.
+// For more details, see the step 2.2 in
+// https://drafts.csswg.org/css-animations-2/#keyframe-processing
+static std::pair<Keyframe*, size_t> GetOrCreateKeyframe(
+    nsTArray<Keyframe>* aKeyframes, StyleTimelineRangeName aRangeName,
+    float aOffset, const StyleComputedTimingFunction* aTimingFunction,
+    const CompositeOperationOrAuto aComposition) {
   MOZ_ASSERT(aKeyframes, "The keyframe array should be valid");
   MOZ_ASSERT(aTimingFunction, "The timing function should be valid");
-  MOZ_ASSERT(aOffset >= 0. && aOffset <= 1.,
-             "The offset should be in the range of [0.0, 1.0]");
+  MOZ_ASSERT(aRangeName != StyleTimelineRangeName::None ||
+                 (aRangeName == StyleTimelineRangeName::None && aOffset >= 0. &&
+                  aOffset <= 1.),
+             "The percentage offset should be in the range of [0.0, 1.0]");
 
+  const auto& offset = Keyframe::OffsetType{aRangeName, (double)aOffset};
   size_t keyframeIndex;
-  switch (aSearchDirection) {
-    case KeyframeSearchDirection::Forwards:
-      if (nsAnimationManager::FindMatchingKeyframe(
-              *aKeyframes, aOffset, *aTimingFunction, aComposition,
-              keyframeIndex)) {
-        return &(*aKeyframes)[keyframeIndex];
-      }
-      break;
-    case KeyframeSearchDirection::Backwards:
-      if (nsAnimationManager::FindMatchingKeyframe(
-              Reversed(*aKeyframes), aOffset, *aTimingFunction, aComposition,
-              keyframeIndex)) {
-        return &(*aKeyframes)[aKeyframes->Length() - 1 - keyframeIndex];
-      }
-      keyframeIndex = aKeyframes->Length() - 1;
-      break;
+  // We search the keyframes in the reversed order because the newest added
+  // keyframe is the most possible one we should match (since we sorted the
+  // keyframes with <percentage> offsets already).
+  if (nsAnimationManager::FindMatchingKeyframe(Reversed(*aKeyframes), offset,
+                                               *aTimingFunction, aComposition,
+                                               keyframeIndex)) {
+    return {&(*aKeyframes)[aKeyframes->Length() - 1 - keyframeIndex],
+            aKeyframes->Length() - 1 - keyframeIndex};
   }
+  keyframeIndex = aKeyframes->Length() - 1;
 
-  Keyframe* keyframe = aKeyframes->InsertElementAt(
-      aInsertPosition == KeyframeInsertPosition::Prepend ? 0 : keyframeIndex);
-  keyframe->mOffset.emplace(aOffset);
+  Keyframe* keyframe = aKeyframes->AppendElement();
+  keyframe->mOffset.emplace(offset);
   if (!aTimingFunction->IsLinearKeyword()) {
     keyframe->mTimingFunction.emplace(*aTimingFunction);
   }
   keyframe->mComposite = aComposition;
-
-  return keyframe;
+  // Return the length of aKeyframes to represent the new Keyframe is inserted.
+  return {keyframe, aKeyframes->Length()};
 }
 
-Keyframe* Gecko_GetOrCreateKeyframeAtStart(
+Keyframe* Gecko_GetOrCreateKeyframeForPercentageOffset(
     nsTArray<Keyframe>* aKeyframes, float aOffset,
     const StyleComputedTimingFunction* aTimingFunction,
     const CompositeOperationOrAuto aComposition) {
   MOZ_ASSERT(aKeyframes->IsEmpty() ||
-                 aKeyframes->ElementAt(0).mOffset.value() >= aOffset,
-             "The offset should be less than or equal to the first keyframe's "
-             "offset if there are exisiting keyframes");
-
-  return GetOrCreateKeyframe(aKeyframes, aOffset, aTimingFunction, aComposition,
-                             KeyframeSearchDirection::Forwards,
-                             KeyframeInsertPosition::Prepend);
+                 aKeyframes->LastElement().mOffset->mPercentage >= aOffset,
+             "The percentage offset should be less than or equal to the last "
+             "keyframe's offset if there are exisiting keyframes");
+  return GetOrCreateKeyframe(aKeyframes, StyleTimelineRangeName::None, aOffset,
+                             aTimingFunction, aComposition)
+      .first;
 }
 
-Keyframe* Gecko_GetOrCreateInitialKeyframe(
-    nsTArray<Keyframe>* aKeyframes,
-    const StyleComputedTimingFunction* aTimingFunction,
-    const CompositeOperationOrAuto aComposition) {
-  return GetOrCreateKeyframe(aKeyframes, 0., aTimingFunction, aComposition,
-                             KeyframeSearchDirection::Forwards,
-                             KeyframeInsertPosition::LastForOffset);
-}
-
-Keyframe* Gecko_GetOrCreateFinalKeyframe(
-    nsTArray<Keyframe>* aKeyframes,
-    const StyleComputedTimingFunction* aTimingFunction,
-    const CompositeOperationOrAuto aComposition) {
-  return GetOrCreateKeyframe(aKeyframes, 1., aTimingFunction, aComposition,
-                             KeyframeSearchDirection::Backwards,
-                             KeyframeInsertPosition::LastForOffset);
+Keyframe* Gecko_GetOrCreateKeyframeForTimelineRangeOffset(
+    nsTArray<Keyframe>* aKeyframes, const StyleTimelineRangeName aRangeName,
+    float aOffset, const StyleComputedTimingFunction* aTimingFunction,
+    const CompositeOperationOrAuto aComposition, size_t* aMatchedIdx) {
+  MOZ_ASSERT(aRangeName != StyleTimelineRangeName::Normal,
+             "normal shouldn't be used");
+  auto [keyframe, idx] = GetOrCreateKeyframe(aKeyframes, aRangeName, aOffset,
+                                             aTimingFunction, aComposition);
+  *aMatchedIdx = idx;
+  return keyframe;
 }
 
 void Gecko_GetComputedURLSpec(const StyleComputedUrl* aURL, nsCString* aOut) {
@@ -1281,6 +1235,11 @@ void Gecko_Snapshot_DebugListAttributes(const ServoElementSnapshot* aSnapshot,
 
 NS_IMPL_THREADSAFE_FFI_REFCOUNTING(URLExtraData, URLExtraData);
 
+bool Gecko_IsURIInList(const URLExtraData* aData, const nsACString* aList) {
+  return nsContentUtils::IsURIInList(aData->BaseURI(),
+                                     PromiseFlatCString(*aList));
+}
+
 void Gecko_nsStyleFont_SetLang(nsStyleFont* aFont, nsAtom* aAtom) {
   aFont->mLanguage = dont_AddRef(aAtom);
   aFont->mExplicitLanguage = true;
@@ -1301,29 +1260,11 @@ Length Gecko_nsStyleFont_ComputeMinSize(const nsStyleFont* aFont,
   if (!aFont->MinFontSizeEnabled()) {
     return {0};
   }
-  Length minFontSize;
-  bool needsCache = false;
-
-  auto MinFontSize = [&](bool* aNeedsToCache) {
-    const auto* prefs =
-        aDocument->GetFontPrefsForLang(aFont->mLanguage, aNeedsToCache);
-    return prefs ? prefs->mMinimumFontSize : Length{0};
-  };
-
-  {
-    AutoReadLock guard(*sServoFFILock);
-    minFontSize = MinFontSize(&needsCache);
-  }
-
-  if (needsCache) {
-    AutoWriteLock guard(*sServoFFILock);
-    minFontSize = MinFontSize(nullptr);
-  }
-
+  Length minFontSize =
+      aDocument->GetFontPrefsForLang(aFont->mLanguage)->mMinimumFontSize;
   if (minFontSize.ToCSSPixels() <= 0.0f) {
     return {0};
   }
-
   minFontSize.ScaleBy(aFont->mMinFontSizeRatio._0);
   return minFontSize;
 }
@@ -1339,7 +1280,7 @@ void InitializeServo() {
   gUACacheReporter = new UACacheReporter();
   RegisterWeakMemoryReporter(gUACacheReporter);
 
-  sServoFFILock = new RWLock("Servo::FFILock");
+  sServoFFILock = new Mutex("Servo::FFILock");
 }
 
 void ShutdownServo() {
@@ -1356,8 +1297,8 @@ void ShutdownServo() {
 
 void AssertIsMainThreadOrServoFontMetricsLocked() {
   if (!NS_IsMainThread()) {
-    MOZ_ASSERT(sServoFFILock &&
-               sServoFFILock->LockedForWritingByCurrentThread());
+    MOZ_ASSERT(sServoFFILock);
+    sServoFFILock->AssertCurrentThreadOwns();
   }
 }
 
@@ -1368,7 +1309,7 @@ GeckoFontMetrics Gecko_GetFontMetrics(const nsPresContext* aPresContext,
                                       const nsStyleFont* aFont,
                                       Length aFontSize,
                                       StyleQueryFontMetricsFlags flags) {
-  AutoWriteLock guard(*sServoFFILock);
+  MutexAutoLock guard(*sServoFFILock);
 
   // Getting font metrics can require some main thread only work to be
   // done, such as work that needs to touch non-threadsafe refcounted
@@ -1624,7 +1565,7 @@ void Gecko_ReportUnexpectedCSSError(const uint64_t aWindowId, nsIURI* aURI,
   reporter.OutputError(selectorsValue, lineNumber + 1, colNumber, aURI);
 }
 
-void Gecko_ContentList_AppendAll(nsSimpleContentList* aList,
+void Gecko_ContentList_AppendAll(SimpleContentList* aList,
                                  const Element** aElements, size_t aLength) {
   MOZ_ASSERT(NS_IsMainThread());
   MOZ_ASSERT(aElements);
@@ -1974,7 +1915,7 @@ bool Gecko_GetAnchorPosOffset(const AnchorPosOffsetResolutionParams* aParams,
   const auto usesCBWM = AnchorSideUsesCBWM(aAnchorSideKeyword);
   const auto cbwm = containingBlock->GetWritingMode();
   const auto wm =
-      usesCBWM ? aParams->mBaseParams.mFrame->GetWritingMode() : cbwm;
+      usesCBWM ? cbwm : aParams->mBaseParams.mFrame->GetWritingMode();
   const auto [rect, logicalCBSize] = [&] {
     // We need `AnchorPosReferenceData` to compute the anchor offset against
     // the adjusted CB, so make the best attempt to retrieve it.
@@ -2068,12 +2009,12 @@ bool Gecko_GetAnchorPosSize(const AnchorPosResolutionParams* aParams,
     return false;
   }
   const auto* positioned = aParams->mFrame;
+  const auto* containingBlock = positioned->GetParent();
   const auto size = AnchorPositioningUtils::ResolveAnchorPosSize(
-      positioned, {aAnchorName, *aTreeScope}, aParams->mCache);
+      positioned, containingBlock, {aAnchorName, *aTreeScope}, aParams->mCache);
   if (!size) {
     return false;
   }
-  const auto* containingBlock = positioned->GetParent();
   const auto l = [&]() {
     switch (aAnchorSizeKeyword) {
       case StyleAnchorSizeKeyword::None:

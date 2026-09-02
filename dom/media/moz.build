@@ -129,6 +129,7 @@ XPIDL_SOURCES += [
     "nsIAudioDeviceInfo.idl",
     "nsIMediaDevice.idl",
     "nsIMediaManager.idl",
+    "nsIMediaPictureInPictureProvider.idl",
 ]
 
 XPIDL_MODULE = "dom_media"
@@ -169,6 +170,7 @@ EXPORTS += [
     "FileBlockCache.h",
     "ForwardedInputTrack.h",
     "FrameStatistics.h",
+    "HDRUtils.h",
     "ImageConversion.h",
     "Intervals.h",
     "MediaCache.h",
@@ -200,6 +202,7 @@ EXPORTS += [
     "MediaTrackGraph.h",
     "MediaTrackList.h",
     "MediaTrackListener.h",
+    "MediaUtils.h",
     "MemoryBlockCache.h",
     "nsIDocumentActivity.h",
     "PrincipalChangeObserver.h",
@@ -239,6 +242,7 @@ if not CONFIG["MOZ_WEBRTC"]:
 
 EXPORTS.mozilla.dom += [
     "AudioDeviceInfo.h",
+    "AudioSession.h",
     "AudioStreamTrack.h",
     "AudioTrack.h",
     "AudioTrackList.h",
@@ -248,6 +252,8 @@ EXPORTS.mozilla.dom += [
     "MediaDevices.h",
     "MediaStreamError.h",
     "MediaStreamTrack.h",
+    "PictureInPictureService.h",
+    "PictureInPictureWindow.h",
     "UnboundedMPSCQueue.h",
     "VideoPlaybackQuality.h",
     "VideoStreamTrack.h",
@@ -269,6 +275,7 @@ UNIFIED_SOURCES += [
     "AudioInputSource.cpp",
     "AudioRingBuffer.cpp",
     "AudioSegment.cpp",
+    "AudioSession.cpp",
     "AudioStream.cpp",
     "AudioStreamTrack.cpp",
     "AudioTrack.cpp",
@@ -320,7 +327,10 @@ UNIFIED_SOURCES += [
     "MediaTrackGraph.cpp",
     "MediaTrackList.cpp",
     "MediaTrackListener.cpp",
+    "MediaUtils.cpp",
     "MemoryBlockCache.cpp",
+    "PictureInPictureService.cpp",
+    "PictureInPictureWindow.cpp",
     "QueueObject.cpp",
     "ReaderProxy.cpp",
     "SeekJob.cpp",
@@ -366,6 +376,7 @@ EXTRA_JS_MODULES.media += [
 LOCAL_INCLUDES += [
     "!/media/libsoundtouch/src",
     "/caps",
+    "/config/external/rlbox_wasm2c_sandbox/",
     "/docshell/base",
     "/dom/base",
     "/dom/media/webrtc",

@@ -1,4 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
@@ -95,7 +94,7 @@ class ContentAnalysisTest : public testing::Test {
     return RefPtr(new ContentAnalysisRequest(
                       nsIContentAnalysisRequest::AnalysisType::eFileTransfer,
                       nsIContentAnalysisRequest::Reason::eFilePickerDialog,
-                      EmptyString(), false, EmptyCString(), uri,
+                      u"abc"_ns, false, EmptyCString(), uri,
                       nsIContentAnalysisRequest::OperationType::eDroppedText,
                       nullptr))
         .forget();

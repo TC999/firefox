@@ -48,6 +48,7 @@
 #include "nsISupportsPrimitives.h"
 #include "nsIXPConnect.h"
 #include "nsNetUtil.h"
+#include "nsPIDOMWindowInlines.h"
 #include "nsPresContext.h"
 #include "nsQueryObject.h"
 #include "nsReadableUtils.h"
@@ -514,7 +515,7 @@ void DataTransfer::GetData(const nsAString& aFormat, nsAString& aData,
         lastidx = idx + 1;
       }
     } else {
-      aData = stringdata;
+      aData = std::move(stringdata);
     }
   }
 }
@@ -838,7 +839,11 @@ void DataTransfer::GetExternalClipboardFormats(const bool& aPlainTextOnly,
           formats, *mClipboardType, wc, getter_AddRefs(clipboardDataSnapshot));
     }
   } else {
-    AutoTArray<nsCString, std::size(kNonPlainTextExternalFormats) + 4> formats;
+    AutoTArray<nsCString, std::size(kNonPlainTextExternalFormats) + 5> formats;
+    if (StaticPrefs::dom_clipboard_customFormatSupport_enabled()) {
+      // Adding kWebCustomFormatMapType to retrieve the web custom formats.
+      formats.AppendElement(kWebCustomFormatMapType);
+    }
     formats.AppendElements(
         Span<const nsLiteralCString>(kNonPlainTextExternalFormats));
     // We will be using this snapshot to provide the data to paste in
@@ -872,6 +877,14 @@ void DataTransfer::GetExternalClipboardFormats(const bool& aPlainTextOnly,
   // the sequence specified in kNonPlainTextExternalFormats.
   AutoTArray<nsCString, std::size(kNonPlainTextExternalFormats)> flavors;
   clipboardDataSnapshot->GetFlavorList(flavors);
+
+  // First, adding web custom formats.
+  for (const auto& flavor : flavors) {
+    if (StringBeginsWith(flavor, nsLiteralCString(kWebCustomFormatPrefix))) {
+      aResult.AppendElement(flavor);
+    }
+  }
+  // Second, adding format in kNonPlainTextExternalFormats sequence.
   for (const auto& format : kNonPlainTextExternalFormats) {
     if (flavors.Contains(format)) {
       aResult.AppendElement(format);
@@ -937,16 +950,19 @@ nsresult DataTransfer::SetDataAtInternal(const nsAString& aFormat,
     return NS_ERROR_DOM_INDEX_SIZE_ERR;
   }
 
+  nsAutoString format;
+  GetRealFormat(aFormat, format);
+
   // Don't allow the custom type to be assigned.
-  if (aFormat.EqualsLiteral(kCustomTypesMime)) {
+  if (format.EqualsLiteral(kCustomTypesMime)) {
     return NS_ERROR_DOM_NOT_SUPPORTED_ERR;
   }
 
-  if (!PrincipalMaySetData(aFormat, aData, aSubjectPrincipal)) {
+  if (!PrincipalMaySetData(format, aData, aSubjectPrincipal)) {
     return NS_ERROR_DOM_SECURITY_ERR;
   }
 
-  return SetDataWithPrincipal(aFormat, aData, aIndex, aSubjectPrincipal);
+  return SetDataWithPrincipal(format, aData, aIndex, aSubjectPrincipal);
 }
 
 void DataTransfer::MozSetDataAt(JSContext* aCx, const nsAString& aFormat,
@@ -1169,6 +1185,13 @@ already_AddRefed<nsITransferable> DataTransfer::GetTransferable(
         }
       }
 
+      // If the data is web custom format, use it directly.
+      if (isCustomFormat &&
+          StringBeginsWith(
+              type, NS_LITERAL_STRING_FROM_CSTRING(kWebCustomFormatPrefix))) {
+        isCustomFormat = false;
+      }
+
       uint32_t lengthInBytes;
       nsCOMPtr<nsISupports> convertedData;
 
@@ -1375,6 +1398,23 @@ bool DataTransfer::ConvertFromVariant(nsIVariant* aVariant,
     return true;
   }
 
+  if (type == nsIDataType::VTYPE_CSTRING) {
+    nsAutoCString cStr;
+    if (NS_FAILED(aVariant->GetAsACString(cStr))) {
+      return false;
+    }
+    nsCOMPtr<nsISupportsCString> cStrSupports(
+        do_CreateInstance(NS_SUPPORTS_CSTRING_CONTRACTID));
+    if (!cStrSupports) {
+      return false;
+    }
+    cStrSupports->SetData(cStr);
+    cStrSupports.forget(aSupports);
+    *aLength = cStr.Length();
+
+    return true;
+  }
+
   nsAutoString str;
   nsresult rv = aVariant->GetAsAString(str);
   if (NS_FAILED(rv)) {
@@ -1467,7 +1507,7 @@ already_AddRefed<nsIGlobalObject> DataTransfer::GetGlobal() const {
   nsCOMPtr<nsIGlobalObject> global;
   // This is annoying, but DataTransfer may have various things as parent.
   if (nsCOMPtr<EventTarget> target = do_QueryInterface(mParent)) {
-    global = target->GetOwnerGlobal();
+    global = target->GetRelevantGlobal();
   } else if (RefPtr<Event> event = do_QueryObject(mParent)) {
     global = event->GetParentObject();
   }

@@ -29,8 +29,8 @@ UniquePtr<SharedTextureMacIOSurface> SharedTextureMacIOSurface::Create(
     return nullptr;
   }
 
-  RefPtr<MacIOSurface> surface =
-      MacIOSurface::CreateIOSurface(aWidth, aHeight, true);
+  RefPtr<MacIOSurface> surface = MacIOSurface::CreateIOSurface(
+      aWidth, aHeight, MacIOSurface::AllowAlpha::Yes);
   if (!surface) {
     gfxCriticalNoteOnce << "Failed to create MacIOSurface: (" << aWidth << ", "
                         << aHeight << ")";
@@ -51,7 +51,7 @@ SharedTextureMacIOSurface::SharedTextureMacIOSurface(
       mDeviceId(aDeviceId),
       mSurface(std::move(aSurface)) {}
 
-SharedTextureMacIOSurface::~SharedTextureMacIOSurface() {}
+SharedTextureMacIOSurface::~SharedTextureMacIOSurface() = default;
 
 uint32_t SharedTextureMacIOSurface::GetIOSurfaceId() {
   return mSurface->GetIOSurfaceID();
@@ -62,12 +62,11 @@ SharedTextureMacIOSurface::ToSurfaceDescriptor() {
   MOZ_ASSERT(mSubmissionIndex > 0);
 
   RefPtr<layers::GpuFence> gpuFence;
-  UniquePtr<ffi::WGPUMetalSharedEventHandle> eventHandle(
-      wgpu_server_get_device_fence_metal_shared_event(mParent->GetContext(),
-                                                      mDeviceId));
+  void* const eventHandle = wgpu_server_get_device_fence_metal_shared_event(
+      mParent->GetContext(), mDeviceId);
   if (eventHandle) {
-    gpuFence = layers::GpuFenceMTLSharedEvent::Create(std::move(eventHandle),
-                                                      mSubmissionIndex);
+    gpuFence =
+        layers::GpuFenceMTLSharedEvent::Create(eventHandle, mSubmissionIndex);
   } else {
     gfxCriticalNoteOnce << "Failed to get MetalSharedEventHandle";
   }
@@ -85,16 +84,20 @@ void SharedTextureMacIOSurface::GetSnapshot(const ipc::Shmem& aDestShmem,
     return;
   }
 
-  const size_t bytesPerRow = mSurface->GetBytesPerRow();
+  const size_t src_stride = mSurface->GetBytesPerRow();
   uint8_t* src = (uint8_t*)mSurface->GetBaseAddress();
   uint8_t* dst = aDestShmem.get<uint8_t>();
 
-  // note that this might still copy some padding bytes
-  const size_t min_stride = std::min(bytesPerRow, aDestStride);
+  const size_t bytesPerRow = static_cast<size_t>(mWidth) * 4;
+  MOZ_RELEASE_ASSERT(src_stride >= bytesPerRow);
+  MOZ_RELEASE_ASSERT(aDestStride >= bytesPerRow);
 
   for (uint32_t y = 0; y < mHeight; y++) {
-    memcpy(dst, src, min_stride);
-    src += bytesPerRow;
+    memcpy(dst, src, bytesPerRow);
+    if (bytesPerRow < aDestStride) {
+      memset(dst + bytesPerRow, 0, aDestStride - bytesPerRow);
+    }
+    src += src_stride;
     dst += aDestStride;
   }
 

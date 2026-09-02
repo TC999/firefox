@@ -6,16 +6,17 @@ package mozilla.components.feature.session
 
 import android.app.Activity
 import android.content.pm.ActivityInfo
+import android.os.Build
 import mozilla.components.concept.engine.Engine
 import mozilla.components.concept.engine.activity.OrientationDelegate
+import mozilla.components.concept.engine.activity.OrientationDelegate.LockResult
 import mozilla.components.support.base.feature.LifecycleAwareFeature
 
-/**
- * Feature that automatically reacts to [Engine] requests of updating the app's screen orientation.
- */
+/** Feature that automatically reacts to [Engine] requests of updating the app's screen orientation. */
 class ScreenOrientationFeature(
     private val engine: Engine,
     private val activity: Activity,
+    private val buildVersionProvider: () -> Int = { Build.VERSION.SDK_INT },
 ) : LifecycleAwareFeature, OrientationDelegate {
     override fun start() {
         engine.registerScreenOrientationDelegate(this)
@@ -25,9 +26,18 @@ class ScreenOrientationFeature(
         engine.unregisterScreenOrientationDelegate()
     }
 
-    override fun onOrientationLock(requestedOrientation: Int): Boolean {
+    override fun onOrientationLock(requestedOrientation: Int): LockResult {
+        val isBaklava = buildVersionProvider() >= Build.VERSION_CODES.BAKLAVA
+        val isLargeScreen = activity.resources.configuration.smallestScreenWidthDp > 600
+        val isMultiWindow = activity.isInMultiWindowMode
+
+        // Android 16+ ignores orientation locks on screens > 600dp and in multi-window environments
+        if (isBaklava && (isLargeScreen || isMultiWindow)) {
+            return LockResult.NOT_SUPPORTED
+        }
+
         activity.requestedOrientation = requestedOrientation
-        return true
+        return LockResult.SUCCESS
     }
 
     override fun onOrientationUnlock() {

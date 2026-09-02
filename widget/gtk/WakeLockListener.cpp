@@ -2,26 +2,30 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include "WakeLockListener.h"
+
 #include <queue>
 
-#include "WakeLockListener.h"
 #include "WidgetUtilsGtk.h"
 #include "mozilla/ScopeExit.h"
 #include "mozilla/Services.h"
+#include "nsContentUtils.h"
 #include "nsIStringBundle.h"
 #include "nsReadableUtils.h"
-#include "nsContentUtils.h"
+#include "prenv.h"
 
 #ifdef MOZ_ENABLE_DBUS
 #  include <gio/gio.h>
+
 #  include "AsyncDBus.h"
 #endif
 
 #if defined(MOZ_X11)
-#  include "prlink.h"
 #  include <gdk/gdk.h>
 #  include <gdk/gdkx.h>
+
 #  include "X11UndefineNone.h"
+#  include "prlink.h"
 #endif
 
 #if defined(MOZ_WAYLAND)
@@ -172,6 +176,7 @@ class WakeLockTopic {
         {"audio-playing", "WakeLockAudioPlaying", "Playing audio"},
         {"screen", "WakeLockScreenLock", "Screen lock"},
         {"autoscroll", "WakeLockAutoscroll", "Autoscroll"},
+        {"download-in-progress", "WakeLockDownload", "Download in progress"},
     };
 
     for (auto& topic : kNiceTopics) {
@@ -183,7 +188,7 @@ class WakeLockTopic {
           }
           return string;
         }();
-        mNiceTopic = niceTopic;
+        mNiceTopic = std::move(niceTopic);
         break;
       }
     }
@@ -596,9 +601,9 @@ void WakeLockTopic::InhibitFreeDesktopPower() {
 void WakeLockTopic::InhibitGNOME() {
   WAKE_LOCK_LOG("InhibitGNOME() background %d", mLockOnBackground);
   static const uint32_t xid = 0;
-  static const uint32_t flags = mLockOnBackground
-                                    ? SESSION_MANAGER_INHIBIT_SUSPEND_FLAG
-                                    : SESSION_MANAGER_INHIBIT_IDLE_FLAG;
+  const uint32_t flags = mLockOnBackground
+                             ? SESSION_MANAGER_INHIBIT_SUSPEND_FLAG
+                             : SESSION_MANAGER_INHIBIT_IDLE_FLAG;
   DBusInhibitScreensaver(
       SESSION_MANAGER_TARGET, SESSION_MANAGER_OBJECT, SESSION_MANAGER_INTERFACE,
       "Inhibit",
@@ -1113,13 +1118,29 @@ nsresult WakeLockListener::Callback(const nsAString& topic,
                 NS_ConvertUTF16toUTF8(topic).get(),
                 NS_ConvertUTF16toUTF8(state).get());
   if (!topic.Equals(u"screen"_ns) && !topic.Equals(u"video-playing"_ns) &&
-      !topic.Equals(u"autoscroll"_ns) && !topic.Equals(u"audio-playing"_ns)) {
+      !topic.Equals(u"autoscroll"_ns) && !topic.Equals(u"audio-playing"_ns) &&
+      !topic.Equals(u"download-in-progress"_ns)) {
     return NS_OK;
   }
 
   bool backgroundLock = state.EqualsLiteral("locked-background");
   bool shouldLock = state.EqualsLiteral("locked-background") ||
                     state.EqualsLiteral("locked-foreground");
+
+  // A backgrounded video-playing lock must not hold a system suspend inhibitor
+  // (Bug 2057365).
+  //
+  // A muted autoplay video in a background tab/subframe still takes the
+  // "video-playing" wake lock, because that lock is gated on having an audio
+  // track, not on being audible. GTK then escalates a backgrounded video lock
+  // to a GNOME SUSPEND inhibitor, blocking system sleep with no user-visible
+  // signal (the tab shows no sound indicator). GTK is the only backend that
+  // does this -- macOS/Windows/Android all release the video lock once it is
+  // backgrounded. Genuinely audible background playback is covered by the
+  // separate "audio-playing" topic, so holding no inhibitor here is safe.
+  if (backgroundLock && topic.Equals(u"video-playing"_ns)) {
+    shouldLock = false;
+  }
 
   // If there's a switch between lock types (background / foreground) we need to
   // un-inhibit a complementary one.

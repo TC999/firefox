@@ -30,7 +30,6 @@ pub type InitialLetter = GenericInitialLetter<Number, Integer>;
 
 /// A spacing value used by either the `letter-spacing` or `word-spacing` properties.
 #[derive(Clone, Debug, MallocSizeOf, PartialEq, SpecifiedValueInfo, ToCss, ToShmem, ToTyped)]
-#[typed_value(derive_fields)]
 pub enum Spacing {
     /// `normal`
     Normal,
@@ -39,10 +38,7 @@ pub enum Spacing {
 }
 
 impl Parse for Spacing {
-    fn parse<'i, 't>(
-        context: &ParserContext,
-        input: &mut Parser<'i, 't>,
-    ) -> Result<Self, ParseError<'i>> {
+    fn parse(context: &ParserContext, input: &mut Parser) -> Result<Self, ParseError> {
         if input
             .try_parse(|i| i.expect_ident_matching("normal"))
             .is_ok()
@@ -57,7 +53,6 @@ impl Parse for Spacing {
 #[derive(
     Clone, Debug, MallocSizeOf, Parse, PartialEq, SpecifiedValueInfo, ToCss, ToShmem, ToTyped,
 )]
-#[typed_value(derive_fields)]
 pub struct LetterSpacing(pub Spacing);
 
 impl ToComputedValue for LetterSpacing {
@@ -85,7 +80,6 @@ impl ToComputedValue for LetterSpacing {
 #[derive(
     Clone, Debug, MallocSizeOf, Parse, PartialEq, SpecifiedValueInfo, ToCss, ToShmem, ToTyped,
 )]
-#[typed_value(derive_fields)]
 pub struct WordSpacing(pub Spacing);
 
 impl ToComputedValue for WordSpacing {
@@ -120,6 +114,7 @@ impl ToComputedValue for WordSpacing {
     ToTyped,
 )]
 #[repr(C, u8)]
+#[typed(todo_derive_fields)]
 pub enum HyphenateCharacter {
     /// `auto`
     Auto,
@@ -131,10 +126,7 @@ pub enum HyphenateCharacter {
 pub type HyphenateLimitChars = GenericHyphenateLimitChars<Integer>;
 
 impl Parse for HyphenateLimitChars {
-    fn parse<'i, 't>(
-        context: &ParserContext,
-        input: &mut Parser<'i, 't>,
-    ) -> Result<Self, ParseError<'i>> {
+    fn parse(context: &ParserContext, input: &mut Parser) -> Result<Self, ParseError> {
         type IntegerOrAuto = NumberOrAuto<Integer>;
 
         let total_word_length = IntegerOrAuto::parse(context, input)?;
@@ -143,7 +135,7 @@ impl Parse for HyphenateLimitChars {
             .unwrap_or(IntegerOrAuto::Auto);
         let post_hyphen_length = input
             .try_parse(|i| IntegerOrAuto::parse(context, i))
-            .unwrap_or(pre_hyphen_length);
+            .unwrap_or_else(|_| pre_hyphen_length.clone());
         Ok(Self {
             total_word_length,
             pre_hyphen_length,
@@ -153,10 +145,7 @@ impl Parse for HyphenateLimitChars {
 }
 
 impl Parse for InitialLetter {
-    fn parse<'i, 't>(
-        context: &ParserContext,
-        input: &mut Parser<'i, 't>,
-    ) -> Result<Self, ParseError<'i>> {
+    fn parse(context: &ParserContext, input: &mut Parser) -> Result<Self, ParseError> {
         if input
             .try_parse(|i| i.expect_ident_matching("normal"))
             .is_ok()
@@ -208,6 +197,7 @@ pub enum TextOverflowSide {
     ToTyped,
 )]
 #[repr(C)]
+#[typed(todo_derive_fields)]
 /// text-overflow.
 /// When the specified value only has one side, that's the "second"
 /// side, and the sides are logical, so "second" means "end".  The
@@ -226,10 +216,7 @@ pub struct TextOverflow {
 }
 
 impl Parse for TextOverflow {
-    fn parse<'i, 't>(
-        context: &ParserContext,
-        input: &mut Parser<'i, 't>,
-    ) -> Result<TextOverflow, ParseError<'i>> {
+    fn parse(context: &ParserContext, input: &mut Parser) -> Result<TextOverflow, ParseError> {
         let first = TextOverflowSide::parse(context, input)?;
         Ok(
             if let Ok(second) = input.try_parse(|input| TextOverflowSide::parse(context, input)) {
@@ -562,7 +549,6 @@ pub enum TextAlign {
     Keyword(TextAlignKeyword),
     /// `match-parent` value of text-align property. It has a different handling
     /// unlike other keywords.
-    #[cfg(feature = "gecko")]
     MatchParent,
     /// This is how we implement the following HTML behavior from
     /// https://html.spec.whatwg.org/#tables-2:
@@ -587,7 +573,6 @@ impl ToComputedValue for TextAlign {
     fn to_computed_value(&self, _context: &Context) -> Self::ComputedValue {
         match *self {
             TextAlign::Keyword(key) => key,
-            #[cfg(feature = "gecko")]
             TextAlign::MatchParent => {
                 // on the root <html> element we should still respect the dir
                 // but the parent dir of that element is LTR even if it's <html dir=rtl>
@@ -643,6 +628,7 @@ fn fill_mode_is_default_and_shape_exists(
 /// https://drafts.csswg.org/css-text-decor/#propdef-text-emphasis-style
 #[derive(Clone, Debug, MallocSizeOf, PartialEq, SpecifiedValueInfo, ToCss, ToShmem, ToTyped)]
 #[allow(missing_docs)]
+#[typed(todo_derive_fields)]
 pub enum TextEmphasisStyle {
     /// [ <fill> || <shape> ]
     Keyword {
@@ -770,10 +756,7 @@ impl ToComputedValue for TextEmphasisStyle {
 }
 
 impl Parse for TextEmphasisStyle {
-    fn parse<'i, 't>(
-        _context: &ParserContext,
-        input: &mut Parser<'i, 't>,
-    ) -> Result<Self, ParseError<'i>> {
+    fn parse(_context: &ParserContext, input: &mut Parser) -> Result<Self, ParseError> {
         if input
             .try_parse(|input| input.expect_ident_matching("none"))
             .is_ok()
@@ -794,7 +777,7 @@ impl Parse for TextEmphasisStyle {
         }
 
         if shape.is_none() && fill.is_none() {
-            return Err(input.new_custom_error(StyleParseErrorKind::UnspecifiedError));
+            return Err(ParseError::custom(StyleParseErrorKind::UnspecifiedError));
         }
 
         // If a shape keyword is specified but neither filled nor open is
@@ -1013,10 +996,7 @@ pub enum OverflowWrap {
 pub type TextIndent = GenericTextIndent<LengthPercentage>;
 
 impl Parse for TextIndent {
-    fn parse<'i, 't>(
-        context: &ParserContext,
-        input: &mut Parser<'i, 't>,
-    ) -> Result<Self, ParseError<'i>> {
+    fn parse(context: &ParserContext, input: &mut Parser) -> Result<Self, ParseError> {
         let mut length = None;
         let mut hanging = false;
         let mut each_line = false;
@@ -1053,7 +1033,7 @@ impl Parse for TextIndent {
                 each_line,
             })
         } else {
-            Err(input.new_custom_error(StyleParseErrorKind::UnspecifiedError))
+            Err(ParseError::custom(StyleParseErrorKind::UnspecifiedError))
         }
     }
 }
@@ -1062,15 +1042,16 @@ impl Parse for TextIndent {
 ///
 /// https://drafts.csswg.org/css-text-decor-4/#text-decoration-skip-ink-property
 #[repr(u8)]
-#[cfg_attr(feature = "servo", derive(Deserialize, Serialize))]
 #[derive(
     Clone,
     Copy,
     Debug,
+    Deserialize,
     Eq,
     MallocSizeOf,
     Parse,
     PartialEq,
+    Serialize,
     SpecifiedValueInfo,
     ToComputedValue,
     ToCss,
@@ -1103,7 +1084,7 @@ impl TextDecorationLength {
 }
 
 /// Implements type for `text-decoration-inset` property
-pub type TextDecorationInset = GenericTextDecorationInset<Length>;
+pub type TextDecorationInset = GenericTextDecorationInset<LengthPercentage>;
 
 impl TextDecorationInset {
     /// `Auto` value.
@@ -1119,18 +1100,28 @@ impl TextDecorationInset {
     }
 }
 
+fn parse_inset_endpoint(
+    ctx: &ParserContext,
+    input: &mut Parser,
+) -> Result<LengthPercentage, ParseError> {
+    if !static_prefs::pref!("layout.css.text-decoration-inset-percentage.enabled") {
+        Length::parse(ctx, input).map(|l| l.into())
+    } else {
+        LengthPercentage::parse(ctx, input)
+    }
+}
+
 impl Parse for TextDecorationInset {
-    fn parse<'i, 't>(
-        ctx: &ParserContext,
-        input: &mut Parser<'i, 't>,
-    ) -> Result<Self, ParseError<'i>> {
-        if let Ok(start) = input.try_parse(|i| Length::parse(ctx, i)) {
-            let end = input.try_parse(|i| Length::parse(ctx, i));
-            let end = end.unwrap_or_else(|_| start.clone());
-            return Ok(TextDecorationInset::Length { start, end });
+    fn parse(ctx: &ParserContext, input: &mut Parser) -> Result<Self, ParseError> {
+        if input.try_parse(|i| i.expect_ident_matching("auto")).is_ok() {
+            return Ok(TextDecorationInset::Auto);
         }
-        input.expect_ident_matching("auto")?;
-        Ok(TextDecorationInset::Auto)
+
+        let start = parse_inset_endpoint(ctx, input)?;
+        let end = input
+            .try_parse(|i| parse_inset_endpoint(ctx, i))
+            .unwrap_or_else(|_| start.clone());
+        Ok(TextDecorationInset::LengthPercentage { start, end })
     }
 }
 
@@ -1243,10 +1234,7 @@ pub enum RubyPosition {
 }
 
 impl Parse for RubyPosition {
-    fn parse<'i, 't>(
-        _context: &ParserContext,
-        input: &mut Parser<'i, 't>,
-    ) -> Result<RubyPosition, ParseError<'i>> {
+    fn parse(_context: &ParserContext, input: &mut Parser) -> Result<RubyPosition, ParseError> {
         // Parse alternate before
         let alternate = input
             .try_parse(|i| i.expect_ident_matching("alternate"))
@@ -1462,15 +1450,12 @@ pub struct TextEdge {
 }
 
 impl Parse for TextEdge {
-    fn parse<'i, 't>(
-        _context: &ParserContext,
-        input: &mut Parser<'i, 't>,
-    ) -> Result<TextEdge, ParseError<'i>> {
+    fn parse(_context: &ParserContext, input: &mut Parser) -> Result<TextEdge, ParseError> {
         let first = TextEdgeKeyword::parse(input)?;
 
         if let Ok(second) = input.try_parse(TextEdgeKeyword::parse) {
             if !first.is_valid_for_over() || !second.is_valid_for_under() {
-                return Err(input.new_custom_error(StyleParseErrorKind::UnspecifiedError));
+                return Err(ParseError::custom(StyleParseErrorKind::UnspecifiedError));
             }
 
             return Ok(TextEdge {

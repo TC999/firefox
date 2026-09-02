@@ -154,14 +154,14 @@ navigate.isLoadEventExpected = function (current, options = {}) {
 };
 
 /**
- * Load the given URL in the specified browsing context.
+ * Load the given URI in the specified browsing context.
  *
  * @param {CanonicalBrowsingContext} browsingContext
- *     Browsing context to load the URL into.
- * @param {string} url
- *     URL to navigate to.
+ *     Browsing context to load the URI into.
+ * @param {nsIURI} uri
+ *     URI to navigate to.
  */
-navigate.navigateTo = async function (browsingContext, url) {
+navigate.navigateTo = function (browsingContext, uri) {
   const opts = {
     loadFlags: Ci.nsIWebNavigation.LOAD_FLAGS_IS_LINK,
     // Fake user activation.
@@ -170,7 +170,8 @@ navigate.navigateTo = async function (browsingContext, url) {
     schemelessInput: Ci.nsILoadInfo.SchemelessInputTypeSchemeful,
     triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal(),
   };
-  browsingContext.fixupAndLoadURIString(url, opts);
+
+  browsingContext.loadURI(uri, opts);
 };
 
 /**
@@ -179,12 +180,14 @@ navigate.navigateTo = async function (browsingContext, url) {
  * @param {CanonicalBrowsingContext} browsingContext
  *     Browsing context to refresh.
  */
-navigate.refresh = async function (browsingContext) {
+navigate.refresh = function (browsingContext) {
+  const { sessionHistory } = browsingContext;
   const flags = Ci.nsIWebNavigation.LOAD_FLAGS_BYPASS_CACHE;
+
   // Bug 2026546: As workaround use sessionHistory if available to avoid issues
   // with frames.
-  if (browsingContext.sessionHistory) {
-    browsingContext.sessionHistory.reload(flags);
+  if (sessionHistory?.count && sessionHistory?.index >= 0) {
+    sessionHistory.reload(flags);
   } else {
     browsingContext.reload(flags);
   }

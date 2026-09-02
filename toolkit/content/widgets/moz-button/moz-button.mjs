@@ -207,14 +207,14 @@ class MenuController {
 }
 
 /**
- * A button with multiple types and two sizes.
+ * A button with multiple types and three sizes.
  *
  * @tagname moz-button
  * @property {string} label - The button's label, will be overridden by slotted content.
  * @property {string} type - The button type.
  *   Options: default, primary, destructive, icon, icon ghost, ghost.
  * @property {string} size - The button size.
- *   Options: default, small.
+ *   Options: default, small, large.
  * @property {boolean} disabled - The disabled state.
  * @property {string} title - The button's title attribute, used in shadow DOM and therefore not as an attribute on moz-button.
  * @property {string} titleAttribute - Internal, map title attribute to the title JS property.
@@ -309,7 +309,8 @@ export default class MozButton extends MozLitElement {
 
   // Delegate clicks on host to the button element.
   click() {
-    this.buttonEl.click();
+    this.performUpdate();
+    this.buttonEl?.click();
   }
 
   checkForLabelText() {
@@ -320,7 +321,7 @@ export default class MozButton extends MozLitElement {
 
   labelTemplate() {
     if (this.label) {
-      return this.label;
+      return html`<span class="text" .textContent=${this.label}></span>`;
     }
     return html`<slot @slotchange=${this.checkForLabelText}></slot>`;
   }
@@ -352,7 +353,9 @@ export default class MozButton extends MozLitElement {
           size=${this.size}
         >
           <img
-            src="chrome://global/skin/icons/arrow-down.svg"
+            src="chrome://global/skin/icons/arrow-down${this.size === "small"
+              ? "-12"
+              : ""}.svg"
             role="presentation"
           />
         </span>

@@ -6,6 +6,7 @@
 #define nsXMLContentSink_h_
 
 #include "js/ColumnNumber.h"  // JS::ColumnNumberOneOrigin
+#include "mozilla/Span.h"
 #include "mozilla/dom/FromParser.h"
 #include "nsCOMPtr.h"
 #include "nsCRT.h"
@@ -57,7 +58,8 @@ class nsXMLContentSink : public nsContentSink,
   // nsIContentSink
   NS_IMETHOD WillParse(void) override;
   NS_IMETHOD WillBuildModel() override;
-  NS_IMETHOD DidBuildModel(bool aTerminated) override;
+  MOZ_CAN_RUN_SCRIPT_BOUNDARY NS_IMETHOD
+  DidBuildModel(bool aTerminated) override;
   NS_IMETHOD WillInterrupt(void) override;
   void WillResume() override;
   NS_IMETHOD SetParser(nsParserBase* aParser) override;
@@ -76,11 +78,12 @@ class nsXMLContentSink : public nsContentSink,
   }
 
   // nsITransformObserver
-  nsresult OnDocumentCreated(mozilla::dom::Document* aSourceDocument,
-                             mozilla::dom::Document* aResultDocument) override;
-  nsresult OnTransformDone(mozilla::dom::Document* aSourceDocument,
-                           nsresult aResult,
-                           mozilla::dom::Document* aResultDocument) override;
+  MOZ_CAN_RUN_SCRIPT_BOUNDARY nsresult
+  OnDocumentCreated(mozilla::dom::Document* aSourceDocument,
+                    mozilla::dom::Document* aResultDocument) override;
+  MOZ_CAN_RUN_SCRIPT_BOUNDARY nsresult
+  OnTransformDone(mozilla::dom::Document* aSourceDocument, nsresult aResult,
+                  mozilla::dom::Document* aResultDocument) override;
 
   // nsICSSLoaderObserver
   NS_IMETHOD StyleSheetLoaded(mozilla::StyleSheet* aSheet, bool aWasDeferred,
@@ -103,7 +106,7 @@ class nsXMLContentSink : public nsContentSink,
 
   virtual nsresult AddAttributes(const char16_t** aNode,
                                  mozilla::dom::Element* aElement);
-  nsresult AddText(const char16_t* aString, int32_t aLength);
+  nsresult AddText(mozilla::Span<const char16_t> aText);
 
   virtual bool OnOpenContainer(const char16_t** aAtts, uint32_t aAttsCount,
                                int32_t aNameSpaceID, nsAtom* aTagName,
@@ -115,7 +118,6 @@ class nsXMLContentSink : public nsContentSink,
   //  return TRUE if this call set the root element
   virtual bool SetDocElement(int32_t aNameSpaceID, nsAtom* aTagName,
                              nsIContent* aContent);
-  virtual bool NotifyForDocElement() { return true; }
   virtual nsresult CreateElement(const char16_t** aAtts, uint32_t aAttsCount,
                                  mozilla::dom::NodeInfo* aNodeInfo,
                                  uint32_t aLineNumber, uint32_t aColumnNumber,
@@ -124,7 +126,8 @@ class nsXMLContentSink : public nsContentSink,
 
   // aParent is allowed to be null here if this is the root content
   // being closed
-  virtual nsresult CloseElement(nsIContent* aContent);
+  MOZ_CAN_RUN_SCRIPT_BOUNDARY virtual nsresult CloseElement(
+      nsIContent* aContent);
 
   virtual nsresult FlushText(bool aReleaseTextNode = true);
 
@@ -147,7 +150,7 @@ class nsXMLContentSink : public nsContentSink,
   }
 
   // nsContentSink override
-  virtual nsresult ProcessStyleLinkFromHeader(
+  MOZ_CAN_RUN_SCRIPT_BOUNDARY virtual nsresult ProcessStyleLinkFromHeader(
       const nsAString& aHref, bool aAlternate, const nsAString& aTitle,
       const nsAString& aIntegrity, const nsAString& aType,
       const nsAString& aMedia, const nsAString& aReferrerPolicy,
@@ -185,9 +188,6 @@ class nsXMLContentSink : public nsContentSink,
 
   XMLContentSinkState mState = eXMLContentSinkState_InProlog;
 
-  // The length of the valid data in mText.
-  int32_t mTextLength = 0;
-
   int32_t mNotifyLevel = 0;
   RefPtr<nsTextNode> mLastTextNode;
 
@@ -199,6 +199,8 @@ class nsXMLContentSink : public nsContentSink,
   bool mPrettyPrinting : 1 = false;
   // True to call prevent script execution in the fragment mode.
   bool mPreventScriptExecution : 1 = false;
+  // XSLT is disabled
+  bool mXSLTIsDisabled : 1 = false;
 
   nsTArray<StackNode> mContentStack;
 
@@ -211,9 +213,8 @@ class nsXMLContentSink : public nsContentSink,
   // discard the children.
   nsTArray<nsCOMPtr<nsIContent>> mDocumentChildren;
 
-  static const int NS_ACCUMULATION_BUFFER_SIZE = 4096;
   // Our currently accumulated text that we have not flushed to a textnode yet.
-  char16_t mText[NS_ACCUMULATION_BUFFER_SIZE] = {0};
+  AutoTArray<char16_t, 4096> mText;
 };
 
 #endif  // nsXMLContentSink_h_

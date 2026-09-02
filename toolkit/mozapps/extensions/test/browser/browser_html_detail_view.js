@@ -193,13 +193,51 @@ function assertDeckHeadingButtons(group, visibleButtons) {
   }
 }
 
+// The preview is expected to be responsive, and so its actual width depends on
+// the available space rather, and the image height should still keep the
+// expected 680:92 aspect ratio.
+function checkThemePreviewSize(preview, label) {
+  let maxContentWidth = parseFloat(
+    preview.documentGlobal
+      .getComputedStyle(preview)
+      .getPropertyValue("--page-main-content-width")
+  );
+  Assert.lessOrEqual(
+    preview.width,
+    maxContentWidth,
+    `${label} theme preview width should not exceed the max content width`
+  );
+
+  let cardEl = preview.closest(".card.addon");
+  let cardWidth = cardEl.getBoundingClientRect().width;
+  Assert.equal(
+    preview.width,
+    cardWidth,
+    `${label} theme preview width (${preview.width}) should fill the ` +
+      `addon card width (expected ~${cardWidth})`
+  );
+
+  const AMO_IMAGE_WIDTH = 680;
+  const AMO_IMAGE_HEIGHT = 92;
+  const MAX_HEIGHT_DIFF = 2;
+  let expectedHeight = Math.round(
+    (preview.width * AMO_IMAGE_HEIGHT) / AMO_IMAGE_WIDTH
+  );
+  Assert.less(
+    Math.abs(preview.height - expectedHeight),
+    MAX_HEIGHT_DIFF,
+    `${label} theme preview height (${preview.height}) should keep the ` +
+      `expected aspect ratio (expected ~${expectedHeight})`
+  );
+}
+
 async function hasPrivateAllowed(id) {
   let perms = await ExtensionPermissions.get(id);
   return perms.permissions.includes("internal:privateBrowsingAllowed");
 }
 
 async function assertBackButtonIsDisabled(win) {
-  let backButton = await BrowserTestUtils.waitForCondition(async () => {
+  let backButton = await TestUtils.waitForCondition(async () => {
     let backButton = win.document.querySelector(".back-button");
 
     // Wait until the button is visible in the page.
@@ -515,9 +553,15 @@ add_task(async function testFullDetails() {
   ok(!card.hasAttribute("expanded"), "The list card is not expanded");
 
   // Make sure the preview is hidden.
-  let preview = card.querySelector(".card-heading-image");
-  ok(preview, "There is a preview");
-  is(preview.hidden, true, "The preview is hidden");
+  let themePreview = card.querySelector("theme-preview");
+  ok(themePreview, "There is a theme-preview component");
+  await themePreview.updateComplete;
+  let previewImage = card.querySelector(".card-heading-image");
+  is(
+    previewImage,
+    null,
+    "The theme preview image is not rendered for type extension"
+  );
 
   let loaded = waitForViewLoad(win);
   card.querySelector('[action="expand"]').click();
@@ -537,9 +581,13 @@ add_task(async function testFullDetails() {
   );
 
   // Make sure the preview is hidden.
-  preview = card.querySelector(".card-heading-image");
-  ok(preview, "There is a preview");
-  is(preview.hidden, true, "The preview is hidden");
+  await themePreview.updateComplete;
+  previewImage = card.querySelector(".card-heading-image");
+  is(
+    previewImage,
+    null,
+    "The theme preview image is not rendered for type extension"
+  );
 
   let details = card.querySelector("addon-details");
 
@@ -819,6 +867,12 @@ add_task(async function testDefaultTheme() {
   ok(preview, "There is a preview");
   ok(!preview.hidden, "The preview is visible");
 
+  let icon = card.querySelector(".addon-icon");
+  is_element_hidden(
+    icon,
+    "Addon Card icon DOM element should be hidden for addon type theme"
+  );
+
   // Check all the deck buttons are hidden.
   assertDeckHeadingHidden(card.details.tabGroup);
 
@@ -863,8 +917,7 @@ add_task(async function testStaticTheme() {
   let preview = card.querySelector(".card-heading-image");
   ok(preview, "There is a preview");
   is(preview.src, "http://example.com/preview.png", "The preview URL is set");
-  is(preview.width, 664, "The width is set");
-  is(preview.height, 90, "The height is set");
+  checkThemePreviewSize(preview, "list card");
   is(preview.hidden, false, "The preview is visible");
 
   // Load the detail view.
@@ -878,8 +931,7 @@ add_task(async function testStaticTheme() {
   preview = card.querySelector(".card-heading-image");
   ok(preview, "There is a preview");
   is(preview.src, "http://example.com/preview.png", "The preview URL is set");
-  is(preview.width, 664, "The width is set");
-  is(preview.height, 90, "The height is set");
+  checkThemePreviewSize(preview, "detail card");
   is(preview.hidden, false, "The preview is visible");
 
   // Check all the deck buttons are hidden.
@@ -1044,9 +1096,8 @@ add_task(async function testPrivateBrowsingExtension() {
 
 add_task(async function testInvalidExtension() {
   let win = await open_manager("addons://detail/foo");
-  let categoryUtils = new CategoryUtilities(win);
   is(
-    categoryUtils.selectedCategory,
+    AboutAddonsTestUtils.getSidebarSelectedCategory(win),
     "discover",
     "Should fall back to the discovery pane"
   );
@@ -1062,9 +1113,8 @@ add_task(async function testInvalidExtensionNoDiscover() {
   });
 
   let win = await open_manager("addons://detail/foo");
-  let categoryUtils = new CategoryUtilities(win);
   is(
-    categoryUtils.selectedCategory,
+    AboutAddonsTestUtils.getSidebarSelectedCategory(win),
     "extension",
     "Should fall back to the extension list if discover is disabled"
   );
@@ -1324,7 +1374,9 @@ add_task(async function testGoBackButtonIsDisabledAfterBrowserBackButton() {
   await assertBackButtonIsDisabled(win);
 
   // Navigate to the extensions list.
-  await new CategoryUtilities(win).openType("extension");
+  let viewLoaded = wait_for_view_load(win);
+  AboutAddonsTestUtils.clickCategoryButton(win, "extension");
+  await viewLoaded;
 
   // Click on the browser back button.
   gBrowser.goBack();
@@ -1580,7 +1632,7 @@ add_task(async function testQuarantinedDomainsUserAllowedUI() {
 
   info("Switch to theme list view");
   loaded = waitForViewLoad(win);
-  doc.querySelector("#categories > [name=theme]").click();
+  AboutAddonsTestUtils.clickCategoryButton(win, "theme");
   await loaded;
 
   info("Test quarantineIgnoredByUser UI on a non extension addon type (theme)");
@@ -1597,7 +1649,7 @@ add_task(async function testQuarantinedDomainsUserAllowedUI() {
 
   info("Switch to extension list view");
   loaded = waitForViewLoad(win);
-  doc.querySelector("#categories > [name=extension]").click();
+  AboutAddonsTestUtils.clickCategoryButton(win, "extension");
   await loaded;
 
   loaded = waitForViewLoad(win);
@@ -1622,7 +1674,7 @@ add_task(async function testQuarantinedDomainsUserAllowedUI() {
 
   info("Switch to extension list view");
   loaded = waitForViewLoad(win);
-  doc.querySelector("#categories > [name=extension]").click();
+  AboutAddonsTestUtils.clickCategoryButton(win, "extension");
   await loaded;
 
   loaded = waitForViewLoad(win);

@@ -1,23 +1,31 @@
-From: Michael Froman <mfroman@mozilla.com>
-Date: Mon, 6 Apr 2026 14:37:00 -0500
-Subject: Bug 2029247 - (fix-0fc5aeecfb) base-toolchains build fix
+From: Nico Grunbaum <ngrunbaum@mozilla.com>
+Date: Tue, 16 Jun 2026 15:40:00 -0700
+Subject: Bug 2047265 - (fix-8703bc12a1) disable new testonly av1 qp parser
+ library
 
-Upstream was assigning a -2 to a uint16_t.
-Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/f5dfd2e6901c9d79ee528bf3801ded81b6dd65c9
+Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/8e18fa212189c66b060f0217757c99eea14c3883
+Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/d619aaf26629db4f31eb76e09e7663314c2ef5c3
 ---
- rtc_base/network_constants.h | 2 +-
- 1 file changed, 1 insertion(+), 1 deletion(-)
+ modules/video_coding/BUILD.gn | 2 ++
+ 1 file changed, 2 insertions(+)
 
-diff --git a/rtc_base/network_constants.h b/rtc_base/network_constants.h
-index 8c43576c61..ca25d2b465 100644
---- a/rtc_base/network_constants.h
-+++ b/rtc_base/network_constants.h
-@@ -38,7 +38,7 @@ constexpr uint16_t kNetworkCostVpn = 1;
+diff --git a/modules/video_coding/BUILD.gn b/modules/video_coding/BUILD.gn
+index 78ba20bcf4..69ca536cfc 100644
+--- a/modules/video_coding/BUILD.gn
++++ b/modules/video_coding/BUILD.gn
+@@ -392,6 +392,7 @@ rtc_library("video_coding_utility") {
+ }
  
- // Add -2 to the network cost when using network slicing so that e.g. premium 5G
- // slice is preferred over regular 5G, everything else being equal.
--constexpr uint16_t kNetworkCostSlice = -2;
-+constexpr int16_t kNetworkCostSlice = -2;
+ rtc_library("av1_qp_parser") {
++if (!build_with_mozilla) {
+   testonly = true
+   sources = [
+     "utility/av1_qp_parser.cc",
+@@ -405,6 +406,7 @@ rtc_library("av1_qp_parser") {
+   ]
+   public_configs = [ "//third_party/libgav1:libgav1_public_config" ]
+ }
++}
  
- // Aliases for correct wrap-around with network slice cost.
- constexpr uint16_t kNetworkCostCellular5GSlice =  // 248
+ rtc_library("encoder_speed_controller_impl") {
+   visibility = [ "*" ]

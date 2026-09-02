@@ -456,7 +456,7 @@ class EventRunnable final : public MainThreadProxyRunnable {
         mReadyState(0),
         mUploadEvent(aUploadEvent),
         mProgressEvent(false),
-        mLengthComputable(0),
+        mLengthComputable(false),
         mStatusResult(NS_OK),
         mErrorDetail(NS_OK),
         mScopeObj(RootingCx(), aScopeObj) {}
@@ -765,6 +765,8 @@ bool Proxy::Init(WorkerPrivate* aWorkerPrivate) {
 
   mXHR->SetParameters(mMozAnon, mMozSystem);
   mXHR->SetClientInfoAndController(mClientInfo, mController);
+  mXHR->SetAssociatedBrowsingContextID(
+      aWorkerPrivate->AssociatedBrowsingContextID());
 
   ErrorResult rv;
   mXHRUpload = mXHR->GetUpload(rv);
@@ -1391,6 +1393,7 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN_INHERITED(XMLHttpRequestWorker,
   tmp->mResponseBlob = nullptr;
   tmp->mResponseArrayBufferValue = nullptr;
   tmp->mResponseJSONValue.setUndefined();
+  NS_IMPL_CYCLE_COLLECTION_UNLINK_WEAK_PTR
 NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 
 NS_IMPL_CYCLE_COLLECTION_TRACE_BEGIN_INHERITED(XMLHttpRequestWorker,
@@ -2095,6 +2098,15 @@ void XMLHttpRequestWorker::Abort(ErrorResult& aRv) {
   WorkerPrivate* workerPrivate = GetCurrentThreadWorkerPrivate();
   RefPtr<AbortRunnable> runnable = new AbortRunnable(workerPrivate, mProxy);
   runnable->Dispatch(workerPrivate, Canceling, aRv);
+  if (aRv.Failed()) {
+    return;
+  }
+
+  // Dispatch() spun the event loop, so we may have been canceled and released.
+  if (!mProxy) {
+    MOZ_LOG(gXMLHttpRequestLog, LogLevel::Debug, ("Abort(no proxy)"));
+    return;
+  }
 
   // Spec step 2
   if ((mStateData->mReadyState == XMLHttpRequest_Binding::OPENED &&
@@ -2139,7 +2151,7 @@ void XMLHttpRequestWorker::GetResponseHeader(const nsACString& aHeader,
   if (aRv.Failed()) {
     return;
   }
-  aResponseHeader = responseHeader;
+  aResponseHeader = std::move(responseHeader);
 }
 
 void XMLHttpRequestWorker::GetAllResponseHeaders(nsACString& aResponseHeaders,
@@ -2166,7 +2178,7 @@ void XMLHttpRequestWorker::GetAllResponseHeaders(nsACString& aResponseHeaders,
     return;
   }
 
-  aResponseHeaders = responseHeaders;
+  aResponseHeaders = std::move(responseHeaders);
 }
 
 void XMLHttpRequestWorker::OverrideMimeType(const nsAString& aMimeType,
@@ -2295,7 +2307,7 @@ void XMLHttpRequestWorker::GetResponse(JSContext* aCx,
 
       if (!mResponseBlob) {
         mResponseBlob =
-            Blob::Create(GetOwnerGlobal(), mResponseData->mResponseBlobImpl);
+            Blob::Create(GetRelevantGlobal(), mResponseData->mResponseBlobImpl);
       }
 
       if (!mResponseBlob ||

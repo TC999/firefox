@@ -5,15 +5,15 @@
 #ifndef mozilla_SchedulerGroup_h
 #define mozilla_SchedulerGroup_h
 
-#include "nsIEventTarget.h"
 #include "mozilla/AlreadyAddRefed.h"
+#include "nsIEventTarget.h"
 
 namespace mozilla {
 
 class SchedulerGroup {
  public:
   static nsresult Dispatch(
-      already_AddRefed<nsIRunnable>&& aRunnable,
+      already_AddRefed<nsIRunnable> aRunnable,
       nsIEventTarget::DispatchFlags aFlags = NS_DISPATCH_NORMAL);
 };
 

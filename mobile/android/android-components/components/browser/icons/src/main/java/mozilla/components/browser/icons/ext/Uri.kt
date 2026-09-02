@@ -6,12 +6,11 @@ package mozilla.components.browser.icons.ext
 
 import android.net.Uri
 
-// Make sure domain added here have the corresponding image_url in icons-top200.json
+// Make sure domain added here have the corresponding image_url in the Merino manifest
+// (manifest/manifest.json).
 private val commonDomain = listOf("wikipedia.org")
 
-/**
- * Returns the host's common domain if found, else null is returned
- */
+/** Returns the host's common domain if found, else null is returned */
 internal val Uri.hostWithCommonDomain: String?
     get() {
         val host = host ?: return null

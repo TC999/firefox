@@ -11,7 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.DividerDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -47,11 +47,8 @@ import mozilla.components.compose.browser.toolbar.ui.InlineAutocompleteTextField
 import mozilla.components.concept.toolbar.AutocompleteResult
 import mozilla.components.ui.icons.R as iconsR
 
-private val ROUNDED_CORNER_SHAPE = RoundedCornerShape(90.dp)
-
 /**
- * Sub-component of the [BrowserToolbar] responsible for allowing the user to edit the current
- * URL ("edit mode").
+ * Sub-component of the [BrowserToolbar] responsible for allowing the user to edit the current URL ("edit mode").
  *
  * @param query The current query.
  * @param hint Hint to show in the absence of a query.
@@ -61,14 +58,12 @@ private val ROUNDED_CORNER_SHAPE = RoundedCornerShape(90.dp)
  * @param gravity [ToolbarGravity] for where the toolbar is being placed on the screen.
  * @param backgroundColor Color of the background.
  * @param outlineColor Color of the divider.
- * @param editActionsStart List of [Action]s to be displayed at the start of the URL of
- * the edit toolbar.
- * @param editActionsEnd List of [Action]s to be displayed at the end of the URL of
- * the edit toolbar.
- * @param onUrlEdit Will be called when the URL value changes. An updated text value comes as a
- * parameter of the callback.
- * @param onUrlCommitted Will be called when the user has finished editing and wants to initiate
- * loading the entered URL. The committed text value comes as a parameter of the callback.
+ * @param editActionsStart List of [Action]s to be displayed at the start of the URL of the edit toolbar.
+ * @param editActionsEnd List of [Action]s to be displayed at the end of the URL of the edit toolbar.
+ * @param onUrlEdit Will be called when the URL value changes. An updated text value comes as a parameter of the
+ *   callback.
+ * @param onUrlCommitted Will be called when the user has finished editing and wants to initiate loading the entered
+ *   URL. The committed text value comes as a parameter of the callback.
  * @param onInteraction Callback for handling [BrowserToolbarEvent]s on user interactions.
  */
 @Composable
@@ -89,20 +84,19 @@ fun BrowserEditToolbar(
 ) {
     Surface(color = backgroundColor) {
         Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .semantics {
+            modifier =
+                Modifier.fillMaxWidth().semantics {
                     testTag = ADDRESSBAR_EDIT_MODE
                     testTagsAsResourceId = true
-                },
+                }
         ) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(all = 8.dp)
-                    .height(48.dp)
-                    .clip(shape = ROUNDED_CORNER_SHAPE)
-                    .background(color = MaterialTheme.colorScheme.surfaceDim),
+                modifier =
+                    Modifier.fillMaxWidth()
+                        .padding(all = 8.dp)
+                        .height(48.dp)
+                        .clip(shape = CircleShape)
+                        .background(color = MaterialTheme.colorScheme.surfaceContainerHighest),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 ActionContainer(
@@ -128,16 +122,16 @@ fun BrowserEditToolbar(
             }
 
             HorizontalDivider(
-                modifier = Modifier
-                    .semantics {
-                        testTag = ADDRESSBAR_EDIT_MODE_HORIZONTAL_DIVIDER
-                    }
-                    .align(
-                    when (gravity) {
-                        Top -> Alignment.BottomCenter
-                        Bottom -> Alignment.TopCenter
-                    },
-                ),
+                modifier =
+                    Modifier.semantics {
+                            testTag = ADDRESSBAR_EDIT_MODE_HORIZONTAL_DIVIDER
+                        }
+                        .align(
+                            when (gravity) {
+                                Top -> Alignment.BottomCenter
+                                Bottom -> Alignment.TopCenter
+                            }
+                        ),
                 color = outlineColor,
             )
         }
@@ -153,28 +147,34 @@ private fun BrowserEditToolbarPreview() {
             hint = "Search or enter address",
             gravity = Top,
             suggestion = null,
-            editActionsStart = listOf(
-                SearchSelectorAction(
-                    icon = DrawableIcon(
-                        AppCompatResources.getDrawable(LocalContext.current, iconsR.drawable.mozac_ic_search_24)!!,
+            editActionsStart =
+                listOf(
+                    SearchSelectorAction(
+                        icon =
+                            DrawableIcon(
+                                AppCompatResources.getDrawable(
+                                    LocalContext.current,
+                                    iconsR.drawable.mozac_ic_search_24,
+                                )!!
+                            ),
+                        contentDescription = StringResContentDescription(android.R.string.untitled),
+                        menu = { emptyList() },
+                        onClick = null,
+                    )
+                ),
+            editActionsEnd =
+                listOf(
+                    ActionButtonRes(
+                        drawableResId = iconsR.drawable.mozac_ic_microphone_24,
+                        contentDescription = android.R.string.untitled,
+                        onClick = object : BrowserToolbarEvent {},
                     ),
-                    contentDescription = StringResContentDescription(android.R.string.untitled),
-                    menu = { emptyList() },
-                    onClick = null,
+                    ActionButtonRes(
+                        drawableResId = iconsR.drawable.mozac_ic_qr_code_24,
+                        contentDescription = android.R.string.untitled,
+                        onClick = object : BrowserToolbarEvent {},
+                    ),
                 ),
-            ),
-            editActionsEnd = listOf(
-                ActionButtonRes(
-                    drawableResId = iconsR.drawable.mozac_ic_microphone_24,
-                    contentDescription = android.R.string.untitled,
-                    onClick = object : BrowserToolbarEvent {},
-                ),
-                ActionButtonRes(
-                    drawableResId = iconsR.drawable.mozac_ic_qr_code_24,
-                    contentDescription = android.R.string.untitled,
-                    onClick = object : BrowserToolbarEvent {},
-                ),
-            ),
             onInteraction = {},
         )
     }
@@ -192,28 +192,34 @@ private fun BrowserEditToolbarPrivatePreview() {
             hint = "Search or enter address",
             gravity = Top,
             suggestion = null,
-            editActionsStart = listOf(
-                SearchSelectorAction(
-                    icon = DrawableIcon(
-                        AppCompatResources.getDrawable(LocalContext.current, iconsR.drawable.mozac_ic_search_24)!!,
+            editActionsStart =
+                listOf(
+                    SearchSelectorAction(
+                        icon =
+                            DrawableIcon(
+                                AppCompatResources.getDrawable(
+                                    LocalContext.current,
+                                    iconsR.drawable.mozac_ic_search_24,
+                                )!!
+                            ),
+                        contentDescription = StringResContentDescription(android.R.string.untitled),
+                        menu = { emptyList() },
+                        onClick = null,
+                    )
+                ),
+            editActionsEnd =
+                listOf(
+                    ActionButtonRes(
+                        drawableResId = iconsR.drawable.mozac_ic_microphone_24,
+                        contentDescription = android.R.string.untitled,
+                        onClick = object : BrowserToolbarEvent {},
                     ),
-                    contentDescription = StringResContentDescription(android.R.string.untitled),
-                    menu = { emptyList() },
-                    onClick = null,
+                    ActionButtonRes(
+                        drawableResId = iconsR.drawable.mozac_ic_qr_code_24,
+                        contentDescription = android.R.string.untitled,
+                        onClick = object : BrowserToolbarEvent {},
+                    ),
                 ),
-            ),
-            editActionsEnd = listOf(
-                ActionButtonRes(
-                    drawableResId = iconsR.drawable.mozac_ic_microphone_24,
-                    contentDescription = android.R.string.untitled,
-                    onClick = object : BrowserToolbarEvent {},
-                ),
-                ActionButtonRes(
-                    drawableResId = iconsR.drawable.mozac_ic_qr_code_24,
-                    contentDescription = android.R.string.untitled,
-                    onClick = object : BrowserToolbarEvent {},
-                ),
-            ),
             onInteraction = {},
         )
     }

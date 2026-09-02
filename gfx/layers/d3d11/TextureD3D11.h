@@ -7,6 +7,7 @@
 
 #include <d3d11.h>
 #include <d3d11_1.h>
+
 #include <vector>
 
 #include "d3d9.h"
@@ -67,6 +68,7 @@ class D3D11TextureData final : public TextureData {
       ID3D11Texture2D* aTexture, uint32_t aIndex, gfx::IntSize aSize,
       gfx::SurfaceFormat aFormat, gfx::ColorSpace2 aColorSpace,
       gfx::ColorRange aColorRange, gfx::TransferFunction aTransferFunction,
+      const Maybe<gfx::HDRMetadata>& aHDRMetadata,
       KnowsCompositor* aKnowsCompositor, ZeroCopyUsageInfo* aUsageInfo,
       const RefPtr<FenceD3D11> aWriteFence);
 
@@ -111,6 +113,10 @@ class D3D11TextureData final : public TextureData {
   gfx::TransferFunction GetTransferFunction() const {
     return mTransferFunction;
   }
+  void SetHDRMetadata(const Maybe<gfx::HDRMetadata>& aHDRMetadata) {
+    mHDRMetadata = aHDRMetadata;
+  }
+  const Maybe<gfx::HDRMetadata>& GetHDRMetadata() const { return mHDRMetadata; }
 
   gfx::IntSize GetSize() const { return mSize; }
   gfx::SurfaceFormat GetSurfaceFormat() const { return mFormat; }
@@ -156,6 +162,7 @@ class D3D11TextureData final : public TextureData {
  private:
   gfx::ColorRange mColorRange = gfx::ColorRange::LIMITED;
   gfx::TransferFunction mTransferFunction = gfx::TransferFunction::SRGB;
+  Maybe<gfx::HDRMetadata> mHDRMetadata;
   bool mNeedsClear = false;
 
   const RefPtr<ID3D11Device> mDevice;
@@ -238,7 +245,7 @@ class DXGIYCbCrTextureData : public TextureData {
  */
 class TextureSourceD3D11 {
  public:
-  TextureSourceD3D11() : mFormatOverride(DXGI_FORMAT_UNKNOWN) {}
+  TextureSourceD3D11() = default;
   virtual ~TextureSourceD3D11() = default;
 
   virtual ID3D11Texture2D* GetD3D11Texture() const { return mTexture; }
@@ -250,7 +257,7 @@ class TextureSourceD3D11 {
   gfx::IntSize mSize;
   RefPtr<ID3D11Texture2D> mTexture;
   RefPtr<ID3D11ShaderResourceView> mSRV;
-  DXGI_FORMAT mFormatOverride;
+  DXGI_FORMAT mFormatOverride{DXGI_FORMAT_UNKNOWN};
 };
 
 /**
@@ -281,7 +288,7 @@ class DataTextureSourceD3D11 : public DataTextureSource,
   DataTextureSourceD3D11(gfx::SurfaceFormat aFormat,
                          TextureSourceProvider* aProvider, TextureFlags aFlags);
 
-  virtual ~DataTextureSourceD3D11();
+  virtual ~DataTextureSourceD3D11() = default;
 
   const char* Name() const override { return "DataTextureSourceD3D11"; }
 
@@ -411,6 +418,7 @@ class DXGITextureHostD3D11 : public TextureHost {
   const gfx::ColorSpace2 mColorSpace;
   const gfx::ColorRange mColorRange;
   const gfx::TransferFunction mTransferFunction;
+  const Maybe<gfx::HDRMetadata> mHDRMetadata;
 
  protected:
   RefPtr<FenceD3D11> mReadFence;

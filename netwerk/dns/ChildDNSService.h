@@ -5,14 +5,14 @@
 #ifndef mozilla_net_ChildDNSService_h
 #define mozilla_net_ChildDNSService_h
 
-#include "DNSServiceBase.h"
-#include "nsPIDNSService.h"
-#include "mozilla/Attributes.h"
-#include "mozilla/Mutex.h"
 #include "DNSRequestChild.h"
 #include "DNSRequestParent.h"
-#include "nsHashKeys.h"
+#include "DNSServiceBase.h"
+#include "mozilla/Attributes.h"
+#include "mozilla/Mutex.h"
 #include "nsClassHashtable.h"
+#include "nsHashKeys.h"
+#include "nsPIDNSService.h"
 
 namespace mozilla {
 namespace net {
@@ -60,8 +60,8 @@ class ChildDNSService final : public DNSServiceBase, public nsPIDNSService {
 
   // We need to remember pending dns requests to be able to cancel them.
   nsClassHashtable<nsCStringHashKey, nsTArray<RefPtr<DNSRequestSender>>>
-      mPendingRequests;
-  Mutex mPendingRequestsLock MOZ_UNANNOTATED{"DNSPendingRequestsLock"};
+      mPendingRequests MOZ_GUARDED_BY(mPendingRequestsLock);
+  Mutex mPendingRequestsLock{"DNSPendingRequestsLock"};
   RefPtr<TRRServiceParent> mTRRServiceParent;
 
   nsCString mTRRDomain;

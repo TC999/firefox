@@ -6,9 +6,6 @@ support-files = [
 tags = "os_integration"
 
 ["browser_popupUI.js"]
-skip-if = [
-  "os == 'win' && os_version == '11.26200' && asan", # Bug 2019745
-]
 
 ["browser_popup_blocker.js"]
 support-files = [
@@ -18,7 +15,6 @@ support-files = [
   "popup_blocker_10_popups.html",
 ]
 skip-if = [
-  "os == 'win' && os_version == '11.26200' && asan", # Bug 2019745
   "debug",
   "os == 'linux' && os_version == '22.04' && arch == 'x86_64' && display == 'wayland'", # Frequent bug 1081925 and bug 1125520 failures
   "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && display == 'x11'", # Frequent bug 1081925 and bug 1125520 failures
@@ -51,10 +47,15 @@ skip-if = [
   "debug", # This test triggers Bug 1578794 due to opening many popups.
 ]
 
-["browser_popup_close_main_window.js"]
-skip-if = [
-  "os == 'win' && os_version == '11.26200' && asan", # Bug 2019745
+["browser_popup_blocker_parent_target.js"]
+https_first_disabled = true
+support-files = [
+  "popup_blocker_a.html",
+  "popup_blocker_b.html",
+  "popup_blocker_parent_target.html",
 ]
+
+["browser_popup_close_main_window.js"]
 
 ["browser_popup_frames.js"]
 https_first_disabled = true
@@ -100,6 +101,8 @@ skip-if = [
   "os == 'linux' && os_version == '22.04' && arch == 'x86_64' && display == 'wayland' && !headless", # outdated current sizes
   "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && display == 'x11' && !headless", # outdated current sizes
 ]
+
+["browser_popup_resize_clamp.js"]
 
 ["browser_popup_resize_instant.js"]
 skip-if = [

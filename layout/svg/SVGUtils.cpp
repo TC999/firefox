@@ -652,8 +652,7 @@ void SVGUtils::PaintFrameWithEffects(nsIFrame* aFrame, gfxContext& aContext,
     if (shouldPushMask) {
       // We want the mask to be untransformed so use the inverse of the
       // current transform as the maskTransform to compensate.
-      Matrix maskTransform = aContext.CurrentMatrix();
-      maskTransform.Invert();
+      Matrix maskTransform = aContext.CurrentMatrix().Inverse();
       target->PushGroupForBlendBack(gfxContentType::COLOR_ALPHA,
                                     maskFrame ? 1.0f : maskUsage.Opacity(),
                                     maskSurface, maskTransform);
@@ -683,8 +682,8 @@ void SVGUtils::PaintFrameWithEffects(nsIFrame* aFrame, gfxContext& aContext,
     // pixels (SVG user space units). But PaintFilteredFrame expects it to be
     // scaled in such a way that its user space units are device pixels. So we
     // have to adjust the scale.
-    gfxMatrix reverseScaleMatrix = SVGUtils::GetCSSPxToDevPxMatrix(aFrame);
-    DebugOnly<bool> invertible = reverseScaleMatrix.Invert();
+    gfxMatrix reverseScaleMatrix =
+        SVGUtils::GetCSSPxToDevPxMatrix(aFrame).Inverse();
     target->SetMatrixDouble(reverseScaleMatrix * aTransform *
                             target->CurrentMatrixDouble());
 
@@ -763,15 +762,15 @@ bool SVGUtils::HitTestRect(const gfx::Matrix& aMatrix, float aRX, float aRY,
   if (rect.IsEmpty() || aMatrix.IsSingular()) {
     return false;
   }
-  gfx::Matrix toRectSpace = aMatrix;
-  toRectSpace.Invert();
+  gfx::Matrix toRectSpace = aMatrix.Inverse();
   gfx::Point p = toRectSpace.TransformPoint(gfx::Point(aX, aY));
   return rect.x <= p.x && p.x <= rect.XMost() && rect.y <= p.y &&
          p.y <= rect.YMost();
 }
 
 gfxRect SVGUtils::GetClipRectForFrame(const nsIFrame* aFrame, float aX,
-                                      float aY, float aWidth, float aHeight) {
+                                      float aY, float aWidth, float aHeight,
+                                      SVGBBoxFlags aFlags) {
   const nsStyleDisplay* disp = aFrame->StyleDisplay();
   const nsStyleEffects* effects = aFrame->StyleEffects();
 
@@ -784,6 +783,9 @@ gfxRect SVGUtils::GetClipRectForFrame(const nsIFrame* aFrame, float aX,
 
   const auto& rect = effects->mClip.AsRect();
   nsRect coordClipRect = rect.ToLayoutRect();
+  if (aFlags.contains(SVGBBoxFlag::DisregardCSSZoom)) {
+    coordClipRect.Scale(1 / aFrame->Style()->EffectiveZoom().ToFloat());
+  }
   nsIntRect clipPxRect = coordClipRect.ToOutsidePixels(AppUnitsPerCSSPixel());
   gfxRect clipRect =
       gfxRect(clipPxRect.x, clipPxRect.y, clipPxRect.width, clipPxRect.height);
@@ -834,9 +836,13 @@ gfxRect SVGUtils::GetBBox(nsIFrame* aFrame, SVGBBoxFlags aFlags,
     MOZ_ASSERT(!hasSVGLayout);
     bool onlyCurrentFrame =
         aFlags.contains(SVGBBoxFlag::IncludeOnlyCurrentFrameForNonSVGElement);
-    return SVGIntegrationUtils::GetSVGBBoxForNonSVGFrame(
+    gfxRect bbox = SVGIntegrationUtils::GetSVGBBoxForNonSVGFrame(
         aFrame,
         /* aUnionContinuations = */ !onlyCurrentFrame);
+    if (aFlags.contains(SVGBBoxFlag::DisregardCSSZoom)) {
+      bbox.Scale(1 / aFrame->Style()->EffectiveZoom().ToFloat());
+    }
+    return bbox;
   }
 
   MOZ_ASSERT(svg);
@@ -878,7 +884,20 @@ gfxRect SVGUtils::GetBBox(nsIFrame* aFrame, SVGBBoxFlags aFlags,
     // also update SVGUtils::FrameSpaceInCSSPxToUserSpaceOffset.
     MOZ_ASSERT(aFrame->GetContent()->IsSVGElement(), "bad cast");
     auto* element = static_cast<SVGElement*>(aFrame->GetContent());
-    matrix = element->ChildToUserSpaceTransform() * matrix;
+    gfxMatrix transform = element->ChildToUserSpaceTransform();
+    if (aFlags.contains(SVGBBoxFlag::DisregardCSSZoom)) {
+      // The outer if statement above ensures this is just a translation so
+      // the simplest unzoom solution here is just to undo that translation
+      // and rescale it.
+      MOZ_ASSERT(!transform.HasNonTranslation(),
+                 "Expecting only a translation here");
+      gfxPoint translation = transform.GetTranslation();
+      // Remove the zoomed translation and replace it by the unzoomed value.
+      transform.PostTranslate(-translation)
+          .PostTranslate(translation /
+                         aFrame->Style()->EffectiveZoom().ToFloat());
+    }
+    matrix.PreMultiply(transform);
   }
   gfxRect bbox =
       svg->GetBBoxContribution(ToMatrix(matrix), aFlags).ToThebesRect();
@@ -886,13 +905,14 @@ gfxRect SVGUtils::GetBBox(nsIFrame* aFrame, SVGBBoxFlags aFlags,
   if (aFlags.contains(SVGBBoxFlag::IncludeClipped)) {
     gfxRect clipRect;
     gfxRect fillBBox =
-        svg->GetBBoxContribution({}, SVGBBoxFlag::IncludeFillGeometry)
+        svg->GetBBoxContribution({}, (aFlags & SVGBBoxFlag::DisregardCSSZoom) +
+                                         SVGBBoxFlag::IncludeFillGeometry)
             .ToThebesRect();
     // XXX Should probably check for overflow: clip too.
     bool hasClip = aFrame->StyleDisplay()->IsScrollableOverflow();
     if (hasClip) {
-      clipRect = SVGUtils::GetClipRectForFrame(aFrame, 0.0f, 0.0f,
-                                               fillBBox.width, fillBBox.height);
+      clipRect = SVGUtils::GetClipRectForFrame(
+          aFrame, 0.0f, 0.0f, fillBBox.width, fillBBox.height, aFlags);
       clipRect.MoveBy(fillBBox.TopLeft());
       if (aFrame->IsSVGForeignObjectFrame() || aFrame->IsSVGUseFrame()) {
         clipRect = matrix.TransformBounds(clipRect);
@@ -1049,23 +1069,25 @@ gfxMatrix SVGUtils::AdjustMatrixForUnits(const gfxMatrix& aMatrix,
   return aMatrix;
 }
 
-bool SVGUtils::GetNonScalingStrokeTransform(const nsIFrame* aFrame,
-                                            gfxMatrix* aUserToOuterSVG) {
+Maybe<gfxMatrix> SVGUtils::GetNonScalingStrokeTransform(
+    const nsIFrame* aFrame) {
   if (aFrame->GetContent()->IsText()) {
     aFrame = aFrame->GetParent();
   }
 
   if (!aFrame->StyleSVGReset()->HasNonScalingStroke()) {
-    return false;
+    return Nothing();
   }
 
   MOZ_ASSERT(aFrame->GetContent()->IsSVGElement(), "should be an SVG element");
 
   SVGElement* content = static_cast<SVGElement*>(aFrame->GetContent());
-  *aUserToOuterSVG =
+  gfxMatrix userToOuterSVG =
       ThebesMatrix(SVGContentUtils::GetNonScalingStrokeCTM(content));
 
-  return aUserToOuterSVG->HasNonTranslation() && !aUserToOuterSVG->IsSingular();
+  return userToOuterSVG.HasNonTranslation() && !userToOuterSVG.IsSingular()
+             ? Some(userToOuterSVG)
+             : Nothing();
 }
 
 void SVGUtils::UpdateNonScalingStrokeStateBit(nsIFrame* aFrame) {
@@ -1093,10 +1115,9 @@ static gfxRect PathExtentsToMaxStrokeExtents(const gfxRect& aPathExtents,
 
   gfxMatrix matrix = aMatrix;
 
-  gfxMatrix outerSVGToUser;
-  if (SVGUtils::GetNonScalingStrokeTransform(aFrame, &outerSVGToUser)) {
-    outerSVGToUser.Invert();
-    matrix.PreMultiply(outerSVGToUser);
+  if (Maybe<gfxMatrix> userToOuterSVG =
+          SVGUtils::GetNonScalingStrokeTransform(aFrame)) {
+    matrix.PreMultiply(userToOuterSVG->Inverse());
   }
 
   double dx = style_expansion * (std::abs(matrix._11) + std::abs(matrix._21));
@@ -1231,12 +1252,14 @@ void SVGUtils::MakeFillPatternFor(nsIFrame* aFrame, gfxContext* aContext,
     RefPtr<gfxPattern> pattern;
     switch (style->mFill.kind.tag) {
       case StyleSVGPaintKind::Tag::ContextFill:
-        pattern = aContextPaint->GetFillPattern(
-            dt, fillOpacity, aContext->CurrentMatrixDouble(), aImgParams);
+        pattern = aContextPaint->GetPattern(
+            SVGContextPaint::Tag::Fill, dt, fillOpacity,
+            aContext->CurrentMatrixDouble(), aImgParams);
         break;
       case StyleSVGPaintKind::Tag::ContextStroke:
-        pattern = aContextPaint->GetStrokePattern(
-            dt, fillOpacity, aContext->CurrentMatrixDouble(), aImgParams);
+        pattern = aContextPaint->GetPattern(
+            SVGContextPaint::Tag::Stroke, dt, fillOpacity,
+            aContext->CurrentMatrixDouble(), aImgParams);
         break;
       default:;
     }
@@ -1298,12 +1321,14 @@ void SVGUtils::MakeStrokePatternFor(nsIFrame* aFrame, gfxContext* aContext,
     RefPtr<gfxPattern> pattern;
     switch (style->mStroke.kind.tag) {
       case StyleSVGPaintKind::Tag::ContextFill:
-        pattern = aContextPaint->GetFillPattern(
-            dt, strokeOpacity, aContext->CurrentMatrixDouble(), aImgParams);
+        pattern = aContextPaint->GetPattern(
+            SVGContextPaint::Tag::Fill, dt, strokeOpacity,
+            aContext->CurrentMatrixDouble(), aImgParams);
         break;
       case StyleSVGPaintKind::Tag::ContextStroke:
-        pattern = aContextPaint->GetStrokePattern(
-            dt, strokeOpacity, aContext->CurrentMatrixDouble(), aImgParams);
+        pattern = aContextPaint->GetPattern(
+            SVGContextPaint::Tag::Stroke, dt, strokeOpacity,
+            aContext->CurrentMatrixDouble(), aImgParams);
         break;
       default:;
     }
@@ -1335,12 +1360,12 @@ float SVGUtils::GetOpacity(const StyleSVGOpacity& aOpacity,
       return aOpacity.AsOpacity();
     case StyleSVGOpacity::Tag::ContextFillOpacity:
       if (aContextPaint) {
-        opacity = aContextPaint->GetFillOpacity();
+        opacity = aContextPaint->GetOpacity(SVGContextPaint::Tag::Fill);
       }
       break;
     case StyleSVGOpacity::Tag::ContextStrokeOpacity:
       if (aContextPaint) {
-        opacity = aContextPaint->GetStrokeOpacity();
+        opacity = aContextPaint->GetOpacity(SVGContextPaint::Tag::Stroke);
       }
       break;
   }
@@ -1445,7 +1470,8 @@ SVGHitTestFlags SVGUtils::GetGeometryHitTestFlags(const nsIFrame* aFrame) {
   return flags;
 }
 
-void SVGUtils::PaintSVGGlyph(Element* aElement, gfxContext* aContext) {
+void SVGUtils::PaintSVGGlyph(Element* aElement, gfxContext* aContext,
+                             imgDrawingParams& aImgParams) {
   nsIFrame* frame = aElement->GetPrimaryFrame();
   ISVGDisplayableFrame* svgFrame = do_QueryFrame(frame);
   if (!svgFrame) {
@@ -1458,10 +1484,7 @@ void SVGUtils::PaintSVGGlyph(Element* aElement, gfxContext* aContext) {
     m = SVGUtils::GetTransformMatrixInUserSpace(frame);
   }
 
-  // SVG-in-OpenType is not allowed to paint external resources, so we can
-  // just pass a dummy params into PatintSVG.
-  imgDrawingParams dummy;
-  svgFrame->PaintSVG(*aContext, m, dummy);
+  svgFrame->PaintSVG(*aContext, m, aImgParams);
 }
 
 bool SVGUtils::GetSVGGlyphExtents(const Element* aElement,
@@ -1529,7 +1552,7 @@ gfxMatrix SVGUtils::GetTransformMatrixInUserSpace(const nsIFrame* aFrame) {
     trans = nsStyleTransformMatrix::ReadTransforms(
         properties.mTranslate, properties.mRotate, properties.mScale,
         properties.mMotion.ptrOr(nullptr), properties.mTransform, refBox,
-        AppUnitsPerCSSPixel());
+        AppUnitsPerCSSPixel(), aFrame->Style()->EffectiveZoom());
   }
 
   trans.ChangeBasis(svgTransformOrigin);

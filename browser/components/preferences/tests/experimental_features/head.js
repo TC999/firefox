@@ -2,7 +2,7 @@
    http://creativecommons.org/publicdomain/zero/1.0/ */
 
 Services.scriptloader.loadSubScript(
-  "chrome://mochitests/content/browser/browser/components/preferences/tests/head.js",
+  "chrome://mochitests/content/browser/browser/components/preferences/tests/head-common.js",
   this
 );
 
@@ -85,6 +85,10 @@ const DEFAULT_LABS_RECIPES = [
   }),
 ];
 
+add_setup(function setup() {
+  registerCleanupFunction(NimbusTestUtils.disableSignatureVerification());
+});
+
 async function setupLabsTest(recipes) {
   await SpecialPowers.pushPrefEnv({
     set: [
@@ -148,6 +152,7 @@ function enrollByClick(el, wantedActive) {
   info(`Enrolling in ${slug}:${el.dataset.nimbusBranchSlug}...`);
 
   const promise = promiseNimbusStoreUpdate(slug, wantedActive);
+  el.scrollIntoView();
   EventUtils.synthesizeMouseAtCenter(el.inputEl, {}, gBrowser.contentWindow);
   return promise;
 }

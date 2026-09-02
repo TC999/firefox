@@ -55,6 +55,34 @@ Services.ppmm.addMessageListener("AutoComplete:SelectBy", message => {
   }
 });
 
+Services.ppmm.addMessageListener(
+  "AutoComplete:NavigateSecondaryAction",
+  message => {
+    if (compareContext(message)) {
+      let actor = currentActor;
+      if (actor && actor.openedPopup) {
+        return actor.openedPopup.navigateSecondaryAction(message.data.reverse);
+      }
+    }
+
+    return false;
+  }
+);
+
+Services.ppmm.addMessageListener(
+  "AutoComplete:MaybeActivateSecondaryAction",
+  message => {
+    if (compareContext(message)) {
+      let actor = currentActor;
+      if (actor && actor.openedPopup) {
+        return actor.openedPopup.maybeActivateSecondaryAction();
+      }
+    }
+
+    return false;
+  }
+);
+
 // AutoCompleteResultView is an abstraction around a list of results.
 // It implements enough of nsIAutoCompleteController and
 // nsIAutoCompleteInput to make the richlistbox popup work. Since only
@@ -197,7 +225,13 @@ export class AutoCompleteParent extends JSWindowActorParent {
     }
   }
 
-  showPopupWithResults({ rect, dir, results, selectedIndex }) {
+  showPopupWithResults({
+    rect,
+    dir,
+    isDarkBackground,
+    results,
+    selectedIndex,
+  }) {
     if (!results.length || this.openedPopup) {
       // We shouldn't ever be showing an empty popup, and if we
       // already have a popup open, the old one needs to close before
@@ -205,15 +239,16 @@ export class AutoCompleteParent extends JSWindowActorParent {
       return;
     }
 
+    if (!this.browsingContext.canOpenModalPicker) {
+      return;
+    }
+
     let browser = this.browsingContext.top.embedderElement;
-    let window = browser.ownerGlobal;
-    // Also check window top in case this is a sidebar.
-    if (
-      Services.focus.activeWindow !== window.top &&
-      Services.focus.focusedWindow.top !== window.top
-    ) {
-      // We were sent a message from a window or tab that went into the
-      // background, so we'll ignore it for now.
+
+    let tabbrowser = browser.getTabBrowser();
+    if (tabbrowser && tabbrowser.selectedBrowser != browser) {
+      // Overly cautious check, because AsyncTabSwitcher might delay
+      // deactivating our browser.
       return;
     }
 
@@ -224,12 +259,8 @@ export class AutoCompleteParent extends JSWindowActorParent {
     // the layout varies according to different result type
     this.openedPopup.setAttribute("resultstyles", [...resultStyles].join(" "));
     this.openedPopup.hidden = false;
-    // don't allow the popup to become overly narrow
-    this.openedPopup.style.setProperty(
-      "--panel-width",
-      Math.max(100, rect.width) + "px"
-    );
     this.openedPopup.style.direction = dir;
+    this.openedPopup.style.colorScheme = isDarkBackground ? "dark" : "light";
 
     AutoCompleteResultView.setResults(this, results);
 
@@ -354,6 +385,7 @@ export class AutoCompleteParent extends JSWindowActorParent {
     } else {
       AutoCompleteResultView.setResults(this, results);
       this.openedPopup.invalidate();
+      this.#notifyAutoCompletePopupUpdated();
       this._maybeRecordTelemetryEvents(results);
     }
   }
@@ -368,6 +400,17 @@ export class AutoCompleteParent extends JSWindowActorParent {
   }
 
   async receiveMessage(message) {
+    // Handled before the browser/popup guard below because the delegated
+    // GeckoView prompt must be torn down even when its document (and browser)
+    // is going away. Only sent on GeckoView (see the actor registration).
+    if (
+      AppConstants.MOZ_GECKOVIEW &&
+      message.name == "AutoComplete:DocumentHidden"
+    ) {
+      lazy.GeckoViewAutocomplete.reset(this.manager?.innerWindowId);
+      return false;
+    }
+
     let browser = this.browsingContext.top.embedderElement;
 
     if (
@@ -392,7 +435,7 @@ export class AutoCompleteParent extends JSWindowActorParent {
       // to the parent to indicate that an autocomplete entry is selected.
       case "AutoComplete:SelectEntry": {
         if (this.openedPopup) {
-          this.selectAutoCompleteEntry(this.openedPopup.selectedIndex);
+          this.selectAutoCompleteEntry();
         }
         break;
       }
@@ -410,6 +453,7 @@ export class AutoCompleteParent extends JSWindowActorParent {
           results,
           rect,
           dir,
+          isDarkBackground,
           inputElementIdentifier,
           formOrigin,
           selectedIndex,
@@ -426,6 +470,7 @@ export class AutoCompleteParent extends JSWindowActorParent {
             results,
             rect,
             dir,
+            isDarkBackground,
             selectedIndex,
           });
           this.notifyListeners();
@@ -499,7 +544,7 @@ export class AutoCompleteParent extends JSWindowActorParent {
   }
 
   notifyListeners() {
-    let window = this.browsingContext.top.embedderElement.ownerGlobal;
+    let window = this.browsingContext.top.embedderElement.documentGlobal;
     for (let listener of autoCompleteListeners) {
       try {
         listener(window);
@@ -531,7 +576,12 @@ export class AutoCompleteParent extends JSWindowActorParent {
   // entry. LoginManager is prioritized to handle potential username fields first,
   // allowing FormAutofill to safely support single email fields without
   // manual exclusions.
-  #AUTOCOMPLETE_PROVIDERS = ["LoginManager", "FormAutofill", "FormHistory"];
+  #AUTOCOMPLETE_PROVIDERS = [
+    "LoginManager",
+    "FormAutofill",
+    "FormHistory",
+    "SmartFormFill",
+  ];
 
   /**
    * Search across multiple module to gather autocomplete entries for a given search string.
@@ -576,6 +626,7 @@ export class AutoCompleteParent extends JSWindowActorParent {
     const prefixToActor = [
       { prefix: "PasswordManager", actor: "LoginManager" },
       { prefix: "FormAutofill", actor: "FormAutofill" },
+      { prefix: "SmartFormFill", actor: "SmartFormFill" },
     ];
 
     const name = prefixToActor.find(x => message.startsWith(x.prefix))?.actor;
@@ -603,6 +654,27 @@ export class AutoCompleteParent extends JSWindowActorParent {
 
     for (const actor of actors) {
       actor.onAutoCompletePopupOpened?.(elementId);
+    }
+  }
+
+  /**
+   * Notifies displayed entry providers after an open popup is updated.
+   */
+  #notifyAutoCompletePopupUpdated() {
+    const actors = new Set();
+    for (const result of AutoCompleteResultView.results) {
+      try {
+        const { fillMessageName } = JSON.parse(result.comment);
+        if (!fillMessageName) {
+          continue;
+        }
+
+        actors.add(this.#getActorByMessagePrefix(fillMessageName));
+      } catch {}
+    }
+
+    for (const actor of actors) {
+      actor.onAutoCompletePopupUpdated?.();
     }
   }
 
@@ -649,18 +721,25 @@ export class AutoCompleteParent extends JSWindowActorParent {
   }
 
   /**
-   * When an autocomplete entry is selected, notify the actor that provides the entry
+   * When an autocomplete entry is selected, notify the actor that provides the
+   * entry. The same path handles an entry's secondary action (such as the edit
+   * button shown next to a saved login): when `secondary` is true we dispatch
+   * the message declared by the entry's `secondaryAction` instead of its
+   * primary fill message.
+   *
+   * @param {boolean} secondary Whether to dispatch the entry's secondary action.
    */
-  selectAutoCompleteEntry() {
+  selectAutoCompleteEntry(secondary = false) {
     const selectedIndex = this.openedPopup?.selectedIndex;
     const result = AutoCompleteResultView.results[selectedIndex];
     if (!result) {
       return;
     }
 
-    const { fillMessageName, fillMessageData } = JSON.parse(
-      result.comment || "{}"
-    );
+    const parsedComment = JSON.parse(result.comment || "{}");
+    const { fillMessageName, fillMessageData } = secondary
+      ? (parsedComment.secondaryAction ?? {})
+      : parsedComment;
     if (!fillMessageName) {
       return;
     }

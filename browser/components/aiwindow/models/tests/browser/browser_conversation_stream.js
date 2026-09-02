@@ -12,16 +12,21 @@ const { MESSAGE_ROLE } = ChromeUtils.importESModule(
 const { Chat } = ChromeUtils.importESModule(
   "moz-src:///browser/components/aiwindow/models/Chat.sys.mjs"
 );
+const { Conversation } = ChromeUtils.importESModule(
+  "moz-src:///browser/components/aiwindow/models/Conversation.sys.mjs"
+);
 const { MemoryStore } = ChromeUtils.importESModule(
   "moz-src:///browser/components/aiwindow/services/MemoryStore.sys.mjs"
 );
-const { MODEL_FEATURES } = ChromeUtils.importESModule(
+const { MODEL_FEATURES, SERVICE_TYPES, PURPOSES } = ChromeUtils.importESModule(
   "moz-src:///browser/components/aiwindow/models/Utils.sys.mjs"
 );
 
 const { PlacesTestUtils } = ChromeUtils.importESModule(
   "resource://testing-common/PlacesTestUtils.sys.mjs"
 );
+
+const TEST_MODEL = "test-model";
 
 function getLastAssistantResponse(conversation) {
   return conversation.messages
@@ -50,9 +55,15 @@ add_task(async function test_chat_streams_end_to_end() {
       conversation.addAssistantMessage("text", "");
 
       // withServer sets up the mock HTTP server, so use the real engine
-      const engineInstance = await openAIEngine.build(MODEL_FEATURES.CHAT);
-
-      await Chat.fetchWithHistory({ conversation, engineInstance });
+      const engine = await openAIEngine.build({
+        model: TEST_MODEL,
+        serviceType: SERVICE_TYPES.AI,
+        purpose: PURPOSES.CHAT,
+        flowId: null,
+        feature: MODEL_FEATURES.CHAT,
+      });
+      conversation.engine = engine;
+      await Chat.fetchWithHistory({ conversation });
 
       Assert.equal(
         getLastAssistantResponse(conversation).content.body,
@@ -130,18 +141,24 @@ add_task(async function test_chat_tool_call_get_open_tabs() {
         followupChunks: ["Here are your tabs."],
       },
       async () => {
-        const engineInstance = await openAIEngine.build(MODEL_FEATURES.CHAT);
-
+        const engine = await openAIEngine.build({
+          model: TEST_MODEL,
+          serviceType: SERVICE_TYPES.AI,
+          purpose: PURPOSES.CHAT,
+          flowId: null,
+          feature: MODEL_FEATURES.CHAT,
+        });
         const conversation = new ChatConversation({
           title: "chat title",
           description: "chat desc",
           pageUrl: new URL("https://example.com"),
           pageMeta: {},
         });
+        conversation.engine = engine;
         conversation.addUserMessage("List tabs", "https://example.com", 0);
         conversation.addAssistantMessage("text", "");
 
-        await Chat.fetchWithHistory({ conversation, engineInstance });
+        await Chat.fetchWithHistory({ conversation });
 
         Assert.equal(
           getLastAssistantResponse(conversation).content.body,
@@ -205,9 +222,15 @@ add_task(async function test_chat_tool_call_search_browsing_history() {
         conversation.addUserMessage("Search history", "https://example.com", 0);
         conversation.addAssistantMessage("text", "");
 
-        const engineInstance = await openAIEngine.build(MODEL_FEATURES.CHAT);
-
-        await Chat.fetchWithHistory({ conversation, engineInstance });
+        const engine = await openAIEngine.build({
+          model: TEST_MODEL,
+          serviceType: SERVICE_TYPES.AI,
+          purpose: PURPOSES.CHAT,
+          flowId: null,
+          feature: MODEL_FEATURES.CHAT,
+        });
+        conversation.engine = engine;
+        await Chat.fetchWithHistory({ conversation });
 
         Assert.equal(
           getLastAssistantResponse(conversation).content.body,
@@ -257,9 +280,15 @@ add_task(async function test_chat_tool_call_get_page_content() {
         conversation.addUserMessage("Read page", "https://example.com", 0);
         conversation.addAssistantMessage("text", "");
 
-        const engineInstance = await openAIEngine.build(MODEL_FEATURES.CHAT);
-
-        await Chat.fetchWithHistory({ conversation, engineInstance });
+        const engine = await openAIEngine.build({
+          model: TEST_MODEL,
+          serviceType: SERVICE_TYPES.AI,
+          purpose: PURPOSES.CHAT,
+          flowId: null,
+          feature: MODEL_FEATURES.CHAT,
+        });
+        conversation.engine = engine;
+        await Chat.fetchWithHistory({ conversation });
 
         Assert.equal(
           getLastAssistantResponse(conversation).content.body,
@@ -332,9 +361,15 @@ add_task(async function test_chat_tool_call_get_navigation_info() {
         );
         conversation.addAssistantMessage("text", "");
 
-        const engineInstance = await openAIEngine.build(MODEL_FEATURES.CHAT);
-
-        await Chat.fetchWithHistory({ conversation, engineInstance });
+        const engine = await openAIEngine.build({
+          model: TEST_MODEL,
+          serviceType: SERVICE_TYPES.AI,
+          purpose: PURPOSES.CHAT,
+          flowId: null,
+          feature: MODEL_FEATURES.CHAT,
+        });
+        conversation.engine = engine;
+        await Chat.fetchWithHistory({ conversation });
 
         Assert.equal(
           getLastAssistantResponse(conversation).content.body,
@@ -415,9 +450,15 @@ add_task(async function test_chat_tool_call_get_user_memories() {
         );
         conversation.addAssistantMessage("text", "");
 
-        const engineInstance = await openAIEngine.build(MODEL_FEATURES.CHAT);
-
-        await Chat.fetchWithHistory({ conversation, engineInstance });
+        const engine = await openAIEngine.build({
+          model: TEST_MODEL,
+          serviceType: SERVICE_TYPES.AI,
+          purpose: PURPOSES.CHAT,
+          flowId: null,
+          feature: MODEL_FEATURES.CHAT,
+        });
+        conversation.engine = engine;
+        await Chat.fetchWithHistory({ conversation });
 
         Assert.equal(
           getLastAssistantResponse(conversation).content.body,
@@ -455,4 +496,82 @@ add_task(async function test_chat_tool_call_get_user_memories() {
       await MemoryStore.hardDeleteMemory(memory.id);
     }
   }
+});
+
+// End-to-end check that inference parameters actually reach the model request.
+// Uses the real engine + a real local server (withServer), and asserts against
+// the parsed body the server received:
+//   1. params configured on the conversation (e.g. from the RS model config),
+//   2. response_format,
+//   3. tool_choice.
+add_task(async function test_run_forwards_params_to_model_request() {
+  const requests = [];
+  await withServer(
+    {
+      streamChunks: ["ok"],
+      onRequest: body => requests.push(body),
+    },
+    async () => {
+      const engine = await openAIEngine.build({
+        model: TEST_MODEL,
+        serviceType: SERVICE_TYPES.AI,
+        purpose: PURPOSES.CHAT,
+        flowId: null,
+        feature: MODEL_FEATURES.CHAT,
+      });
+
+      const conversation = new Conversation({
+        engine,
+        parameters: { temperature: 0.42, top_p: 0.9 },
+      });
+      conversation.setSystemMessage("system");
+      conversation.addUserMessage("hello");
+
+      const responseFormat = {
+        type: "json_schema",
+        json_schema: {
+          name: "Test",
+          strict: false,
+          schema: { type: "object" },
+        },
+      };
+
+      const generator = conversation.runWithGenerator({
+        streamOptions: { enabled: true },
+        inferenceParams: {
+          tool_choice: "auto",
+          response_format: responseFormat,
+        },
+      });
+      // eslint-disable-next-line no-unused-vars
+      for await (const _chunk of generator) {
+        // Drain the stream so the request completes.
+      }
+
+      Assert.equal(requests.length, 1, "One request reached the model");
+      const body = requests[0];
+
+      // (1) conversation.parameters reach the request.
+      Assert.equal(
+        body.temperature,
+        0.42,
+        "temperature from conversation.parameters reaches the request"
+      );
+      Assert.equal(
+        body.top_p,
+        0.9,
+        "top_p from conversation.parameters reaches the request"
+      );
+
+      // (2) response_format reaches the request.
+      Assert.deepEqual(
+        body.response_format,
+        responseFormat,
+        "response_format reaches the request"
+      );
+
+      // (3) tool_choice reaches the request.
+      Assert.equal(body.tool_choice, "auto", "tool_choice reaches the request");
+    }
+  );
 });

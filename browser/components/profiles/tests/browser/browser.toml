@@ -1,7 +1,7 @@
 [DEFAULT]
 support-files = ["head.js"]
-
-prefs = ["browser.profiles.enabled=true","browser.profiles.created=false",]
+dupe-manifest = true
+prefs = ["browser.profiles.enabled=true","browser.profiles.created=false","browser.nova.enabled=true",]
 
 ["browser_activate.js"]
 run-if = [
@@ -37,14 +37,13 @@ run-if = [
   "os == 'win'", # Desktop shortcuts are only supported on Windows.
 ]
 
-["browser_edit_profile_test.js"]
-skip-if = [
-  "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && display == 'x11' && debug", # Bug 1942961
-  "os == 'win' && os_version == '11.26100' && debug", # Bug 1942961
-  "os == 'win' && os_version == '11.26200' && debug", # Bug 1942961
-]
+["browser_edit_profile_theme_picker_test.js"]
 
 ["browser_empty_name_beforeunload_test.js"]
+
+["browser_fxa_menu_profiles.js"]
+
+["browser_icon_avatar_test.js"]
 
 ["browser_menubar_profiles.js"]
 head = "../unit/head.js head.js"
@@ -63,17 +62,11 @@ skip-if = [
 
 ["browser_refresh_button.js"]
 
-["browser_test_current_theme_from_amo.js"]
-skip-if = [
-  "os == 'win'", # Bug 1994086
-]
 
 ["browser_test_last_tab.js"]
 skip-if = [
   "os == 'win'", # Bug 1994086
 ]
-
-["browser_test_nimbus_feature.js"]
 
 ["browser_test_profile_selector.js"]
 skip-if = [

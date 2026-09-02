@@ -26,7 +26,9 @@
 #include "mozilla/dom/quota/Client.h"
 #include "mozilla/dom/quota/ClientDirectoryLock.h"
 #include "mozilla/dom/quota/ClientImpl.h"
+#include "mozilla/dom/quota/QuotaCommon.h"
 #include "mozilla/dom/quota/QuotaManager.h"
+#include "mozilla/dom/quota/ScopedLogExtraInfo.h"
 #include "mozilla/dom/quota/StringifyUtils.h"
 #include "mozilla/ipc/BackgroundParent.h"
 #include "nsID.h"
@@ -41,14 +43,10 @@ namespace mozilla::dom::cache {
 
 using mozilla::dom::quota::ClientDirectoryLock;
 using mozilla::dom::quota::CloneFileAndAppend;
+using mozilla::dom::quota::ScopedLogExtraInfo;
 
 namespace {
 
-/**
- * Note: The aCommitHook argument will be invoked while a lock is held. Callers
- * should be careful not to pass a hook that might lock on something else and
- * trigger a deadlock.
- */
 template <typename Callable>
 nsresult MaybeUpdatePaddingFile(nsIFile* aBaseDir, mozIStorageConnection* aConn,
                                 const int64_t aIncreaseSize,
@@ -125,6 +123,8 @@ class SetupAction final : public SyncDBAction {
       QM_TRY_INSPECT(const auto& orphanedCacheIdList,
                      db::FindOrphanedCacheIds(*aConn));
 
+      QM_SCOPED_CONTEXT("CacheSetupAction::OrphanCleanupFailed"_ns);
+
       QM_TRY_INSPECT(
           const CheckedInt64& overallDeletedPaddingSize,
           Reduce(
@@ -138,11 +138,6 @@ class SetupAction final : public SyncDBAction {
                 QM_TRY(MOZ_TO_RESULT(
                     BodyDeleteFiles(aDirectoryMetadata, *aDBDir,
                                     deletionInfo.mDeletedBodyIdList)));
-
-                if (deletionInfo.mDeletedPaddingSize > 0) {
-                  DecreaseUsageForDirectoryMetadata(
-                      aDirectoryMetadata, deletionInfo.mDeletedPaddingSize);
-                }
 
                 return oldValue + deletionInfo.mDeletedPaddingSize;
               }));
@@ -164,10 +159,24 @@ class SetupAction final : public SyncDBAction {
       // failure, but if we entered it and RestorePaddingFile succeeded, we
       // would have returned NS_OK. Now, we will never propagate a
       // MaybeUpdatePaddingFile failure.
-      QM_WARNONLY_TRY(QM_TO_RESULT(
-          MaybeUpdatePaddingFile(aDBDir, aConn, /* aIncreaceSize */ 0,
-                                 overallDeletedPaddingSize.value(),
-                                 [&trans]() { return trans.Commit(); })));
+      const auto scope = overallDeletedPaddingSize.value() > 0
+                             ? Some(ScopedLogExtraInfo{
+                                   ScopedLogExtraInfo::kTagContextTainted,
+                                   "CacheSetupAction::PaddingUpdateFailed"_ns})
+                             : Nothing{};
+
+      QM_WARNONLY_TRY(QM_TO_RESULT(MaybeUpdatePaddingFile(
+          aDBDir, aConn, /* aIncreaceSize */ 0,
+          overallDeletedPaddingSize.value(),
+          [&trans, &overallDeletedPaddingSize,
+           &aDirectoryMetadata]() -> nsresult {
+            const nsresult rv = trans.Commit();
+            if (NS_SUCCEEDED(rv) && overallDeletedPaddingSize.value() > 0) {
+              DecreaseUsageForDirectoryMetadata(
+                  aDirectoryMetadata, overallDeletedPaddingSize.value());
+            }
+            return rv;
+          })));
     }
 
     if (DirectoryPaddingFileExists(*aDBDir, DirPaddingFile::TMP_FILE) ||

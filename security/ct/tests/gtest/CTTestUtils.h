@@ -5,12 +5,10 @@
 #ifndef CTTestUtils_h
 #define CTTestUtils_h
 
-#include <iostream>
-
+#include "SignedCertificateTimestamp.h"
 #include "mozpkix/Input.h"
 #include "mozpkix/Time.h"
 #include "seccomon.h"
-#include "SignedCertificateTimestamp.h"
 
 namespace mozilla {
 namespace ct {

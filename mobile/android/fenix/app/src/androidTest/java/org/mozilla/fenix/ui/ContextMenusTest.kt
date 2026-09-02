@@ -4,7 +4,7 @@
 
 package org.mozilla.fenix.ui
 
-import androidx.compose.ui.test.junit4.AndroidComposeTestRule
+import androidx.compose.ui.test.junit4.v2.AndroidComposeTestRule as AndroidComposeTestRuleV2
 import androidx.core.net.toUri
 import org.junit.Rule
 import org.junit.Test
@@ -15,6 +15,7 @@ import org.mozilla.fenix.helpers.HomeActivityIntentTestRule
 import org.mozilla.fenix.helpers.MatcherHelper.itemContainingText
 import org.mozilla.fenix.helpers.MatcherHelper.itemWithText
 import org.mozilla.fenix.helpers.RetryTestRule
+import org.mozilla.fenix.helpers.RetryableComposeTestRule
 import org.mozilla.fenix.helpers.TestAssetHelper.externalLinksAsset
 import org.mozilla.fenix.helpers.TestAssetHelper.getGenericAsset
 import org.mozilla.fenix.helpers.TestAssetHelper.imageAsset
@@ -30,42 +31,43 @@ import org.mozilla.fenix.ui.robots.navigationToolbar
 import org.mozilla.fenix.ui.robots.shareOverlay
 
 /**
- *  Tests for verifying basic functionality of content context menus
+ * Tests for verifying basic functionality of content context menus
  *
- *  - Verifies long click "Open link in new tab" UI and functionality
- *  - Verifies long click "Open link in new Private tab" UI and functionality
- *  - Verifies long click "Copy Link" UI and functionality
- *  - Verifies long click "Share Link" UI and functionality
- *  - Verifies long click "Open image in new tab" UI and functionality
- *  - Verifies long click "Save Image" UI and functionality
- *  - Verifies long click "Copy image location" UI and functionality
- *  - Verifies long click items of mixed hypertext items
- *
+ * - Verifies long click "Open link in new tab" UI and functionality
+ * - Verifies long click "Open link in new Private tab" UI and functionality
+ * - Verifies long click "Copy Link" UI and functionality
+ * - Verifies long click "Share Link" UI and functionality
+ * - Verifies long click "Open image in new tab" UI and functionality
+ * - Verifies long click "Save Image" UI and functionality
+ * - Verifies long click "Copy image location" UI and functionality
+ * - Verifies long click items of mixed hypertext items
  */
-
 class ContextMenusTest {
 
-    @get:Rule(order = 0)
-    val fenixTestRule: FenixTestRule = FenixTestRule()
+    @get:Rule(order = 0) val fenixTestRule: FenixTestRule = FenixTestRule()
 
-    private val mockWebServer get() = fenixTestRule.mockWebServer
+    private val mockWebServer
+        get() = fenixTestRule.mockWebServer
 
-    @get:Rule
-    val composeTestRule =
-        AndroidComposeTestRule(
+    @get:Rule(order = 1) val retryTestRule = RetryTestRule(3)
+
+    @get:Rule(order = 2)
+    val retryableComposeTestRule = RetryableComposeTestRule {
+        AndroidComposeTestRuleV2(
             HomeActivityIntentTestRule(
                 // workaround for toolbar at top position by default
                 // remove with https://bugzilla.mozilla.org/show_bug.cgi?id=1917640
-                shouldUseBottomToolbar = true,
-            ),
-        ) { it.activity }
+                shouldUseBottomToolbar = true
+            )
+        ) {
+            it.activity
+        }
+    }
 
-    @get:Rule
-    val memoryLeaksRule = DetectMemoryLeaksRule()
+    private val composeTestRule
+        get() = retryableComposeTestRule.current
 
-    @Rule
-    @JvmField
-    val retryTestRule = RetryTestRule(3)
+    @get:Rule(order = 3) val memoryLeaksRule = DetectMemoryLeaksRule(composeTestRule = { composeTestRule })
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/243837
     @Test
@@ -73,20 +75,21 @@ class ContextMenusTest {
         val pageLinks = mockWebServer.getGenericAsset(4)
         val genericURL = mockWebServer.getGenericAsset(1)
 
-        navigationToolbar(composeTestRule) {
-        }.enterURLAndEnterToBrowser(pageLinks.url) {
-            mDevice.waitForIdle()
-            longClickPageObject(composeTestRule, itemWithText("Link 1"))
-            verifyContextMenuForLocalHostLinks(genericURL.url)
-            clickContextMenuItem("Open link in new tab")
-            verifySnackBarText("New tab opened")
-            clickSnackbarButton(composeTestRule, "SWITCH")
-            verifyUrl(genericURL.url.toString())
-        }.openTabDrawer(composeTestRule) {
-            verifyNormalBrowsingButtonIsSelected()
-            verifyExistingOpenTabs("Test_Page_1")
-            verifyExistingOpenTabs("Test_Page_4")
-        }
+        navigationToolbar(composeTestRule) {}
+            .enterURLAndEnterToBrowser(pageLinks.url) {
+                mDevice.waitForIdle()
+                longClickPageObject(composeTestRule, itemWithText("Link 1"))
+                verifyContextMenuForLocalHostLinks(genericURL.url)
+                clickContextMenuItem("Open link in new tab")
+                verifySnackBarText("New tab opened")
+                clickSnackbarButton(composeTestRule, "SWITCH")
+                verifyUrl(genericURL.url.toString())
+            }
+            .openTabDrawer(composeTestRule) {
+                verifyNormalBrowsingButtonIsSelected()
+                verifyExistingOpenTabs("Test_Page_1")
+                verifyExistingOpenTabs("Test_Page_4")
+            }
     }
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/244655
@@ -95,19 +98,20 @@ class ContextMenusTest {
         val pageLinks = mockWebServer.getGenericAsset(4)
         val genericURL = mockWebServer.getGenericAsset(2)
 
-        navigationToolbar(composeTestRule) {
-        }.enterURLAndEnterToBrowser(pageLinks.url) {
-            mDevice.waitForIdle()
-            longClickPageObject(composeTestRule, itemWithText("Link 2"))
-            verifyContextMenuForLocalHostLinks(genericURL.url)
-            clickContextMenuItem("Open link in private tab")
-            verifySnackBarText("New private tab opened")
-            clickSnackbarButton(composeTestRule, "SWITCH")
-            verifyUrl(genericURL.url.toString())
-        }.openTabDrawer(composeTestRule) {
-            verifyPrivateBrowsingButtonIsSelected()
-            verifyExistingOpenTabs("Test_Page_2")
-        }
+        navigationToolbar(composeTestRule) {}
+            .enterURLAndEnterToBrowser(pageLinks.url) {
+                mDevice.waitForIdle()
+                longClickPageObject(composeTestRule, itemWithText("Link 2"))
+                verifyContextMenuForLocalHostLinks(genericURL.url)
+                clickContextMenuItem("Open link in private tab")
+                verifySnackBarText("New private tab opened")
+                clickSnackbarButton(composeTestRule, "SWITCH")
+                verifyUrl(genericURL.url.toString())
+            }
+            .openTabDrawer(composeTestRule) {
+                verifyPrivateBrowsingButtonIsSelected()
+                verifyExistingOpenTabs("Test_Page_2")
+            }
     }
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/243832
@@ -116,32 +120,34 @@ class ContextMenusTest {
         val pageLinks = mockWebServer.getGenericAsset(4)
         val genericURL = mockWebServer.getGenericAsset(3)
 
-        navigationToolbar(composeTestRule) {
-        }.enterURLAndEnterToBrowser(pageLinks.url) {
-            mDevice.waitForIdle()
-            longClickPageObject(composeTestRule, itemWithText("Link 3"))
-            verifyContextMenuForLocalHostLinks(genericURL.url)
-            clickContextMenuItem("Copy link")
-            verifySnackBarText("Link copied to clipboard")
-        }.openNavigationToolbar {
-        }.visitLinkFromClipboard {
-            verifyUrl(genericURL.url.toString())
-        }
+        navigationToolbar(composeTestRule) {}
+            .enterURLAndEnterToBrowser(pageLinks.url) {
+                mDevice.waitForIdle()
+                longClickPageObject(composeTestRule, itemWithText("Link 3"))
+                verifyContextMenuForLocalHostLinks(genericURL.url)
+                clickContextMenuItem("Copy link")
+                verifySnackBarText("Link copied to clipboard")
+            }
+            .openNavigationToolbar {}
+            .visitLinkFromClipboard {
+                verifyUrl(genericURL.url.toString())
+            }
     }
 
+    // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/4024997
     @Test
     fun verifyCopyLinkTextContextMenuOptionTest() {
         val pageLinks = mockWebServer.getGenericAsset(4)
         val genericURL = mockWebServer.getGenericAsset(3)
 
-        navigationToolbar(composeTestRule) {
-        }.enterURLAndEnterToBrowser(pageLinks.url) {
-            mDevice.waitForIdle()
-            longClickPageObject(composeTestRule, itemWithText("Link 3"))
-            verifyContextMenuForLocalHostLinks(genericURL.url)
-            clickContextMenuItem("Copy link text")
-            verifySnackBarText("Link text copied to clipboard")
-        }
+        navigationToolbar(composeTestRule) {}
+            .enterURLAndEnterToBrowser(pageLinks.url) {
+                mDevice.waitForIdle()
+                longClickPageObject(composeTestRule, itemWithText("Link 3"))
+                verifyContextMenuForLocalHostLinks(genericURL.url)
+                clickContextMenuItem("Copy link text")
+                verifySnackBarText("Link text copied to clipboard")
+            }
     }
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/243838
@@ -150,17 +156,17 @@ class ContextMenusTest {
         val pageLinks = mockWebServer.getGenericAsset(4)
         val genericURL = mockWebServer.getGenericAsset(1)
 
-        navigationToolbar(composeTestRule) {
-        }.enterURLAndEnterToBrowser(pageLinks.url) {
-            mDevice.waitForIdle()
-            longClickPageObject(composeTestRule, itemWithText("Link 1"))
-            verifyContextMenuForLocalHostLinks(genericURL.url)
-            clickContextMenuItem("Share link")
-            shareOverlay {
-                verifyShareLinkIntent(genericURL.url)
-                mDevice.pressBack()
+        navigationToolbar(composeTestRule) {}
+            .enterURLAndEnterToBrowser(pageLinks.url) {
+                mDevice.waitForIdle()
+                longClickPageObject(composeTestRule, itemWithText("Link 1"))
+                verifyContextMenuForLocalHostLinks(genericURL.url)
+                clickContextMenuItem("Share link")
+                shareOverlay {
+                    verifyShareLinkIntent(genericURL.url)
+                    mDevice.pressBack()
+                }
             }
-        }
     }
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/243833
@@ -169,16 +175,16 @@ class ContextMenusTest {
         val pageLinks = mockWebServer.getGenericAsset(4)
         val imageResource = mockWebServer.imageAsset
 
-        navigationToolbar(composeTestRule) {
-        }.enterURLAndEnterToBrowser(pageLinks.url) {
-            mDevice.waitForIdle()
-            longClickPageObject(composeTestRule, itemWithText("test_link_image"))
-            verifyLinkImageContextMenuItems(imageResource.url)
-            clickContextMenuItem("Open image in new tab")
-            verifySnackBarText("New tab opened")
-            clickSnackbarButton(composeTestRule, "SWITCH")
-            verifyUrl(imageResource.url.toString())
-        }
+        navigationToolbar(composeTestRule) {}
+            .enterURLAndEnterToBrowser(pageLinks.url) {
+                mDevice.waitForIdle()
+                longClickPageObject(composeTestRule, itemWithText("test_link_image"))
+                verifyLinkImageContextMenuItems(imageResource.url)
+                clickContextMenuItem("Open image in new tab")
+                verifySnackBarText("New tab opened")
+                clickSnackbarButton(composeTestRule, "SWITCH")
+                verifyUrl(imageResource.url.toString())
+            }
     }
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/243834
@@ -187,17 +193,18 @@ class ContextMenusTest {
         val pageLinks = mockWebServer.getGenericAsset(4)
         val imageResource = mockWebServer.imageAsset
 
-        navigationToolbar(composeTestRule) {
-        }.enterURLAndEnterToBrowser(pageLinks.url) {
-            mDevice.waitForIdle()
-            longClickPageObject(composeTestRule, itemWithText("test_link_image"))
-            verifyLinkImageContextMenuItems(imageResource.url)
-            clickContextMenuItem("Copy image location")
-            verifySnackBarText("Link copied to clipboard")
-        }.openNavigationToolbar {
-        }.visitLinkFromClipboard {
-            verifyUrl(imageResource.url.toString())
-        }
+        navigationToolbar(composeTestRule) {}
+            .enterURLAndEnterToBrowser(pageLinks.url) {
+                mDevice.waitForIdle()
+                longClickPageObject(composeTestRule, itemWithText("test_link_image"))
+                verifyLinkImageContextMenuItems(imageResource.url)
+                clickContextMenuItem("Copy image location")
+                verifySnackBarText("Link copied to clipboard")
+            }
+            .openNavigationToolbar {}
+            .visitLinkFromClipboard {
+                verifyUrl(imageResource.url.toString())
+            }
     }
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/243835
@@ -206,13 +213,13 @@ class ContextMenusTest {
         val pageLinks = mockWebServer.getGenericAsset(4)
         val imageResource = mockWebServer.imageAsset
 
-        navigationToolbar(composeTestRule) {
-        }.enterURLAndEnterToBrowser(pageLinks.url) {
-            mDevice.waitForIdle()
-            longClickPageObject(composeTestRule, itemWithText("test_link_image"))
-            verifyLinkImageContextMenuItems(imageResource.url)
-            clickContextMenuItem("Save image")
-        }
+        navigationToolbar(composeTestRule) {}
+            .enterURLAndEnterToBrowser(pageLinks.url) {
+                mDevice.waitForIdle()
+                longClickPageObject(composeTestRule, itemWithText("test_link_image"))
+                verifyLinkImageContextMenuItems(imageResource.url)
+                clickContextMenuItem("Save image")
+            }
 
         downloadRobot(composeTestRule) {
             verifyDownloadCompleteSnackbar(fileName = "rabbit.jpg")
@@ -228,18 +235,18 @@ class ContextMenusTest {
         val genericURL = mockWebServer.getGenericAsset(1)
         val imageResource = mockWebServer.imageAsset
 
-        navigationToolbar(composeTestRule) {
-        }.enterURLAndEnterToBrowser(pageLinks.url) {
-            mDevice.waitForIdle()
-            longClickPageObject(composeTestRule, itemWithText("Link 1"))
-            verifyContextMenuForLocalHostLinks(genericURL.url)
-            dismissContentContextMenu()
-            longClickPageObject(composeTestRule, itemWithText("test_link_image"))
-            verifyLinkImageContextMenuItems(imageResource.url)
-            dismissContentContextMenu()
-            longClickPageObject(composeTestRule, itemWithText("test_no_link_image"))
-            verifyNoLinkImageContextMenuItems(imageResource.url)
-        }
+        navigationToolbar(composeTestRule) {}
+            .enterURLAndEnterToBrowser(pageLinks.url) {
+                mDevice.waitForIdle()
+                longClickPageObject(composeTestRule, itemWithText("Link 1"))
+                verifyContextMenuForLocalHostLinks(genericURL.url)
+                dismissContentContextMenu()
+                longClickPageObject(composeTestRule, itemWithText("test_link_image"))
+                verifyLinkImageContextMenuItems(imageResource.url)
+                dismissContentContextMenu()
+                longClickPageObject(composeTestRule, itemWithText("test_no_link_image"))
+                verifyNoLinkImageContextMenuItems(imageResource.url)
+            }
     }
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/2333840
@@ -247,20 +254,20 @@ class ContextMenusTest {
     fun verifyPDFContextMenuLinkVariationsTest() {
         val genericURL = mockWebServer.getGenericAsset(3)
 
-        navigationToolbar(composeTestRule) {
-        }.enterURLAndEnterToBrowser(genericURL.url) {
-            clickPageObject(composeTestRule, itemWithText("PDF form file"))
-            waitForPageToLoad()
-            clickPageObject(composeTestRule, itemContainingText("Cancel"))
-            longClickPageObject(composeTestRule, itemWithText("Wikipedia link"))
-            verifyContextMenuForLinksToOtherHosts("wikipedia.org".toUri())
-            dismissContentContextMenu()
-            // Some options are missing from the linked and non liked images context menus in PDF files
-            // See https://bugzilla.mozilla.org/show_bug.cgi?id=1012805 for more details
-            longClickPDFImage()
-            verifyContextMenuForLinksToOtherHosts("wikipedia.org".toUri())
-            dismissContentContextMenu()
-        }
+        navigationToolbar(composeTestRule) {}
+            .enterURLAndEnterToBrowser(genericURL.url) {
+                clickPageObject(composeTestRule, itemWithText("PDF form file"))
+                waitForPageToLoad()
+                clickPageObject(composeTestRule, itemContainingText("Stay in"))
+                longClickPageObject(composeTestRule, itemWithText("Wikipedia link"))
+                verifyContextMenuForLinksToOtherHosts("wikipedia.org".toUri())
+                dismissContentContextMenu()
+                // Some options are missing from the linked and non liked images context menus in PDF files
+                // See https://bugzilla.mozilla.org/show_bug.cgi?id=1012805 for more details
+                longClickPDFImage()
+                verifyContextMenuForLinksToOtherHosts("wikipedia.org".toUri())
+                dismissContentContextMenu()
+            }
     }
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/832094
@@ -268,12 +275,12 @@ class ContextMenusTest {
     fun verifyOpenLinkInAppContextMenuOptionTest() {
         val defaultWebPage = mockWebServer.externalLinksAsset
 
-        navigationToolbar(composeTestRule) {
-        }.enterURLAndEnterToBrowser(defaultWebPage.url) {
-            longClickPageObject(composeTestRule, itemContainingText("Youtube full link"))
-            verifyContextMenuForLinksToOtherApps("youtube.com")
-            clickContextMenuItem("Open link in external app")
-            assertExternalAppOpens(YOUTUBE_APP)
-        }
+        navigationToolbar(composeTestRule) {}
+            .enterURLAndEnterToBrowser(defaultWebPage.url) {
+                longClickPageObject(composeTestRule, itemContainingText("Youtube full link"))
+                verifyContextMenuForLinksToOtherApps("youtube.com")
+                clickContextMenuItem("Open link in external app")
+                assertExternalAppOpens(YOUTUBE_APP)
+            }
     }
 }

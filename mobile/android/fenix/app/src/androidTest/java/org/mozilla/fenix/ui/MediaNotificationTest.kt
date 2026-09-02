@@ -4,17 +4,21 @@
 
 package org.mozilla.fenix.ui
 
-import androidx.compose.ui.test.junit4.AndroidComposeTestRule
+import androidx.compose.ui.test.junit4.v2.AndroidComposeTestRule as AndroidComposeTestRuleV2
 import mozilla.components.concept.engine.mediasession.MediaSession
 import org.junit.Rule
 import org.junit.Test
+import org.mozilla.fenix.customannotations.Converted
 import org.mozilla.fenix.customannotations.SmokeTest
+import org.mozilla.fenix.ext.components
 import org.mozilla.fenix.helpers.FenixTestRule
 import org.mozilla.fenix.helpers.HomeActivityTestRule
 import org.mozilla.fenix.helpers.MatcherHelper
 import org.mozilla.fenix.helpers.RetryTestRule
+import org.mozilla.fenix.helpers.RetryableComposeTestRule
 import org.mozilla.fenix.helpers.TestAssetHelper.audioPageAsset
 import org.mozilla.fenix.helpers.TestAssetHelper.videoPageAsset
+import org.mozilla.fenix.helpers.TestHelper.appContext
 import org.mozilla.fenix.helpers.TestHelper.mDevice
 import org.mozilla.fenix.helpers.TestHelper.verifySnackBarText
 import org.mozilla.fenix.helpers.perf.DetectMemoryLeaksRule
@@ -25,55 +29,64 @@ import org.mozilla.fenix.ui.robots.navigationToolbar
 import org.mozilla.fenix.ui.robots.notificationShade
 
 /**
- *  Tests for verifying basic functionality of media notifications:
- *  - video and audio playback system notifications appear and can pause/play the media content
- *  - a media notification icon is displayed on the homescreen for the tab playing media content
- *  Note: this test only verifies media notifications, not media itself
+ * Tests for verifying basic functionality of media notifications:
+ * - video and audio playback system notifications appear and can pause/play the media content
+ * - a media notification icon is displayed on the homescreen for the tab playing media content Note: this test only
+ *   verifies media notifications, not media itself
  */
 class MediaNotificationTest {
-    @get:Rule(order = 0)
-    val fenixTestRule: FenixTestRule = FenixTestRule()
+    @get:Rule(order = 0) val fenixTestRule: FenixTestRule = FenixTestRule()
 
-    private val mockWebServer get() = fenixTestRule.mockWebServer
-    private val browserStore get() = fenixTestRule.browserStore
+    private val mockWebServer
+        get() = fenixTestRule.mockWebServer
 
-    @get:Rule
-    val composeTestRule =
-        AndroidComposeTestRule(
-            HomeActivityTestRule.withDefaultSettingsOverrides(),
-        ) { it.activity }
+    private val browserStore
+        get() = fenixTestRule.browserStore
 
-    @get:Rule
-    val memoryLeaksRule = DetectMemoryLeaksRule()
+    @get:Rule(order = 1) val retryTestRule = RetryTestRule(3)
 
-    @Rule
-    @JvmField
-    val retryTestRule = RetryTestRule(3)
+    @get:Rule(order = 2)
+    val retryableComposeTestRule = RetryableComposeTestRule {
+        AndroidComposeTestRuleV2(HomeActivityTestRule.withDefaultSettingsOverrides()) { it.activity }
+    }
+
+    private val composeTestRule
+        get() = retryableComposeTestRule.current
+
+    @get:Rule(order = 3) val memoryLeaksRule = DetectMemoryLeaksRule(composeTestRule = { composeTestRule })
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/1347033
+    @Converted(
+        replacedBy =
+            ["org.mozilla.fenix.ui.efficiency.tests.MediaNotificationTest#verifyVideoPlaybackSystemNotificationTest"],
+        bug = 2063242,
+        since = "2026-08",
+    )
     @SmokeTest
     @Test
     fun verifyVideoPlaybackSystemNotificationTest() {
         val videoTestPage = mockWebServer.videoPageAsset
 
-        navigationToolbar(composeTestRule) {
-        }.enterURLAndEnterToBrowser(videoTestPage.url) {
-            mDevice.waitForIdle()
-            clickPageObject(composeTestRule, MatcherHelper.itemWithText("Play"))
-            assertPlaybackState(browserStore, MediaSession.PlaybackState.PLAYING)
-        }.openNotificationShade {
-            verifySystemNotificationExists(videoTestPage.title)
-            clickMediaNotificationControlButton("Pause")
-            verifyMediaSystemNotificationButtonState("Play")
-        }
+        navigationToolbar(composeTestRule) {}
+            .enterURLAndEnterToBrowser(videoTestPage.url) {
+                mDevice.waitForIdle()
+                clickPageObject(composeTestRule, MatcherHelper.itemWithText("Play"))
+                assertPlaybackState(browserStore, MediaSession.PlaybackState.PLAYING)
+            }
+            .openNotificationShade {
+                verifySystemNotificationExists(videoTestPage.title)
+                clickMediaNotificationControlButton("Pause")
+                verifyMediaSystemNotificationButtonState("Play")
+            }
 
         mDevice.pressBack()
 
         browserScreen(composeTestRule) {
-            assertPlaybackState(browserStore, MediaSession.PlaybackState.PAUSED)
-        }.openTabDrawer(composeTestRule) {
-            closeTab()
-        }
+                assertPlaybackState(browserStore, MediaSession.PlaybackState.PAUSED)
+            }
+            .openTabDrawer(composeTestRule) {
+                closeTab()
+            }
 
         mDevice.openNotification()
 
@@ -86,28 +99,36 @@ class MediaNotificationTest {
     }
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/2316010
+    @Converted(
+        replacedBy =
+            ["org.mozilla.fenix.ui.efficiency.tests.MediaNotificationTest#verifyVideoPlaybackSystemNotificationTest"],
+        bug = 2063242,
+        since = "2026-08",
+    )
     @SmokeTest
     @Test
     fun verifyAudioPlaybackSystemNotificationTest() {
         val audioTestPage = mockWebServer.audioPageAsset
 
-        navigationToolbar(composeTestRule) {
-        }.enterURLAndEnterToBrowser(audioTestPage.url) {
-            clickPageObject(composeTestRule, MatcherHelper.itemWithText("Play"))
-            assertPlaybackState(browserStore, MediaSession.PlaybackState.PLAYING)
-        }.openNotificationShade {
-            verifySystemNotificationExists(audioTestPage.title)
-            clickMediaNotificationControlButton("Pause")
-            verifyMediaSystemNotificationButtonState("Play")
-        }
+        navigationToolbar(composeTestRule) {}
+            .enterURLAndEnterToBrowser(audioTestPage.url) {
+                clickPageObject(composeTestRule, MatcherHelper.itemWithText("Play"))
+                assertPlaybackState(browserStore, MediaSession.PlaybackState.PLAYING)
+            }
+            .openNotificationShade {
+                verifySystemNotificationExists(audioTestPage.title)
+                clickMediaNotificationControlButton("Pause")
+                verifyMediaSystemNotificationButtonState("Play")
+            }
 
         mDevice.pressBack()
 
         browserScreen(composeTestRule) {
-            assertPlaybackState(browserStore, MediaSession.PlaybackState.PAUSED)
-        }.openTabDrawer(composeTestRule) {
-            closeTab()
-        }
+                assertPlaybackState(browserStore, MediaSession.PlaybackState.PAUSED)
+            }
+            .openTabDrawer(composeTestRule) {
+                closeTab()
+            }
 
         mDevice.openNotification()
 
@@ -124,28 +145,36 @@ class MediaNotificationTest {
     fun mediaSystemNotificationInPrivateModeTest() {
         val audioTestPage = mockWebServer.audioPageAsset
 
-        homeScreen(composeTestRule) {
-        }.openTabDrawer {
-        }.toggleToPrivateTabs {
-        }.openNewTab {
-        }.submitQuery(audioTestPage.url.toString()) {
-            mDevice.waitForIdle()
-            clickPageObject(composeTestRule, MatcherHelper.itemWithText("Play"))
-            assertPlaybackState(browserStore, MediaSession.PlaybackState.PLAYING)
-        }.openNotificationShade {
-            verifySystemNotificationExists("A site is playing media")
-            clickMediaNotificationControlButton("Pause")
-            verifyMediaSystemNotificationButtonState("Play")
-        }
+        // RetryTestRule.cleanup() does not clear tabs between retries (its removeTabs
+        // parameter is hardcoded to false at the call site), so tabs from a failed
+        // attempt accumulate and break closeTab()'s single-tab assumption. Clear them
+        // explicitly here so the tab drawer starts with a single tab on every attempt.
+        appContext.components.useCases.tabsUseCases.removeAllTabs()
+
+        homeScreen(composeTestRule) {}
+            .openTabDrawer {}
+            .toggleToPrivateTabs {}
+            .openNewTab {}
+            .submitQuery(audioTestPage.url.toString()) {
+                mDevice.waitForIdle()
+                clickPageObject(composeTestRule, MatcherHelper.itemWithText("Play"))
+                assertPlaybackState(browserStore, MediaSession.PlaybackState.PLAYING)
+            }
+            .openNotificationShade {
+                verifySystemNotificationExists("A site is playing media")
+                clickMediaNotificationControlButton("Pause")
+                verifyMediaSystemNotificationButtonState("Play")
+            }
 
         mDevice.pressBack()
 
         browserScreen(composeTestRule) {
-            assertPlaybackState(browserStore, MediaSession.PlaybackState.PAUSED)
-        }.openTabDrawer(composeTestRule) {
-            closeTab()
-            verifySnackBarText("Private tab closed")
-        }
+                assertPlaybackState(browserStore, MediaSession.PlaybackState.PAUSED)
+            }
+            .openTabDrawer(composeTestRule) {
+                closeTab()
+                verifySnackBarText(composeTestRule, "Private tab closed")
+            }
 
         mDevice.openNotification()
 
@@ -155,7 +184,6 @@ class MediaNotificationTest {
 
         // close notification shade before and go back to regular mode before the next test
         mDevice.pressBack()
-        homeScreen(composeTestRule) {
-        }.togglePrivateBrowsingMode()
+        homeScreen(composeTestRule) {}.togglePrivateBrowsingMode()
     }
 }

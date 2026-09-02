@@ -6,9 +6,8 @@
 
 #include "WebExecutorSupport.h"
 #include "mozilla/ClearOnShutdown.h"
-#include "mozilla/java/WebMessageWrappers.h"
 #include "mozilla/Preferences.h"
-
+#include "mozilla/java/WebMessageWrappers.h"
 #include "nsContentUtils.h"
 #include "nsIAsyncVerifyRedirectCallback.h"
 #include "nsIChannel.h"
@@ -167,7 +166,7 @@ nsresult OhttpHelper::FetchConfigAndFulfillRequests() {
   nsresult rv = CreateConfigRequest(getter_AddRefs(httpChannel));
   NS_ENSURE_SUCCESS(rv, rv);
 
-  RefPtr<CallbackResponseListener> listener = new CallbackResponseListener(
+  auto listener = MakeRefPtr<CallbackResponseListener>(
       httpChannel,
       [](nsresult rv, int64_t status, const nsTArray<uint8_t>& buffer) {
         sInitializationBitset &= ~InitializationBit::CONFIG_FETCHING;

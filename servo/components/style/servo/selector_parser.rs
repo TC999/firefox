@@ -19,14 +19,13 @@ use crate::selector_parser::{PseudoElementCascadeType, SelectorParser};
 use crate::values::{AtomIdent, AtomString};
 use crate::{Atom, CaseSensitivityExt, LocalName, Namespace, Prefix};
 use cssparser::{
-    match_ignore_ascii_case, serialize_identifier, CowRcStr, Parser as CssParser, SourceLocation,
+    match_ignore_ascii_case, serialize_identifier, CowRcStr, Parser as CssParser, SourcePosition,
     ToCss,
 };
 use dom::{DocumentState, ElementState};
 use rustc_hash::FxHashMap;
 use selectors::attr::{AttrSelectorOperation, CaseSensitivity, NamespaceConstraint};
 use selectors::parser::SelectorParseErrorKind;
-use selectors::visitor::SelectorVisitor;
 use std::fmt;
 use std::mem;
 use std::ops::{Deref, DerefMut};
@@ -119,8 +118,6 @@ impl ToCss for PseudoElement {
 }
 
 impl ::selectors::parser::PseudoElement for PseudoElement {
-    type Impl = SelectorImpl;
-
     fn parses_as_element_backed(&self) -> bool {
         matches!(self, Self::DetailsContent)
     }
@@ -319,6 +316,12 @@ impl PseudoElement {
         false
     }
 
+    /// Whether this pseudo-element takes an argument.
+    #[inline]
+    pub fn has_argument(&self) -> bool {
+        false
+    }
+
     /// Whether this pseudo-element is the ::target-text pseudo.
     #[inline]
     pub fn is_target_text(&self) -> bool {
@@ -406,8 +409,6 @@ pub enum NonTSPseudoClass {
 }
 
 impl ::selectors::parser::NonTSPseudoClass for NonTSPseudoClass {
-    type Impl = SelectorImpl;
-
     #[inline]
     fn is_active_or_hover(&self) -> bool {
         matches!(*self, NonTSPseudoClass::Active | NonTSPseudoClass::Hover)
@@ -421,10 +422,7 @@ impl ::selectors::parser::NonTSPseudoClass for NonTSPseudoClass {
         )
     }
 
-    fn visit<V>(&self, _: &mut V) -> bool
-    where
-        V: SelectorVisitor<Impl = Self::Impl>,
-    {
+    fn visit<V>(&self, _: &mut V) -> bool {
         true
     }
 }
@@ -545,8 +543,7 @@ impl NonTSPseudoClass {
 
 /// The abstract struct we implement the selector parser implementation on top
 /// of.
-#[derive(Clone, Debug, PartialEq)]
-#[cfg_attr(feature = "servo", derive(MallocSizeOf))]
+#[derive(Clone, Debug, MallocSizeOf, PartialEq)]
 pub struct SelectorImpl;
 
 /// A set of extra data to carry along with the matching context, either for
@@ -581,7 +578,7 @@ impl ::selectors::SelectorImpl for SelectorImpl {
 
 impl<'a, 'i> ::selectors::Parser<'i> for SelectorParser<'a> {
     type Impl = SelectorImpl;
-    type Error = StyleParseErrorKind<'i>;
+    type Error = StyleParseErrorKind;
 
     #[inline]
     fn parse_nth_child_of(&self) -> bool {
@@ -615,9 +612,8 @@ impl<'a, 'i> ::selectors::Parser<'i> for SelectorParser<'a> {
 
     fn parse_non_ts_pseudo_class(
         &self,
-        location: SourceLocation,
         name: CowRcStr<'i>,
-    ) -> Result<NonTSPseudoClass, ParseError<'i>> {
+    ) -> Result<NonTSPseudoClass, ParseError> {
         let pseudo_class = match_ignore_ascii_case! { &name,
             "active" => NonTSPseudoClass::Active,
             "any-link" => NonTSPseudoClass::AnyLink,
@@ -654,24 +650,24 @@ impl<'a, 'i> ::selectors::Parser<'i> for SelectorParser<'a> {
             "-moz-meter-sub-sub-optimum" => NonTSPseudoClass::MozMeterSubSubOptimum,
             "-servo-nonzero-border" => {
                 if !self.in_user_agent_stylesheet() {
-                    return Err(location.new_custom_error(
-                        SelectorParseErrorKind::UnexpectedIdent("-servo-nonzero-border".into())
+                    return Err(ParseError::custom(
+                        SelectorParseErrorKind::UnexpectedIdent
                     ))
                 }
                 NonTSPseudoClass::ServoNonZeroBorder
             },
-            _ => return Err(location.new_custom_error(SelectorParseErrorKind::UnexpectedIdent(name.clone()))),
+            _ => return Err(ParseError::custom(SelectorParseErrorKind::UnexpectedIdent)),
         };
 
         Ok(pseudo_class)
     }
 
-    fn parse_non_ts_functional_pseudo_class<'t>(
+    fn parse_non_ts_functional_pseudo_class(
         &self,
         name: CowRcStr<'i>,
-        parser: &mut CssParser<'i, 't>,
+        parser: &mut CssParser<'i, '_>,
         after_part: bool,
-    ) -> Result<NonTSPseudoClass, ParseError<'i>> {
+    ) -> Result<NonTSPseudoClass, ParseError> {
         let pseudo_class = match_ignore_ascii_case! { &name,
             "lang" if !after_part => {
                 NonTSPseudoClass::Lang(parser.expect_ident_or_string()?.as_ref().into())
@@ -680,17 +676,13 @@ impl<'a, 'i> ::selectors::Parser<'i> for SelectorParser<'a> {
                 let result = AtomIdent::from(parser.expect_ident()?.as_ref());
                 NonTSPseudoClass::CustomState(CustomState(result))
             },
-            _ => return Err(parser.new_custom_error(SelectorParseErrorKind::UnexpectedIdent(name.clone()))),
+            _ => return Err(ParseError::custom(SelectorParseErrorKind::UnexpectedIdent)),
         };
 
         Ok(pseudo_class)
     }
 
-    fn parse_pseudo_element(
-        &self,
-        location: SourceLocation,
-        name: CowRcStr<'i>,
-    ) -> Result<PseudoElement, ParseError<'i>> {
+    fn parse_pseudo_element(&self, name: CowRcStr<'i>) -> Result<PseudoElement, ParseError> {
         use self::PseudoElement::*;
         let pseudo_element = match_ignore_ascii_case! { &name,
             "before" => Before,
@@ -705,13 +697,13 @@ impl<'a, 'i> ::selectors::Parser<'i> for SelectorParser<'a> {
             "placeholder" => Placeholder,
             "-servo-text-control-inner-container" => {
                 if !self.in_user_agent_stylesheet() {
-                    return Err(location.new_custom_error(SelectorParseErrorKind::UnexpectedIdent(name.clone())))
+                    return Err(ParseError::custom(SelectorParseErrorKind::UnexpectedIdent))
                 }
                 ServoTextControlInnerContainer
             },
             "-servo-text-control-inner-editor" => {
                 if !self.in_user_agent_stylesheet() {
-                    return Err(location.new_custom_error(SelectorParseErrorKind::UnexpectedIdent(name.clone())))
+                    return Err(ParseError::custom(SelectorParseErrorKind::UnexpectedIdent))
                 }
                 ServoTextControlInnerEditor
             },
@@ -720,41 +712,41 @@ impl<'a, 'i> ::selectors::Parser<'i> for SelectorParser<'a> {
             "slider-track" => SliderTrack,
             "-servo-anonymous-box" => {
                 if !self.in_user_agent_stylesheet() {
-                    return Err(location.new_custom_error(SelectorParseErrorKind::UnexpectedIdent(name.clone())))
+                    return Err(ParseError::custom(SelectorParseErrorKind::UnexpectedIdent))
                 }
                 ServoAnonymousBox
             },
             "-servo-anonymous-table" => {
                 if !self.in_user_agent_stylesheet() {
-                    return Err(location.new_custom_error(SelectorParseErrorKind::UnexpectedIdent(name.clone())))
+                    return Err(ParseError::custom(SelectorParseErrorKind::UnexpectedIdent))
                 }
                 ServoAnonymousTable
             },
             "-servo-anonymous-table-row" => {
                 if !self.in_user_agent_stylesheet() {
-                    return Err(location.new_custom_error(SelectorParseErrorKind::UnexpectedIdent(name.clone())))
+                    return Err(ParseError::custom(SelectorParseErrorKind::UnexpectedIdent))
                 }
                 ServoAnonymousTableRow
             },
             "-servo-anonymous-table-cell" => {
                 if !self.in_user_agent_stylesheet() {
-                    return Err(location.new_custom_error(SelectorParseErrorKind::UnexpectedIdent(name.clone())))
+                    return Err(ParseError::custom(SelectorParseErrorKind::UnexpectedIdent))
                 }
                 ServoAnonymousTableCell
             },
             "-servo-table-grid" => {
                 if !self.in_user_agent_stylesheet() {
-                    return Err(location.new_custom_error(SelectorParseErrorKind::UnexpectedIdent(name.clone())))
+                    return Err(ParseError::custom(SelectorParseErrorKind::UnexpectedIdent))
                 }
                 ServoTableGrid
             },
             "-servo-table-wrapper" => {
                 if !self.in_user_agent_stylesheet() {
-                    return Err(location.new_custom_error(SelectorParseErrorKind::UnexpectedIdent(name.clone())))
+                    return Err(ParseError::custom(SelectorParseErrorKind::UnexpectedIdent))
                 }
                 ServoTableWrapper
             },
-            _ => return Err(location.new_custom_error(SelectorParseErrorKind::UnexpectedIdent(name.clone())))
+            _ => return Err(ParseError::custom(SelectorParseErrorKind::UnexpectedIdent))
 
         };
 

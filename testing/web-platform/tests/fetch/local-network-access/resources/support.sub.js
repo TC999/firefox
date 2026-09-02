@@ -139,9 +139,6 @@ function getPermissionValue(url) {
 //
 // `server` identifies the server from which to load the document.
 //
-// `treatAsPublic`, if set to true, specifies that the source document should
-// be artificially placed in the `public` address space using CSP.
-//
 // 'permissionName', if specified, will control what permission is set for
 //     pages/tests that set a permission. Valid values are 'local-network' and
 //     'loopback-network'
@@ -150,11 +147,8 @@ function getPermissionValue(url) {
 //     'permissionName') is set to. Valid values are 'granted', 'prompt', or
 //     'denied'
 function sourceResolveOptions(
-    {server, treatAsPublic, permissionName, permissionValue}) {
+    {server, permissionName, permissionValue}) {
   const options = {...server};
-  if (treatAsPublic) {
-    options.headers = { "Content-Security-Policy": "treat-as-public-address" };
-  }
   options.searchParams = {};
   if (permissionName) {
     options.searchParams.permissionName = permissionName;
@@ -216,7 +210,13 @@ const FetchTestResult = {
 
 // Helper function for checking results from fetch tests.
 function checkFetchTestResult(actual, expected) {
-  assert_equals(actual.error, expected.error, "error mismatch");
+  if (expected.error !== undefined) {
+    assert_true(actual.error !== undefined,
+        "expected an error but got none");
+  } else {
+    assert_equals(actual.error, undefined,
+        "unexpected error: " + actual.error);
+  }
   assert_equals(actual.ok, expected.ok, "response ok mismatch");
   assert_equals(actual.body, expected.body, "response body mismatch");
 

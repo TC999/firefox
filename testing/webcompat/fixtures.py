@@ -13,7 +13,6 @@ from datetime import datetime
 
 import pytest
 import webdriver
-
 from client import Client
 
 try:
@@ -72,6 +71,7 @@ class FirefoxWebDriver(WebDriver):
             str(self.port),
             "--websocket-port",
             str(self.ws_port),
+            "--allow-system-access",
         ]
         if self.debug:
             rv.append("-vv")
@@ -140,6 +140,7 @@ class FirefoxWebDriver(WebDriver):
         prefs[CB_PREF] = cookieBehavior
         prefs[CB_PBM_PREF] = cookieBehavior
 
+        prefs["webgl.allow-in-parent"] = True
         prefs["layout.css.getBoxQuads.enabled"] = True
 
         # prevent "allow notifications for?" popups by setting the
@@ -151,11 +152,12 @@ class FirefoxWebDriver(WebDriver):
         # also delete those files afterward.
         prefs[DELETE_DOWNLOADS_PREF] = True
 
-        fx_options = {"args": ["--remote-allow-system-access"], "prefs": prefs}
+        fx_options = {"prefs": prefs}
 
         if self.browser_binary:
             fx_options["binary"] = self.browser_binary
             if self.headless:
+                fx_options.setdefault("args", [])
                 fx_options["args"].append("--headless")
 
         if self.device_serial:

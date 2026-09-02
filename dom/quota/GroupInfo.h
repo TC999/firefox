@@ -16,9 +16,11 @@ namespace mozilla::dom::quota {
 
 class GroupInfoPair;
 class OriginInfo;
+class DirtyTrackingAutoLock;
 
 class GroupInfo final {
   friend class CanonicalQuotaObject;
+  friend class DirtyTrackingAutoLock;
   friend class GroupInfoPair;
   friend class OriginInfo;
   friend class QuotaManager;
@@ -36,6 +38,8 @@ class GroupInfo final {
   NS_INLINE_DECL_THREADSAFE_REFCOUNTING(GroupInfo)
 
   PersistenceType GetPersistenceType() const { return mPersistenceType; }
+
+  const nsCString& GetGroup() const;
 
  private:
   // Private destructor, to discourage deletion outside of Release():

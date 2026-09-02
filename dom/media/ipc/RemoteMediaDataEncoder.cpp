@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -68,6 +66,11 @@ RemoteMediaDataEncoder::Construct() {
       [self = RefPtr{this}](MediaResult aResult) {
         LOGD("[{}] Construct resolved code={}", fmt::ptr(self.get()),
              aResult.Description());
+        if (NS_FAILED(aResult.Code())) {
+          self->mConstructPromise.RejectIfExists(aResult, __func__);
+          self->mInitPromise.RejectIfExists(aResult, __func__);
+          return;
+        }
         self->mHasConstructed = true;
         self->mConstructPromise.Resolve(self, __func__);
         if (!self->mInitPromise.IsEmpty()) {
@@ -449,7 +452,7 @@ RemoteMediaManagerChild* RemoteMediaDataEncoder::GetManager() {
   if (!mChild->CanSend()) {
     return nullptr;
   }
-  return static_cast<RemoteMediaManagerChild*>(mChild->Manager());
+  return mozilla::ipc::ActorCast<RemoteMediaManagerChild>(mChild->Manager());
 }
 
 bool RemoteMediaDataEncoder::IsHardwareAccelerated(

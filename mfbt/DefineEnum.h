@@ -8,7 +8,8 @@
 #define mozilla_DefineEnum_h
 
 #include <stddef.h>  // for size_t
-#include <ostream>   // IWYU pragma: keep(for std::ostream within macro)
+
+#include <ostream>  // IWYU pragma: keep(for std::ostream within macro)
 
 #include "mozilla/MacroArgs.h"     // for MOZ_ARG_COUNT
 #include "mozilla/MacroForEach.h"  // for MOZ_FOR_EACH
@@ -119,7 +120,7 @@
 #define MOZ_DEFINE_ENUM_IMPL(aEnumName, aClassSpec, aBaseSpec, aEnumerators) \
   enum aClassSpec aEnumName aBaseSpec{MOZ_UNWRAP_ARGS aEnumerators};         \
   constexpr size_t k##aEnumName##Count = MOZ_ARG_COUNT aEnumerators;         \
-  constexpr aEnumName kHighest##aEnumName =                                  \
+  [[maybe_unused]] constexpr aEnumName kHighest##aEnumName =                 \
       aEnumName(k##aEnumName##Count - 1);                                    \
   MOZ_FOR_EACH(MOZ_ASSERT_ENUMERATOR_HAS_NO_INITIALIZER, (aEnumName, ),      \
                aEnumerators)

@@ -238,10 +238,12 @@ export class FxviewTabListBase extends MozLitElement {
   }
 
   async requestVirtualListUpdate() {
+    const updates = [];
     for (const sublist of this.rootVirtualListEl.children) {
-      await sublist.requestUpdate();
-      await sublist.updateComplete;
+      sublist.requestUpdate();
+      updates.push(sublist.updateComplete);
     }
+    return Promise.allSettled(updates);
   }
 
   shouldUpdate(changes) {
@@ -713,7 +715,7 @@ export class FxviewTabRowBase extends MozLitElement {
         iconSrc = "chrome://global/skin/icons/delete.svg";
         break;
       case "dismiss-button":
-        iconSrc = "chrome://global/skin/icons/close.svg";
+        iconSrc = "resource://content-accessible/close-12.svg";
         break;
       case "options-button":
         iconSrc = "chrome://global/skin/icons/more.svg";
@@ -834,10 +836,13 @@ export class VirtualList extends MozLitElement {
     this.items = [];
     this.subListItems = [];
     this.itemHeightEstimate = FXVIEW_ROW_HEIGHT_PX;
-    this.maxRenderCountEstimate = Math.max(
-      40,
-      2 * Math.ceil(window.innerHeight / this.itemHeightEstimate)
-    );
+    this.maxRenderCountEstimate =
+      this.itemHeightEstimate > 0
+        ? Math.max(
+            40,
+            2 * Math.ceil(window.innerHeight / this.itemHeightEstimate)
+          )
+        : 0;
     this.isSubList = false;
     this.isVisible = false;
     this.getItemHeight = null;
@@ -976,10 +981,13 @@ export class VirtualList extends MozLitElement {
   }
 
   recalculateAfterWindowResize() {
-    this.maxRenderCountEstimate = Math.max(
-      40,
-      2 * Math.ceil(window.innerHeight / this.itemHeightEstimate)
-    );
+    this.maxRenderCountEstimate =
+      this.itemHeightEstimate > 0
+        ? Math.max(
+            40,
+            2 * Math.ceil(window.innerHeight / this.itemHeightEstimate)
+          )
+        : 0;
   }
 
   firstUpdated() {

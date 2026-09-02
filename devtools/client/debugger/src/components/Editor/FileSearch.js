@@ -30,8 +30,6 @@ class FileSearch extends Component {
       findNext: PropTypes.func.isRequired,
       findPrev: PropTypes.func.isRequired,
       searchKey: PropTypes.string.isRequired,
-      SearchInput: PropTypes.oneOfType([PropTypes.func, PropTypes.object])
-        .isRequired,
       scrollList: PropTypes.func.isRequired,
     };
   }

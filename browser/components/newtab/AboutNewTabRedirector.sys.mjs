@@ -297,9 +297,10 @@ export const AboutHomeStartupCacheChild = {
     let worker = this.getOrCreateWorker();
 
     let timerId = Glean.newtab.abouthomeCacheConstruction.start();
+    let direction = Services.locale.isAppLocaleRTL ? "rtl" : "ltr";
 
     let { page, script } = await worker
-      .post("construct", [state])
+      .post("construct", [state, direction])
       .finally(() => {
         Glean.newtab.abouthomeCacheConstruction.stopAndAccumulate(timerId);
       });
@@ -471,7 +472,7 @@ class BaseAboutNewTabRedirector {
  * before the AboutNewTabRedirectorChild has a chance to handle the request).
  */
 export class AboutNewTabRedirectorParent extends BaseAboutNewTabRedirector {
-  #allowNewTabLoads = false;
+  #addonInitialized = false;
   #suspendedChannels = [];
   #addonInitializedPromise = null;
   #addonInitializedResolver = null;
@@ -497,6 +498,7 @@ export class AboutNewTabRedirectorParent extends BaseAboutNewTabRedirector {
           pageshow: {},
           visibilitychange: {},
         },
+        observers: ["intl:l10n-sources-changed"],
       },
       // The wildcard on about:newtab is for the # parameter
       // that is used for the newtab devtools. The wildcard for about:home
@@ -516,16 +518,13 @@ export class AboutNewTabRedirectorParent extends BaseAboutNewTabRedirector {
    * resumes them, now that the built-in addon has been set up.
    */
   notifyBuiltInAddonInitialized() {
-    this.#addonInitializedResolver();
-  }
-
-  resumeNewTabLoads() {
-    this.#allowNewTabLoads = true;
+    this.#addonInitialized = true;
 
     for (let suspendedChannel of this.#suspendedChannels) {
       suspendedChannel.resume();
     }
     this.#suspendedChannels = [];
+    this.#addonInitializedResolver();
   }
 
   /**
@@ -554,7 +553,7 @@ export class AboutNewTabRedirectorParent extends BaseAboutNewTabRedirector {
     );
     resultChannel.originalURI = uri;
 
-    if (!this.#allowNewTabLoads) {
+    if (!this.#addonInitialized) {
       return this.#getSuspendedChannel(resultChannel);
     }
 

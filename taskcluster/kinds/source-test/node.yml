@@ -11,7 +11,6 @@ task-defaults:
     treeherder:
         kind: test
         tier: 1
-    run-on-repo-type: [hg]
     run:
         using: run-task
         cwd: '{checkout}'
@@ -219,6 +218,7 @@ eslint-plugin-mozilla:
         docker-image: {in-tree: "lint"}
     run:
         command: >
+            cp -r $MOZ_FETCHES_DIR/node_modules node_modules &&
             cp -r $MOZ_FETCHES_DIR/eslint-plugin-mozilla/node_modules tools/lint/eslint/eslint-plugin-mozilla/node_modules &&
             ./mach configure --disable-compile-environment &&
             PATH=$PATH:$MOZ_FETCHES_DIR/node/bin ./mach npm test --prefix tools/lint/eslint/eslint-plugin-mozilla
@@ -228,6 +228,7 @@ eslint-plugin-mozilla:
     fetches:
         toolchain:
             - linux64-node
+            - node-modules
             - eslint-plugin-mozilla
 
 stylelint-plugin-mozilla:

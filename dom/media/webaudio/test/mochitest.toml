@@ -10,6 +10,7 @@ support-files = [
   "audio.ogv",
   "audiovideo.mp4",
   "audioBufferSourceNodeDetached_worker.js",
+  "bug2038465_varying_channels.flac",
   "corsServer.sjs",
   "!/dom/events/test/event_leak_utils.js",
   "file_nodeCreationDocumentGone.html",
@@ -82,6 +83,7 @@ support-files = [
   "sixteen-frames.mp3", # only 16 frames of valid audio
   "8ch-f32le.wav",
   "8ch-s16.wav",
+  "vorbis-6ch-channel-order.webm",
   "../../webrtc/tests/mochitests/mediaStreamPlayback.js",
   "../../webrtc/tests/mochitests/head.js",
   "tiny.flac"
@@ -113,6 +115,8 @@ run-if = [
 ["test_audioContextParams_recordNonDefaultSampleRate.html"]
 
 ["test_audioContextParams_sampleRate.html"]
+
+["test_bug2038465.html"]
 
 ["test_channelMergerNode.html"]
 
@@ -163,6 +167,11 @@ skip-if = [
 ["test_decodeAudioError.html"]
 
 ["test_decodeMultichannel.html"]
+skip-if = [
+  "isolated_process", # Bug 1709948
+]
+
+["test_decodeMultichannelOrder.html"]
 skip-if = [
   "isolated_process", # Bug 1709948
 ]

@@ -27,6 +27,7 @@ GMPVideoDecoderChild::~GMPVideoDecoderChild() {
   // the worker thread.
   if (mVideoDecoder) {
     mVideoDecoder->DecodingComplete();
+    RemovePluginObject();
   }
 }
 
@@ -38,6 +39,7 @@ void GMPVideoDecoderChild::Init(GMPVideoDecoder* aDecoder) {
   MOZ_ASSERT(aDecoder,
              "Cannot initialize video decoder child without a video decoder!");
   mVideoDecoder = aDecoder;
+  AddPluginObject();
 }
 
 void GMPVideoDecoderChild::Decoded(GMPVideoi420Frame* aDecodedFrame) {
@@ -186,6 +188,12 @@ mozilla::ipc::IPCResult GMPVideoDecoderChild::RecvDecode(
   if (!mVideoDecoder) {
     DeallocShmem(aInputShmem);
     return IPC_FAIL(this, "!mVideoDecoder");
+  }
+
+  if (!GMPVideoEncodedFrameImpl::CheckFrameData(aInputFrame,
+                                                aInputShmem.Size<uint8_t>())) {
+    DeallocShmem(aInputShmem);
+    return IPC_OK();
   }
 
   auto* f =

@@ -28,12 +28,12 @@ browser.jar:
    content/browser/preferences/dialogs/permissions.js
    content/browser/preferences/dialogs/selectBookmark.xhtml
    content/browser/preferences/dialogs/selectBookmark.js
+   content/browser/preferences/dialogs/siteContainer.xhtml
+   content/browser/preferences/dialogs/siteContainer.js
    content/browser/preferences/dialogs/siteDataSettings.xhtml
    content/browser/preferences/dialogs/siteDataSettings.js
 *  content/browser/preferences/dialogs/siteDataRemoveSelected.xhtml
    content/browser/preferences/dialogs/siteDataRemoveSelected.js
    content/browser/preferences/dialogs/syncChooseWhatToSync.xhtml
    content/browser/preferences/dialogs/syncChooseWhatToSync.js
-   content/browser/preferences/dialogs/translationExceptions.xhtml
-   content/browser/preferences/dialogs/translationExceptions.js
    content/browser/preferences/dialogs/translations.xhtml

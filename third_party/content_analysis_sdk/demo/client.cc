@@ -40,6 +40,7 @@ std::string request_token;
 std::string tag = "dlp";
 bool threaded = false;
 std::string digest = "sha256-123456";
+uint64_t size = 16;
 std::string url = "https://upload.example.com";
 std::string email = "me@example.com";
 std::string machine_user = "DOMAIN\\me";
@@ -63,6 +64,7 @@ constexpr const char* kArgGroup = "--group";
 constexpr const char* kArgMachineUser = "--machine-user=";
 constexpr const char* kArgPath = "--path=";
 constexpr const char* kArgRequestToken = "--request-token=";
+constexpr const char* kArgSize = "--size=";
 constexpr const char* kArgTag = "--tag=";
 constexpr const char* kArgThreaded = "--threaded";
 constexpr const char* kArgUrl = "--url=";
@@ -84,6 +86,8 @@ bool ParseCommandLine(int argc, char* argv[]) {
         connector = content_analysis::sdk::PRINT;
       } else if (connector_str == "file-transfer") {
         connector = content_analysis::sdk::FILE_TRANSFER;
+      } else if (connector_str == "data-copied") {
+        connector = content_analysis::sdk::DATA_COPIED;
       } else {
         std::cout << "[Demo] Incorrect command line arg: " << arg << std::endl;
         return false;
@@ -96,6 +100,8 @@ bool ParseCommandLine(int argc, char* argv[]) {
       threaded = true;
     } else if (arg.find(kArgDigest) == 0) {
       digest = arg.substr(strlen(kArgDigest));
+    } else if (arg.find(kArgSize) == 0) {
+      size = std::stoull(arg.substr(strlen(kArgSize)));
     } else if (arg.find(kArgUrl) == 0) {
       url = arg.substr(strlen(kArgUrl));
     } else if (arg.find(kArgMachineUser) == 0) {
@@ -133,7 +139,7 @@ void PrintHelp() {
     << "Otherwise the content is read from a file called 'content_or_file'." << std::endl
     << "Multiple [@]content_or_file arguments may be specified, each generates one request." << std::endl
     << std::endl << "Options:"  << std::endl
-    << kArgConnector << "<connector> : one of 'download', 'attach' (default), 'bulk-data-entry', 'print', or 'file-transfer'" << std::endl
+    << kArgConnector << "<connector> : one of 'download', 'attach' (default), 'bulk-data-entry', 'print', 'file-transfer', or 'data-copied'" << std::endl
     << kArgRequestToken << "<unique-token> : defaults to 'req-<number>' which auto increments" << std::endl
     << kArgTag << "<tag> : defaults to 'dlp'" << std::endl
     << kArgThreaded << " : handled multiple requests using threads" << std::endl
@@ -143,6 +149,7 @@ void PrintHelp() {
     << kArgPath << " <path> : Used the specified path instead of default. Must come after --user." << std::endl
     << kArgUserSpecific << " : Connects to an OS user specific agent" << std::endl
     << kArgDigest << "<digest> : defaults to 'sha256-123456'" << std::endl
+    << kArgSize << "<size> : file size, defaults to '16'" << std::endl
     << kArgGroup << " : Generate the same final action for all requests" << std::endl
     << kArgHelp << " : prints this help message" << std::endl;
 }
@@ -174,6 +181,7 @@ ContentAnalysisRequest BuildRequest(const std::string& data) {
   request_data->set_url(url);
   request_data->set_email(email);
   request_data->set_digest(digest);
+  request_data->set_file_size(size);
   if (!filename.empty()) {
     request_data->set_filename(filename);
   }

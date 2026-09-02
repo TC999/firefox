@@ -61,17 +61,33 @@ nsLiteralCString PermissionStatus::GetPermissionType() const {
 
 // https://w3c.github.io/permissions/#dfn-permissionstatus-update-steps
 void PermissionStatus::PermissionChanged(uint32_t aAction) {
-  PermissionState newState = ComputeStateFromAction(aAction);
-  if (mState == newState) {
+  const PermissionState oldEffective = State();
+  mState = ComputeStateFromAction(aAction);
+  const PermissionState newEffective = State();
+
+  if (oldEffective == newEffective) {
     return;
   }
 
-  mState = newState;
-
   // Step 4: Queue a task on the permissions task source to fire an
   // event named change at status.
-  RefPtr<AsyncEventDispatcher> eventDispatcher =
-      new AsyncEventDispatcher(this, u"change"_ns, CanBubble::eNo);
+  RefPtr eventDispatcher =
+      MakeRefPtr<AsyncEventDispatcher>(this, u"change"_ns, CanBubble::eNo);
+  eventDispatcher->PostDOMEvent();
+}
+
+void PermissionStatus::SystemPermissionChanged(
+    PermissionState aNewSystemState) {
+  const PermissionState oldEffective = State();
+  mSystemState = aNewSystemState;
+  const PermissionState newEffective = State();
+
+  if (oldEffective == newEffective) {
+    return;
+  }
+
+  RefPtr eventDispatcher =
+      MakeRefPtr<AsyncEventDispatcher>(this, u"change"_ns, CanBubble::eNo);
   eventDispatcher->PostDOMEvent();
 }
 
@@ -91,13 +107,11 @@ void PermissionStatus::GetType(nsACString& aName) const {
 }
 
 already_AddRefed<PermissionStatusSink> PermissionStatus::CreateSink() {
-  RefPtr<PermissionStatusSink> sink =
-      new PermissionStatusSink(this, mName, GetPermissionType());
-  return sink.forget();
+  return MakeAndAddRef<PermissionStatusSink>(this, mName, GetPermissionType());
 }
 
 PermissionState PermissionStatus::ComputeStateFromAction(uint32_t aAction) {
-  nsCOMPtr<nsIGlobalObject> global = GetOwnerGlobal();
+  nsCOMPtr<nsIGlobalObject> global = GetRelevantGlobal();
   if (NS_WARN_IF(!global)) {
     return PermissionState::Denied;
   }

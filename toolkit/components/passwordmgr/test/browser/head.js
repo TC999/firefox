@@ -28,6 +28,17 @@ add_setup(async function common_initialize() {
   }
 });
 
+// Notifications ignored by listenForTestNotification because their tab was gone.
+let gNotificationsFromClosedTabs = [];
+
+registerCleanupFunction(function cleanup_checkNotificationsFromClosedTabs() {
+  Assert.deepEqual(
+    gNotificationsFromClosedTabs,
+    [],
+    "No test notification arrived from a browsing context whose tab is gone"
+  );
+});
+
 registerCleanupFunction(
   async function cleanup_removeAllLoginsAndResetRecipes() {
     await SpecialPowers.popPrefEnv();
@@ -188,18 +199,15 @@ async function getFormSubmitResponseResult(
   { username = "#user", password = "#pass" } = {}
 ) {
   // default selectors are for the response page produced by formsubmit.sjs
-  // TODO: Switch to SpecialPowers.spawn
-  // eslint-disable-next-line mozilla/reject-contenttask-spawn
-  let fieldValues = await ContentTask.spawn(
+  if (!new URL(browser.currentURI.spec).pathname.endsWith(resultURL)) {
+    await BrowserTestUtils.browserLoaded(browser, false, url => {
+      return new URL(url).pathname.endsWith(resultURL);
+    });
+  }
+  let fieldValues = await SpecialPowers.spawn(
     browser,
-    { resultURL, usernameSelector: username, passwordSelector: password },
-    async function ({ resultURL, usernameSelector, passwordSelector }) {
-      await ContentTaskUtils.waitForCondition(() => {
-        return (
-          content.location.pathname.endsWith(resultURL) &&
-          content.document.readyState == "complete"
-        );
-      }, `Wait for form submission load (${resultURL})`);
+    [username, password],
+    (usernameSelector, passwordSelector) => {
       let username =
         content.document.querySelector(usernameSelector).textContent;
       // Bug 1686071: Since generated passwords can have special characters in them,
@@ -285,10 +293,13 @@ async function checkOnlyLoginWasUsedTwice({ justChanged }) {
     "timeLastUsed bumped"
   );
   if (justChanged) {
-    Assert.equal(
-      logins[0].timeLastUsed,
+    // The Rust storage backend records the password change and the use in two
+    // separate internal operations, so timeLastUsed may be a few ms after
+    // timePasswordChanged rather than exactly equal.
+    Assert.lessOrEqual(
       logins[0].timePasswordChanged,
-      "timeLastUsed == timePasswordChanged"
+      logins[0].timeLastUsed,
+      "timePasswordChanged <= timeLastUsed"
     );
   } else {
     Assert.equal(
@@ -389,6 +400,11 @@ async function waitForDoorhanger(browser, type) {
     }
     return notif;
   }, `Waiting for a ${type} notification`);
+  // A dismissed notification doesn't open the panel; for the others callers
+  // expect a panel they can interact with.
+  if (!notif.dismissed) {
+    await BrowserTestUtils.waitForPopupEvent(PopupNotifications.panel, "shown");
+  }
   return notif;
 }
 
@@ -425,7 +441,7 @@ function getDoorhangerButton(aPopup, aButtonIndex) {
  * @param {number} aButtonIndex Number indicating which button to click.
  *                              See the constants in this file.
  */
-function clickDoorhangerButton(aPopup, aButtonIndex) {
+async function clickDoorhangerButton(aPopup, aButtonIndex) {
   Assert.ok(true, "Looking for action at index " + aButtonIndex);
 
   let button = getDoorhangerButton(aPopup, aButtonIndex);
@@ -436,7 +452,13 @@ function clickDoorhangerButton(aPopup, aButtonIndex) {
   } else {
     Assert.ok(true, "Triggering menuitem # " + aButtonIndex);
   }
-  button.doCommand();
+  let panel = aPopup.owner?.panel;
+  let promiseHidden =
+    panel && aPopup.owner.isPanelOpen
+      ? BrowserTestUtils.waitForEvent(panel, "popuphidden")
+      : Promise.resolve();
+  button.click();
+  await promiseHidden;
 }
 
 async function cleanupDoorhanger(notif) {
@@ -479,14 +501,20 @@ async function clearMessageCache(browser) {
  * @param {string} password The password.
  */
 async function checkDoorhangerUsernamePassword(username, password) {
-  await BrowserTestUtils.waitForCondition(() => {
-    return (
-      document.getElementById("password-notification-username").value ==
-        username &&
-      document.getElementById("password-notification-password").value ==
-        password
-    );
-  }, "Wait for nsLoginManagerPrompter writeDataToUI() to update to the correct username/password values");
+  // allow extra time before giving up (default is 50 tries / 5s).
+  await TestUtils.waitForCondition(
+    () => {
+      return (
+        document.getElementById("password-notification-username").value ==
+          username &&
+        document.getElementById("password-notification-password").value ==
+          password
+      );
+    },
+    "Wait for nsLoginManagerPrompter writeDataToUI() to update to the correct username/password values",
+    100,
+    100
+  );
 }
 
 /**
@@ -552,25 +580,7 @@ async function updateDoorhangerInputValues(
  *                 Noop if `text` is falsy.
  */
 async function selectDoorhangerUsername(text) {
-  await _selectDoorhanger(
-    text,
-    "#password-notification-username",
-    "#password-notification-username-dropmarker"
-  );
-}
-
-/**
- * Open doorhanger autocomplete popup and select a password value.
- *
- * @param {string} text the text value of the password that should be selected.
- *                 Noop if `text` is falsy.
- */
-async function selectDoorhangerPassword(text) {
-  await _selectDoorhanger(
-    text,
-    "#password-notification-password",
-    "#password-notification-password-dropmarker"
-  );
+  await _selectDoorhanger(text, "#password-notification-username", null);
 }
 
 async function _selectDoorhanger(text, inputSelector, dropmarkerSelector) {
@@ -581,7 +591,9 @@ async function _selectDoorhanger(text, inputSelector, dropmarkerSelector) {
   info("Opening doorhanger suggestion popup");
 
   let doorhangerPopup = document.getElementById("password-notification");
-  let dropmarker = doorhangerPopup.querySelector(dropmarkerSelector);
+  let dropmarker = dropmarkerSelector
+    ? doorhangerPopup.querySelector(dropmarkerSelector)
+    : doorhangerPopup.querySelector(inputSelector).dropmarkerEl;
 
   let autocompletePopup = document.getElementById("PopupAutoComplete");
   let popupShown = BrowserTestUtils.waitForEvent(
@@ -601,9 +613,9 @@ async function _selectDoorhanger(text, inputSelector, dropmarkerSelector) {
       .getElementsByTagName("richlistitem"),
   ].filter(richlistitem => !richlistitem.collapsed);
 
-  let suggestionText = suggestions.map(
-    richlistitem => richlistitem.querySelector(".ac-title-text").innerHTML
-  );
+  let suggestionText = suggestions.map(richlistitem => {
+    return richlistitem.querySelector("autocomplete-row-item").label;
+  });
 
   let targetIndex = suggestionText.indexOf(text);
   Assert.notEqual(targetIndex, -1, "Suggestions include expected text");
@@ -810,6 +822,9 @@ async function openPasswordContextMenu(
  * typically be used when waiting for the FormProcessed message for a page
  * that has subframes to ensure all have been handled.
  *
+ * Notifications from a browsing context whose tab is gone never resolve the
+ * promise; they are reported by cleanup_checkNotificationsFromClosedTabs.
+ *
  * Returns a promise that will passed additional data specific to the message.
  */
 function listenForTestNotification(expectedMessage, count = 1) {
@@ -826,6 +841,17 @@ function listenForTestNotification(expectedMessage, count = 1) {
     LoginManagerParent.setListenerForTests((msg, data) => {
       let idx = expectedMessages.indexOf(msg);
       if (idx == -1) {
+        return;
+      }
+
+      // The tab this came from is gone, so this cannot be the page the caller is
+      // waiting on and resolving here would let it proceed before its own page has
+      // been processed. Usually an earlier task navigated to a page with a login form
+      // and returned without waiting for the FormProcessed it caused.
+      if (!data.browsingContext.top.embedderElement) {
+        let stale = `${msg} from ${data.browsingContext.currentURI?.spec}`;
+        info(`Ignoring a notification from a closed tab: ${stale}`);
+        gNotificationsFromClosedTabs.push(stale);
         return;
       }
 
@@ -896,7 +922,7 @@ async function changeContentInputValue(
   str,
   shouldBlur = true
 ) {
-  await SimpleTest.promiseFocus(browser.ownerGlobal);
+  await SimpleTest.promiseFocus(browser.documentGlobal);
   // TODO: Switch to SpecialPowers.spawn
   // eslint-disable-next-line mozilla/reject-contenttask-spawn
   let oldValue = await ContentTask.spawn(browser, selector, function (sel) {
@@ -959,7 +985,7 @@ async function verifyConfirmationHint(
   anchorID = "password-notification-icon",
   expectedL10nMessageId = null
 ) {
-  let hintElem = browser.ownerGlobal.ConfirmationHint._panel;
+  let hintElem = browser.documentGlobal.ConfirmationHint._panel;
   await BrowserTestUtils.waitForPopupEvent(hintElem, "shown");
   try {
     Assert.equal(hintElem.state, "open", "hint popup is open");
@@ -967,9 +993,11 @@ async function verifyConfirmationHint(
       BrowserTestUtils.isVisible(hintElem.anchorNode),
       "hint anchorNode is visible"
     );
-    Assert.equal(
-      hintElem.anchorNode.id,
-      anchorID,
+    let matchedAnchor = Array.isArray(anchorID)
+      ? anchorID.includes(hintElem.anchorNode.id)
+      : hintElem.anchorNode.id == anchorID;
+    Assert.ok(
+      matchedAnchor,
       "Hint should be anchored on the expected notification icon"
     );
     info("verifyConfirmationHint, hint is shown and has its anchorNode");

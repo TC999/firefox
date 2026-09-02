@@ -27,7 +27,7 @@ class HTMLScriptElement final : public nsGenericHTMLElement,
  public:
   using Element::GetCharacterDataBuffer;
 
-  HTMLScriptElement(already_AddRefed<mozilla::dom::NodeInfo>&& aNodeInfo,
+  HTMLScriptElement(already_AddRefed<mozilla::dom::NodeInfo> aNodeInfo,
                     FromParser aFromParser);
 
   // nsISupports
@@ -53,7 +53,9 @@ class HTMLScriptElement final : public nsGenericHTMLElement,
   virtual mozilla::dom::ReferrerPolicy GetReferrerPolicy() override;
 
   // nsIContent
-  virtual nsresult BindToTree(BindContext&, nsINode& aParent) override;
+  MOZ_CAN_RUN_SCRIPT_BOUNDARY nsresult BindToTree(BindContext&,
+                                                  nsINode& aParent) override;
+  virtual void UnbindFromTree(UnbindContext&) override;
   virtual bool ParseAttribute(int32_t aNamespaceID, nsAtom* aAttribute,
                               const nsAString& aValue,
                               nsIPrincipal* aMaybeScriptedPrincipal,

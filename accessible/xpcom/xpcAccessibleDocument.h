@@ -5,10 +5,9 @@
 #ifndef mozilla_a11y_xpcAccessibleDocument_h_
 #define mozilla_a11y_xpcAccessibleDocument_h_
 
-#include "nsIAccessibleDocument.h"
-
 #include "DocAccessible.h"
 #include "nsAccessibilityService.h"
+#include "nsIAccessibleDocument.h"
 #include "xpcAccessibleApplication.h"
 #include "xpcAccessibleHyperText.h"
 
@@ -30,6 +29,9 @@ class xpcAccessibleDocument : public xpcAccessibleHyperText,
     // assert.
     MOZ_ASSERT(aIntl->IsDoc());
   }
+
+  xpcAccessibleDocument(const xpcAccessibleDocument&) = delete;
+  xpcAccessibleDocument& operator=(const xpcAccessibleDocument&) = delete;
 
   NS_DECL_ISUPPORTS_INHERITED
 
@@ -54,7 +56,7 @@ class xpcAccessibleDocument : public xpcAccessibleHyperText,
   virtual void Shutdown() override;
 
  protected:
-  virtual ~xpcAccessibleDocument() {}
+  virtual ~xpcAccessibleDocument() = default;
 
  private:
   DocAccessible* Intl() {
@@ -86,9 +88,6 @@ class xpcAccessibleDocument : public xpcAccessibleHyperText,
   friend class DocAccessible;
   friend class RemoteAccessible;
   friend class xpcAccessibleGeneric;
-
-  xpcAccessibleDocument(const xpcAccessibleDocument&) = delete;
-  xpcAccessibleDocument& operator=(const xpcAccessibleDocument&) = delete;
 
   nsTHashMap<nsPtrHashKey<const void>, xpcAccessibleGeneric*> mCache;
   bool mRemote;

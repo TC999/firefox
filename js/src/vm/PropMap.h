@@ -211,10 +211,15 @@ class NormalPropMap;
 class JS_PUBLIC_API GenericPrinter;
 class JSONPrinter;
 
+namespace gc {
+template <uint32_t opts>
+class MarkingTracerT;
+}  // namespace gc
+
 // Template class for storing a PropMap* and a property index as tagged pointer.
 template <typename T>
 class MapAndIndex {
-  uintptr_t data_ = 0;
+  GCData<uintptr_t> data_{0};
 
   static constexpr uintptr_t IndexMask = 0b111;
 
@@ -234,6 +239,10 @@ class MapAndIndex {
   uintptr_t raw() const { return data_; }
   T* maybeMap() const { return reinterpret_cast<T*>(data_ & ~IndexMask); }
 
+  T* maybeMapForTracing() const {
+    return reinterpret_cast<T*>(data_.getForTracing() & ~IndexMask);
+  }
+
   uint32_t index() const {
     MOZ_ASSERT(!isNone());
     return data_ & IndexMask;
@@ -245,12 +254,7 @@ class MapAndIndex {
 
   inline PropertyInfo propertyInfo() const;
 
-  bool operator==(const MapAndIndex<T>& other) const {
-    return data_ == other.data_;
-  }
-  bool operator!=(const MapAndIndex<T>& other) const {
-    return !operator==(other);
-  }
+  bool operator==(const MapAndIndex<T>& other) const = default;
 } JS_HAZ_GC_POINTER;
 using PropMapAndIndex = MapAndIndex<PropMap>;
 using SharedPropMapAndIndex = MapAndIndex<SharedPropMap>;
@@ -324,17 +328,17 @@ class PropMapTable {
   Set set_;
 
   void setCacheEntry(PropertyKey key, PropMapAndIndex entry) {
-    for (uint32_t i = 0; i < NumCacheEntries; i++) {
-      if (cacheEntries_[i].key == key) {
-        cacheEntries_[i].result = entry;
+    for (auto& cacheEntry : cacheEntries_) {
+      if (cacheEntry.key == key) {
+        cacheEntry.result = entry;
         return;
       }
     }
   }
   bool lookupInCache(PropertyKey key, PropMapAndIndex* result) const {
-    for (uint32_t i = 0; i < NumCacheEntries; i++) {
-      if (cacheEntries_[i].key == key) {
-        *result = cacheEntries_[i].result;
+    for (const auto& cacheEntry : cacheEntries_) {
+      if (cacheEntry.key == key) {
+        *result = cacheEntry.result;
 #ifdef DEBUG
         auto p = lookupRaw(key);
         MOZ_ASSERT(*result == (p ? *p : PropMapAndIndex()));
@@ -390,8 +394,8 @@ class PropMapTable {
   }
 
   void purgeCache() {
-    for (uint32_t i = 0; i < NumCacheEntries; i++) {
-      cacheEntries_[i] = CacheEntry();
+    for (auto& cacheEntry : cacheEntries_) {
+      cacheEntry = CacheEntry();
     }
   }
 
@@ -460,6 +464,10 @@ class PropMap : public gc::TenuredCellWithFlags {
   // Flags word, stored in the cell header. Note that this hides the
   // Cell::flags() method.
   uintptr_t flags() const { return headerFlagsField(); }
+
+  uintptr_t getFlagsForTracing() const { return headerFlagsFieldForTracing(); }
+  template <uint32_t opts>
+  friend class gc::MarkingTracerT;
 
  private:
   GCPtr<PropertyKey> keys_[Capacity];
@@ -560,6 +568,8 @@ class PropMap : public gc::TenuredCellWithFlags {
 
 class SharedPropMap : public PropMap {
   friend class PropMap;
+  template <uint32_t opts>
+  friend class gc::MarkingTracerT;
 
  protected:
   // Shared maps are stored in a tree structure. Each shared map has a TreeData
@@ -896,14 +906,6 @@ class NormalPropMap final : public SharedPropMap {
     linkedData_.propInfos[index] = prop;
   }
 
-  bool isDictionary() const = delete;
-  bool isShared() const = delete;
-  bool isCompact() const = delete;
-  bool isNormal() const = delete;
-  bool isLinked() const = delete;
-  NormalPropMap* asNormal() = delete;
-  const NormalPropMap* asNormal() const = delete;
-
   SharedPropMap* previous() const {
     return static_cast<SharedPropMap*>(linkedData_.previous.get());
   }
@@ -915,12 +917,23 @@ class NormalPropMap final : public SharedPropMap {
     static_assert(offsetof(NormalPropMap, linkedData_) ==
                   offsetof(LinkedPropMap, data_));
   }
+
+ public:
+  bool isDictionary() const = delete;
+  bool isShared() const = delete;
+  bool isCompact() const = delete;
+  bool isNormal() const = delete;
+  bool isLinked() const = delete;
+  NormalPropMap* asNormal() = delete;
+  const NormalPropMap* asNormal() const = delete;
 };
 
 class DictionaryPropMap final : public PropMap {
   friend class PropMap;
   friend class SharedPropMap;
-  friend class js::gc::CellAllocator;
+  friend class gc::CellAllocator;
+  template <uint32_t opts>
+  friend class gc::MarkingTracerT;
 
   LinkedPropMap::Data linkedData_;
 

@@ -641,6 +641,9 @@ bitflags_array! {
         /// - Vulkan
         /// - DX12
         /// - Metal
+        /// - OpenGL (desktop GL 3.3+ for UNORM; GLES / WebGL2 needs
+        ///   `EXT_texture_norm16`. SNORM color-attachment usage
+        ///   additionally requires `EXT_render_snorm` on both paths.)
         ///
         /// This is a native only feature.
         #[name("wgpu-texture-format-16-bit-norm", "texture-format-16-bit-norm")]
@@ -698,7 +701,9 @@ bitflags_array! {
         const PIPELINE_STATISTICS_QUERY = 1 << 4;
         /// Allows for timestamp queries directly on command encoders.
         ///
-        /// Implies [`Features::TIMESTAMP_QUERY`] is supported.
+        /// Adapters that support this feature also support
+        /// [`Features::TIMESTAMP_QUERY`]. Both features must be requested
+        /// explicitly to use timestamp queries on command encoders.
         ///
         /// Additionally allows for timestamp writes on command encoders
         /// using [`CommandEncoder::write_timestamp`].
@@ -706,7 +711,7 @@ bitflags_array! {
         /// Supported platforms:
         /// - Vulkan
         /// - DX12
-        /// - Metal
+        /// - Metal (AMD & Intel, not Apple GPUs)
         /// - OpenGL (with GL_ARB_timer_query)
         ///
         /// This is a native only feature.
@@ -714,9 +719,13 @@ bitflags_array! {
         #[doc = link_to_wgpu_docs!(["`CommandEncoder::write_timestamp`"]: "struct.CommandEncoder.html#method.write_timestamp")]
         #[name("wgpu-timestamp-query-inside-encoders")]
         const TIMESTAMP_QUERY_INSIDE_ENCODERS = 1 << 5;
-        /// Allows for timestamp queries directly on command encoders.
+        /// Allows for timestamp queries directly inside render and compute passes.
         ///
-        /// Implies [`Features::TIMESTAMP_QUERY`] & [`Features::TIMESTAMP_QUERY_INSIDE_ENCODERS`] is supported.
+        /// Adapters that support this feature also support
+        /// [`Features::TIMESTAMP_QUERY`] and [`Features::TIMESTAMP_QUERY_INSIDE_ENCODERS`].
+        /// This feature must be requested with [`Features::TIMESTAMP_QUERY`] to use timestamp
+        /// queries inside passes. Additionally, [`Features::TIMESTAMP_QUERY_INSIDE_ENCODERS`]
+        /// must be requested to use timestamp queries on command encoders.
         ///
         /// Additionally allows for timestamp queries to be used inside render & compute passes using:
         /// - [`RenderPass::write_timestamp`]
@@ -1060,16 +1069,20 @@ bitflags_array! {
         /// This is a native only feature.
         #[name("wgpu-shader-f64", "shader-f64")]
         const SHADER_F64 = 1 << 33;
-        /// Allows shaders to use i16. Not currently supported in `naga`, only available through `spirv-passthrough`.
+        /// Allows shaders to use `i16` and `u16` 16-bit integer types.
+        ///
+        /// Requires `enable wgpu_int16;` in WGSL shaders.
         ///
         /// Supported platforms:
-        /// - Vulkan
+        /// - Vulkan (with `shaderInt16` and `VK_KHR_16bit_storage`)
+        /// - Metal (always available)
+        /// - DX12 (with `Native16BitShaderOpsSupported`, SM 6.2+)
         ///
         /// This is a native only feature.
         #[name("wgpu-shader-i16", "shader-i16")]
         const SHADER_I16 = 1 << 34;
 
-        // Bit 35 (formerly SHADER_PRIMITIVE_INDEX) is available.
+        // Bit 35 is used by VULKAN_EXTERNAL_MEMORY_FD.
 
         /// Allows shaders to use the `early_depth_test` attribute.
         ///
@@ -1204,6 +1217,33 @@ bitflags_array! {
         /// [VK_KHR_external_memory_win32]: https://registry.khronos.org/vulkan/specs/latest/man/html/VK_KHR_external_memory_win32.html
         #[name("wgpu-vulkan-external-memory-win32")]
         const VULKAN_EXTERNAL_MEMORY_WIN32 = 1 << 45;
+
+        /// Allows using the [VK_KHR_external_memory_fd] Vulkan extension.
+        ///
+        /// Supported platforms:
+        /// - Vulkan (with [VK_KHR_external_memory_fd])
+        ///
+        /// This is a native only feature.
+        ///
+        /// [VK_KHR_external_memory_fd]: https://registry.khronos.org/vulkan/specs/latest/man/html/VK_KHR_external_memory_fd.html
+        #[name("wgpu-vulkan-external-memory-fd")]
+        const VULKAN_EXTERNAL_MEMORY_FD = 1 << 35;
+
+        /// Allows using the [VK_EXT_external_memory_dma_buf] Vulkan extension
+        /// for importing DMA-buf textures on Linux.
+        ///
+        /// Requires [VK_EXT_image_drm_format_modifier] for specifying the
+        /// DRM format modifier and plane layout during import.
+        ///
+        /// Supported platforms:
+        /// - Vulkan (with [VK_EXT_external_memory_dma_buf] and [VK_EXT_image_drm_format_modifier])
+        ///
+        /// This is a native only feature.
+        ///
+        /// [VK_EXT_external_memory_dma_buf]: https://registry.khronos.org/vulkan/specs/latest/man/html/VK_EXT_external_memory_dma_buf.html
+        /// [VK_EXT_image_drm_format_modifier]: https://registry.khronos.org/vulkan/specs/latest/man/html/VK_EXT_image_drm_format_modifier.html
+        #[name("wgpu-vulkan-external-memory-dma-buf")]
+        const VULKAN_EXTERNAL_MEMORY_DMA_BUF = 1 << 63;
 
         /// Enables R64Uint image atomic min and max.
         ///
@@ -1360,6 +1400,7 @@ bitflags_array! {
         ///
         /// Supported platforms:
         /// - Vulkan (except VK_KHR_portability_subset if multisampleArrayImage is not available)
+        /// - Metal (with macos 10.14+, ios 14.0+, tvos 16.0+, visionos 1.0+)
         #[name("wgpu-multisample-array")]
         const MULTISAMPLE_ARRAY = 1 << 56;
 
@@ -1442,7 +1483,11 @@ bitflags_array! {
         #[name("wgpu-memory-decoration-volatile")]
         const MEMORY_DECORATION_VOLATILE = 1 << 62;
 
-        // Adding a new feature? Bit 35 (formerly SHADER_PRIMITIVE_INDEX) is available.
+        /// Allows for constructing ray tracing pipelines.
+        #[name("wgpu-ray-tracing-pipelines")]
+        const EXPERIMENTAL_RAY_TRACING_PIPELINES = 1 << 24;
+
+        // Adding a new feature? All bits in the first u64 are used. Use the second u64 (bits 64+).
     }
 
     /// Features that are not guaranteed to be supported.
@@ -1814,7 +1859,8 @@ impl Features {
                 | FeaturesWGPU::EXPERIMENTAL_MESH_SHADER_POINTS.bits()
                 | FeaturesWGPU::EXPERIMENTAL_RAY_QUERY.bits()
                 | FeaturesWGPU::EXPERIMENTAL_RAY_HIT_VERTEX_RETURN.bits()
-                | FeaturesWGPU::EXPERIMENTAL_COOPERATIVE_MATRIX.bits(),
+                | FeaturesWGPU::EXPERIMENTAL_COOPERATIVE_MATRIX.bits()
+                | FeaturesWGPU::EXPERIMENTAL_RAY_TRACING_PIPELINES.bits(),
             FeaturesWebGPU::empty().bits(),
         ]))
     }
@@ -1823,7 +1869,8 @@ impl Features {
     #[must_use]
     pub fn allowed_vertex_formats_for_blas(&self) -> Vec<VertexFormat> {
         let mut formats = Vec::new();
-        if self.intersects(Self::EXPERIMENTAL_RAY_QUERY) {
+        if self.intersects(Self::EXPERIMENTAL_RAY_QUERY | Self::EXPERIMENTAL_RAY_TRACING_PIPELINES)
+        {
             formats.push(VertexFormat::Float32x3);
         }
         if self.contains(Self::EXTENDED_ACCELERATION_STRUCTURE_VERTEX_FORMATS) {

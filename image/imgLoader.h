@@ -6,26 +6,25 @@
 #ifndef mozilla_image_imgLoader_h
 #define mozilla_image_imgLoader_h
 
+#include "ImageCacheKey.h"
+#include "imgICache.h"
+#include "imgILoader.h"
+#include "imgIRequest.h"
+#include "imgRequest.h"
 #include "mozilla/CORSMode.h"
+#include "mozilla/EnumSet.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/Mutex.h"
-#include "mozilla/EnumSet.h"
 #include "mozilla/UniquePtr.h"
-
-#include "imgILoader.h"
-#include "imgICache.h"
-#include "nsWeakReference.h"
+#include "mozilla/dom/CacheExpirationTime.h"
+#include "nsExpirationTracker.h"
+#include "nsIChannel.h"
 #include "nsIContentSniffer.h"
+#include "nsIProgressEventSink.h"
+#include "nsIThreadRetargetableStreamListener.h"
 #include "nsRefPtrHashtable.h"
 #include "nsTHashSet.h"
-#include "nsExpirationTracker.h"
-#include "ImageCacheKey.h"
-#include "imgRequest.h"
-#include "nsIProgressEventSink.h"
-#include "nsIChannel.h"
-#include "nsIThreadRetargetableStreamListener.h"
-#include "imgIRequest.h"
-#include "mozilla/dom/CacheExpirationTime.h"
+#include "nsWeakReference.h"
 #ifdef NIGHTLY_BUILD
 #  include "mozilla/dom/IntegrityPolicyWAICT.h"
 #  include "mozilla/dom/ResourceHasher.h"
@@ -51,6 +50,8 @@ class imgCacheEntry {
 
   imgCacheEntry(imgLoader* loader, imgRequest* request,
                 bool aForcePrincipalCheck);
+
+  imgCacheEntry(const imgCacheEntry&) = delete;
 
   uint32_t GetDataSize() const { return mDataSize; }
   void SetDataSize(uint32_t aDataSize) {
@@ -123,9 +124,6 @@ class imgCacheEntry {
   void UpdateCache(int32_t diff = 0);
   void SetEvicted(bool evict) { mEvicted = evict; }
   void SetHasNoProxies(bool hasNoProxies);
-
-  // Private, unimplemented copy constructor.
-  imgCacheEntry(const imgCacheEntry&);
   ~imgCacheEntry();
 
  private:  // data

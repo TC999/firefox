@@ -14,13 +14,12 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <span>
 #include <utility>
 #include <vector>
 
-#include "api/array_view.h"
 #include "api/call/transport.h"
 #include "api/environment/environment.h"
-#include "api/environment/environment_factory.h"
 #include "api/rtp_headers.h"
 #include "api/units/time_delta.h"
 #include "api/units/timestamp.h"
@@ -40,13 +39,14 @@
 #include "modules/rtp_rtcp/source/rtp_rtcp_impl2.h"
 #include "modules/rtp_rtcp/source/rtp_rtcp_interface.h"
 #include "rtc_base/rate_limiter.h"
-#include "rtc_base/thread.h"
 #include "system_wrappers/include/clock.h"
 #include "system_wrappers/include/ntp_time.h"
+#include "test/create_test_environment.h"
 #include "test/gmock.h"
 #include "test/gtest.h"
 #include "test/mock_transport.h"
 #include "test/rtcp_packet_parser.h"
+#include "test/run_loop.h"
 
 namespace webrtc {
 namespace {
@@ -75,11 +75,11 @@ class TestTransport : public Transport {
  public:
   TestTransport() {}
 
-  bool SendRtp(ArrayView<const uint8_t> /*data*/,
+  bool SendRtp(std::span<const uint8_t> /*data*/,
                const PacketOptions& /* options */) override {
     return false;
   }
-  bool SendRtcp(ArrayView<const uint8_t> data,
+  bool SendRtcp(std::span<const uint8_t> data,
                 const PacketOptions& options) override {
     EXPECT_FALSE(options.is_media);
     parser_.Parse(data);
@@ -97,7 +97,7 @@ class RtcpSenderTest : public ::testing::Test {
  protected:
   RtcpSenderTest()
       : clock_(1335900000),
-        env_(CreateEnvironment(&clock_)),
+        env_(CreateTestEnvironment({.time = &clock_})),
         receive_statistics_(ReceiveStatistics::Create(&clock_)),
         rtp_rtcp_impl_(
             ModuleRtpRtcpImpl2::CreateSendModule(env_,
@@ -152,7 +152,7 @@ class RtcpSenderTest : public ::testing::Test {
     return rtp_rtcp_impl_->GetFeedbackState();
   }
 
-  AutoThread main_thread_;
+  test::RunLoop main_thread_;
   SimulatedClock clock_;
   const Environment env_;
   TestTransport test_transport_;
@@ -670,7 +670,7 @@ TEST_F(RtcpSenderTest, SendsTmmbnIfSetAndEmpty) {
 TEST_F(RtcpSenderTest, ByeMustBeLast) {
   MockTransport mock_transport;
   EXPECT_CALL(mock_transport, SendRtcp(_, _))
-      .WillOnce([](ArrayView<const uint8_t> data, ::testing::Unused) {
+      .WillOnce([](std::span<const uint8_t> data, ::testing::Unused) {
         const uint8_t* next_packet = data.data();
         const uint8_t* const packet_end = data.data() + data.size();
         rtcp::CommonHeader packet;

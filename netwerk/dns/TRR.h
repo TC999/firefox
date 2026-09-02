@@ -5,15 +5,15 @@
 #ifndef mozilla_net_TRR_h
 #define mozilla_net_TRR_h
 
+#include "DNSPacket.h"
 #include "mozilla/net/DNSByTypeRecord.h"
 #include "nsClassHashtable.h"
 #include "nsIChannel.h"
 #include "nsIInterfaceRequestor.h"
 #include "nsIStreamListener.h"
+#include "nsITRRSkipReason.h"
 #include "nsThreadUtils.h"
 #include "nsXULAppAPI.h"
-#include "DNSPacket.h"
-#include "nsITRRSkipReason.h"
 
 class AHostResolver;
 class nsHostRecord;
@@ -124,6 +124,12 @@ class TRR : public Runnable,
   nsCOMPtr<nsITimer> mTimeout;
   nsCString mCname;
   uint32_t mCnameLoop = kCnameChaseMax;  // loop detection counter
+
+  // True when this TRR was dispatched to follow an HTTPS AliasMode TargetName.
+  // If the target has no HTTPS record of its own, we synthesize an AliasMode
+  // record for it (RFC 9460) instead of failing, so the connection is routed
+  // to the target.
+  bool mHTTPSAliasFollow = false;
 
   uint32_t mTTL = UINT32_MAX;
   TypeRecordResultType mResult = mozilla::AsVariant(Nothing());

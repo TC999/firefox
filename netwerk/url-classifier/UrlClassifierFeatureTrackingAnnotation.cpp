@@ -8,11 +8,12 @@
 #include "mozilla/Logging.h"
 #include "mozilla/StaticPrefs_privacy.h"
 #include "mozilla/StaticPtr.h"
+#include "mozilla/net/ChannelClassifierUtils.h"
 #include "mozilla/net/UrlClassifierCommon.h"
+#include "nsContentUtils.h"
 #include "nsIChannel.h"
 #include "nsIClassifiedChannel.h"
 #include "nsIWebProgressListener.h"
-#include "nsContentUtils.h"
 
 namespace mozilla {
 namespace net {
@@ -150,7 +151,7 @@ UrlClassifierFeatureTrackingAnnotation::ProcessChannel(
           ? nsIWebProgressListener::STATE_LOADED_LEVEL_2_TRACKING_CONTENT
           : nsIWebProgressListener::STATE_LOADED_LEVEL_1_TRACKING_CONTENT;
 
-  UrlClassifierCommon::AnnotateChannel(aChannel, flags, notification);
+  ChannelClassifierUtils::AnnotateChannel(aChannel, flags, notification);
 
   return NS_OK;
 }

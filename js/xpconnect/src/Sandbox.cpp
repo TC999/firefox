@@ -6,34 +6,6 @@
  * The Components.Sandbox object.
  */
 
-#include "AccessCheck.h"
-#include "jsfriendapi.h"
-#include "js/Array.h"             // JS::GetArrayLength, JS::IsArrayObject
-#include "js/CallAndConstruct.h"  // JS::Call, JS::IsCallable
-#include "js/CharacterEncoding.h"
-#include "js/CompilationAndEvaluation.h"
-#include "js/Object.h"  // JS::GetClass, JS::GetCompartment, JS::GetReservedSlot
-#include "js/PropertyAndElement.h"  // JS_DefineFunction, JS_DefineFunctions, JS_DefineProperty, JS_GetElement, JS_GetProperty, JS_HasProperty, JS_SetProperty, JS_SetPropertyById
-#include "js/PropertyDescriptor.h"  // JS::PropertyDescriptor, JS_GetOwnPropertyDescriptorById, JS_GetPropertyDescriptorById
-#include "js/PropertySpec.h"
-#include "js/Proxy.h"
-#include "js/SourceText.h"
-#include "js/StructuredClone.h"
-#include "nsContentUtils.h"
-#include "nsGlobalWindowInner.h"
-#include "nsIException.h"  // for nsIStackFrame
-#include "nsIScriptContext.h"
-#include "nsIScriptObjectPrincipal.h"
-#include "nsIURI.h"
-#include "nsJSUtils.h"
-#include "nsNetUtil.h"
-#include "ExpandedPrincipal.h"
-#include "WrapperFactory.h"
-#include "xpcprivate.h"
-#include "xpc_make_class.h"
-#include "XPCWrapper.h"
-#include "Crypto.h"
-#include "mozilla/Result.h"
 #include "mozilla/dom/AbortControllerBinding.h"
 #include "mozilla/dom/AutoEntryScript.h"
 #include "mozilla/dom/BindingCallContext.h"
@@ -53,12 +25,12 @@
 #include "mozilla/dom/ElementInternalsBinding.h"
 #include "mozilla/dom/EventBinding.h"
 #include "mozilla/dom/Exceptions.h"
-#include "mozilla/dom/IndexedDatabaseManager.h"
 #include "mozilla/dom/Fetch.h"
 #include "mozilla/dom/FileBinding.h"
 #include "mozilla/dom/HeadersBinding.h"
-#include "mozilla/dom/IOUtilsBinding.h"
+#include "mozilla/dom/IndexedDatabaseManager.h"
 #include "mozilla/dom/InspectorUtilsBinding.h"
+#include "mozilla/dom/IOUtilsBinding.h"
 #include "mozilla/dom/LockManager.h"
 #include "mozilla/dom/MessageChannelBinding.h"
 #include "mozilla/dom/MessagePortBinding.h"
@@ -72,13 +44,49 @@
 #include "mozilla/dom/PromiseBinding.h"
 #include "mozilla/dom/PromiseDebuggingBinding.h"
 #include "mozilla/dom/RangeBinding.h"
-#include "mozilla/dom/RequestBinding.h"
 #include "mozilla/dom/ReadableStreamBinding.h"
+#include "mozilla/dom/RequestBinding.h"
 #include "mozilla/dom/ResponseBinding.h"
+#include "mozilla/Result.h"
+
+#include "AccessCheck.h"
+#include "Crypto.h"
+#include "ExpandedPrincipal.h"
+#include "jsfriendapi.h"
+#include "nsContentUtils.h"
+#include "nsGlobalWindowInner.h"
+#include "nsIException.h"  // for nsIStackFrame
+#include "nsIScriptContext.h"
+#include "nsIScriptObjectPrincipal.h"
+#include "nsIURI.h"
+#include "nsJSUtils.h"
+#include "nsNetUtil.h"
+#include "nsPIDOMWindowInlines.h"
+#include "WrapperFactory.h"
+#include "xpc_make_class.h"
+#include "xpcprivate.h"
+#include "XPCWrapper.h"
+
+#include "js/Array.h"             // JS::GetArrayLength, JS::IsArrayObject
+#include "js/CallAndConstruct.h"  // JS::Call, JS::IsCallable
+#include "js/CharacterEncoding.h"
+#include "js/CompilationAndEvaluation.h"
+#include "js/Object.h"  // JS::GetClass, JS::GetCompartment, JS::GetReservedSlot
+#include "js/PropertyAndElement.h"  // JS_DefineFunction, JS_DefineFunctions, JS_DefineProperty, JS_GetElement, JS_GetProperty, JS_HasProperty, JS_SetProperty, JS_SetPropertyById
+#include "js/PropertyDescriptor.h"  // JS::PropertyDescriptor, JS_GetOwnPropertyDescriptorById, JS_GetPropertyDescriptorById
+#include "js/PropertySpec.h"
+#include "js/Proxy.h"
+#include "js/SourceText.h"
+#include "js/StructuredClone.h"
 #ifdef MOZ_WEBRTC
 #  include "mozilla/dom/RTCIdentityProviderRegistrar.h"
 #endif
+#include "mozilla/BasePrincipal.h"
+#include "mozilla/DeferredFinalize.h"
 #include "mozilla/dom/FileReaderBinding.h"
+#include "mozilla/dom/FormDataBinding.h"
+#include "mozilla/dom/nsCSPContext.h"
+#include "mozilla/dom/PolicyContainer.h"
 #include "mozilla/dom/ScriptLoader.h"
 #include "mozilla/dom/ScriptSettings.h"
 #include "mozilla/dom/SelectionBinding.h"
@@ -91,18 +99,13 @@
 #include "mozilla/dom/TrustedScriptURL.h"
 #include "mozilla/dom/URLBinding.h"
 #include "mozilla/dom/URLSearchParamsBinding.h"
-#include "mozilla/dom/XMLHttpRequest.h"
 #include "mozilla/dom/WebSocketBinding.h"
 #include "mozilla/dom/WindowBinding.h"
+#include "mozilla/dom/XMLHttpRequest.h"
 #include "mozilla/dom/XMLSerializerBinding.h"
-#include "mozilla/dom/FormDataBinding.h"
-#include "mozilla/dom/nsCSPContext.h"
-#include "mozilla/dom/PolicyContainer.h"
+#include "mozilla/ExtensionPolicyService.h"
 #include "mozilla/ipc/BackgroundUtils.h"
 #include "mozilla/ipc/PBackgroundSharedTypes.h"
-#include "mozilla/BasePrincipal.h"
-#include "mozilla/DeferredFinalize.h"
-#include "mozilla/ExtensionPolicyService.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/NullPrincipal.h"
 #include "mozilla/ResultExtensions.h"
@@ -582,16 +585,11 @@ static size_t sandbox_moved(JSObject* obj, JSObject* old) {
   (XPCONNECT_GLOBAL_EXTRA_SLOT_OFFSET)
 
 static const JSClassOps SandboxClassOps = {
-    nullptr,                         // addProperty
-    nullptr,                         // delProperty
-    nullptr,                         // enumerate
-    JS_NewEnumerateStandardClasses,  // newEnumerate
-    JS_ResolveStandardClass,         // resolve
-    JS_MayResolveStandardClass,      // mayResolve
-    sandbox_finalize,                // finalize
-    nullptr,                         // call
-    nullptr,                         // construct
-    JS_GlobalObjectTraceHook,        // trace
+    .newEnumerate = JS_NewEnumerateStandardClasses,
+    .resolve = JS_ResolveStandardClass,
+    .mayResolve = JS_MayResolveStandardClass,
+    .finalize = sandbox_finalize,
+    .trace = JS_GlobalObjectTraceHook,
 };
 
 static const js::ClassExtension SandboxClassExtension = {
@@ -1306,6 +1304,24 @@ nsresult xpc::CreateSandboxObject(JSContext* cx, MutableHandleValue vp,
   }
   MOZ_ASSERT(principal);
 
+  nsGlobalWindowInner* windowOfProto = nullptr;
+  if (options.proto) {
+    RootedObject unwrappedProto(cx, js::UncheckedUnwrap(options.proto, false));
+    if (principal->Subsumes(nsContentUtils::ObjectPrincipal(unwrappedProto))) {
+      windowOfProto = WindowGlobalOrNull(unwrappedProto);
+    }
+  }
+
+  RefPtr<nsGlobalWindowInner> associatedWindow;
+  if (options.associatedWindow) {
+    associatedWindow = WindowOrNull(js::UncheckedUnwrap(
+        options.associatedWindow, /* stopAtWindowProxy = */ false));
+    if (!associatedWindow) {
+      JS_ReportErrorASCII(cx, "associatedWindow must be a Window");
+      return NS_ERROR_INVALID_ARG;
+    }
+  }
+
   JS::RealmOptions realmOptions;
 
   auto& creationOptions = realmOptions.creationOptions();
@@ -1322,6 +1338,10 @@ nsresult xpc::CreateSandboxObject(JSContext* cx, MutableHandleValue vp,
   }
 
   xpc::SetPrefableRealmOptions(realmOptions);
+  if (!isSystemPrincipal &&
+      (!windowOfProto || !windowOfProto->CrossOriginIsolated())) {
+    creationOptions.setDefineSharedArrayBufferConstructor(false);
+  }
   if (options.sameZoneAs) {
     creationOptions.setNewCompartmentInExistingZone(
         js::UncheckedUnwrap(options.sameZoneAs));
@@ -1425,6 +1445,11 @@ nsresult xpc::CreateSandboxObject(JSContext* cx, MutableHandleValue vp,
 
     // This creates a SandboxPrivate and passes ownership of it to |sandbox|.
     SandboxPrivate::Create(principal, sandbox);
+
+    if (associatedWindow) {
+      SandboxPrivate::GetPrivate(sandbox)->SetAssociatedWindow(
+          associatedWindow);
+    }
 
     // Ensure |Object.prototype| is instantiated before prototype-
     // splicing below.
@@ -2014,6 +2039,7 @@ bool SandboxOptions::ParseGlobalProperties() {
 bool SandboxOptions::Parse() {
   /* All option names must be ASCII-only. */
   bool ok = ParseObject("sandboxPrototype", &proto) &&
+            ParseObject("associatedWindow", &associatedWindow) &&
             ParseBoolean("wantXrays", &wantXrays) &&
             ParseBoolean("allowWaivers", &allowWaivers) &&
             ParseBoolean("wantComponents", &wantComponents) &&
@@ -2195,7 +2221,7 @@ nsresult xpc::EvalInSandbox(JSContext* cx, HandleObject sandboxArg,
                             int32_t lineNo, bool enforceFilenameRestrictions,
                             MutableHandleValue rval) {
   JS_AbortIfWrongThread(cx);
-  rval.set(UndefinedValue());
+  rval.setUndefined();
 
   bool waiveXray = xpc::WrapperFactory::HasWaiveXrayFlag(sandboxArg);
   // CheckedUnwrapStatic is fine here, since we're checking for "is it a
@@ -2337,6 +2363,21 @@ nsresult xpc::SetSandboxMetadata(JSContext* cx, HandleObject sandbox,
   JS_SetReservedSlot(sandbox, XPCONNECT_SANDBOX_CLASS_METADATA_SLOT, metadata);
 
   return NS_OK;
+}
+
+SandboxPrivate::SandboxPrivate(nsIPrincipal* principal)
+    : mPrincipal(principal),
+      mCookieJarSettings(mozilla::net::CookieJarSettings::Create(mPrincipal)) {}
+
+SandboxPrivate::~SandboxPrivate() = default;
+
+void SandboxPrivate::SetAssociatedWindow(nsPIDOMWindowInner* aWindow) {
+  mAssociatedWindow = do_GetWeakReference(aWindow);
+}
+
+already_AddRefed<nsPIDOMWindowInner> SandboxPrivate::GetAssociatedWindow() {
+  nsCOMPtr<nsPIDOMWindowInner> window = do_QueryReferent(mAssociatedWindow);
+  return window.forget();
 }
 
 ModuleLoaderBase* SandboxPrivate::GetModuleLoader(JSContext* aCx) {

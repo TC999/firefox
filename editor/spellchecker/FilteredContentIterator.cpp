@@ -202,12 +202,14 @@ static bool ContentIsInTraversalRange(nsIContent* aContent, bool aIsPreMode,
       parentContent, aIsPreMode ? aContent->GetPreviousSibling() : aContent);
 
   const Maybe<int32_t> startRes =
-      nsContentUtils::ComparePoints(aStartBoundary, compPoint);
+      nsContentUtils::ComparePoints<TreeKind::ShadowIncludingDOM>(
+          aStartBoundary, compPoint);
   if (NS_WARN_IF(!startRes)) {
     return false;
   }
   const Maybe<int32_t> endRes =
-      nsContentUtils::ComparePoints(aEndBoundary, compPoint);
+      nsContentUtils::ComparePoints<TreeKind::ShadowIncludingDOM>(aEndBoundary,
+                                                                  compPoint);
   if (NS_WARN_IF(!endRes)) {
     return false;
   }
@@ -279,7 +281,7 @@ void FilteredContentIterator::CheckAdvNode(nsINode* aNode, bool& aDidSkip,
 
   if (aNode && mFilter) {
     nsCOMPtr<nsINode> currentNode = aNode;
-    while (1) {
+    while (true) {
       if (mFilter->Skip(aNode)) {
         aDidSkip = true;
         // Get the next/prev node and then

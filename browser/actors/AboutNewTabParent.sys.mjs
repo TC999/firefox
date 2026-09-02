@@ -141,6 +141,14 @@ export class AboutNewTabParent extends JSWindowActorParent {
       }
 
       case "AssignRenderer": {
+        // This could have been called by the remote renderer host document
+        // early during startup, before we've had a chance to have
+        // ActivityStream initialize and (most importantly here) register the
+        // MozNewTabRemoteRendererProtocol parent actor. So if that's the case,
+        // we wait for that startup to complete before continuing.
+        if (!lazy.AboutNewTab.activityStream) {
+          await lazy.AboutNewTab.activityStreamPromise;
+        }
         const rendererActor = this.browsingContext.currentWindowGlobal.getActor(
           "MozNewTabRemoteRendererProtocol"
         );

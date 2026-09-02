@@ -13,6 +13,7 @@
 
 #include "gc/NurseryAwareHashMap.h"
 #include "gc/ZoneAllocator.h"
+#include "js/friend/Wrapper.h"
 #include "vm/Iteration.h"
 #include "vm/JSObject.h"
 #include "vm/JSScript.h"
@@ -37,9 +38,6 @@ class ObjectWrapperMap {
 
  public:
   class ModIterator {
-    ModIterator(const ModIterator&) = delete;
-    void operator=(const ModIterator&) = delete;
-
     void goToNext() {
       if (outer.isNothing()) {
         return;
@@ -87,6 +85,9 @@ class ObjectWrapperMap {
       }
     }
 
+    ModIterator(const ModIterator&) = delete;
+    void operator=(const ModIterator&) = delete;
+
     bool done() const {
       return (outer.isNothing() || outer->done()) &&
              (inner.isNothing() || inner->done());
@@ -115,9 +116,9 @@ class ObjectWrapperMap {
   class Ptr : public InnerMap::Ptr {
     friend class ObjectWrapperMap;
 
-    InnerMap* map;
+    InnerMap* map{nullptr};
 
-    Ptr() : map(nullptr) {}
+    Ptr() = default;
     Ptr(const InnerMap::Ptr& p, InnerMap& m) : InnerMap::Ptr(p), map(&m) {}
   };
 

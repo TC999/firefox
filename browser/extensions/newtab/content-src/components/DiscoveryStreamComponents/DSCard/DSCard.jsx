@@ -6,7 +6,7 @@ import { actionCreators as ac } from "common/Actions.mjs";
 import { DSImage } from "../DSImage/DSImage.jsx";
 import { DSLinkMenu } from "../DSLinkMenu/DSLinkMenu";
 import { ImpressionStats } from "../../DiscoveryStreamImpressionStats/ImpressionStats";
-import { getActiveCardSize } from "../../../lib/utils";
+import { getActiveCardSize, getNovaColumnLayout } from "../../../lib/utils";
 import React from "react";
 import { SafeAnchor } from "../SafeAnchor/SafeAnchor";
 import {
@@ -303,7 +303,6 @@ export class _DSCard extends React.PureComponent {
           value: {
             event_source: "card",
             card_type: this.props.flightId ? "spoc" : "organic",
-            recommendation_id: this.props.recommendation_id,
             tile_id: this.props.id,
             ...(this.props.shim && this.props.shim.click
               ? { shim: this.props.shim.click }
@@ -324,7 +323,8 @@ export class _DSCard extends React.PureComponent {
                     window.innerWidth,
                     this.props.sectionsClassNames,
                     this.props.section,
-                    this.props.flightId
+                    this.props.flightId,
+                    getNovaColumnLayout(this.contextMenuButtonHostElement)
                   ),
                 }),
             ...(this.props.section
@@ -353,7 +353,6 @@ export class _DSCard extends React.PureComponent {
                 ? { shim: this.props.shim.click }
                 : {}),
               type: this.props.flightId ? "spoc" : "organic",
-              recommendation_id: this.props.recommendation_id,
               topic: this.props.topic,
               selected_topics: this.props.selectedTopics,
               ...(this.props.format
@@ -363,7 +362,8 @@ export class _DSCard extends React.PureComponent {
                       window.innerWidth,
                       this.props.sectionsClassNames,
                       this.props.section,
-                      this.props.flightId
+                      this.props.flightId,
+                      getNovaColumnLayout(this.contextMenuButtonHostElement)
                     ),
                   }),
               ...(this.props.section
@@ -537,7 +537,9 @@ export class _DSCard extends React.PureComponent {
   renderSectionCardImages() {
     const { sectionsCardImageSizes } = this.props;
 
-    const columns = ["1", "2", "3", "4"];
+    // Derived from the layout's breakpoints rather than a fixed list, so a
+    // 5-column layout renders a 5th variant.
+    const columns = Object.keys(sectionsCardImageSizes);
 
     return (
       <>
@@ -610,6 +612,8 @@ export class _DSCard extends React.PureComponent {
     } = DiscoveryStream;
 
     const sectionsEnabled = Prefs.values[PREF_SECTIONS_ENABLED];
+    // @nova-cleanup(remove-pref): Delete this read and the two novaEnabled props
+    // passed to DSContextFooter below; that component drops the prop entirely.
     const novaEnabled = Prefs.values["nova.enabled"];
     // We can ignore hideDescriptions if we are in sections.
     const excerpt =
@@ -637,7 +641,6 @@ export class _DSCard extends React.PureComponent {
       : ``;
     const sectionsCardsClassName = [
       mayHaveSectionsCards ? `sections-card-ui` : ``,
-      novaEnabled ? `nova-card-ui` : ``,
       this.props.sectionsClassNames,
     ]
       .filter(Boolean)
@@ -679,16 +682,12 @@ export class _DSCard extends React.PureComponent {
           tabIndex={this.props.tabIndex}
           onFocus={this.props.onFocus}
         >
-          <div className="img-wrapper">
-            {images}
-            {this.props.isDailyBrief && this.props.topic && (
-              <span
-                className="ds-card-daily-brief-topic"
-                data-l10n-id={`newtab-topic-label-${this.props.topic}`}
-              />
-            )}
-          </div>
+          <div className="img-wrapper">{images}</div>
+          {/* Only the carousel passes isActive, and only its visible slide gets
+              true. This stays mounted while the slide is hidden, so a card that
+              is shown more than once still reports a single impression. */}
           <ImpressionStats
+            isActive={this.props.isActive !== false}
             flightId={this.props.flightId}
             rows={[
               {
@@ -697,7 +696,6 @@ export class _DSCard extends React.PureComponent {
                 ...(this.props.shim && this.props.shim.impression
                   ? { shim: this.props.shim.impression }
                   : {}),
-                recommendation_id: this.props.recommendation_id,
                 corpus_item_id: this.props.corpus_item_id,
                 scheduled_corpus_item_id: this.props.scheduled_corpus_item_id,
                 recommended_at: this.props.recommended_at,
@@ -767,7 +765,6 @@ export class _DSCard extends React.PureComponent {
               onMenuUpdate={this.onMenuUpdate}
               onMenuShow={this.onMenuShow}
               isRecentSave={isRecentSave}
-              recommendation_id={this.props.recommendation_id}
               tile_id={this.props.id}
               block_key={this.props.id}
               corpus_item_id={this.props.corpus_item_id}
@@ -784,7 +781,8 @@ export class _DSCard extends React.PureComponent {
                       window.innerWidth,
                       this.props.sectionsClassNames,
                       this.props.section,
-                      this.props.flightId
+                      this.props.flightId,
+                      getNovaColumnLayout(this.contextMenuButtonHostElement)
                     )
               }
               isSectionsCard={this.props.mayHaveSectionsCards}

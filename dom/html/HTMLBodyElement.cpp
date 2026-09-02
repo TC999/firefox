@@ -6,8 +6,6 @@
 
 #include "DocumentInlines.h"
 #include "mozilla/AttributeStyles.h"
-#include "mozilla/EditorBase.h"
-#include "mozilla/HTMLEditor.h"
 #include "mozilla/MappedDeclarationsBuilder.h"
 #include "mozilla/TextEditor.h"
 #include "mozilla/dom/BindContext.h"
@@ -49,9 +47,7 @@ bool HTMLBodyElement::ParseAttribute(int32_t aNamespaceID, nsAtom* aAttribute,
     if (aAttribute == nsGkAtoms::marginwidth ||
         aAttribute == nsGkAtoms::marginheight ||
         aAttribute == nsGkAtoms::topmargin ||
-        aAttribute == nsGkAtoms::bottommargin ||
-        aAttribute == nsGkAtoms::leftmargin ||
-        aAttribute == nsGkAtoms::rightmargin) {
+        aAttribute == nsGkAtoms::leftmargin) {
       return aResult.ParseNonNegativeIntValue(aValue);
     }
   }
@@ -75,9 +71,7 @@ void HTMLBodyElement::MapAttributesIntoRule(
   int32_t bodyMarginWidth = -1;
   int32_t bodyMarginHeight = -1;
   int32_t bodyTopMargin = -1;
-  int32_t bodyBottomMargin = -1;
   int32_t bodyLeftMargin = -1;
-  int32_t bodyRightMargin = -1;
 
   const nsAttrValue* value;
   // if marginwidth/marginheight are set, reflect them as 'margin'
@@ -106,6 +100,8 @@ void HTMLBodyElement::MapAttributesIntoRule(
   }
 
   // topmargin (IE-attribute)
+  // Sets both margin-top and margin-bottom.
+  // See https://github.com/whatwg/html/issues/11879
   if (bodyMarginHeight == -1) {
     value = aBuilder.GetAttr(nsGkAtoms::topmargin);
     if (value && value->Type() == nsAttrValue::eInteger) {
@@ -115,23 +111,14 @@ void HTMLBodyElement::MapAttributesIntoRule(
       }
       aBuilder.SetPixelValueIfUnset(eCSSProperty_margin_top,
                                     (float)bodyTopMargin);
-    }
-  }
-  // bottommargin (IE-attribute)
-
-  if (bodyMarginHeight == -1) {
-    value = aBuilder.GetAttr(nsGkAtoms::bottommargin);
-    if (value && value->Type() == nsAttrValue::eInteger) {
-      bodyBottomMargin = value->GetIntegerValue();
-      if (bodyBottomMargin < 0) {
-        bodyBottomMargin = 0;
-      }
       aBuilder.SetPixelValueIfUnset(eCSSProperty_margin_bottom,
-                                    (float)bodyBottomMargin);
+                                    (float)bodyTopMargin);
     }
   }
 
   // leftmargin (IE-attribute)
+  // Sets both margin-left and margin-right.
+  // See https://github.com/whatwg/html/issues/11879
   if (bodyMarginWidth == -1) {
     value = aBuilder.GetAttr(nsGkAtoms::leftmargin);
     if (value && value->Type() == nsAttrValue::eInteger) {
@@ -141,18 +128,8 @@ void HTMLBodyElement::MapAttributesIntoRule(
       }
       aBuilder.SetPixelValueIfUnset(eCSSProperty_margin_left,
                                     (float)bodyLeftMargin);
-    }
-  }
-  // rightmargin (IE-attribute)
-  if (bodyMarginWidth == -1) {
-    value = aBuilder.GetAttr(nsGkAtoms::rightmargin);
-    if (value && value->Type() == nsAttrValue::eInteger) {
-      bodyRightMargin = value->GetIntegerValue();
-      if (bodyRightMargin < 0) {
-        bodyRightMargin = 0;
-      }
       aBuilder.SetPixelValueIfUnset(eCSSProperty_margin_right,
-                                    (float)bodyRightMargin);
+                                    (float)bodyLeftMargin);
     }
   }
 
@@ -168,8 +145,6 @@ void HTMLBodyElement::MapAttributesIntoRule(
         if (bodyLeftMargin == -1) {
           aBuilder.SetPixelValueIfUnset(eCSSProperty_margin_left,
                                         (float)frameMarginWidth);
-        }
-        if (bodyRightMargin == -1) {
           aBuilder.SetPixelValueIfUnset(eCSSProperty_margin_right,
                                         (float)frameMarginWidth);
         }
@@ -179,8 +154,6 @@ void HTMLBodyElement::MapAttributesIntoRule(
         if (bodyTopMargin == -1) {
           aBuilder.SetPixelValueIfUnset(eCSSProperty_margin_top,
                                         (float)frameMarginHeight);
-        }
-        if (bodyBottomMargin == -1) {
           aBuilder.SetPixelValueIfUnset(eCSSProperty_margin_bottom,
                                         (float)frameMarginHeight);
         }
@@ -234,8 +207,6 @@ HTMLBodyElement::IsAttributeMapped(const nsAtom* aAttribute) const {
       {nsGkAtoms::marginwidth},
       {nsGkAtoms::marginheight},
       {nsGkAtoms::topmargin},
-      {nsGkAtoms::rightmargin},
-      {nsGkAtoms::bottommargin},
       {nsGkAtoms::leftmargin},
       {nullptr},
   };
@@ -247,29 +218,6 @@ HTMLBodyElement::IsAttributeMapped(const nsAtom* aAttribute) const {
   };
 
   return FindAttributeDependence(aAttribute, map);
-}
-
-already_AddRefed<EditorBase> HTMLBodyElement::GetAssociatedEditor() {
-  MOZ_ASSERT(!GetTextEditorInternal());
-
-  // Make sure this is the actual body of the document
-  if (this != OwnerDoc()->GetBodyElement()) {
-    return nullptr;
-  }
-
-  // For designmode, try to get document's editor
-  nsPresContext* presContext = GetPresContext(eForComposedDoc);
-  if (!presContext) {
-    return nullptr;
-  }
-
-  nsCOMPtr<nsIDocShell> docShell = presContext->GetDocShell();
-  if (!docShell) {
-    return nullptr;
-  }
-
-  RefPtr<HTMLEditor> htmlEditor = docShell->GetHTMLEditor();
-  return htmlEditor.forget();
 }
 
 bool HTMLBodyElement::IsEventAttributeNameInternal(nsAtom* aName) {

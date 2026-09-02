@@ -1,5 +1,3 @@
-//* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -8,19 +6,24 @@
 #define VariableLengthPrefixSet_h
 
 #include "nsISupports.h"
-#include "nsIMemoryReporter.h"
 #include "Entries.h"
 #include "nsTArray.h"
 #include "mozilla/MemoryReporting.h"
 #include "mozilla/Mutex.h"
+#include "mozilla/ThreadSafeWeakPtr.h"
 
 class nsUrlClassifierPrefixSet;
 
 namespace mozilla {
 namespace safebrowsing {
 
-class VariableLengthPrefixSet final : public nsIMemoryReporter {
+class VariableLengthPrefixSet final
+    : public SupportsThreadSafeWeakPtr<VariableLengthPrefixSet> {
+  friend class SupportsThreadSafeWeakPtr<VariableLengthPrefixSet>;
+
  public:
+  MOZ_DECLARE_REFCOUNTED_TYPENAME(VariableLengthPrefixSet)
+
   VariableLengthPrefixSet();
 
   nsresult Init(const nsACString& aName);
@@ -43,11 +46,8 @@ class VariableLengthPrefixSet final : public nsIMemoryReporter {
 
   size_t SizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf) const;
 
-  NS_DECL_THREADSAFE_ISUPPORTS
-  NS_DECL_NSIMEMORYREPORTER
-
  private:
-  virtual ~VariableLengthPrefixSet();
+  ~VariableLengthPrefixSet();
 
   static const uint32_t PREFIXSET_VERSION_MAGIC = 1;
 
@@ -64,7 +64,6 @@ class VariableLengthPrefixSet final : public nsIMemoryReporter {
   mozilla::safebrowsing::PrefixStringMap mVLPrefixSet;
 
   nsCString mName;
-  nsCString mMemoryReportPath;
 };
 
 }  // namespace safebrowsing

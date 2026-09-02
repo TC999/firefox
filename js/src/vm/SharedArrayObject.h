@@ -258,15 +258,16 @@ class SharedArrayBufferObject : public ArrayBufferObjectMaybeShared {
  public:
   // RAWBUF_SLOT holds a pointer (as "private" data) to the
   // SharedArrayRawBuffer object, which is manually managed storage.
-  static const uint8_t RAWBUF_SLOT = 0;
+  JS_DEFINE_TYPED_SLOT(0, RAWBUF_SLOT, Private, Undefined);
 
   // LENGTH_SLOT holds the length of the underlying buffer as it was when this
   // object was created.  For JS use cases this is the same length as the
   // buffer, but for Wasm the buffer can grow, and the buffer's length may be
   // greater than the object's length.
-  static const uint8_t LENGTH_SLOT = 1;
+  JS_DEFINE_TYPED_SLOT(1, LENGTH_SLOT, Private, Undefined);
 
-  static_assert(LENGTH_SLOT == ArrayBufferObject::BYTE_LENGTH_SLOT,
+  static_assert(LENGTH_SLOT.index() ==
+                    ArrayBufferObject::BYTE_LENGTH_SLOT.index(),
                 "JIT code assumes the same slot is used for the length");
 
   static const uint8_t RESERVED_SLOTS = 2;
@@ -350,8 +351,8 @@ class SharedArrayBufferObject : public ArrayBufferObjectMaybeShared {
 
  private:
   bool isInitialized() const {
-    bool initialized = getFixedSlot(RAWBUF_SLOT).isDouble();
-    MOZ_ASSERT_IF(initialized, getFixedSlot(LENGTH_SLOT).isDouble());
+    bool initialized = getFixedSlotTyped(RAWBUF_SLOT).isDouble();
+    MOZ_ASSERT_IF(initialized, getFixedSlotTyped(LENGTH_SLOT).isDouble());
     return initialized;
   }
 
@@ -359,7 +360,7 @@ class SharedArrayBufferObject : public ArrayBufferObjectMaybeShared {
   // Returns either the byte length for fixed-length shared arrays. Or the
   // maximum byte length for growable shared arrays.
   size_t byteLengthOrMaxByteLength() const {
-    return size_t(getFixedSlot(LENGTH_SLOT).toPrivate());
+    return size_t(getFixedSlotTyped(LENGTH_SLOT).toPrivate());
   }
 
   size_t byteLength() const {
@@ -386,7 +387,7 @@ class SharedArrayBufferObject : public ArrayBufferObjectMaybeShared {
   }
 
   static constexpr int rawBufferOffset() {
-    return NativeObject::getFixedSlotOffset(RAWBUF_SLOT);
+    return NativeObject::getFixedSlotOffsetTyped(RAWBUF_SLOT);
   }
 
   // WebAssembly support:
@@ -430,7 +431,7 @@ class SharedArrayBufferObject : public ArrayBufferObjectMaybeShared {
  * SharedArrayBuffer object with a fixed length. The JS exposed length is
  * unmodifiable, but the underlying memory can still grow for WebAssembly.
  *
- * Fixed-length SharedArrayBuffers can be used for asm.js and WebAssembly.
+ * Fixed-length SharedArrayBuffers can be used for WebAssembly.
  */
 class FixedLengthSharedArrayBufferObject : public SharedArrayBufferObject {
  public:
@@ -445,7 +446,7 @@ class FixedLengthSharedArrayBufferObject : public SharedArrayBufferObject {
  * SharedArrayBuffer object which can grow in size. The maximum byte length it
  * can grow to is set when creating the object.
  *
- * Growable SharedArrayBuffers can neither be used for asm.js nor WebAssembly.
+ * Growable SharedArrayBuffers cannot be used for WebAssembly.
  */
 class GrowableSharedArrayBufferObject : public SharedArrayBufferObject {
  public:

@@ -50,8 +50,17 @@ class DownloadDeleteMiddleware(
     ) {
         next(action)
         when (action) {
+            is DownloadUIAction.RequestDeleteMultiple -> {
+                handleCompletedDownloadDeleteRequest(store, action.items)
+            }
+
             is DownloadUIAction.RequestDelete -> {
-                handleDeleteRequest(store, action.items)
+                when (action.item.status) {
+                    is FileItem.Status.Completed -> handleCompletedDownloadDeleteRequest(store, setOf(action.item))
+                    else -> {
+                        removeDownload(store, action.item.id, removeFromDisk = true)
+                    }
+                }
             }
 
             is DownloadUIAction.ConfirmMultiSelectDelete -> {
@@ -61,7 +70,7 @@ class DownloadDeleteMiddleware(
                     DownloadUIAction.AddPendingDeletionSet(
                         removeFromDisk = removeFromDisk,
                         items = action.items,
-                    ),
+                    )
                 )
             }
 
@@ -76,7 +85,7 @@ class DownloadDeleteMiddleware(
         }
     }
 
-    private fun handleDeleteRequest(
+    private fun handleCompletedDownloadDeleteRequest(
         store: Store<DownloadUIState, DownloadUIAction>,
         items: Set<FileItem>,
     ) {
@@ -93,7 +102,7 @@ class DownloadDeleteMiddleware(
                     DownloadUIAction.AddPendingDeletionSet(
                         removeFromDisk = removeFromDisk,
                         items = items,
-                    ),
+                    )
                 )
             }
         }
@@ -109,7 +118,9 @@ class DownloadDeleteMiddleware(
         val job = coroutineScope.launch {
             try {
                 delay(delay)
-                itemIds.forEach { removeDownloadUseCase(it, removeFromDisk) }
+                itemIds.forEach {
+                    removeDownload(store, it, removeFromDisk)
+                }
                 store.dispatch(DownloadUIAction.FileItemDeletedSuccessfully)
             } catch (e: CancellationException) {
                 store.dispatch(DownloadUIAction.UndoPendingDeletionSet(itemIds))
@@ -122,6 +133,15 @@ class DownloadDeleteMiddleware(
             }
         }
         lastDeleteOperation = DeleteOperation(job, itemIds)
+    }
+
+    private fun removeDownload(
+        store: Store<DownloadUIState, DownloadUIAction>,
+        id: String,
+        removeFromDisk: Boolean,
+    ) {
+        removeDownloadUseCase(id, removeFromDisk)
+        store.dispatch(DownloadUIAction.CancelDownload(id))
     }
 
     private data class DeleteOperation(

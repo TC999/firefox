@@ -70,6 +70,9 @@ enum DOM4ErrorTypeCodeMap {
 
   /* Push API errors */
   NotAllowedError = 0,
+
+  /* Web Serial API errors https://wicg.github.io/serial/ */
+  ParityError = 0,
 };
 
 #define DOM4_MSG_DEF(name, message, nsresult) \
@@ -116,8 +119,8 @@ nsresult NS_GetNameAndMessageForDOMNSResult(nsresult aNSResult,
   NSResultToNameAndMessage(aNSResult, name, message, &code);
 
   if (!name.IsEmpty() && !message.IsEmpty()) {
-    aName = name;
-    aMessage = message;
+    aName = std::move(name);
+    aMessage = std::move(message);
     if (aCode) {
       *aCode = code;
     }

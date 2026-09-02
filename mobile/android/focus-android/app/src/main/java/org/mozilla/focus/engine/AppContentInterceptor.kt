@@ -14,9 +14,12 @@ import org.mozilla.focus.ext.components
 import org.mozilla.focus.state.AppAction
 import org.mozilla.focus.utils.SupportUtils
 
-class AppContentInterceptor(
-    private val context: Context,
-) : RequestInterceptor {
+/**
+ * [RequestInterceptor] implementation for the application.
+ *
+ * Handles special URIs like `about:crashes` and provides custom error pages.
+ */
+class AppContentInterceptor(private val context: Context) : RequestInterceptor {
     override fun onLoadRequest(
         engineSession: EngineSession,
         uri: String,
@@ -29,22 +32,21 @@ class AppContentInterceptor(
     ): RequestInterceptor.InterceptionResponse? {
         return when (uri) {
             "about:crashes" -> {
-                context.components.appStore.dispatch(
-                    AppAction.OpenCrashList,
-                )
+                context.components.appStore.dispatch(AppAction.OpenCrashList)
                 RequestInterceptor.InterceptionResponse.Url("about:blank")
             }
 
-            else -> context.components.appLinksInterceptor.onLoadRequest(
-                engineSession,
-                uri,
-                lastUri,
-                hasUserGesture,
-                isSameDomain,
-                isRedirect,
-                isDirectNavigation,
-                isSubframeRequest,
-            )
+            else ->
+                context.components.appLinksInterceptor.onLoadRequest(
+                    engineSession,
+                    uri,
+                    lastUri,
+                    hasUserGesture,
+                    isSameDomain,
+                    isRedirect,
+                    isDirectNavigation,
+                    isSubframeRequest,
+                )
         }
     }
 
@@ -53,13 +55,14 @@ class AppContentInterceptor(
         errorType: ErrorType,
         uri: String?,
     ): RequestInterceptor.ErrorResponse {
-        val errorPage = ErrorPages.createUrlEncodedErrorPage(
-            context,
-            errorType,
-            uri,
-            titleOverride = { type -> getErrorPageTitle(context, type) },
-            descriptionOverride = { type -> getErrorPageDescription(context, type) },
-        )
+        val errorPage =
+            ErrorPages.createUrlEncodedErrorPage(
+                context,
+                errorType,
+                uri,
+                titleOverride = { type -> getErrorPageTitle(context, type) },
+                descriptionOverride = { type -> getErrorPageDescription(context, type) },
+            )
         return RequestInterceptor.ErrorResponse(errorPage)
     }
 

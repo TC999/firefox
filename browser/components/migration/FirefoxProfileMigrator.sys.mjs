@@ -1,5 +1,3 @@
-/* -*- indent-tabs-mode: nil; js-indent-level: 2 -*- */
-/* vim: set sw=2 ts=2 sts=2 et */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -21,7 +19,8 @@ ChromeUtils.defineESModuleGetters(lazy, {
   FileUtils: "resource://gre/modules/FileUtils.sys.mjs",
   PlacesBackups: "resource://gre/modules/PlacesBackups.sys.mjs",
   ProfileAge: "resource://gre/modules/ProfileAge.sys.mjs",
-  SessionMigration: "resource:///modules/sessionstore/SessionMigration.sys.mjs",
+  SessionMigration:
+    "moz-src:///browser/components/sessionstore/SessionMigration.sys.mjs",
 });
 
 /**
@@ -243,11 +242,44 @@ export class FirefoxProfileMigrator extends MigratorBase {
       "cookies.sqlite",
       "cookies.sqlite-wal",
     ]);
-    let passwords = getFileResource(types.PASSWORDS, [
-      "logins.json",
-      "key3.db",
-      "key4.db",
-    ]);
+    let passwords = {
+      name: "passwords", // name is used only by tests.
+      type: types.PASSWORDS,
+      migrate: async aCallback => {
+        try {
+          for (let fileName of [
+            "logins.json",
+            "logins.db",
+            "logins.db-wal",
+            "key3.db",
+            "key4.db",
+          ]) {
+            let file = this._getFileObject(sourceProfileDir, fileName);
+            if (file) {
+              file.copyTo(currentProfileDir, "");
+            }
+          }
+
+          // If the source profile had the Rust logins backend active, carry
+          // that state over so the new profile adopts the copied logins.db
+          // directly instead of re-migrating from the (now stale) logins.json
+          // and wiping the copied store.
+          let oldRawPrefs = await readOldPrefs();
+          if (
+            /^user_pref\("signon\.storage\.rust\.active",\s*true\)/m.test(
+              oldRawPrefs
+            )
+          ) {
+            Services.prefs.setBoolPref("signon.storage.rust.active", true);
+            savePrefs();
+          }
+        } catch (e) {
+          aCallback(false);
+          return;
+        }
+        aCallback(true);
+      },
+    };
     let formData = getFileResource(types.FORMDATA, [
       "formhistory.sqlite",
       "autofill-profiles.json",

@@ -8,10 +8,13 @@ const { UrlClassifierTestUtils } = ChromeUtils.importESModule(
 );
 
 const TRACKING_PAGE =
-  // eslint-disable-next-line @microsoft/sdl/no-insecure-url
+  // eslint-disable-next-line sdl/no-insecure-url
   "http://tracking.example.org/browser/browser/base/content/test/protectionsUI/trackingPage.html";
+const TRACKING_PAGE_WITH_META_REFRESH =
+  // eslint-disable-next-line sdl/no-insecure-url
+  "http://tracking.example.org/browser/browser/base/content/test/protectionsUI/trackingPageWithMetaRefresh.html";
 const BENIGN_PAGE =
-  // eslint-disable-next-line @microsoft/sdl/no-insecure-url
+  // eslint-disable-next-line sdl/no-insecure-url
   "http://tracking.example.org/browser/browser/base/content/test/protectionsUI/benignPage.html";
 const NOTIFICATION_VALUE = "reduced-protection-reload";
 
@@ -144,7 +147,7 @@ add_task(async function test_button_disables_tp_and_reloads() {
 
   info("Clicking the reload button on the infobar");
   let reloadPromise = BrowserTestUtils.browserLoaded(tab.linkedBrowser);
-  let button = notification.buttonContainer.querySelector("button");
+  let button = notification.buttonContainer.querySelector("button:last-child");
   button.click();
   await reloadPromise;
 
@@ -186,54 +189,10 @@ add_task(async function test_no_reappear_after_dismiss() {
   // Give async showNotification time to run (or not).
   await TestUtils.waitForTick();
 
-  let notification = getNotification(tab.linkedBrowser);
-  ok(!notification, "Infobar does not reappear for the same host");
-
-  BrowserTestUtils.removeTab(tab);
-});
-
-// After an address-bar navigation (LOAD_CMD_NORMAL), the dismissed-hosts set
-// should be cleared, so the infobar can appear again on the next reload.
-add_task(async function test_dismissal_resets_on_navigation() {
-  let blockingPromise = waitForContentBlockingEvent(pbWindow.gBrowser);
-  let tab = await BrowserTestUtils.openNewForegroundTab(
-    pbWindow.gBrowser,
-    TRACKING_PAGE
+  ok(
+    !getNotification(tab.linkedBrowser),
+    "Infobar does not reappear for the same host"
   );
-  await blockingPromise;
-
-  info("Reload to trigger and dismiss the infobar");
-  let loadedPromise = BrowserTestUtils.browserLoaded(tab.linkedBrowser);
-  pbWindow.gBrowser.reloadWithFlags(Ci.nsIWebNavigation.LOAD_FLAGS_NONE);
-  await loadedPromise;
-
-  await TestUtils.waitForCondition(
-    () => getNotification(tab.linkedBrowser),
-    "Waiting for notification to appear"
-  );
-
-  info("Navigate away via address bar");
-  loadedPromise = BrowserTestUtils.browserLoaded(tab.linkedBrowser);
-  BrowserTestUtils.startLoadingURIString(tab.linkedBrowser, BENIGN_PAGE);
-  await loadedPromise;
-
-  info("Navigate back to the tracking page");
-  blockingPromise = waitForContentBlockingEvent(pbWindow.gBrowser);
-  loadedPromise = BrowserTestUtils.browserLoaded(tab.linkedBrowser);
-  BrowserTestUtils.startLoadingURIString(tab.linkedBrowser, TRACKING_PAGE);
-  await loadedPromise;
-  await blockingPromise;
-
-  info("Reload again - infobar should appear because dismissal was reset");
-  loadedPromise = BrowserTestUtils.browserLoaded(tab.linkedBrowser);
-  pbWindow.gBrowser.reloadWithFlags(Ci.nsIWebNavigation.LOAD_FLAGS_NONE);
-  await loadedPromise;
-
-  let notification = await TestUtils.waitForCondition(
-    () => getNotification(tab.linkedBrowser),
-    "Waiting for notification after dismissal reset"
-  );
-  ok(notification, "Infobar reappears after address-bar navigation reset");
 
   BrowserTestUtils.removeTab(tab);
 });
@@ -264,8 +223,25 @@ add_task(async function test_button_disables_all_tracker_prefs() {
     ],
   ];
 
+  // Content-classifier scoped prefs the button should also clear.
+  const CONTENT_SCOPED_PREFS = [
+    Ci.nsIScopedPrefs.PRIVACY_TRACKINGPROTECTION_CONTENT_ENABLED,
+    Ci.nsIScopedPrefs.PRIVACY_TRACKINGPROTECTION_CONTENT_CRYPTOMINING_ENABLED,
+    Ci.nsIScopedPrefs.PRIVACY_TRACKINGPROTECTION_CONTENT_FINGERPRINTING_ENABLED,
+    Ci.nsIScopedPrefs.PRIVACY_TRACKINGPROTECTION_CONTENT_SOCIALTRACKING_ENABLED,
+    Ci.nsIScopedPrefs.PRIVACY_TRACKINGPROTECTION_CONTENT_EMAILTRACKING_ENABLED,
+  ];
+
+  // Enable the content protection engines pref to test the button clearing.
   await SpecialPowers.pushPrefEnv({
-    set: TRACKER_PREFS.map(([pref]) => [pref, true]),
+    set: [
+      ...TRACKER_PREFS.map(([pref]) => [pref, true]),
+      ["privacy.trackingprotection.content.protection.enabled", true],
+      [
+        "privacy.trackingprotection.content.protection.engines.pbmode",
+        "trackers,cryptominers,fingerprinters,social-trackers,email-trackers",
+      ],
+    ],
   });
 
   let blockingPromise = waitForContentBlockingEvent(pbWindow.gBrowser);
@@ -285,17 +261,35 @@ add_task(async function test_button_disables_all_tracker_prefs() {
   );
   ok(notification, "Infobar appeared");
 
-  let reloadPromise = BrowserTestUtils.browserLoaded(tab.linkedBrowser);
-  notification.buttonContainer.querySelector("button").click();
-  await reloadPromise;
-
   let scopedPrefs = tab.linkedBrowser.browsingContext.scopedPrefs;
   let bc = tab.linkedBrowser.browsingContext;
+
+  // The content scoped prefs have no override yet, so they resolve to their
+  // enabled fallback. This makes the button clearing them to false observable.
+  for (const scopedPref of CONTENT_SCOPED_PREFS) {
+    Assert.equal(
+      scopedPrefs.getBoolPrefScoped(scopedPref, bc),
+      true,
+      `Content scoped pref ${scopedPref} is enabled before button click`
+    );
+  }
+
+  let reloadPromise = BrowserTestUtils.browserLoaded(tab.linkedBrowser);
+  notification.buttonContainer.querySelector("button:last-child").click();
+  await reloadPromise;
+
   for (const [, scopedPref] of TRACKER_PREFS) {
     Assert.equal(
       scopedPrefs.getBoolPrefScoped(scopedPref, bc),
       false,
       `Scoped pref ${scopedPref} is disabled after button click`
+    );
+  }
+  for (const scopedPref of CONTENT_SCOPED_PREFS) {
+    Assert.equal(
+      scopedPrefs.getBoolPrefScoped(scopedPref, bc),
+      false,
+      `Content scoped pref ${scopedPref} is disabled after button click`
     );
   }
 
@@ -347,4 +341,231 @@ add_task(async function test_pref_gating() {
 
   BrowserTestUtils.removeTab(tab);
   await SpecialPowers.popPrefEnv();
+});
+
+// A JS reload (location.reload()) should not trigger the infobar even after
+// the page had blocked trackers, as it lacks user activation.
+add_task(async function test_no_infobar_on_js_reload() {
+  let blockingPromise = waitForContentBlockingEvent(pbWindow.gBrowser);
+  let tab = await BrowserTestUtils.openNewForegroundTab(
+    pbWindow.gBrowser,
+    TRACKING_PAGE
+  );
+  await blockingPromise;
+
+  info("Triggering JS navigation to the same URL");
+  let loadedPromise = BrowserTestUtils.browserLoaded(tab.linkedBrowser);
+  await SpecialPowers.spawn(tab.linkedBrowser, [], () => {
+    content.location.reload();
+  });
+  await loadedPromise;
+
+  await TestUtils.waitForTick();
+
+  let notification = getNotification(tab.linkedBrowser);
+  ok(!notification, "No infobar after a JS navigation to the same URL");
+
+  BrowserTestUtils.removeTab(tab);
+});
+
+// Clicking a link dismisses the infobar.
+add_task(async function test_link_navigation_dismisses_infobar() {
+  let blockingPromise = waitForContentBlockingEvent(pbWindow.gBrowser);
+  let tab = await BrowserTestUtils.openNewForegroundTab(
+    pbWindow.gBrowser,
+    TRACKING_PAGE
+  );
+  await blockingPromise;
+
+  let loadedPromise = BrowserTestUtils.browserLoaded(tab.linkedBrowser);
+  pbWindow.gBrowser.reloadWithFlags(Ci.nsIWebNavigation.LOAD_FLAGS_NONE);
+  await loadedPromise;
+
+  await TestUtils.waitForCondition(
+    () => getNotification(tab.linkedBrowser),
+    "Waiting for notification to appear"
+  );
+
+  info("Clicking the in-page link to navigate away");
+  loadedPromise = BrowserTestUtils.browserLoaded(tab.linkedBrowser);
+  await BrowserTestUtils.synthesizeMouseAtCenter(
+    "#navigate-away",
+    {},
+    tab.linkedBrowser
+  );
+
+  await TestUtils.waitForCondition(
+    () => !getNotification(tab.linkedBrowser),
+    "Waiting for infobar to be dismissed on link click"
+  );
+
+  await loadedPromise;
+  ok(!getNotification(tab.linkedBrowser), "Infobar dismissed after link click");
+
+  BrowserTestUtils.removeTab(tab);
+});
+
+// Meta refresh (LOAD_CMD_NORMAL) should not trigger the infobar even after the
+// page had blocked trackers.
+add_task(async function test_no_infobar_on_meta_refresh() {
+  let blockingPromise = waitForContentBlockingEvent(pbWindow.gBrowser);
+  let tab = await BrowserTestUtils.openNewForegroundTab(
+    pbWindow.gBrowser,
+    TRACKING_PAGE_WITH_META_REFRESH
+  );
+  await blockingPromise;
+
+  info("Waiting for meta refresh to reload the page");
+  let loadedPromise = BrowserTestUtils.browserLoaded(tab.linkedBrowser);
+  await loadedPromise;
+
+  await TestUtils.waitForTick();
+
+  let notification = getNotification(tab.linkedBrowser);
+  ok(!notification, "No infobar after a meta refresh");
+
+  BrowserTestUtils.removeTab(tab);
+});
+
+// Telemetry: banner_shown counter increments when the infobar appears.
+add_task(async function test_telemetry_banner_shown() {
+  Services.fog.testResetFOG();
+
+  let blockingPromise = waitForContentBlockingEvent(pbWindow.gBrowser);
+  let tab = await BrowserTestUtils.openNewForegroundTab(
+    pbWindow.gBrowser,
+    TRACKING_PAGE
+  );
+  await blockingPromise;
+
+  let loadedPromise = BrowserTestUtils.browserLoaded(tab.linkedBrowser);
+  pbWindow.gBrowser.reloadWithFlags(Ci.nsIWebNavigation.LOAD_FLAGS_NONE);
+  await loadedPromise;
+
+  await TestUtils.waitForCondition(
+    () => getNotification(tab.linkedBrowser),
+    "Waiting for notification to appear"
+  );
+
+  Assert.equal(
+    Glean.privacyReducedPageProtection.bannerShown.testGetValue(),
+    1,
+    "banner_shown counter incremented once when the infobar appeared"
+  );
+
+  BrowserTestUtils.removeTab(tab);
+});
+
+// Telemetry: reload_clicked counter increments when the reload button is clicked.
+add_task(async function test_telemetry_reload_clicked() {
+  Services.fog.testResetFOG();
+
+  let blockingPromise = waitForContentBlockingEvent(pbWindow.gBrowser);
+  let tab = await BrowserTestUtils.openNewForegroundTab(
+    pbWindow.gBrowser,
+    TRACKING_PAGE
+  );
+  await blockingPromise;
+
+  let loadedPromise = BrowserTestUtils.browserLoaded(tab.linkedBrowser);
+  pbWindow.gBrowser.reloadWithFlags(Ci.nsIWebNavigation.LOAD_FLAGS_NONE);
+  await loadedPromise;
+
+  let notification = await TestUtils.waitForCondition(
+    () => getNotification(tab.linkedBrowser),
+    "Waiting for notification to appear"
+  );
+
+  let reloadPromise = BrowserTestUtils.browserLoaded(tab.linkedBrowser);
+  notification.buttonContainer.querySelector("button:last-child").click();
+  await reloadPromise;
+
+  Assert.equal(
+    Glean.privacyReducedPageProtection.reloadClicked.testGetValue(),
+    1,
+    "reload_clicked counter incremented once when the reload button was clicked"
+  );
+
+  BrowserTestUtils.removeTab(tab);
+});
+
+// Telemetry: disable_clicked counter increments when "Don't show again" is clicked.
+add_task(async function test_telemetry_disable_clicked() {
+  Services.fog.testResetFOG();
+
+  let blockingPromise = waitForContentBlockingEvent(pbWindow.gBrowser);
+  let tab = await BrowserTestUtils.openNewForegroundTab(
+    pbWindow.gBrowser,
+    TRACKING_PAGE
+  );
+  await blockingPromise;
+
+  let loadedPromise = BrowserTestUtils.browserLoaded(tab.linkedBrowser);
+  pbWindow.gBrowser.reloadWithFlags(Ci.nsIWebNavigation.LOAD_FLAGS_NONE);
+  await loadedPromise;
+
+  let notification = await TestUtils.waitForCondition(
+    () => getNotification(tab.linkedBrowser),
+    "Waiting for notification to appear"
+  );
+
+  notification.buttonContainer.querySelector("button:first-child").click();
+
+  Assert.equal(
+    Glean.privacyReducedPageProtection.disableClicked.testGetValue(),
+    1,
+    "disable_clicked counter incremented once when 'Don't show again' was clicked"
+  );
+
+  BrowserTestUtils.removeTab(tab);
+  // Restore pref value before test ran due to flipped when clicking on disable
+  Services.prefs.setBoolPref(
+    "privacy.reducePageProtection.infobar.enabled.pbmode",
+    true
+  );
+});
+
+// Clicking "Don't show again" sets the feature pref to false.
+add_task(async function test_dont_show_again_disables_pref() {
+  let blockingPromise = waitForContentBlockingEvent(pbWindow.gBrowser);
+  let tab = await BrowserTestUtils.openNewForegroundTab(
+    pbWindow.gBrowser,
+    TRACKING_PAGE
+  );
+  await blockingPromise;
+
+  let loadedPromise = BrowserTestUtils.browserLoaded(tab.linkedBrowser);
+  pbWindow.gBrowser.reloadWithFlags(Ci.nsIWebNavigation.LOAD_FLAGS_NONE);
+  await loadedPromise;
+
+  let notification = await TestUtils.waitForCondition(
+    () => getNotification(tab.linkedBrowser),
+    "Waiting for reduced protection notification"
+  );
+  ok(notification, "Infobar appeared");
+
+  let dontShowAgainButton =
+    notification.buttonContainer.querySelector("button:first-child");
+  ok(dontShowAgainButton, "Don't show again button is present");
+  is(
+    dontShowAgainButton.dataset.l10nId,
+    "reduced-protection-infobar-never-show-button",
+    "First button is 'Don't show again'"
+  );
+
+  dontShowAgainButton.click();
+
+  ok(
+    !Services.prefs.getBoolPref(
+      "privacy.reducePageProtection.infobar.enabled.pbmode"
+    ),
+    "Feature pref is disabled after clicking Don't show again"
+  );
+
+  BrowserTestUtils.removeTab(tab);
+  // Restore pref value before test ran due to flipped when clicking on disable
+  Services.prefs.setBoolPref(
+    "privacy.reducePageProtection.infobar.enabled.pbmode",
+    true
+  );
 });

@@ -1,49 +1,49 @@
-From: Michael Froman <mfroman@mozilla.com>
-Date: Thu, 20 Oct 2022 16:14:00 +0000
-Subject: Bug 1795982 - pt5 - turn off -Wcomma warning for
- third_party/libwebrtc/third_party/abseil-cpp/absl/strings/string_view.h r=ng
+From: Ryan VanderMeulen <rvandermeulen@mozilla.com>
+Date: Sun, 23 Aug 2026 13:55:22 -0400
+Subject: Bug 1935474 - do not demangle rust symbols in abseil-cpp.
 
-abseil-cpp/absl/strings/string_view.h has multiple usages that follow a
-pattern similar to:
-    return ABSL_HARDENING_ASSERT(i < size()), ptr_[i];
-
-This causes Mozilla builds to fail because of -Wcomma warnings.  For
-this file, we'll turn off that warning.
-
-Differential Revision: https://phabricator.services.mozilla.com/D159742
-Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/da4def20e294cf6b5b4ae9ef38ddeb3c8302fe3c
+Building demangle.cc breaks the hazard-linux64-haz/debug analysis build: sixgill
+aborts analyzing the Rust demangler. See bug 2068076.
 ---
- abseil-cpp/absl/strings/string_view.h | 13 +++++++++++++
- 1 file changed, 13 insertions(+)
+ abseil-cpp/absl/debugging/BUILD.gn             | 3 +++
+ abseil-cpp/absl/debugging/internal/demangle.cc | 3 +++
+ 2 files changed, 6 insertions(+)
 
-diff --git a/abseil-cpp/absl/strings/string_view.h b/abseil-cpp/absl/strings/string_view.h
-index b05c036b0cc..7d778cbb034 100644
---- a/abseil-cpp/absl/strings/string_view.h
-+++ b/abseil-cpp/absl/strings/string_view.h
-@@ -67,6 +67,15 @@ ABSL_NAMESPACE_END
- namespace absl {
- ABSL_NAMESPACE_BEGIN
+diff --git a/abseil-cpp/absl/debugging/BUILD.gn b/abseil-cpp/absl/debugging/BUILD.gn
+index 8d621a847ac..39dd35855b7 100644
+--- a/abseil-cpp/absl/debugging/BUILD.gn
++++ b/abseil-cpp/absl/debugging/BUILD.gn
+@@ -184,6 +184,8 @@ absl_test("decode_rust_punycode_test") {
+ }
  
-+// Mozilla added - quiets misused comma warnings resulting from
-+// frequent use of the pattern:
-+//     return ABSL_HARDENING_ASSERT(i < size()), ptr_[i];
-+// TODO: https://bugzilla.mozilla.org/show_bug.cgi?id=1796623
-+#if defined(__clang__)
-+#pragma clang diagnostic push
-+#pragma clang diagnostic ignored "-Wcomma"
+ absl_source_set("demangle_rust") {
++# sixgill aborts analyzing this code; see bug 2068076.
++if (!moz_webrtc_build) {
+   sources = [ "internal/demangle_rust.cc" ]
+   public = [ "internal/demangle_rust.h" ]
+   visibility = [ ":*" ]
+@@ -193,6 +195,7 @@ absl_source_set("demangle_rust") {
+     "//third_party/abseil-cpp/absl/base:core_headers",
+   ]
+ }
++}
+ 
+ absl_test("demangle_rust_test") {
+   sources = [ "internal/demangle_rust_test.cc" ]
+diff --git a/abseil-cpp/absl/debugging/internal/demangle.cc b/abseil-cpp/absl/debugging/internal/demangle.cc
+index e97a8ffbbed..b4703f82a4f 100644
+--- a/abseil-cpp/absl/debugging/internal/demangle.cc
++++ b/abseil-cpp/absl/debugging/internal/demangle.cc
+@@ -2950,9 +2950,12 @@ static bool Overflowed(const State *state) {
+ 
+ // The demangler entry point.
+ bool Demangle(const char* mangled, char* out, size_t out_size) {
++// mozilla - sixgill aborts analyzing this code; see bug 2068076.
++#if 0
+   if (mangled[0] == '_' && mangled[1] == 'R') {
+     return DemangleRustSymbolEncoding(mangled, out, out_size);
+   }
 +#endif
-+
- // absl::string_view
- //
- // A `string_view` provides a lightweight view into the string data provided by
-@@ -737,6 +746,10 @@ ABSL_NAMESPACE_END
  
- #undef ABSL_INTERNAL_STRING_VIEW_MEMCMP
- 
-+#if defined(__clang__)
-+#pragma clang diagnostic pop
-+#endif
-+
- #endif  // ABSL_USES_STD_STRING_VIEW
- 
- namespace absl {
+   State state;
+   InitState(&state, mangled, out, out_size);

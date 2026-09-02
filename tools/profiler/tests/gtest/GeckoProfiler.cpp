@@ -7,6 +7,7 @@
 // happens when calling these functions. They don't do much inspection of
 // profiler internals.
 
+#include "mozilla/ProfileChunkedBuffer.h"
 #include "mozilla/ProfilerPlatformMacros.h"
 #include "mozilla/ProfilerThreadPlatformData.h"
 #include "mozilla/ProfilerThreadRegistration.h"
@@ -23,9 +24,18 @@
 #include "nsIClassOfService.h"
 
 #include "gtest/gtest.h"
+#include "gtest/MozGTestBench.h"
 #include "mozilla/gtest/MozAssertions.h"
 
+#include <condition_variable>
+#include <functional>
+#include <mutex>
 #include <thread>
+#include <vector>
+
+#if defined(__x86_64__) || defined(__i386__)
+#  include <x86intrin.h>  // __rdtscp / _mm_lfence for the histogram bench timing
+#endif
 
 #if defined(GP_OS_windows)
 #  include <processthreadsapi.h>
@@ -40,6 +50,7 @@
 #include "NetworkMarker.h"
 #include "platform.h"
 #include "ProfileBuffer.h"
+#include "ProfiledThreadData.h"
 #include "ProfilerControl.h"
 
 #include "js/Initialization.h"
@@ -288,9 +299,16 @@ static void TestConstUnlockedConstReader(
   (void)aData.PlatformDataCRef();
 #endif
 
+#if defined(MOZ_ASAN)
+  // When ASan is enabled, onStackChar will be located on ASan's fake stack
+  // instead of the thread's native stack, thus interfering with the following
+  // check. See <https://bugzil.la/2040038>.
+  (void)aOnStackObject;
+#else
   EXPECT_GE(aData.StackTop(), aOnStackObject)
       << "StackTop should be at &onStackChar, or higher on some "
          "platforms";
+#endif  // defined(MOZ_ASAN)
 };
 
 static void TestConstUnlockedConstReaderAndAtomicRW(
@@ -1768,7 +1786,7 @@ TEST(GeckoProfiler, EnsureStarted)
     // Call profiler_ensure_started with a different feature set than the one
     // it's currently running with. This is supposed to stop and restart the
     // profiler, thereby discarding the buffer contents.
-    uint32_t differentFeatures = features | ProfilerFeature::CPUUtilization;
+    uint32_t differentFeatures = features | ProfilerFeature::IPCMessages;
     profiler_ensure_started(PROFILER_DEFAULT_ENTRIES, PROFILER_DEFAULT_INTERVAL,
                             differentFeatures, filters, std::size(filters), 0);
 
@@ -1930,17 +1948,17 @@ TEST(GeckoProfiler, GetBacktrace)
     static const int N = 100;
     {
       UniqueProfilerBacktrace u[N];
-      for (int i = 0; i < N; i++) {
-        u[i] = profiler_get_backtrace();
-        ASSERT_TRUE(u[i]);
+      for (auto& i : u) {
+        i = profiler_get_backtrace();
+        ASSERT_TRUE(i);
       }
     }
 
     // These will be destroyed after the profiler stops.
     UniqueProfilerBacktrace u[N];
-    for (int i = 0; i < N; i++) {
-      u[i] = profiler_get_backtrace();
-      ASSERT_TRUE(u[i]);
+    for (auto& i : u) {
+      i = profiler_get_backtrace();
+      ASSERT_TRUE(i);
     }
 
     profiler_stop();
@@ -2513,6 +2531,7 @@ TEST(GeckoProfiler, Markers)
       schema.AddKeyFormat("key with percentage", MS::Format::Percentage);
       schema.AddKeyFormat("key with integer", MS::Format::Integer);
       schema.AddKeyFormat("key with decimal", MS::Format::Decimal);
+      schema.AddKeyFormat("key with hexadecimal", MS::Format::Hexadecimal);
       schema.AddStaticLabelValue("static label", "static value");
       schema.AddKeyFormat("key with unique string", MS::Format::UniqueString);
       schema.AddKeyFormat("key with sanitized string",
@@ -2635,6 +2654,8 @@ TEST(GeckoProfiler, Markers)
       /* bool aIsPrivateBrowsing */ false,
       /* nsIClassOfService* aClassOfService */ classOfService2,
       /* nsresult aRequestStatus */ NS_BINDING_ABORTED,
+      /* const nsACString& aSecPurpose */ ""_ns,
+      /* bool aActivatedFromPrefetch */ false,
       /* const mozilla::net::TimingStruct* aTimings = nullptr */ nullptr,
       /* mozilla::UniquePtr<mozilla::ProfileChunkedBuffer> aSource =
          nullptr */
@@ -2670,6 +2691,8 @@ TEST(GeckoProfiler, Markers)
       /* bool aIsPrivateBrowsing */ false,
       /* nsIClassOfService* aClassOfService */ classOfService3,
       /* nsresult aRequestStatus */ NS_ERROR_UNEXPECTED,
+      /* const nsACString& aSecPurpose */ ""_ns,
+      /* bool aActivatedFromPrefetch */ false,
       /* const mozilla::net::TimingStruct* aTimings = nullptr */ nullptr,
       /* mozilla::UniquePtr<mozilla::ProfileChunkedBuffer> aSource =
          nullptr */
@@ -2704,6 +2727,8 @@ TEST(GeckoProfiler, Markers)
       /* bool aIsPrivateBrowsing */ false,
       /* nsIClassOfService* aClassOfService */ classOfService4,
       /* nsresult aRequestStatus */ NS_ERROR_DOCSHELL_DYING,
+      /* const nsACString& aSecPurpose */ ""_ns,
+      /* bool aActivatedFromPrefetch */ false,
       /* const mozilla::net::TimingStruct* aTimings = nullptr */ nullptr,
       /* mozilla::UniquePtr<mozilla::ProfileChunkedBuffer> aSource =
          nullptr */
@@ -2738,6 +2763,8 @@ TEST(GeckoProfiler, Markers)
       /* bool aIsPrivateBrowsing */ false,
       /* nsIClassOfService* aClassOfService */ classOfService5,
       /* nsresult aRequestStatus */ NS_ERROR_DOM_CORP_FAILED,
+      /* const nsACString& aSecPurpose */ ""_ns,
+      /* bool aActivatedFromPrefetch */ false,
       /* const mozilla::net::TimingStruct* aTimings = nullptr */ nullptr,
       /* mozilla::UniquePtr<mozilla::ProfileChunkedBuffer> aSource =
          nullptr */
@@ -2772,6 +2799,8 @@ TEST(GeckoProfiler, Markers)
       /* bool aIsPrivateBrowsing */ false,
       /* nsIClassOfService* aClassOfService */ classOfService6,
       /* nsresult aRequestStatus */ NS_ERROR_BLOCKED_BY_POLICY,
+      /* const nsACString& aSecPurpose */ ""_ns,
+      /* bool aActivatedFromPrefetch */ false,
       /* const mozilla::net::TimingStruct* aTimings = nullptr */ nullptr,
       /* mozilla::UniquePtr<mozilla::ProfileChunkedBuffer> aSource =
          nullptr */
@@ -2837,6 +2866,47 @@ TEST(GeckoProfiler, Markers)
       /* bool aIsPrivateBrowsing */ false,
       /* nsIClassOfService* aClassOfService */ classOfService8,
       /* nsresult aRequestStatus */ NS_OK);
+
+  // The speculative fetch, and then the navigation that consumes it. These
+  // two fields are mutually exclusive in production, so each gets its own
+  // marker.
+  RefPtr<MockClassOfService> classOfService9 =
+      new MockClassOfService(nsIClassOfService::Leader);
+  profiler_add_network_marker(
+      /* nsIURI* aURI */ uri,
+      /* const nsACString& aRequestMethod */ "GET"_ns,
+      /* int32_t aPriority */ 34,
+      /* uint64_t aChannelId */ 9,
+      /* NetworkLoadType aType */ net::NetworkLoadType::LOAD_START,
+      /* mozilla::TimeStamp aStart */ ts1,
+      /* mozilla::TimeStamp aEnd */ ts2,
+      /* int64_t aCount */ 56,
+      /* nsICacheInfoChannel::CacheDisposition aCacheDisposition */
+      nsICacheInfoChannel::kCacheHit,
+      /* uint64_t aInnerWindowID */ 78,
+      /* bool aIsPrivateBrowsing */ false,
+      /* nsIClassOfService* aClassOfService */ classOfService9,
+      /* nsresult aRequestStatus */ NS_OK,
+      /* const nsACString& aSecPurpose */ "prefetch;anonymous-client-ip"_ns,
+      /* bool aActivatedFromPrefetch */ false);
+
+  profiler_add_network_marker(
+      /* nsIURI* aURI */ uri,
+      /* const nsACString& aRequestMethod */ "GET"_ns,
+      /* int32_t aPriority */ 34,
+      /* uint64_t aChannelId */ 10,
+      /* NetworkLoadType aType */ net::NetworkLoadType::LOAD_START,
+      /* mozilla::TimeStamp aStart */ ts1,
+      /* mozilla::TimeStamp aEnd */ ts2,
+      /* int64_t aCount */ 56,
+      /* nsICacheInfoChannel::CacheDisposition aCacheDisposition */
+      nsICacheInfoChannel::kCacheHit,
+      /* uint64_t aInnerWindowID */ 78,
+      /* bool aIsPrivateBrowsing */ false,
+      /* nsIClassOfService* aClassOfService */ classOfService9,
+      /* nsresult aRequestStatus */ NS_OK,
+      /* const nsACString& aSecPurpose */ ""_ns,
+      /* bool aActivatedFromPrefetch */ true);
 
   EXPECT_TRUE(profiler_add_marker_impl(
       "Text in main thread with stack", geckoprofiler::category::OTHER,
@@ -2939,6 +3009,8 @@ TEST(GeckoProfiler, Markers)
     S_NetworkMarkerPayload_redirect_internal_sts,
     S_NetworkMarkerPayload_private_browsing,
     S_NetworkMarkerPayload_priorityHeader,
+    S_NetworkMarkerPayload_prefetch,
+    S_NetworkMarkerPayload_prefetchActivation,
 
     S_TextWithStack,
     S_TextToMTWithStack,
@@ -3189,7 +3261,11 @@ TEST(GeckoProfiler, Markers)
                   ts2Double = marker[END_TIME].asDouble();
                   state = State(S_FirstMarker + 1);
                   EXPECT_EQ(typeString, "Text");
-                  EXPECT_EQ_JSON(payload["name"], String, "First Marker");
+                  // The Text marker's "name" field is a unique string.
+                  ASSERT_TRUE(payload["name"].isUInt());
+                  GET_JSON(firstMarkerName,
+                           stringTable[payload["name"].asUInt()], String);
+                  EXPECT_EQ(firstMarkerName.asString(), "First Marker");
 
                 } else if (nameString == "Gtest custom marker") {
                   EXPECT_EQ(state, S_CustomMarker);
@@ -3290,6 +3366,8 @@ TEST(GeckoProfiler, Markers)
                   EXPECT_TRUE(payload["isHttpToHttpsRedirect"].isNull());
                   EXPECT_TRUE(payload["redirectId"].isNull());
                   EXPECT_TRUE(payload["contentType"].isNull());
+                  EXPECT_TRUE(payload["secPurpose"].isNull());
+                  EXPECT_TRUE(payload["deliveryType"].isNull());
 
                 } else if (nameString == "Load 2: http://mozilla.org/") {
                   EXPECT_EQ(state, S_NetworkMarkerPayload_stop);
@@ -3458,20 +3536,46 @@ TEST(GeckoProfiler, Markers)
                   EXPECT_FALSE(payload["priorityHeader"].isNull());
                   EXPECT_EQ_JSON(payload["priorityHeader"], String, "u=4, i");
 
+                } else if (nameString == "Load 9: http://mozilla.org/") {
+                  EXPECT_EQ(state, S_NetworkMarkerPayload_prefetch);
+                  state = State(S_NetworkMarkerPayload_prefetch + 1);
+                  EXPECT_EQ(typeString, "Network");
+                  EXPECT_EQ_JSON(payload["id"], Int64, 9);
+                  EXPECT_EQ_JSON(payload["secPurpose"], String,
+                                 "prefetch;anonymous-client-ip");
+                  EXPECT_TRUE(payload["deliveryType"].isNull());
+
+                } else if (nameString == "Load 10: http://mozilla.org/") {
+                  EXPECT_EQ(state, S_NetworkMarkerPayload_prefetchActivation);
+                  state = State(S_NetworkMarkerPayload_prefetchActivation + 1);
+                  EXPECT_EQ(typeString, "Network");
+                  EXPECT_EQ_JSON(payload["id"], Int64, 10);
+                  EXPECT_TRUE(payload["secPurpose"].isNull());
+                  EXPECT_EQ_JSON(payload["deliveryType"], String,
+                                 "navigational-prefetch");
+
                 } else if (nameString == "Text in main thread with stack") {
                   EXPECT_EQ(state, S_TextWithStack);
                   state = State(S_TextWithStack + 1);
                   EXPECT_EQ(typeString, "Text");
                   EXPECT_FALSE(payload["stack"].isNull());
                   EXPECT_TIMING_INTERVAL_AT(ts1Double, ts2Double);
-                  EXPECT_EQ_JSON(payload["name"], String, "");
+                  // The Text marker's "name" field is a unique string.
+                  ASSERT_TRUE(payload["name"].isUInt());
+                  GET_JSON(textName, stringTable[payload["name"].asUInt()],
+                           String);
+                  EXPECT_EQ(textName.asString(), "");
 
                 } else if (nameString == "Text from main thread with stack") {
                   EXPECT_EQ(state, S_TextToMTWithStack);
                   state = State(S_TextToMTWithStack + 1);
                   EXPECT_EQ(typeString, "Text");
                   EXPECT_FALSE(payload["stack"].isNull());
-                  EXPECT_EQ_JSON(payload["name"], String, "");
+                  // The Text marker's "name" field is a unique string.
+                  ASSERT_TRUE(payload["name"].isUInt());
+                  GET_JSON(textName, stringTable[payload["name"].asUInt()],
+                           String);
+                  EXPECT_EQ(textName.asString(), "");
 
                 } else if (nameString ==
                            "Text in registered thread with stack") {
@@ -3484,7 +3588,11 @@ TEST(GeckoProfiler, Markers)
                   state = State(S_RegThread_TextToMTWithStack + 1);
                   EXPECT_EQ(typeString, "Text");
                   EXPECT_FALSE(payload["stack"].isNull());
-                  EXPECT_EQ_JSON(payload["name"], String, "");
+                  // The Text marker's "name" field is a unique string.
+                  ASSERT_TRUE(payload["name"].isUInt());
+                  GET_JSON(textName, stringTable[payload["name"].asUInt()],
+                           String);
+                  EXPECT_EQ(textName.asString(), "");
 
                 } else if (nameString ==
                            "Text in unregistered thread with stack") {
@@ -3497,7 +3605,11 @@ TEST(GeckoProfiler, Markers)
                   state = State(S_UnregThread_TextToMTWithStack + 1);
                   EXPECT_EQ(typeString, "Text");
                   EXPECT_TRUE(payload["stack"].isNull());
-                  EXPECT_EQ_JSON(payload["name"], String, "");
+                  // The Text marker's "name" field is a unique string.
+                  ASSERT_TRUE(payload["name"].isUInt());
+                  GET_JSON(textName, stringTable[payload["name"].asUInt()],
+                           String);
+                  EXPECT_EQ(textName.asString(), "");
                 }
               }  // marker with payload
             }  // for (marker : data)
@@ -3540,7 +3652,7 @@ TEST(GeckoProfiler, Markers)
             ASSERT_TRUE(data[0u].isObject());
             EXPECT_EQ_JSON(data[0u]["key"], String, "name");
             EXPECT_EQ_JSON(data[0u]["label"], String, "Details");
-            EXPECT_EQ_JSON(data[0u]["format"], String, "string");
+            EXPECT_EQ_JSON(data[0u]["format"], String, "unique-string");
 
           } else if (nameString == "NoPayloadUserData") {
             // TODO: Remove this when bug 1646714 lands.
@@ -3662,7 +3774,7 @@ TEST(GeckoProfiler, Markers)
             EXPECT_EQ_JSON(schema["tableLabel"], String, "table label");
             EXPECT_EQ_JSON(schema["colorField"], String, "color");
 
-            ASSERT_EQ(data.size(), 19u);
+            ASSERT_EQ(data.size(), 20u);
 
             ASSERT_TRUE(data[0u].isObject());
             EXPECT_EQ_JSON(data[0u]["key"], String, "key with url");
@@ -3730,37 +3842,42 @@ TEST(GeckoProfiler, Markers)
             EXPECT_EQ_JSON(data[12u]["format"], String, "decimal");
 
             ASSERT_TRUE(data[13u].isObject());
-            EXPECT_EQ_JSON(data[13u]["label"], String, "static label");
-            EXPECT_EQ_JSON(data[13u]["value"], String, "static value");
+            EXPECT_EQ_JSON(data[13u]["key"], String, "key with hexadecimal");
+            EXPECT_TRUE(data[13u]["label"].isNull());
+            EXPECT_EQ_JSON(data[13u]["format"], String, "hexadecimal");
 
             ASSERT_TRUE(data[14u].isObject());
-            EXPECT_EQ_JSON(data[14u]["key"], String, "key with unique string");
-            EXPECT_TRUE(data[14u]["label"].isNull());
-            EXPECT_EQ_JSON(data[14u]["format"], String, "unique-string");
+            EXPECT_EQ_JSON(data[14u]["label"], String, "static label");
+            EXPECT_EQ_JSON(data[14u]["value"], String, "static value");
 
             ASSERT_TRUE(data[15u].isObject());
-            EXPECT_EQ_JSON(data[15u]["key"], String,
-                           "key with sanitized string");
+            EXPECT_EQ_JSON(data[15u]["key"], String, "key with unique string");
             EXPECT_TRUE(data[15u]["label"].isNull());
-            EXPECT_EQ_JSON(data[15u]["format"], String, "sanitized-string");
+            EXPECT_EQ_JSON(data[15u]["format"], String, "unique-string");
 
             ASSERT_TRUE(data[16u].isObject());
-            EXPECT_EQ_JSON(data[16u]["key"], String, "key with label hidden");
-            EXPECT_EQ_JSON(data[16u]["label"], String, "label");
-            EXPECT_EQ_JSON(data[16u]["format"], String, "string");
-            EXPECT_EQ_JSON(data[16u]["hidden"], Bool, true);
+            EXPECT_EQ_JSON(data[16u]["key"], String,
+                           "key with sanitized string");
+            EXPECT_TRUE(data[16u]["label"].isNull());
+            EXPECT_EQ_JSON(data[16u]["format"], String, "sanitized-string");
 
             ASSERT_TRUE(data[17u].isObject());
-            EXPECT_EQ_JSON(data[17u]["key"], String, "key hidden");
-            EXPECT_TRUE(data[17u]["label"].isNull());
+            EXPECT_EQ_JSON(data[17u]["key"], String, "key with label hidden");
+            EXPECT_EQ_JSON(data[17u]["label"], String, "label");
             EXPECT_EQ_JSON(data[17u]["format"], String, "string");
             EXPECT_EQ_JSON(data[17u]["hidden"], Bool, true);
 
             ASSERT_TRUE(data[18u].isObject());
-            EXPECT_EQ_JSON(data[18u]["key"], String, "color");
+            EXPECT_EQ_JSON(data[18u]["key"], String, "key hidden");
             EXPECT_TRUE(data[18u]["label"].isNull());
             EXPECT_EQ_JSON(data[18u]["format"], String, "string");
             EXPECT_EQ_JSON(data[18u]["hidden"], Bool, true);
+
+            ASSERT_TRUE(data[19u].isObject());
+            EXPECT_EQ_JSON(data[19u]["key"], String, "color");
+            EXPECT_TRUE(data[19u]["label"].isNull());
+            EXPECT_EQ_JSON(data[19u]["format"], String, "string");
+            EXPECT_EQ_JSON(data[19u]["hidden"], Bool, true);
 
           } else if (nameString == "markers-gtest-base-unique-string") {
             EXPECT_EQ(display.size(), 2u);
@@ -4265,7 +4382,7 @@ void DoSuspendAndSample(ProfilerThreadId aTidToSample,
       "GeckoProfiler_SuspendAndSample_Test::TestBody"_ns, aSamplingThread,
       NS_NewRunnableFunction(
           "GeckoProfiler_SuspendAndSample_Test::TestBody", [&]() {
-            uint32_t features = ProfilerFeature::CPUUtilization;
+            uint32_t features = ProfilerFeature::StackWalk;
             GTestStackCollector collector;
             profiler_suspend_and_sample_thread(aTidToSample, features,
                                                collector,
@@ -4372,7 +4489,7 @@ TEST(GeckoProfiler, PostSamplingCallback)
   {
     // No stack sampling -> This label should not appear.
     AUTO_PROFILER_LABEL("PostSamplingCallback completed (no stacks)", OTHER);
-    ASSERT_EQ(WaitForSamplingState(), SamplingState::NoStackSamplingCompleted);
+    ASSERT_EQ(WaitForSamplingState(), SamplingState::SamplingCompleted);
   }
   UniquePtr<char[]> profileNoStacks = profiler_get_profile();
   JSONOutputCheck(profileNoStacks.get(), [](const Json::Value& aRoot) {});
@@ -4473,7 +4590,7 @@ TEST(GeckoProfiler, ProfilingStateCallback)
                  ProfilerFeature::StackWalk | ProfilerFeature::NoStackSampling,
                  filters, std::size(filters), 0);
   CheckStatesOnlyContains(ProfilingState::Started, 1);
-  ASSERT_EQ(WaitForSamplingState(), SamplingState::NoStackSamplingCompleted);
+  ASSERT_EQ(WaitForSamplingState(), SamplingState::SamplingCompleted);
   UniquePtr<char[]> profileNoStacks = profiler_get_profile();
   CheckStatesOnlyContains(ProfilingState::GeneratingProfile, 1);
   JSONOutputCheck(profileNoStacks.get(), [](const Json::Value& aRoot) {});
@@ -4605,7 +4722,6 @@ TEST(GeckoProfiler, FeatureCombinations)
                             ProfilerFeature::StackWalk,
                             ProfilerFeature::NoStackSampling,
                             ProfilerFeature::NativeAllocations,
-                            ProfilerFeature::CPUUtilization,
                             ProfilerFeature::CPUAllThreads,
                             ProfilerFeature::SamplingAllThreads,
                             ProfilerFeature::MarkersAllThreads,
@@ -4624,12 +4740,7 @@ TEST(GeckoProfiler, FeatureCombinations)
     ASSERT_TRUE(profiler_is_active());
 
     // Write some Gecko Profiler samples.
-    EXPECT_EQ(WaitForSamplingState(),
-              (((features & ProfilerFeature::NoStackSampling) != 0) &&
-               ((features & (ProfilerFeature::CPUUtilization |
-                             ProfilerFeature::CPUAllThreads)) == 0))
-                  ? SamplingState::NoStackSamplingCompleted
-                  : SamplingState::SamplingCompleted);
+    EXPECT_EQ(WaitForSamplingState(), SamplingState::SamplingCompleted);
 
     // Check that the profile looks valid. Note that we don't test feature-
     // specific changes.
@@ -4762,7 +4873,7 @@ TEST(GeckoProfiler, CPUUsage)
 
     profiler_start(
         PROFILER_DEFAULT_ENTRIES, PROFILER_DEFAULT_INTERVAL,
-        ProfilerFeature::StackWalk | ProfilerFeature::CPUUtilization |
+        ProfilerFeature::StackWalk |
             (testWithNoStackSampling ? ProfilerFeature::NoStackSampling : 0),
         filters, std::size(filters), 0);
     // Grab a few samples, each with a different label on the stack.
@@ -4802,18 +4913,7 @@ TEST(GeckoProfiler, CPUUsage)
 
     JSONOutputCheck(profile.get(), [testWithNoStackSampling](
                                        const Json::Value& aRoot) {
-      // Check that the "cpu" feature is present.
       GET_JSON(meta, aRoot["meta"], Object);
-      {
-        GET_JSON(configuration, meta["configuration"], Object);
-        {
-          GET_JSON(features, configuration["features"], Array);
-          {
-            EXPECT_JSON_ARRAY_CONTAINS(features, String, "cpu");
-          }
-        }
-      }
-
       {
         GET_JSON(sampleUnits, meta["sampleUnits"], Object);
         {
@@ -5361,3 +5461,586 @@ TEST(GeckoProfiler, NoMarkerStacks)
 
   ASSERT_TRUE(!profiler_get_profile());
 }
+
+TEST(GeckoProfiler, CaptureBacktraceIsRightSized)
+{
+  const char* filters[] = {"GeckoMain"};
+
+  profiler_start(PROFILER_DEFAULT_ENTRIES, PROFILER_DEFAULT_INTERVAL,
+                 ProfilerFeature::StackWalk, filters, std::size(filters), 0);
+
+  mozilla::UniquePtr<mozilla::ProfileChunkedBuffer> backtrace =
+      profiler_capture_backtrace();
+  ASSERT_TRUE(!!backtrace);
+
+  // Stacks are captured into a buffer that can hold the deepest possible stack,
+  // but callers may keep a captured backtrace alive for a long time, so it
+  // should only retain as much memory as the stack actually needed.
+  mozilla::Maybe<size_t> bufferLength = backtrace->BufferLength();
+  ASSERT_TRUE(bufferLength.isSome());
+  EXPECT_LT(
+      *bufferLength,
+      size_t(mozilla::ProfileBufferChunkManager::scExpectedMaximumStackSize));
+
+  // The backtrace should still contain the whole captured stack.
+  mozilla::ProfileChunkedBuffer::State state = backtrace->GetState();
+  EXPECT_GT(state.mRangeEnd, state.mRangeStart);
+  EXPECT_EQ(state.mFailedPutBytes, 0u);
+
+  profiler_stop();
+}
+
+// Microbenchmarks measuring marker insertion speed while the profiler is
+// active, for single- and multi-threaded cases with tiny and large markers.
+namespace {
+
+// Markers per benchmark iteration, split evenly across threads in the
+// multi-threaded benchmarks.
+static constexpr uint32_t kMarkerInsertionCount = 100000;
+
+static constexpr uint32_t kMarkerInsertionThreads = 4;
+
+static_assert(kMarkerInsertionCount % kMarkerInsertionThreads == 0,
+              "marker count must split evenly across threads");
+
+static const nsCString& LargeMarkerText() {
+  static const nsCString sText = []() {
+    nsCString s;
+    s.SetLength(4096);
+    memset(s.BeginWriting(), 'x', s.Length());
+    return s;
+  }();
+  return sText;
+}
+
+void InsertTinyMarkers(uint32_t aCount) {
+  for (uint32_t i = 0; i < aCount; ++i) {
+    PROFILER_MARKER_UNTYPED("M", OTHER, {});
+  }
+}
+
+void InsertLargeMarkers(uint32_t aCount) {
+  const nsCString& text = LargeMarkerText();
+  for (uint32_t i = 0; i < aCount; ++i) {
+    PROFILER_MARKER_TEXT("M", OTHER, {}, text);
+  }
+}
+
+struct BenchFieldsMarker : public mozilla::BaseMarkerType<BenchFieldsMarker> {
+  static constexpr const char* Name = "bench-fields";
+
+  using MS = mozilla::MarkerSchema;
+  static constexpr MS::PayloadField PayloadFields[] = {
+      {"int", MS::InputType::Int32, "Int", MS::Format::Integer},
+      {"double", MS::InputType::Double, "Double", MS::Format::Decimal},
+      {"text", MS::InputType::CString, "Text", MS::Format::String}};
+
+  static constexpr MS::Location Locations[] = {MS::Location::MarkerChart,
+                                               MS::Location::MarkerTable};
+};
+
+// Markers carrying a few typed fields and an on-demand stack capture, which is
+// the most expensive common insertion path (it walks the caller's stack).
+void InsertFieldsAndStackMarkers(uint32_t aCount) {
+  for (uint32_t i = 0; i < aCount; ++i) {
+    profiler_add_marker("M", geckoprofiler::category::OTHER,
+                        MarkerStack::Capture(), BenchFieldsMarker{}, 42, 43.0,
+                        "bench");
+  }
+}
+
+// Insert tiny markers until the core buffer has started recycling chunks,
+// leaving it full. Used (untimed) by the recycle-only benchmark fixture so that
+// every subsequently-timed insertion exercises the steady-state recycle path.
+void FillBufferUntilRecycling() {
+  ProfileChunkedBuffer& coreBuffer = profiler_get_core_buffer();
+  while (coreBuffer.GetState().mClearedBlockCount == 0) {
+    InsertTinyMarkers(10000);
+  }
+}
+
+// Worker threads spawned and registered with the profiler once, then reused
+// across timed iterations so that thread startup and registration stay out of
+// the measured region.
+class MarkerBenchThreadPool {
+ public:
+  explicit MarkerBenchThreadPool(uint32_t aThreadCount) {
+    mThreads.reserve(aThreadCount);
+    for (uint32_t threadIdx = 0; threadIdx < aThreadCount; ++threadIdx) {
+      mThreads.emplace_back([this, threadIdx]() { WorkerLoop(threadIdx); });
+    }
+  }
+
+  uint32_t ThreadCount() const { return mThreads.size(); }
+
+  ~MarkerBenchThreadPool() {
+    {
+      std::lock_guard<std::mutex> lock(mMutex);
+      mShutdown = true;
+      ++mGeneration;
+    }
+    mWakeup.notify_all();
+    for (auto& thread : mThreads) {
+      thread.join();
+    }
+  }
+
+  // Runs aTask on every worker thread in parallel, returning once all finish.
+  // aTask receives the worker's index in [0, thread count) and the per-thread
+  // share of aTotalCount.
+  void RunOnAll(uint32_t aTotalCount,
+                std::function<void(uint32_t, uint32_t)> aTask) {
+    {
+      std::lock_guard<std::mutex> lock(mMutex);
+      mTask = std::move(aTask);
+      mPerThread = aTotalCount / static_cast<uint32_t>(mThreads.size());
+      mRemaining = static_cast<uint32_t>(mThreads.size());
+      ++mGeneration;
+    }
+    mWakeup.notify_all();
+    std::unique_lock<std::mutex> lock(mMutex);
+    mDone.wait(lock, [this]() { return mRemaining == 0; });
+  }
+
+  // Convenience overload for tasks that only need the per-thread count.
+  void RunOnAll(uint32_t aTotalCount, void (*aTask)(uint32_t)) {
+    RunOnAll(aTotalCount,
+             [aTask](uint32_t, uint32_t aPerThread) { aTask(aPerThread); });
+  }
+
+ private:
+  void WorkerLoop(uint32_t aThreadIdx) {
+    AUTO_PROFILER_REGISTER_THREAD("MarkerBench");
+    uint64_t lastGeneration = 0;
+    while (true) {
+      std::function<void(uint32_t, uint32_t)> task;
+      uint32_t perThread;
+      {
+        std::unique_lock<std::mutex> lock(mMutex);
+        mWakeup.wait(lock, [&]() { return mGeneration != lastGeneration; });
+        lastGeneration = mGeneration;
+        if (mShutdown) {
+          return;
+        }
+        task = mTask;
+        perThread = mPerThread;
+      }
+      task(aThreadIdx, perThread);
+      {
+        std::lock_guard<std::mutex> lock(mMutex);
+        --mRemaining;
+      }
+      mDone.notify_one();
+    }
+  }
+
+  std::vector<std::thread> mThreads;
+  std::mutex mMutex;
+  std::condition_variable mWakeup;
+  std::condition_variable mDone;
+  // The following are all guarded by mMutex.
+  std::function<void(uint32_t, uint32_t)> mTask;
+  uint32_t mPerThread = 0;
+  // Bumped per request so workers distinguish a new request from a spurious
+  // wakeup without losing notifications.
+  uint64_t mGeneration = 0;
+  uint32_t mRemaining = 0;
+  bool mShutdown = false;
+};
+
+// --- Histogram-timing variant ----------------------------------------------
+// The MOZ_GTEST_BENCH cases above report the median *total* time of a 100k-
+// insertion run (a single aggregate number). These instead time each
+// *individual* insertion and accumulate it into a BPF/bcc-style power-of-two
+// (log2) latency histogram, exposing the latency *distribution* and tail (a
+// rare expensive marker insertion is invisible in a mean). The log2 buckets
+// make the tail mass visible at a glance and cost O(1) memory.
+//
+// Timing uses the x86 TSC (rdtscp), not TimeStamp::Now(): a tiny insert is
+// ~tens of ns, where clock_gettime's ~20-30 ns call overhead would swamp the
+// fast-path buckets. The TSC has ~1-cycle resolution; on a pinned,
+// performance-governor machine the TSC is invariant so cycles<->time is stable.
+// We subtract the measured empty-pair overhead and label buckets in ns via a
+// one-time calibration against TimeStamp. (Non-x86 falls back to ns from
+// TimeStamp, coarse but only used off such a machine.)
+
+#if defined(__x86_64__) || defined(__i386__)
+static inline uint64_t BenchTicks() {
+  unsigned aux;
+  // rdtscp waits for prior instructions to retire before reading the TSC; the
+  // following lfence keeps later instructions from reading it early.
+  uint64_t t = __rdtscp(&aux);
+  _mm_lfence();
+  return t;
+}
+static double BenchTicksPerNs() {
+  static const double sTpns = []() {
+    TimeStamp t0 = TimeStamp::Now();
+    uint64_t c0 = BenchTicks();
+    while ((TimeStamp::Now() - t0).ToMilliseconds() < 50.0) {
+    }
+    uint64_t c1 = BenchTicks();
+    double ns = (TimeStamp::Now() - t0).ToMicroseconds() * 1000.0;
+    return double(c1 - c0) / ns;
+  }();
+  return sTpns;
+}
+#else
+static inline uint64_t BenchTicks() {
+  return uint64_t(
+      (TimeStamp::Now() - TimeStamp::ProcessCreation()).ToMicroseconds() *
+      1000.0);
+}
+static double BenchTicksPerNs() { return 1.0; }
+#endif
+
+// Median cost (ticks) of an empty BenchTicks() pair — the measurement floor,
+// subtracted from each sample so the fast-path buckets reflect the real op.
+static uint64_t BenchOverheadTicks() {
+  static const uint64_t sOv = []() {
+    std::vector<uint64_t> e;
+    e.reserve(4096);
+    for (int i = 0; i < 4096; ++i) {
+      uint64_t a = BenchTicks();
+      uint64_t b = BenchTicks();
+      e.push_back(b - a);
+    }
+    std::sort(e.begin(), e.end());
+    return e[e.size() / 2];
+  }();
+  return sOv;
+}
+
+// A BPF-style log2 histogram of per-op latencies (in TSC ticks).
+struct LatencyHist {
+  static constexpr int kSlots = 64;
+  uint64_t mBuckets[kSlots] = {0};
+  uint64_t mMaxTicks = 0;
+
+  uint64_t Count() const {
+    uint64_t count = 0;
+    for (unsigned long long mBucket : mBuckets) {
+      count += mBucket;
+    }
+    return count;
+  }
+
+  void Add(uint64_t aTicks) {
+    // Slot s >= 1 holds [2^s, 2^(s+1)); slot 0 catches {0, 1} as [0, 2) (and
+    // avoids __builtin_clzll(0), which is undefined).
+    const int slot = aTicks < 2 ? 0 : 63 - __builtin_clzll(aTicks);
+    ++mBuckets[slot];
+    if (aTicks > mMaxTicks) {
+      mMaxTicks = aTicks;
+    }
+  }
+  void Merge(const LatencyHist& aOther) {
+    for (int i = 0; i < kSlots; ++i) {
+      mBuckets[i] += aOther.mBuckets[i];
+    }
+    if (aOther.mMaxTicks > mMaxTicks) {
+      mMaxTicks = aOther.mMaxTicks;
+    }
+  }
+};
+
+template <typename Op>
+void TimedInsert(uint32_t aCount, LatencyHist& aHist, Op aOp) {
+  const uint64_t ov = BenchOverheadTicks();
+  // Accumulate into a stack-local histogram so the hot loop never writes to
+  // memory another worker might share a cache line with, then copy the result
+  // into the caller's histogram once at the end.
+  LatencyHist local;
+  for (uint32_t i = 0; i < aCount; ++i) {
+    const uint64_t c0 = BenchTicks();
+    aOp();
+    const uint64_t c1 = BenchTicks();
+    const uint64_t d = c1 - c0;
+    local.Add(d > ov ? d - ov : 0);
+  }
+  aHist = local;
+}
+
+template <typename Op>
+void TimedInsertMultiThread(MarkerBenchThreadPool& aPool, uint32_t aTotalCount,
+                            LatencyHist& aHist, Op aOp) {
+  std::vector<LatencyHist> perThread(aPool.ThreadCount());
+  aPool.RunOnAll(aTotalCount,
+                 [&perThread, &aOp](uint32_t aThreadIdx, uint32_t aPerThread) {
+                   TimedInsert(aPerThread, perThread[aThreadIdx], aOp);
+                 });
+  for (const auto& h : perThread) {
+    aHist.Merge(h);
+  }
+}
+
+void ReportHistogram(const char* aName, const LatencyHist& aHist) {
+  const uint64_t count = aHist.Count();
+  if (count == 0) {
+    return;
+  }
+  const double tpns = BenchTicksPerNs();
+  auto ticksToNs = [&](double aTicks) { return aTicks / tpns; };
+
+  // bcc-style log2 histogram: one row per occupied bucket [2^s, 2^(s+1)) ticks
+  // (slot 0 is [0, 2)), labelled in ns, with a bar scaled to the busiest
+  // bucket.
+  auto slotLoTicks = [](int aSlot) {
+    return aSlot == 0 ? 0.0 : double(uint64_t(1) << aSlot);
+  };
+  int lo = LatencyHist::kSlots, hi = -1;
+  uint64_t peak = 0;
+  for (int s = 0; s < LatencyHist::kSlots; ++s) {
+    if (aHist.mBuckets[s]) {
+      lo = std::min(lo, s);
+      hi = std::max(hi, s);
+      peak = std::max(peak, aHist.mBuckets[s]);
+    }
+  }
+  // Bucket-derived approximate percentiles (bucket-edge resolution).
+  auto pctNs = [&](double p) {
+    uint64_t target = uint64_t(p * double(count));
+    uint64_t cum = 0;
+    for (int s = 0; s < LatencyHist::kSlots; ++s) {
+      cum += aHist.mBuckets[s];
+      if (cum >= target) {
+        return ticksToNs(slotLoTicks(s));  // bucket lower edge
+      }
+    }
+    return ticksToNs(double(aHist.mMaxTicks));
+  };
+
+  printf(
+      "HISTO %-26s n=%llu overhead=%llutk ~p50=%.0f ~p99=%.0f ~p99.9=%.0f "
+      "max=%.0f (ns/insertion)\n",
+      aName, (unsigned long long)count,
+      (unsigned long long)BenchOverheadTicks(), pctNs(0.50), pctNs(0.99),
+      pctNs(0.999), ticksToNs(double(aHist.mMaxTicks)));
+  for (int s = lo; s <= hi; ++s) {
+    const uint64_t c = aHist.mBuckets[s];
+    const double loNs = ticksToNs(slotLoTicks(s));
+    const double hiNs = ticksToNs(double(uint64_t(1) << (s + 1)));
+    char bar[41];
+    int n = int(40.0 * double(c) / double(peak));
+    for (int i = 0; i < n; ++i) {
+      bar[i] = '@';
+    }
+    bar[n] = '\0';
+    printf("HISTO   %-26s [%9.0f, %9.0f) ns : %8llu |%s\n", aName, loNs, hiNs,
+           (unsigned long long)c, bar);
+  }
+  fflush(stdout);
+}
+
+// Starts the profiler and spawns the thread pool in SetUp()/TearDown(), which
+// run once per benchmark, keeping that setup out of the timed iterations.
+class GeckoProfilerMarkerBench : public ::testing::Test {
+ protected:
+  // Buffer capacity in 8-byte entries. Subclasses override it to size the
+  // buffer for their recycling scenario.
+  virtual PowerOfTwo32 BufferCapacity() const { return PowerOfTwo32(1u << 24); }
+
+  // Hook run (untimed) after the profiler has started, e.g. to pre-fill the
+  // buffer before the timed insertions.
+  virtual void PrepareBuffer() {}
+
+  void SetUp() override {
+    // Make sure first call to LargeMarkerText is not part of the measurement.
+    (void)LargeMarkerText();
+    uint32_t features =
+        ProfilerFeature::NoStackSampling | ProfilerFeature::MarkersAllThreads;
+    profiler_start(BufferCapacity(), PROFILER_DEFAULT_INTERVAL, features,
+                   nullptr, 0, 0);
+    mThreadPool = MakeUnique<MarkerBenchThreadPool>(kMarkerInsertionThreads);
+    PrepareBuffer();
+  }
+
+  void TearDown() override {
+    mThreadPool = nullptr;
+    profiler_stop();
+  }
+
+  UniquePtr<MarkerBenchThreadPool> mThreadPool;
+};
+
+// Variant whose buffer is large enough to hold an entire run without recycling
+// a chunk, isolating the cost of pure insertion (including the amortized cost
+// of allocating chunks as the buffer fills). Used by single-run Histo cases; we
+// verify in TearDown that no chunk was recycled.
+class GeckoProfilerMarkerBenchNoRecycle : public GeckoProfilerMarkerBench {
+ protected:
+  // 1 GiB ceiling. Chunks are allocated on demand, so only the bytes actually
+  // inserted (well under this) are committed.
+  PowerOfTwo32 BufferCapacity() const override {
+    return PowerOfTwo32(1u << 27);
+  }
+
+  void TearDown() override {
+    EXPECT_EQ(profiler_get_core_buffer().GetState().mClearedBlockCount, 0u)
+        << "buffer recycled chunks; capacity too small for the no-recycle case";
+    GeckoProfilerMarkerBench::TearDown();
+  }
+};
+
+// Variant whose (minimum-size) buffer is pre-filled until it starts recycling,
+// so every timed insertion exercises the steady-state recycle path. We verify
+// in TearDown that recycling did occur.
+class GeckoProfilerMarkerBenchRecycle : public GeckoProfilerMarkerBench {
+ protected:
+  void PrepareBuffer() override { FillBufferUntilRecycling(); }
+
+  void TearDown() override {
+    EXPECT_GT(profiler_get_core_buffer().GetState().mClearedBlockCount, 0u)
+        << "buffer never recycled; the recycle case measured nothing";
+    GeckoProfilerMarkerBench::TearDown();
+  }
+};
+
+// Recycle is the only regime that we can use inside MOZ_GTEST_BENCH_F, which
+// runs the body several times against one buffer with no per-iteration reset.
+// NoRecycle does not hold for the last iterations as the buffer fills up, and
+// resetting to a fresh buffer each iteration would require a profiler_start/
+// profiler_stop inside the timed body, whose cost we don't want to measure.
+MOZ_GTEST_BENCH_F(GeckoProfilerMarkerBenchRecycle,
+                  MarkerInsertionSingleThreadTiny,
+                  []() { InsertTinyMarkers(kMarkerInsertionCount); });
+
+MOZ_GTEST_BENCH_F(GeckoProfilerMarkerBenchRecycle,
+                  MarkerInsertionSingleThreadLarge,
+                  []() { InsertLargeMarkers(kMarkerInsertionCount); });
+
+MOZ_GTEST_BENCH_F(GeckoProfilerMarkerBenchRecycle,
+                  MarkerInsertionMultiThreadTiny, [this]() {
+                    mThreadPool->RunOnAll(kMarkerInsertionCount,
+                                          &InsertTinyMarkers);
+                  });
+
+MOZ_GTEST_BENCH_F(GeckoProfilerMarkerBenchRecycle,
+                  MarkerInsertionMultiThreadLarge, [this]() {
+                    mThreadPool->RunOnAll(kMarkerInsertionCount,
+                                          &InsertLargeMarkers);
+                  });
+
+MOZ_GTEST_BENCH_F(GeckoProfilerMarkerBenchRecycle,
+                  MarkerInsertionSingleThreadFieldsAndStack,
+                  []() { InsertFieldsAndStackMarkers(kMarkerInsertionCount); });
+
+MOZ_GTEST_BENCH_F(GeckoProfilerMarkerBenchRecycle,
+                  MarkerInsertionMultiThreadFieldsAndStack, [this]() {
+                    mThreadPool->RunOnAll(kMarkerInsertionCount,
+                                          &InsertFieldsAndStackMarkers);
+                  });
+
+#define DEFINE_HISTO_TESTS(aFixture, aPrefix)                                  \
+  TEST_F(aFixture, HistoSingleThreadTiny) {                                    \
+    LatencyHist hist;                                                          \
+    TimedInsert(kMarkerInsertionCount, hist,                                   \
+                []() { PROFILER_MARKER_UNTYPED("M", OTHER, {}); });            \
+    ReportHistogram(aPrefix "SingleThreadTiny", hist);                         \
+  }                                                                            \
+  TEST_F(aFixture, HistoSingleThreadLarge) {                                   \
+    const nsCString& text = LargeMarkerText();                                 \
+    LatencyHist hist;                                                          \
+    TimedInsert(kMarkerInsertionCount, hist,                                   \
+                [&text]() { PROFILER_MARKER_TEXT("M", OTHER, {}, text); });    \
+    ReportHistogram(aPrefix "SingleThreadLarge", hist);                        \
+  }                                                                            \
+  TEST_F(aFixture, HistoSingleThreadFieldsAndStack) {                          \
+    LatencyHist hist;                                                          \
+    TimedInsert(kMarkerInsertionCount, hist, []() {                            \
+      profiler_add_marker("M", geckoprofiler::category::OTHER,                 \
+                          MarkerStack::Capture(), BenchFieldsMarker{}, 42,     \
+                          43.0, "bench");                                      \
+    });                                                                        \
+    ReportHistogram(aPrefix "SingleThreadFieldsAndStack", hist);               \
+  }                                                                            \
+  TEST_F(aFixture, HistoMultiThreadTiny) {                                     \
+    LatencyHist hist;                                                          \
+    TimedInsertMultiThread(*mThreadPool, kMarkerInsertionCount, hist,          \
+                           []() { PROFILER_MARKER_UNTYPED("M", OTHER, {}); }); \
+    ReportHistogram(aPrefix "MultiThreadTiny", hist);                          \
+  }                                                                            \
+  TEST_F(aFixture, HistoMultiThreadLarge) {                                    \
+    const nsCString& text = LargeMarkerText();                                 \
+    LatencyHist hist;                                                          \
+    TimedInsertMultiThread(                                                    \
+        *mThreadPool, kMarkerInsertionCount, hist,                             \
+        [&text]() { PROFILER_MARKER_TEXT("M", OTHER, {}, text); });            \
+    ReportHistogram(aPrefix "MultiThreadLarge", hist);                         \
+  }                                                                            \
+  TEST_F(aFixture, HistoMultiThreadFieldsAndStack) {                           \
+    LatencyHist hist;                                                          \
+    TimedInsertMultiThread(*mThreadPool, kMarkerInsertionCount, hist, []() {   \
+      profiler_add_marker("M", geckoprofiler::category::OTHER,                 \
+                          MarkerStack::Capture(), BenchFieldsMarker{}, 42,     \
+                          43.0, "bench");                                      \
+    });                                                                        \
+    ReportHistogram(aPrefix "MultiThreadFieldsAndStack", hist);                \
+  }
+
+DEFINE_HISTO_TESTS(GeckoProfilerMarkerBench, "")
+DEFINE_HISTO_TESTS(GeckoProfilerMarkerBenchNoRecycle, "NoRecycle")
+DEFINE_HISTO_TESTS(GeckoProfilerMarkerBenchRecycle, "Recycle")
+
+#undef DEFINE_HISTO_TESTS
+
+// Verifies that when an OS thread id is recycled across several streaming
+// contexts, ProcessStreamingContext::SelectStreamingContextIndex routes a
+// sample to the context whose lifetime window covers its buffer position,
+// rather than the first context with a matching thread id. Regressions here
+// trip a MOZ_RELEASE_ASSERT in UniqueStacks::LookupFramesForJITAddressFrom
+// BufferPos, so this is exercised directly.
+TEST(GeckoProfiler, SelectStreamingContextIndex)
+{
+  using mozilla::Maybe;
+  using mozilla::Nothing;
+  using mozilla::Some;
+  using mozilla::Vector;
+  using PSC = ProcessStreamingContext;
+
+  const ProfilerThreadId tidA = ProfilerThreadId::FromNumber(1628);
+  const ProfilerThreadId tidOther = ProfilerThreadId::FromNumber(4242);
+  const ProfilerThreadId tidUnknown = ProfilerThreadId::FromNumber(999);
+
+  Vector<PSC::ThreadStreamingId> threadIds;
+  auto add = [&](ProfilerThreadId aTid, Maybe<uint64_t> aEnd) {
+    MOZ_RELEASE_ASSERT(threadIds.append(PSC::ThreadStreamingId{aTid, aEnd}));
+  };
+  auto selected = [&](ProfilerThreadId aTid, uint64_t aPos) -> int64_t {
+    Maybe<size_t> index =
+        PSC::SelectStreamingContextIndex(threadIds, aTid, aPos);
+    return index ? int64_t(*index) : -1;
+  };
+
+  // Two dead threads recycling tidA, with an unrelated thread interleaved.
+  add(tidA, Some(uint64_t(3658413)));   // 0: worker A, window [.., 3658413]
+  add(tidOther, Some(uint64_t(5000)));  // 1: unrelated thread id
+  add(tidA, Some(uint64_t(19904658)));  // 2: worker B, window [.., 19904658]
+
+  // A sample inside worker A's window resolves to A.
+  EXPECT_EQ(selected(tidA, 1000000u), 0);
+  // A sample inside worker B's window resolves to B, not the first match (A).
+  EXPECT_EQ(selected(tidA, 19845062u), 2);
+  // Boundary: exactly at A's unregistration position still belongs to A.
+  EXPECT_EQ(selected(tidA, 3658413u), 0);
+  // Just past A's window belongs to B.
+  EXPECT_EQ(selected(tidA, 3658414u), 2);
+  // The unrelated thread id resolves to its own context.
+  EXPECT_EQ(selected(tidOther, 4000u), 1);
+  // A thread id with no context yields no match.
+  EXPECT_EQ(selected(tidUnknown, 1u), -1);
+  // A position past every window for tidA (no live thread) yields no match.
+  EXPECT_EQ(selected(tidA, 20000000u), -1);
+
+  // A still-registered thread (Nothing() end) owns the latest window, but a
+  // dead thread still owns samples within its own earlier window.
+  const ProfilerThreadId tidLive = ProfilerThreadId::FromNumber(77);
+  add(tidLive, Some(uint64_t(100)));  // 3: dead, window [.., 100]
+  add(tidLive, Nothing());            // 4: still registered
+  EXPECT_EQ(selected(tidLive, 50u), 3);
+  EXPECT_EQ(selected(tidLive, 100u), 3);
+  EXPECT_EQ(selected(tidLive, 101u), 4);
+  EXPECT_EQ(selected(tidLive, 20000000u), 4);
+}
+
+}  // namespace

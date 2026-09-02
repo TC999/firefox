@@ -232,7 +232,7 @@ async function assertWebRTCIndicatorStatus(expected) {
 }
 
 function promiseNotificationShown(notification) {
-  let win = notification.browser.ownerGlobal;
+  let win = notification.browser.documentGlobal;
   if (win.PopupNotifications.panel.state == "open") {
     return Promise.resolve();
   }
@@ -378,33 +378,56 @@ function promiseMessage(
   });
 }
 
+// Listeners of promisePopupNotificationShown calls that are still waiting for
+// the panel to open, removed when the test file ends so that they can't outlive
+// it on a window that later test files reuse.
+let gPendingPopupshownListeners = new Set();
+registerCleanupFunction(() => {
+  for (let stopListening of gPendingPopupshownListeners) {
+    stopListening();
+  }
+});
+
 function promisePopupNotificationShown(aName, aAction, aWindow = window) {
   let startTime = ChromeUtils.now();
   return new Promise(resolve => {
-    aWindow.PopupNotifications.panel.addEventListener(
-      "popupshown",
-      function () {
-        ok(
-          !!aWindow.PopupNotifications.getNotification(aName),
-          aName + " notification shown"
-        );
-        ok(aWindow.PopupNotifications.isPanelOpen, "notification panel open");
-        ok(
-          !!aWindow.PopupNotifications.panel.firstElementChild,
-          "notification panel populated"
-        );
+    let panel = aWindow.PopupNotifications.panel;
+    function stopListening() {
+      panel.removeEventListener("popupshown", popupshown);
+      gPendingPopupshownListeners.delete(stopListening);
+    }
+    function popupshown() {
+      // Don't use PopupNotifications.isPanelOpen here: it also returns true
+      // while the panel is still in the "showing" state, in which case the
+      // popup frame isn't open yet and its contents aren't focusable.
+      let panelState = panel.state;
+      if (panelState != "open") {
+        info(`Ignoring popupshown for ${aName}, panel state: ${panelState}`);
+        return;
+      }
+      stopListening();
 
-        executeSoon(() => {
-          ChromeUtils.addProfilerMarker(
-            "promisePopupNotificationShown",
-            { startTime, category: "Test" },
-            aName
-          );
-          resolve();
-        });
-      },
-      { once: true }
-    );
+      ok(
+        !!aWindow.PopupNotifications.getNotification(aName),
+        aName + " notification shown"
+      );
+      ok(aWindow.PopupNotifications.isPanelOpen, "notification panel open");
+      ok(
+        !!aWindow.PopupNotifications.panel.firstElementChild,
+        "notification panel populated"
+      );
+
+      executeSoon(() => {
+        ChromeUtils.addProfilerMarker(
+          "promisePopupNotificationShown",
+          { startTime, category: "Test" },
+          aName
+        );
+        resolve();
+      });
+    }
+    panel.addEventListener("popupshown", popupshown);
+    gPendingPopupshownListeners.add(stopListening);
 
     if (aAction) {
       aAction();
@@ -436,11 +459,18 @@ async function activateSecondaryAction(aAction) {
     case kActionNever:
       if (notification.notification.secondaryActions.length > 1) {
         // "Always Block" is the first (and only) item in the menupopup.
+        await notification.secondaryButton.updateComplete;
         await Promise.all([
           BrowserTestUtils.waitForEvent(notification.menupopup, "popupshown"),
-          notification.menubutton.click(),
+          EventUtils.synthesizeMouseAtCenter(
+            notification.secondaryButton.chevronButtonEl,
+            {}
+          ),
         ]);
         notification.menupopup.querySelector("menuitem").click();
+        // menuitem.click() doesn't trigger XUL's auto-close. Hide explicitly so
+        // the reused menupopup is in a clean state if this panel is shown again.
+        notification.menupopup.hidePopup();
         return;
       }
       if (!notification.checkbox.checked) {
@@ -448,6 +478,7 @@ async function activateSecondaryAction(aAction) {
       }
     // fallthrough
     case kActionDeny:
+      await notification.secondaryButton.updateComplete;
       notification.secondaryButton.click();
       break;
     case kActionAlways:
@@ -706,7 +737,7 @@ async function promiseRequestDevice(
           args.aType,
           args.aBadDevice
         );
-        await EventUtils.synthesizeMouseAtCenter(
+        EventUtils.synthesizeMouseAtCenter(
           global.document.getElementById("gum"),
           {},
           content

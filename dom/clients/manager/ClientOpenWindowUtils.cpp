@@ -260,7 +260,7 @@ static Result<Ok, nsresult> OpenNewWindow(
 
   nsCOMPtr<mozIDOMWindowProxy> win;
   MOZ_TRY(ww->OpenWindow(nullptr, nsDependentCString(BROWSER_CHROME_URL_QUOTED),
-                         "_blank"_ns, features, args, getter_AddRefs(win)));
+                         u"_blank"_ns, features, args, getter_AddRefs(win)));
   return Ok();
 }
 
@@ -366,7 +366,7 @@ void WaitForLoad(const ClientOpenWindowArgsParsed& aArgsValidated,
     loadState->SetTriggeringRemoteType(
         aArgsValidated.originContent
             ? aArgsValidated.originContent->GetRemoteType()
-            : NOT_REMOTE_TYPE);
+            : RemoteType::NotRemote());
 
     rv = aBrowsingContext->LoadURI(loadState, true);
     if (NS_FAILED(rv)) {

@@ -1,4 +1,3 @@
-/* -*- mode: js; indent-tabs-mode: nil; js-indent-level: 2 -*- */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -12,6 +11,13 @@ ChromeUtils.defineESModuleGetters(lazy, {
   ReaderMode: "moz-src:///toolkit/components/reader/ReaderMode.sys.mjs",
   Region: "resource://gre/modules/Region.sys.mjs",
 });
+
+XPCOMUtils.defineLazyServiceGetter(
+  lazy,
+  "IDNService",
+  "@mozilla.org/network/idn-service;1",
+  Ci.nsIIDNService
+);
 
 ChromeUtils.defineLazyGetter(lazy, "CatManListenerManager", () => {
   const CatManListenerManager = {
@@ -32,14 +38,38 @@ ChromeUtils.defineLazyGetter(lazy, "CatManListenerManager", () => {
       }
       let rv = Array.from(
         Services.catMan.enumerateCategory(categoryName),
-        ({ data: module, value }) => {
+        ({ data: entry, value }) => {
           try {
+            // Entry names are unique keys per category, so a `#…` suffix lets
+            // multiple consumers in the same module register without colliding.
+            // TODO bug 2038950: remove this once all common JS is ported to
+            // ES modules.
+            let module = entry.replace(/#.*$/, "");
             let [objName, method] = value.split(".");
-            let fn = (...args) => {
-              if (!Object.hasOwn(this.cachedModules, module)) {
-                this.cachedModules[module] = ChromeUtils.importESModule(module);
+            let fn = (jsGlobal, ...args) => {
+              let obj;
+              if (module.endsWith(".js")) {
+                if (!jsGlobal) {
+                  throw new Error(
+                    `jsGlobal must be provided to load ${objName} from ${module}.`
+                  );
+                }
+                // For plain JS scripts, rely on a lazy getter defined on
+                // jsGlobal to load the script on first access.
+                obj = jsGlobal[objName];
+                if (!obj) {
+                  throw new Error(
+                    `Could not access ${objName} from ${module}. ` +
+                      `Did you forget to define a lazy getter for ${objName} on the global?`
+                  );
+                }
+              } else {
+                if (!Object.hasOwn(this.cachedModules, module)) {
+                  this.cachedModules[module] =
+                    ChromeUtils.importESModule(module);
+                }
+                obj = this.cachedModules[module][objName];
               }
-              let obj = this.cachedModules[module][objName];
               if (!obj) {
                 throw new Error(
                   `Could not access ${objName} in ${module}. Is it exported?`
@@ -50,13 +80,13 @@ ChromeUtils.defineLazyGetter(lazy, "CatManListenerManager", () => {
                   `${objName}.${method} in ${module} is not a function.`
                 );
               }
-              return this.cachedModules[module][objName][method](...args);
+              return obj[method](...args);
             };
             fn._descriptiveName = value;
             return fn;
           } catch (ex) {
             console.error(
-              `Error processing category manifest for ${module}: ${value}`,
+              `Error processing category manifest for ${entry}: ${value}`,
               ex
             );
             return null;
@@ -379,7 +409,16 @@ export var BrowserUtils = {
           !showInsecureHTTP &&
           (onlyBaseDomain || (!showWWW && host.startsWith("www.")));
         if (removeSubdomains) {
-          host = Services.eTLD.getSchemelessSite(uri);
+          try {
+            host = lazy.IDNService.domainToDisplay(
+              Services.eTLD.getSchemelessSite(uri)
+            );
+          } catch (ex) {
+            // Fall back to the full host for invalid IDN. This should never
+            // happen but we'll be defensive so we don't break display.
+            console.error(ex);
+            host = uri.host;
+          }
           if (uri.port != -1) {
             host += ":" + uri.port;
           }
@@ -492,7 +531,7 @@ export var BrowserUtils = {
    */
   hrefAndLinkNodeForClickEvent(event) {
     // We should get a window off the event, and bail if not:
-    let content = event.view || event.composedTarget?.ownerGlobal;
+    let content = event.view || event.composedTarget?.documentGlobal;
     if (!content?.HTMLAnchorElement) {
       return null;
     }
@@ -621,6 +660,41 @@ export var BrowserUtils = {
     return "current";
   },
 
+  /**
+   * This function returns whether a link opened with the given `where` will load
+   * in the background.
+   *
+   * @param {string}  where
+   *   Where the link will open, as returned by whereToOpenLink().
+   * @param {object} params
+   *   The params that will be passed to openLinkIn() as param.
+   * @param {boolean} [params.inBackground=null]
+   *   If non-null it takes precedence.
+   * @param {boolean} [params.forceForeground=null]
+   *   When true, defaults to the foreground rather than the pref.
+   * @returns {boolean}
+   *   Whether the link will load in the background.
+   */
+  willLoadInBackground(
+    where,
+    { inBackground = null, forceForeground = null } = {}
+  ) {
+    switch (where) {
+      case "tab":
+      case "tabshifted": {
+        let loadInBackground = inBackground;
+        if (loadInBackground == null) {
+          loadInBackground = forceForeground
+            ? false
+            : Services.prefs.getBoolPref("browser.tabs.loadInBackground");
+        }
+        return where == "tabshifted" ? !loadInBackground : loadInBackground;
+      }
+    }
+
+    return false;
+  },
+
   // Utility function to check command events for potential middle-click events
   // from checkForMiddleClick and unwrap them.
   getRootEvent(aEvent) {
@@ -662,6 +736,9 @@ export var BrowserUtils = {
    * @param {Function} [options.failureHandler]
    *        If specified, will be called for any exceptions raised, in
    *        order to do custom failure handling.
+   * @param {object} [options.jsGlobal=null]
+   *        If specified, will be used as the global object when loading any
+   *        JS modules specified in the category entries.
    * @param {...any} args
    *        Arguments to pass to the consumers.
    * @returns {Promise}
@@ -673,6 +750,7 @@ export var BrowserUtils = {
       profilerMarker = "",
       idleDispatch = false,
       failureHandler = null,
+      jsGlobal = null,
     },
     ...args
   ) {
@@ -682,7 +760,7 @@ export var BrowserUtils = {
     let callSingleListener = async fn => {
       let startTime = profilerMarker ? ChromeUtils.now() : 0;
       try {
-        await fn(...args);
+        await fn(jsGlobal, ...args);
       } catch (ex) {
         console.error(
           `Error in processing ${categoryName} for ${fn._descriptiveName}`
@@ -692,11 +770,15 @@ export var BrowserUtils = {
           await failureHandler?.(ex);
         } catch (nestedEx) {
           console.error(`Error in handling failure: ${nestedEx}`);
-          // Crash in automation:
+          // Crash in automation.
+          // See bug 2034905 for filename / fileName shenanigans.
           if (BrowserUtils._inAutomation) {
             Cc["@mozilla.org/xpcom/debug;1"]
               .getService(Ci.nsIDebug2)
-              .abort(nestedEx.filename, nestedEx.lineNumber);
+              .abort(
+                nestedEx.filename || nestedEx.fileName,
+                nestedEx.lineNumber
+              );
           }
         }
       }
@@ -731,29 +813,13 @@ export var BrowserUtils = {
   },
 
   /**
-   * Returns whether the build is a China repack.
-   *
-   * @returns {boolean} True if the distribution ID is 'MozillaOnline',
-   *                   otherwise false.
-   */
-  isChinaRepack() {
-    return (
-      Services.prefs
-        .getDefaultBranch("")
-        .getCharPref("distribution.id", "default") === "MozillaOnline"
-    );
-  },
-
-  /**
    * An enumeration of the promotion types that can be passed to shouldShowPromo
    */
   PromoType: {
     DEFAULT: 0, // invalid
     VPN: 1,
     RELAY: 2,
-    FOCUS: 3,
     PIN: 4,
-    COOKIE_BANNERS: 5,
   },
 
   /**
@@ -774,10 +840,8 @@ export var BrowserUtils = {
   shouldShowPromo(promoType) {
     switch (promoType) {
       case this.PromoType.VPN:
-      case this.PromoType.FOCUS:
       case this.PromoType.PIN:
       case this.PromoType.RELAY:
-      case this.PromoType.COOKIE_BANNERS:
         break;
       default:
         throw new Error("Unknown promo type: ", promoType);
@@ -873,18 +937,6 @@ let PromoInfo = {
       "tr",
     ],
   },
-  [BrowserUtils.PromoType.FOCUS]: {
-    enabledPref: "browser.promo.focus.enabled",
-    lazyStringSetPrefs: {
-      // there are no particular limitions to where it is "supported",
-      // so we leave out the supported pref
-      disallowedRegions: {
-        name: "browser.promo.focus.disallowed_regions",
-        default: "cn",
-      },
-    },
-    illegalRegions: ["cn"],
-  },
   [BrowserUtils.PromoType.PIN]: {
     enabledPref: "browser.promo.pin.enabled",
     lazyStringSetPrefs: {},
@@ -906,12 +958,6 @@ let PromoInfo = {
         "identity.fxaccounts.remote.pairing.uri",
         "identity.sync.tokenserver.uri",
       ].every(pref => !Services.prefs.prefHasUserValue(pref)),
-  },
-  [BrowserUtils.PromoType.COOKIE_BANNERS]: {
-    enabledPref: "browser.promo.cookiebanners.enabled",
-    lazyStringSetPrefs: {},
-    illegalRegions: [],
-    showForEnterprise: true,
   },
 };
 

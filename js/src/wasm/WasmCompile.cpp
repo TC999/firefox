@@ -35,6 +35,7 @@
 #include "vm/JSAtomState.h"
 #include "vm/Realm.h"
 #include "wasm/WasmBaselineCompile.h"
+#include "wasm/WasmConstants.h"
 #include "wasm/WasmFeatures.h"
 #include "wasm/WasmGenerator.h"
 #include "wasm/WasmIonCompile.h"
@@ -48,6 +49,19 @@ using namespace js::jit;
 using namespace js::wasm;
 
 using mozilla::Atomic;
+
+ScriptedCaller ScriptedCaller::selfHosted(JSContext* cx) {
+  AutoEnterOOMUnsafeRegion oomUnsafe;
+  // The self_hosted_ atom is used by the saved stack code to distinguish self
+  // hosted frames from normal user frames.
+  UniqueChars selfHosted =
+      StringToNewUTF8CharsZ(cx, *cx->names().self_hosted_.get());
+  if (!selfHosted) {
+    oomUnsafe.crash("ScriptedCaller::selfHosted");
+  }
+  return ScriptedCaller(std::move(selfHosted), ScriptedCallerKind::SelfHosted,
+                        0);
+}
 
 uint32_t wasm::ObservedCPUFeatures() {
   enum Arch : uint32_t {
@@ -219,12 +233,26 @@ FeatureArgs FeatureArgs::build(JSContext* cx, const FeatureOptions& options) {
 
   features.simd = jit::JitSupportsWasmSimd();
   features.isBuiltinModule = options.isBuiltinModule;
-  features.builtinModules.jsString = options.jsStringBuiltins;
-  features.builtinModules.jsStringConstants = options.jsStringConstants;
-  features.builtinModules.jsStringConstantsNamespace =
-      options.jsStringConstantsNamespace;
-  features.builtinModules.intGemm =
-      MozIntGemmAvailable(cx) && options.mozIntGemm;
+  if (features.isBuiltinModule) {
+    // Builtin modules can use stack switching if it's available. JS-PI needs
+    // this.
+    features.stackSwitching = wasm::IonPlatformSupport();
+    // No builtin modules are available to use within a builtin module. We
+    // theoretically could allow a builtin module to import another builtin
+    // module, but we'd need to find a way to prevent cycles. For now just
+    // disable this.
+    MOZ_ASSERT(!options.jsStringBuiltins);
+    MOZ_ASSERT(!options.jsStringConstants);
+    MOZ_ASSERT(!options.mozIntGemm);
+  } else {
+    // Enable builtin modules that have been selected by the user.
+    features.builtinModules.jsString = options.jsStringBuiltins;
+    features.builtinModules.jsStringConstants = options.jsStringConstants;
+    features.builtinModules.jsStringConstantsNamespace =
+        options.jsStringConstantsNamespace;
+    features.builtinModules.intGemm =
+        MozIntGemmAvailable(cx) && options.mozIntGemm;
+  }
 
   return features;
 }
@@ -242,14 +270,27 @@ SharedCompileArgs CompileArgs::build(JSContext* cx,
     ion = false;
   }
 
+  // true iff the user requested debug code, and we're able to honour that.
+  bool forceDebug = JS::Prefs::wasm_baseline_debug() && baseline;
+
   // Debug information such as source view or debug traps will require
-  // additional memory and permanently stay in baseline code, so we try to
-  // only enable it when a developer actually cares: when the debugger tab
-  // is open.
-  bool debug = cx->realm() && cx->realm()->debuggerObservesWasm();
+  // additional memory and permanently stay in baseline code, so we try to only
+  // enable it when a developer actually cares: when the debugger tab is open.
+  // Or when --setpref=wasm_baseline_debug=true is given to the shell and
+  // we have baseline available.
+  bool debug =
+      (cx->realm() && cx->realm()->debuggerObservesWasm()) || forceDebug;
 
   bool forceTiering =
       cx->options().testWasmAwaitTier2() || JitOptions.wasmDelayTier2;
+
+  if (forceDebug) {
+    // If --setpref=wasm_baseline_debug=true is specified and we can honour it
+    // (because baseline is available), disable Ion and tiering so as to avoid
+    // failures below.
+    ion = false;
+    forceTiering = false;
+  }
 
   // The <Compiler>Available() predicates should ensure no failure here, but
   // when we're fuzzing we allow inconsistent switches and the check may thus
@@ -292,23 +333,6 @@ void wasm::SetUseCountersForFeatureUsage(JSContext* cx, JSObject* object,
   if (usage & FeatureUsage::LegacyExceptions) {
     cx->runtime()->setUseCounter(object, JSUseCounter::WASM_LEGACY_EXCEPTIONS);
   }
-}
-
-SharedCompileArgs CompileArgs::buildForAsmJS(ScriptedCaller&& scriptedCaller) {
-  CompileArgs* target = js_new<CompileArgs>();
-  if (!target) {
-    return nullptr;
-  }
-
-  target->scriptedCaller = std::move(scriptedCaller);
-  // AsmJS is deprecated and doesn't have mechanisms for experimental features,
-  // so we don't need to initialize the FeatureArgs. It also only targets the
-  // Ion backend and does not need WASM debug support since it is de-optimized
-  // to JS in that case.
-  target->ionEnabled = true;
-  target->debugEnabled = false;
-
-  return target;
 }
 
 SharedCompileArgs CompileArgs::buildForValidation(const FeatureArgs& args) {
@@ -950,7 +974,7 @@ static bool DecodeCodeSection(const CodeMetadata& codeMeta, DecoderT& d,
   return mg.finishFuncDefs();
 }
 
-SharedModule wasm::CompileBuffer(const CompileArgs& args,
+SharedModule wasm::CompileModule(const CompileArgs& args,
                                  const BytecodeBufferOrSource& bytecode,
                                  UniqueChars* error,
                                  UniqueCharsVector* warnings,
@@ -1028,6 +1052,49 @@ SharedModule wasm::CompileBuffer(const CompileArgs& args,
   return mg.finishModule(bytecode, *moduleMeta, listener);
 }
 
+#ifdef ENABLE_WASM_COMPONENTS
+SharedComponent wasm::CompileComponent(
+    const CompileArgs& args, const BytecodeBufferOrSource& bytecode,
+    UniqueChars* error, UniqueCharsVector* warnings,
+    JS::OptimizedEncodingListener* listener) {
+  MutableComponent c = js_new<Component>();
+  if (!c) {
+    return nullptr;
+  }
+
+  const BytecodeSource& bytecodeSource = bytecode.source();
+  Decoder d(bytecodeSource.envSpan(), bytecodeSource.envRange().start, error,
+            warnings);
+
+  if (!DecodeComponent(d, c, args, listener)) {
+    return nullptr;
+  }
+
+  return c;
+}
+
+SharedModuleOrComponent wasm::CompileBuffer(
+    const CompileArgs& args, const BytecodeBufferOrSource& bytecode,
+    UniqueChars* error, UniqueCharsVector* warnings,
+    JS::OptimizedEncodingListener* listener) {
+  const BytecodeSource& bytecodeSource = bytecode.source();
+  Decoder preambleDecoder(bytecodeSource.envSpan(),
+                          bytecodeSource.envRange().start, error, warnings);
+  if (IsComponent(preambleDecoder)) {
+    // TODO(wasm-cm)
+    preambleDecoder.fail("components are not supported yet");
+    return mozilla::Nothing();
+  }
+
+  SharedModule module =
+      CompileModule(args, bytecode, error, warnings, listener);
+  if (!module) {
+    return mozilla::Nothing();
+  }
+  return SharedModuleOrComponent(std::in_place, module);
+}
+#endif  // ENABLE_WASM_COMPONENTS
+
 bool wasm::CompileCompleteTier2(const ShareableBytes* codeSection,
                                 const Module& module, UniqueChars* error,
                                 UniqueCharsVector* warnings,
@@ -1039,7 +1106,7 @@ bool wasm::CompileCompleteTier2(const ShareableBytes* codeSection,
   const CodeMetadata& codeMeta = module.codeMeta();
   ModuleGenerator mg(codeMeta, compilerEnv, CompileState::EagerTier2, cancelled,
                      error, warnings);
-  if (!mg.initializeCompleteTier()) {
+  if (!mg.initializeCompleteTier(&module.codeTailMeta())) {
     return false;
   }
 
@@ -1209,8 +1276,8 @@ SharedModule wasm::CompileStreaming(
   }
 
   BytecodeBuffer bytecodeBuffer(&envBytes, &codeBytes, &tailBytes);
-  return mg.finishModule(BytecodeBufferOrSource(bytecodeBuffer), *moduleMeta,
-                         streamEnd.completeTier2Listener);
+  return mg.finishModule(BytecodeBufferOrSource(std::move(bytecodeBuffer)),
+                         *moduleMeta, streamEnd.completeTier2Listener);
 }
 
 class DumpIonModuleGenerator {
@@ -1232,14 +1299,13 @@ class DumpIonModuleGenerator {
         error_(error) {}
 
   bool finishFuncDefs() { return true; }
-  bool compileFuncDef(uint32_t funcIndex, uint32_t lineOrBytecode,
+  bool compileFuncDef(uint32_t funcIndex, uint32_t bytecodeOffset,
                       const uint8_t* begin, const uint8_t* end) {
     if (funcIndex != targetFuncIndex_) {
       return true;
     }
 
-    FuncCompileInput input(funcIndex, lineOrBytecode, begin, end,
-                           Uint32Vector());
+    FuncCompileInput input(funcIndex, bytecodeOffset, begin, end);
     return IonDumpFunction(compilerEnv_, codeMeta_, input, out_, error_);
   }
 };

@@ -3,13 +3,12 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "mozilla/layers/APZChild.h"
-#include "mozilla/ipc/ProtocolUtils.h"
-#include "mozilla/layers/GeckoContentController.h"
-
-#include "mozilla/dom/BrowserChild.h"
-#include "mozilla/layers/APZCCallbackHelper.h"
 
 #include "InputData.h"  // for InputData
+#include "mozilla/dom/BrowserChild.h"
+#include "mozilla/ipc/ProtocolUtils.h"
+#include "mozilla/layers/APZCCallbackHelper.h"
+#include "mozilla/layers/GeckoContentController.h"
 
 namespace mozilla {
 namespace layers {
@@ -70,7 +69,8 @@ mozilla::ipc::IPCResult APZChild::RecvHideDynamicToolbar() {
 
 mozilla::ipc::IPCResult APZChild::RecvNotifyMozMouseScrollEvent(
     const ViewID& aScrollId, const nsString& aEvent) {
-  mController->NotifyMozMouseScrollEvent(aScrollId, aEvent);
+  const RefPtr<GeckoContentController> controller = mController;
+  controller->NotifyMozMouseScrollEvent(aScrollId, aEvent);
   return IPC_OK();
 }
 

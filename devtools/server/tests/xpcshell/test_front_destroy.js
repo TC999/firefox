@@ -10,17 +10,11 @@
 // HACK: ServiceWorkerManager requires the "profile-change-teardown" to cleanly
 // shutdown, and setting _profileInitialized to `true` will trigger those
 // notifications (see /testing/xpcshell/head.js).
-// eslint-disable-next-line no-undef
 _profileInitialized = true;
 
 add_task(async function test() {
-  DevToolsServer.init();
-  DevToolsServer.registerAllActors();
-
   info("Create and connect the DevToolsClient");
-  const transport = DevToolsServer.connectPipe();
-  const client = new DevToolsClient(transport);
-  await client.connect();
+  const client = await CommandsFactory.spawnClientToDebugSystemPrincipal();
 
   info("Get the device front and check calling getDescription() on it");
   const front = await client.mainRoot.getFront("device");

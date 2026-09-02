@@ -7,10 +7,11 @@
 #include <d3d11.h>
 #include <d3d11_1.h>
 
+#include "gfxPlatform.h"
+#include "mozilla/Maybe.h"
 #include "mozilla/gfx/Logging.h"
 #include "mozilla/gfx/Types.h"
 #include "mozilla/layers/TextureD3D11.h"
-#include "mozilla/Maybe.h"
 
 namespace mozilla {
 namespace layers {
@@ -63,7 +64,7 @@ static Maybe<DXGI_COLOR_SPACE_TYPE> GetSourceDXGIColorSpace(
       return Nothing();
     case gfx::YUVColorSpace::BT2020:
       // https://en.wikipedia.org/wiki/Rec._2020 - this is the UHDTV color space
-      if (!StaticPrefs::gfx_color_management_hdr_video()) {
+      if (!gfxPlatform::UseHDR()) {
         // This pref being off mimics legacy behavior, it's wrong but it's
         // precisely what we did before, looks washed out if it's PQ.
         switch (aColorRange) {
@@ -206,7 +207,7 @@ VideoProcessorD3D11::VideoProcessorD3D11(ID3D11Device* aDevice,
       mVideoContext(aVideoContext),
       mVideoContext1(aVideoContext1) {}
 
-VideoProcessorD3D11::~VideoProcessorD3D11() {}
+VideoProcessorD3D11::~VideoProcessorD3D11() = default;
 
 HRESULT VideoProcessorD3D11::Init(const gfx::IntSize& aSize) {
   if (mSize == aSize) {

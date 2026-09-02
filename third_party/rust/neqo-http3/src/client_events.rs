@@ -7,8 +7,8 @@
 use std::{cell::RefCell, collections::VecDeque, rc::Rc};
 
 use neqo_common::{Bytes, Header, event::Provider as EventProvider, qtrace};
-use neqo_crypto::ResumptionToken;
 use neqo_transport::{AppError, StreamId, StreamType};
+use nss::ResumptionToken;
 
 use crate::{
     CloseType, Error, Http3StreamInfo, HttpRecvStreamEvents, PushId, RecvStreamEvents, Res,
@@ -33,6 +33,9 @@ pub enum WebTransportEvent {
         stream_id: StreamId,
         reason: extended_connect::session::CloseReason,
         headers: Option<Vec<Header>>,
+    },
+    Draining {
+        stream_id: StreamId,
     },
     NewStream {
         stream_id: StreamId,

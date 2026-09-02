@@ -20,7 +20,6 @@
 #include "api/dtls_transport_interface.h"
 #include "api/ice_transport_interface.h"
 #include "api/numerics/samples_stats_counter.h"
-#include "api/test/rtc_error_matchers.h"
 #include "api/units/data_rate.h"
 #include "api/units/time_delta.h"
 #include "p2p/base/connection_info.h"
@@ -31,6 +30,7 @@
 #include "rtc_base/logging.h"
 #include "rtc_base/random.h"
 #include "rtc_base/socket_address.h"
+#include "rtc_base/ssl_stream_adapter.h"
 #include "test/gmock.h"
 #include "test/gtest.h"
 #include "test/wait_until.h"
@@ -84,6 +84,32 @@ class DtlsIceIntegrationTest : public dtls_ice_integration_fixture::Base,
     return CountConnectionsWithFilter(ice,
                                       [](auto con) { return con.writable; });
   }
+
+  void CheckRetransmissions() {
+    if (!server_.config.ice_lite) {
+      EXPECT_EQ(client_.dtls->GetRetransmissionCount(), 0);
+      EXPECT_EQ(server_.dtls->GetRetransmissionCount(), 0);
+      return;
+    }
+    if (client_.config.ssl_role == SSL_CLIENT) {
+      EXPECT_EQ(client_.dtls->GetRetransmissionCount(), 0);
+      EXPECT_EQ(server_.dtls->GetRetransmissionCount(), 0);
+      return;
+    }
+
+    // TODO: bugs.webrtc.org/367395350 - Investigate retransmissions
+    // from in fake ice lite scenarios. Very few remaining!
+    // - server is (fake) ICE lite but SSL_CLIENT
+    if (client_.config.dtls_in_stun == server_.config.dtls_in_stun) {
+      const bool pqc = client_.config.pqc && server_.config.pqc;
+      EXPECT_EQ(client_.dtls->GetRetransmissionCount(), 0);
+      EXPECT_LE(server_.dtls->GetRetransmissionCount(), !pqc ? 0 : 1);
+      return;
+    }
+
+    EXPECT_LE(client_.dtls->GetRetransmissionCount(), 1);
+    EXPECT_LE(server_.dtls->GetRetransmissionCount(), 1);
+  }
 };
 
 TEST_P(DtlsIceIntegrationTest, SmokeTest) {
@@ -93,11 +119,9 @@ TEST_P(DtlsIceIntegrationTest, SmokeTest) {
   server_thread()->PostTask([&]() { server_.ice()->MaybeStartGathering(); });
 
   // Note: this only reaches the pending piggybacking state.
-  EXPECT_THAT(
-      WaitUntil(
-          [&] { return client_.dtls->writable() && server_.dtls->writable(); },
-          IsTrue(), wait_until_settings()),
-      IsRtcOk());
+  EXPECT_TRUE(WaitUntil(
+      [&] { return client_.dtls->writable() && server_.dtls->writable(); },
+      wait_until_settings()));
 
   client_thread()->BlockingCall([&]() {
     EXPECT_EQ(client_.dtls->IsDtlsPiggybackSupportedByPeer(),
@@ -117,8 +141,7 @@ TEST_P(DtlsIceIntegrationTest, SmokeTest) {
     EXPECT_GE(dtls_server().dtls->GetStunDataCount(), 0);
   }
 
-  EXPECT_EQ(client_.dtls->GetRetransmissionCount(), 0);
-  EXPECT_EQ(server_.dtls->GetRetransmissionCount(), 0);
+  CheckRetransmissions();
 }
 
 TEST_P(DtlsIceIntegrationTest, AddCandidates) {
@@ -127,11 +150,9 @@ TEST_P(DtlsIceIntegrationTest, AddCandidates) {
   server_.ice()->MaybeStartGathering();
 
   // Note: this only reaches the pending piggybacking state.
-  EXPECT_THAT(
-      WaitUntil(
-          [&] { return client_.dtls->writable() && server_.dtls->writable(); },
-          IsTrue(), wait_until_settings()),
-      IsRtcOk());
+  EXPECT_TRUE(WaitUntil(
+      [&] { return client_.dtls->writable() && server_.dtls->writable(); },
+      wait_until_settings()));
   EXPECT_EQ(client_.dtls->IsDtlsPiggybackSupportedByPeer(),
             client_.config.dtls_in_stun && server_.config.dtls_in_stun);
   EXPECT_EQ(server_.dtls->IsDtlsPiggybackSupportedByPeer(),
@@ -148,13 +169,12 @@ TEST_P(DtlsIceIntegrationTest, AddCandidates) {
 
   // Validate that we can add new Connections (that become writable).
   network_manager_->AddInterface(SocketAddress("192.168.2.1", 0));
-  EXPECT_THAT(WaitUntil(
-                  [&] {
-                    return CountWritableConnections(client_.ice()) > 1 &&
-                           CountWritableConnections(server_.ice()) > 1;
-                  },
-                  IsTrue(), wait_until_settings()),
-              IsRtcOk());
+  EXPECT_TRUE(WaitUntil(
+      [&] {
+        return CountWritableConnections(client_.ice()) > 1 &&
+               CountWritableConnections(server_.ice()) > 1;
+      },
+      wait_until_settings()));
 }
 
 // Check that DtlsInStun still works even if SetRemoteFingerprint is called
@@ -167,22 +187,19 @@ TEST_P(DtlsIceIntegrationTest, ClientLateCertificate) {
   client_thread()->PostTask([&]() { client_.ice()->MaybeStartGathering(); });
   server_thread()->PostTask([&]() { server_.ice()->MaybeStartGathering(); });
 
-  ASSERT_THAT(WaitUntil(
-                  [&] {
-                    return client_thread()->BlockingCall([&]() {
-                      return CountWritableConnections(client_.ice());
-                    }) > 0;
-                  },
-                  IsTrue(), wait_until_settings()),
-              IsRtcOk());
+  ASSERT_TRUE(WaitUntil(
+      [&] {
+        return client_thread()->BlockingCall([&]() {
+          return CountWritableConnections(client_.ice());
+        }) > 0;
+      },
+      wait_until_settings()));
 
   client_thread()->BlockingCall([&]() { SetRemoteFingerprint(client_); });
 
-  ASSERT_THAT(
-      WaitUntil(
-          [&] { return client_.dtls->writable() && server_.dtls->writable(); },
-          IsTrue(), wait_until_settings()),
-      IsRtcOk());
+  ASSERT_TRUE(WaitUntil(
+      [&] { return client_.dtls->writable() && server_.dtls->writable(); },
+      wait_until_settings()));
 
   client_thread()->BlockingCall([&]() {
     EXPECT_EQ(client_.dtls->IsDtlsPiggybackSupportedByPeer(),
@@ -195,19 +212,12 @@ TEST_P(DtlsIceIntegrationTest, ClientLateCertificate) {
               client_.config.dtls_in_stun && server_.config.dtls_in_stun);
   });
 
-  EXPECT_EQ(client_.dtls->GetRetransmissionCount(), 0);
-  EXPECT_EQ(server_.dtls->GetRetransmissionCount(), 0);
+  CheckRetransmissions();
 }
 
 TEST_P(DtlsIceIntegrationTest, TestWithPacketLoss) {
   if (!IsBoringSsl()) {
     GTEST_SKIP() << "Needs boringssl.";
-  }
-
-  if (client_.config.dtls_in_stun != server_.config.dtls_in_stun) {
-    // TODO jonaso, webrtc:404763475 : re-enable once
-    // boringssl has been merged and test cases updated.
-    GTEST_SKIP() << "TODO jonaso.";
   }
 
   ConfigureEmulatedNetwork();
@@ -216,16 +226,15 @@ TEST_P(DtlsIceIntegrationTest, TestWithPacketLoss) {
   client_thread()->PostTask([&]() { client_.ice()->MaybeStartGathering(); });
   server_thread()->PostTask([&]() { server_.ice()->MaybeStartGathering(); });
 
-  EXPECT_THAT(WaitUntil(
-                  [&] {
-                    return client_thread()->BlockingCall([&]() {
-                      return client_.dtls->writable();
-                    }) && server_thread()->BlockingCall([&]() {
-                      return server_.dtls->writable();
-                    });
-                  },
-                  IsTrue(), wait_until_settings()),
-              IsRtcOk());
+  EXPECT_TRUE(WaitUntil(
+      [&] {
+        return client_thread()->BlockingCall([&]() {
+          return client_.dtls->writable();
+        }) && server_thread()->BlockingCall([&]() {
+          return server_.dtls->writable();
+        });
+      },
+      wait_until_settings()));
 
   EXPECT_EQ(client_thread()->BlockingCall([&]() {
     return client_.dtls->IsDtlsPiggybackSupportedByPeer();
@@ -242,12 +251,6 @@ TEST_P(DtlsIceIntegrationTest, LongRunningTestWithPacketLoss) {
     GTEST_SKIP() << "Needs boringssl.";
   }
 
-  if (client_.config.dtls_in_stun != server_.config.dtls_in_stun) {
-    // TODO jonaso, webrtc:404763475 : re-enable once
-    // boringssl has been merged and test cases updated.
-    GTEST_SKIP() << "TODO jonaso.";
-  }
-
   int seed = absl::GetFlag(FLAGS_long_running_seed);
   if (seed == 0) {
     seed = 1 + time(0);
@@ -260,16 +263,15 @@ TEST_P(DtlsIceIntegrationTest, LongRunningTestWithPacketLoss) {
   client_thread()->PostTask([&]() { client_.ice()->MaybeStartGathering(); });
   server_thread()->PostTask([&]() { server_.ice()->MaybeStartGathering(); });
 
-  ASSERT_THAT(WaitUntil(
-                  [&] {
-                    return client_thread()->BlockingCall([&]() {
-                      return client_.dtls->writable();
-                    }) && server_thread()->BlockingCall([&]() {
-                      return server_.dtls->writable();
-                    });
-                  },
-                  IsTrue(), wait_until_settings()),
-              IsRtcOk());
+  ASSERT_TRUE(WaitUntil(
+      [&] {
+        return client_thread()->BlockingCall([&]() {
+          return client_.dtls->writable();
+        }) && server_thread()->BlockingCall([&]() {
+          return server_.dtls->writable();
+        });
+      },
+      wait_until_settings()));
 
   auto now = CurrentTime();
   auto end = now + TimeDelta::Minutes(
@@ -314,16 +316,15 @@ TEST_P(DtlsIceIntegrationTest, LongRunningTestWithPacketLoss) {
       }
     }
 
-    EXPECT_THAT(WaitUntil(
-                    [&] {
-                      return client_thread()->BlockingCall([&]() {
-                        return client_.dtls->writable();
-                      }) && server_thread()->BlockingCall([&]() {
-                        return server_.dtls->writable();
-                      });
-                    },
-                    IsTrue(), wait_until_settings()),
-                IsRtcOk());
+    EXPECT_TRUE(WaitUntil(
+        [&] {
+          return client_thread()->BlockingCall([&]() {
+            return client_.dtls->writable();
+          }) && server_thread()->BlockingCall([&]() {
+            return server_.dtls->writable();
+          });
+        },
+        wait_until_settings()));
     ASSERT_THAT(client_thread()->BlockingCall(
                     [&]() { return client_.dtls->dtls_state(); }),
                 Not(Eq(DtlsTransportState::kFailed)));
@@ -361,11 +362,9 @@ TEST_P(DtlsIceIntegrationTest, AlmostFullSTUN_BINDING) {
   server_thread()->PostTask([&]() { server_.ice()->MaybeStartGathering(); });
 
   // Note: this only reaches the pending piggybacking state.
-  EXPECT_THAT(
-      WaitUntil(
-          [&] { return client_.dtls->writable() && server_.dtls->writable(); },
-          IsTrue(), wait_until_settings()),
-      IsRtcOk());
+  EXPECT_TRUE(WaitUntil(
+      [&] { return client_.dtls->writable() && server_.dtls->writable(); },
+      wait_until_settings()));
 
   client_thread()->BlockingCall([&]() {
     EXPECT_EQ(client_.dtls->IsDtlsPiggybackSupportedByPeer(),
@@ -381,8 +380,16 @@ TEST_P(DtlsIceIntegrationTest, AlmostFullSTUN_BINDING) {
               client_.config.dtls_in_stun && server_.config.dtls_in_stun);
   });
 
-  EXPECT_EQ(client_.dtls->GetRetransmissionCount(), 0);
-  EXPECT_EQ(server_.dtls->GetRetransmissionCount(), 0);
+  if (client_.config.dtls_in_stun && server_.config.dtls_in_stun &&
+      (client_.config.pqc || server_.config.pqc)) {
+    // TODO: bugs.webrtc.org/367395350 - Investigate why there is
+    // retransmissions in the scenario where the STUN packet is almost full,
+    // e.g. will the issue be solved by our effort to smooth BoringSSL packets ?
+    EXPECT_LE(client_.dtls->GetRetransmissionCount(), 1);
+    EXPECT_LE(server_.dtls->GetRetransmissionCount(), 1);
+  } else {
+    CheckRetransmissions();
+  }
 }
 
 INSTANTIATE_TEST_SUITE_P(DtlsStunPiggybackingIntegrationTest,
@@ -449,16 +456,6 @@ INSTANTIATE_TEST_SUITE_P(
 TEST_P(DtlsIceIntegrationPerformanceTest, ConnectTime) {
   if (!dtls_ice_integration_fixture::Base::IsBoringSsl()) {
     GTEST_SKIP() << "Needs boringssl.";
-  }
-
-  {
-    TestConfig config = GetParam();
-    if (config.client_config.pqc == 1 && config.server_config.pqc &&
-        config.server_config.ice_lite) {
-      // TODO jonaso, webrtc:404763475 : re-enable once
-      // boringssl has been merged and test cases updated.
-      GTEST_SKIP() << "TODO jonaso.";
-    }
   }
 
   int iter = 50;

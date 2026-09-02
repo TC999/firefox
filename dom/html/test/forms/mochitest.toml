@@ -48,6 +48,8 @@ support-files = ["file_double_submit.html"]
 
 ["test_input_attributes_reflection.html"]
 
+["test_input_click_clear_button_without_focus.html"]
+
 ["test_input_color_input_change_events.html"]
 skip-if = [
   "os == 'mac' && os_version == '14.70' && arch == 'x86_64'", # Bug 1929441
@@ -86,6 +88,8 @@ skip-if = [
 ["test_input_datetime_reset_default_value_input_change_event.html"]
 
 ["test_input_datetime_tabindex.html"]
+
+["test_input_datetime_timepicker_disabled.html"]
 
 ["test_input_defaultValue.html"]
 
@@ -182,6 +186,7 @@ skip-if = [
 ["test_meter_pseudo-classes.html"]
 
 ["test_min_attribute.html"]
+support-files = ["datetime_utils.js"]
 
 ["test_minlength_attribute.html"]
 
@@ -227,6 +232,7 @@ skip-if = [
 skip-if = [
   "os == 'mac' && os_version == '10.15' && arch == 'x86_64'",
   "os == 'mac' && os_version == '14.70' && arch == 'x86_64'", # Bug 1929441
+  "os == 'mac' && os_version == '15.30' && arch == 'aarch64'", # Bug 2023967
 ]
 
 ["test_select_selectedOptions.html"]
@@ -236,6 +242,7 @@ skip-if = [
 ["test_set_range_text.html"]
 
 ["test_step_attribute.html"]
+support-files = ["datetime_utils.js"]
 
 ["test_stepup_stepdown.html"]
 

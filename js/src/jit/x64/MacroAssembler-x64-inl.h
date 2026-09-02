@@ -97,6 +97,10 @@ void MacroAssembler::andPtr(Imm32 imm, Register src, Register dest) {
   andPtr(imm, dest);
 }
 
+void MacroAssembler::andPtr(Imm32 imm, const Address& dest) {
+  andq(imm, Operand(dest));
+}
+
 void MacroAssembler::and64(Imm64 imm, Register64 dest) {
   if (INT32_MIN <= int64_t(imm.value) && int64_t(imm.value) <= INT32_MAX) {
     if (int32_t(imm.value) >= 0) {
@@ -406,6 +410,11 @@ void MacroAssembler::lshift64(Imm32 imm, Register64 dest) {
   lshiftPtr(imm, dest.reg);
 }
 
+void MacroAssembler::lshift64(Imm32 imm, Register64 src, Register64 dest) {
+  MOZ_ASSERT(0 <= imm.value && imm.value < 64);
+  lshiftPtr(imm, src.reg, dest.reg);
+}
+
 void MacroAssembler::lshift64(Register shift, Register64 srcDest) {
   if (Assembler::HasBMI2()) {
     shlxq(srcDest.reg, shift, srcDest.reg);
@@ -454,6 +463,11 @@ void MacroAssembler::flexibleRshiftPtr(Register shift, Register srcDest) {
 
 void MacroAssembler::rshift64(Imm32 imm, Register64 dest) {
   rshiftPtr(imm, dest.reg);
+}
+
+void MacroAssembler::rshift64(Imm32 imm, Register64 src, Register64 dest) {
+  MOZ_ASSERT(0 <= imm.value && imm.value < 64);
+  rshiftPtr(imm, src.reg, dest.reg);
 }
 
 void MacroAssembler::rshift64(Register shift, Register64 srcDest) {
@@ -507,6 +521,12 @@ void MacroAssembler::flexibleRshiftPtrArithmetic(Register shift,
 void MacroAssembler::rshift64Arithmetic(Imm32 imm, Register64 dest) {
   MOZ_ASSERT(0 <= imm.value && imm.value < 64);
   rshiftPtrArithmetic(imm, dest.reg);
+}
+
+void MacroAssembler::rshift64Arithmetic(Imm32 imm, Register64 src,
+                                        Register64 dest) {
+  MOZ_ASSERT(0 <= imm.value && imm.value < 64);
+  rshiftPtrArithmetic(imm, src.reg, dest.reg);
 }
 
 void MacroAssembler::rshift64Arithmetic(Register shift, Register64 srcDest) {
@@ -946,6 +966,13 @@ void MacroAssembler::branchTestMagic(Condition cond, const Address& valaddr,
   j(cond, label);
 }
 
+void MacroAssembler::branchTestMagic(Condition cond, const BaseIndex& valaddr,
+                                     JSWhyMagic why, Label* label) {
+  uint64_t magic = MagicValue(why).asRawBits();
+  cmpPtr(Operand(valaddr), ImmWord(magic));
+  j(cond, label);
+}
+
 template <typename T>
 void MacroAssembler::branchTestValue(Condition cond, const T& lhs,
                                      const ValueOperand& rhs, Label* label) {
@@ -1142,8 +1169,7 @@ void MacroAssembler::wasmMulI64WideHI64(Register lhs, Register rhs,
       MOZ_RELEASE_ASSERT(regs[i] != regs[j]);
     }
   }
-  // Require: lhs is in RAX and rhs is in RDX.  Or the other way round -- it
-  // doesn't matter since the operation is commutative.
+  // Require: lhs is in RAX and rhs is in RDX.
   MOZ_RELEASE_ASSERT(lhs == rax);
   MOZ_RELEASE_ASSERT(rhs == rdx);
   // Hence we are also assured that output != RDX and output != RAX.
@@ -1159,21 +1185,23 @@ void MacroAssembler::wasmMulI64WideHI64(Register lhs, Register rhs,
   //       temp1   holds  original RDX
   //       rdx     holds  resultHI
   //       rax     holds  resultLO
-  //   xchgq rdx, temp1
+  //   movq rdx, output
   //       temp0   holds  original RAX
-  //       temp1   holds  resultHI
-  //       rdx     holds  original RDX
+  //       temp1   holds  original RDX
+  //       rdx     holds  resultHI
   //       rax     holds  resultLO
+  //       output  holds  resultHI
   //   movq temp0, rax
   //       temp0   holds  original RAX
-  //       temp1   holds  resultHI
+  //       temp1   holds  original RDX
+  //       rdx     holds  resultHI
+  //       rax     holds  original RAX
+  //       output  holds  resultHI
+  //   movq temp1, rdx
+  //       temp0   holds  original RAX
+  //       temp1   holds  original RDX
   //       rdx     holds  original RDX
   //       rax     holds  original RAX
-  //   movq temp1, output
-  //       temp0   holds  original RAX
-  //       temp1   holds  resultHI
-  //       rdx     holds  original RDX (because output != RDX)
-  //       rax     holds  original RAX (because output != RAX)
   //       output  holds  resultHI
   movq(rax, temp0);
   movq(rdx, temp1);
@@ -1182,9 +1210,9 @@ void MacroAssembler::wasmMulI64WideHI64(Register lhs, Register rhs,
   } else {
     umulq(rdx);
   }
-  xchgq(rdx, temp1);
+  movq(rdx, output);
   movq(temp0, rax);
-  movq(temp1, output);
+  movq(temp1, rdx);
 }
 
 // ========================================================================

@@ -5,11 +5,10 @@
 Transform the openh264-symbol-upload task into an actual task description.
 """
 
+from mozilla_taskgraph.util.attributes import copy_attributes_from_dependent_job
 from taskgraph.transforms.base import TransformSequence
 from taskgraph.util.dependencies import get_primary_dependency
 from taskgraph.util.treeherder import inherit_treeherder_from_dep, join_symbol
-
-from gecko_taskgraph.util.attributes import copy_attributes_from_dependent_job
 
 transforms = TransformSequence()
 
@@ -51,6 +50,7 @@ def make_symbol_upload_description(config, jobs):
             },
             "run": {
                 "using": "mach",
+                "clone-with": "hg",
                 "mach": {
                     "artifact-reference": f"python toolkit/crashreporter/tools/upload_symbols.py <openh264/{artifact_path}>",
                 },

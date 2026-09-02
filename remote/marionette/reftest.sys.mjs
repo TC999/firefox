@@ -17,6 +17,10 @@ ChromeUtils.defineESModuleGetters(lazy, {
   print: "chrome://remote/content/shared/PDF.sys.mjs",
 });
 
+ChromeUtils.defineLazyGetter(lazy, "aboutBlankURI", () =>
+  Services.io.newURI("about:blank")
+);
+
 ChromeUtils.defineLazyGetter(lazy, "logger", () =>
   lazy.Log.get(lazy.Log.TYPES.MARIONETTE)
 );
@@ -69,7 +73,6 @@ reftest.Runner = class {
     this.windowUtils = null;
     this.lastURL = null;
     this.useRemoteTabs = lazy.AppInfo.browserTabsRemoteAutostart;
-    this.useRemoteSubframes = lazy.AppInfo.fissionAutostart;
     this.cacheScreenshots = true;
     this.useDrawSnapshot = Services.prefs.getBoolPref(
       "reftest.use-draw-snapshot",
@@ -111,7 +114,6 @@ reftest.Runner = class {
     this.cacheScreenshots = cacheScreenshots;
 
     ChromeUtils.registerWindowActor("MarionetteReftest", {
-      kind: "JSWindowActor",
       parent: {
         esModuleURI:
           "chrome://remote/content/marionette/actors/MarionetteReftestParent.sys.mjs",
@@ -124,6 +126,7 @@ reftest.Runner = class {
         },
       },
       allFrames: true,
+      safeForUntrustedWebProcess: true,
     });
   }
 
@@ -155,7 +158,7 @@ reftest.Runner = class {
       reftestWin = this.parentWindow;
       await lazy.navigate.waitForNavigationCompleted(this.driver, () => {
         const browsingContext = this.driver.getBrowsingContext();
-        lazy.navigate.navigateTo(browsingContext, "about:blank");
+        lazy.navigate.navigateTo(browsingContext, lazy.aboutBlankURI);
       });
     } else {
       lazy.logger.debug("Using separate window");
@@ -633,15 +636,9 @@ reftest.Runner = class {
     if (lazy.AppInfo.isAndroid) {
       return;
     }
-    let oa = lazy.E10SUtils.predictOriginAttributes({ browser });
-    let remoteType = lazy.E10SUtils.getRemoteTypeForURI(
-      url,
-      this.useRemoteTabs,
-      this.useRemoteSubframes,
-      lazy.E10SUtils.DEFAULT_REMOTE_TYPE,
-      null,
-      oa
-    );
+    let remoteType = ChromeUtils.predictRemoteTypeForURI(url, {
+      window: browser.documentGlobal,
+    });
 
     // Only re-construct the browser if its remote type needs to change.
     if (browser.remoteType !== remoteType) {
@@ -676,7 +673,7 @@ reftest.Runner = class {
       //
       // See bug 1636169.
       this.updateBrowserRemotenessByURL(win.gBrowser, url);
-      lazy.navigate.navigateTo(browsingContext, url);
+      lazy.navigate.navigateTo(browsingContext, Services.io.newURI(url));
 
       this.lastURL = url;
     }
@@ -767,7 +764,13 @@ reftest.Runner = class {
         0, // top
         browserRect.width,
         browserRect.height,
-        { canvas, flags, readback: !this.useDrawSnapshot }
+        {
+          canvas,
+          flags,
+          readback: !this.useDrawSnapshot,
+          // Match the DRAWWINDOW_DRAW_VIEW readback path above.
+          drawView: true,
+        }
       );
     }
     if (

@@ -6,6 +6,7 @@
 #define mozilla_WindowsDiagnostics_h
 
 #include "mozilla/Attributes.h"
+#include "mozilla/SEH.h"
 #include "mozilla/Types.h"
 
 // Bug 1898761: NativeNt.h depends on headers that live outside mozglue/misc/
@@ -76,11 +77,7 @@ struct WinErrorState {
     };
   }
 
-  bool operator==(WinErrorState const& that) const {
-    return this->error == that.error && this->ntStatus == that.ntStatus;
-  }
-
-  bool operator!=(WinErrorState const& that) const { return !operator==(that); }
+  bool operator==(WinErrorState const& that) const = default;
 };
 
 #if defined(_M_AMD64)
@@ -124,12 +121,24 @@ CollectSingleStepData(CallbackToRun aCallbackToRun,
     return WindowsDiagnosticsError::InternalFailure;
   }
 
-  EnableTrapFlag();
-  aCallbackToRun();
-  DisableTrapFlag();
+  auto result = WindowsDiagnosticsError::None;
+  MOZ_SEH_TRY {
+    EnableTrapFlag();
+    aCallbackToRun();
+    DisableTrapFlag();
+  }
+  MOZ_SEH_EXCEPT(::GetExceptionCode() == EXCEPTION_SINGLE_STEP
+                     ? EXCEPTION_EXECUTE_HANDLER
+                     : EXCEPTION_CONTINUE_SEARCH) {
+    // Bug 1932088: If something prevents our VEH from running, the single-step
+    // exception can get through the VEH chain. Catch it through SEH and fail
+    // cleanly.
+    result = WindowsDiagnosticsError::InternalFailure;
+  }
+
   ::RemoveVectoredExceptionHandler(veh);
 
-  return WindowsDiagnosticsError::None;
+  return result;
 }
 
 // This block uses nt::PEHeaders and thus depends on NativeNt.h.

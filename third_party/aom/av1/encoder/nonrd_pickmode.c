@@ -207,6 +207,14 @@ static int combined_motion_search(AV1_COMP *cpi, MACROBLOCK *x,
   int cost_list[5];
   int search_subpel = 1;
 
+  if (av1_is_scaled(get_ref_scale_factors_const(cm, ref))) {
+    const YV12_BUFFER_CONFIG *scaled_ref = av1_get_scaled_ref_frame(cpi, ref);
+    (void)scaled_ref;
+    assert(scaled_ref != NULL);
+    assert(scaled_ref->y_crop_width == cm->width &&
+           scaled_ref->y_crop_height == cm->height);
+  }
+
   start_mv = get_fullmv_from_mv(&ref_mv);
 
   if (!use_base_mv)
@@ -323,7 +331,7 @@ static int search_new_mv(AV1_COMP *cpi, MACROBLOCK *x,
     MV ref_mv = av1_get_ref_mv(x, 0).as_mv;
     tmp_sad = av1_int_pro_motion_estimation(
         cpi, x, bsize, mi_row, mi_col, &ref_mv, &y_sad_zero, me_search_size_col,
-        me_search_size_row);
+        me_search_size_row, 0, 0);
 
     if (tmp_sad > x->pred_mv_sad[LAST_FRAME]) return -1;
 
@@ -1571,6 +1579,135 @@ static bool should_prune_intra_modes_using_neighbors(
          this_mode != left_mode;
 }
 
+static void av1_search_intrabc_nonrd(AV1_COMP *cpi, MACROBLOCK *x,
+                                     BLOCK_SIZE bsize, RD_STATS *this_rdc,
+                                     int_mv *best_dv) {
+  AV1_COMMON *const cm = &cpi->common;
+  MACROBLOCKD *const xd = &x->e_mbd;
+  MB_MODE_INFO *const mi = xd->mi[0];
+  const int mi_row = xd->mi_row;
+  const int mi_col = xd->mi_col;
+  const int num_planes = av1_num_planes(cm);
+
+  this_rdc->rdcost = INT64_MAX;
+
+  // Save pre[0] state as it's shared across blocks
+  struct buf_2d ori_pre[MAX_MB_PLANE];
+  for (int i = 0; i < num_planes; ++i) ori_pre[i] = xd->plane[i].pre[0];
+
+  struct buf_2d yv12_mb[MAX_MB_PLANE];
+  av1_setup_pred_block(xd, yv12_mb, xd->cur_buf, NULL, NULL, num_planes);
+  for (int i = 0; i < num_planes; ++i) {
+    xd->plane[i].pre[0] = yv12_mb[i];
+  }
+
+  MB_MODE_INFO_EXT *const mbmi_ext = &x->mbmi_ext;
+  const MV_REFERENCE_FRAME ref_frame = INTRA_FRAME;
+  av1_find_mv_refs(cm, xd, mi, ref_frame, mbmi_ext->ref_mv_count,
+                   xd->ref_mv_stack, xd->weight, NULL, mbmi_ext->global_mvs,
+                   mbmi_ext->mode_context);
+  av1_copy_usable_ref_mv_stack_and_weight(xd, mbmi_ext, ref_frame);
+  int_mv nearestmv, nearmv;
+  av1_find_best_ref_mvs_from_stack(0, mbmi_ext, ref_frame, &nearestmv, &nearmv,
+                                   0);
+
+  if (nearestmv.as_int == INVALID_MV) {
+    nearestmv.as_int = 0;
+  }
+  if (nearmv.as_int == INVALID_MV) {
+    nearmv.as_int = 0;
+  }
+
+  int_mv dv_ref = nearestmv.as_int == 0 ? nearmv : nearestmv;
+  if (dv_ref.as_int == 0) {
+    av1_find_ref_dv(&dv_ref, &xd->tile, cm->seq_params->mib_size, mi_row);
+  }
+  // Ref DV should not have sub-pel.
+  assert((dv_ref.as_mv.col & 7) == 0);
+  assert((dv_ref.as_mv.row & 7) == 0);
+  mbmi_ext->ref_mv_stack[INTRA_FRAME][0].this_mv = dv_ref;
+
+  FULLPEL_MOTION_SEARCH_PARAMS fullms_params;
+  const SEARCH_METHODS search_method =
+      av1_get_default_mv_search_method(x, &cpi->sf.mv_sf, bsize);
+  const search_site_config *lookahead_search_sites =
+      cpi->mv_search_params.search_site_cfg[SS_CFG_LOOKAHEAD];
+  const FULLPEL_MV start_mv = get_fullmv_from_mv(&dv_ref.as_mv);
+  av1_make_default_fullpel_ms_params(&fullms_params, cpi, x, bsize,
+                                     &dv_ref.as_mv, start_mv,
+                                     lookahead_search_sites, search_method,
+                                     /*fine_search_interval=*/0);
+  av1_set_ms_to_intra_mode(&fullms_params, x->dv_costs);
+  fullms_params.mv_limits.col_min = (xd->tile.mi_col_start - mi_col) * MI_SIZE;
+  fullms_params.mv_limits.col_max =
+      (xd->tile.mi_col_end - mi_col) * MI_SIZE - block_size_wide[bsize];
+  fullms_params.mv_limits.row_min = (xd->tile.mi_row_start - mi_row) * MI_SIZE;
+  fullms_params.mv_limits.row_max =
+      (xd->tile.mi_row_end - mi_row) * MI_SIZE - block_size_high[bsize];
+  int_mv best_mv;
+  int bestsme = INT_MAX;
+  if (!cpi->sf.mv_sf.hash_max_8x8_intrabc_blocks || bsize <= BLOCK_8X8) {
+    bestsme = av1_intrabc_hash_search(
+        cpi, xd, &fullms_params, &x->intrabc_hash_info, &best_mv.as_fullmv);
+  }
+  if (bestsme == INT_MAX) {
+    FULLPEL_MV_STATS best_mv_stats;
+    bestsme = av1_full_pixel_search(start_mv, &fullms_params,
+                                    cpi->mv_search_params.mv_step_param, NULL,
+                                    &best_mv.as_fullmv, &best_mv_stats, NULL);
+  }
+  if (bestsme != INT_MAX) {
+    MV dv = get_mv_from_fullmv(&best_mv.as_fullmv);
+    if (av1_is_dv_valid(dv, cm, xd, mi_row, mi_col, bsize,
+                        cm->seq_params->mib_size_log2)) {
+      const int8_t ori_mi_use_intrabc = mi->use_intrabc;
+      const int_mv ori_mi_mv0 = mi->mv[0];
+      const PREDICTION_MODE ori_mi_mode = mi->mode;
+      const MV_REFERENCE_FRAME ori_ref0 = mi->ref_frame[0];
+
+      mi->use_intrabc = 1;
+      mi->mv[0].as_mv = dv;
+      mi->mode = DC_PRED;
+      mi->ref_frame[0] = INTRA_FRAME;
+
+      av1_enc_build_inter_predictor(cm, xd, mi_row, mi_col, NULL, bsize, 0, 0);
+      if (num_planes > 1) {
+        av1_enc_build_inter_predictor(cm, xd, mi_row, mi_col, NULL, bsize, 1,
+                                      1);
+        av1_enc_build_inter_predictor(cm, xd, mi_row, mi_col, NULL, bsize, 2,
+                                      2);
+      }
+
+      this_rdc->rate =
+          av1_mv_bit_cost(&dv, &dv_ref.as_mv, x->dv_costs->joint_mv,
+                          x->dv_costs->dv_costs, MV_COST_WEIGHT);
+      this_rdc->rate += x->mode_costs.intrabc_cost[1];
+      this_rdc->dist = 0;
+      int skippable;
+      av1_block_yrd(x, this_rdc, &skippable, bsize,
+                    AOMMIN(mi->tx_size, TX_16X16));
+      if (num_planes > 1) {
+        RD_STATS rdc_uv;
+        av1_invalid_rd_stats(&rdc_uv);
+        av1_model_rd_for_sb_uv(cpi, bsize, x, xd, &rdc_uv, 1, 2);
+        this_rdc->rate += rdc_uv.rate;
+        this_rdc->dist += rdc_uv.dist;
+      }
+      this_rdc->rdcost = RDCOST(x->rdmult, this_rdc->rate, this_rdc->dist);
+      *best_dv = mi->mv[0];
+
+      // Restore mi state after trial
+      mi->use_intrabc = ori_mi_use_intrabc;
+      mi->mv[0] = ori_mi_mv0;
+      mi->mode = ori_mi_mode;
+      mi->ref_frame[0] = ori_ref0;
+    }
+  }
+
+  // Restore pre[0] state
+  for (int i = 0; i < num_planes; ++i) xd->plane[i].pre[0] = ori_pre[i];
+}
+
 void av1_nonrd_pick_intra_mode(AV1_COMP *cpi, MACROBLOCK *x, RD_STATS *rd_cost,
                                BLOCK_SIZE bsize, PICK_MODE_CONTEXT *ctx) {
   AV1_COMMON *const cm = &cpi->common;
@@ -1580,9 +1717,18 @@ void av1_nonrd_pick_intra_mode(AV1_COMP *cpi, MACROBLOCK *x, RD_STATS *rd_cost,
   struct estimate_block_intra_args args;
   init_estimate_block_intra_args(&args, cpi, x);
   const TxfmSearchParams *txfm_params = &x->txfm_search_params;
+  const int mi_row = xd->mi_row;
+  const int mi_col = xd->mi_col;
   mi->tx_size =
       AOMMIN(max_txsize_lookup[bsize],
              tx_mode_to_biggest_tx_size[txfm_params->tx_mode_search_type]);
+  // For flat blocks at high qp, along the top/left boundary, cap the
+  // transform size to 16x16. This is avoid chessboard artifact that
+  // can occur for flat input at high QP.
+  if (cm->quant_params.base_qindex > 150 && x->source_variance == 0 &&
+      (mi_row == 0 || mi_col == 0) && mi->tx_size > TX_16X16) {
+    mi->tx_size = TX_16X16;
+  }
   assert(IMPLIES(xd->lossless[mi->segment_id], mi->tx_size == TX_4X4));
   const BLOCK_SIZE tx_bsize = txsize_to_bsize[mi->tx_size];
 
@@ -1601,8 +1747,6 @@ void av1_nonrd_pick_intra_mode(AV1_COMP *cpi, MACROBLOCK *x, RD_STATS *rd_cost,
   const int left_ctx = intra_mode_context[L];
   const unsigned int source_variance = x->source_variance;
   bmode_costs = x->mode_costs.y_mode_costs[above_ctx][left_ctx];
-  const int mi_row = xd->mi_row;
-  const int mi_col = xd->mi_col;
   // Use this flag to signal large flat blocks that may need special
   // treatment: in the current case H/V/SMOOTH may not be skipped if
   // DC has nonzero distortion and skippable is set. This is to remove
@@ -1719,6 +1863,27 @@ void av1_nonrd_pick_intra_mode(AV1_COMP *cpi, MACROBLOCK *x, RD_STATS *rd_cost,
         av1_copy_array(ctx->tx_type_map, xd->tx_type_map, ctx->num_4x4_blk);
     } else {
       av1_zero(mi->palette_mode_info);
+    }
+  }
+
+  bool try_intrabc = cpi->sf.rt_sf.rt_use_intrabc && av1_allow_intrabc(cm) &&
+                     bsize <= BLOCK_16X16;
+
+  if (try_intrabc) {
+    int_mv best_dv;
+    av1_search_intrabc_nonrd(cpi, x, bsize, &this_rdc, &best_dv);
+    if (this_rdc.rdcost < best_rdc.rdcost) {
+      best_rdc = this_rdc;
+      best_mode = DC_PRED;
+      mi->use_intrabc = 1;
+      mi->mv[0] = best_dv;
+      mi->uv_mode = UV_DC_PRED;
+      mi->motion_mode = SIMPLE_TRANSLATION;
+      mi->interp_filters = av1_broadcast_interp_filter(BILINEAR);
+      memset(&mi->palette_mode_info, 0, sizeof(mi->palette_mode_info));
+      memset(mi->inter_tx_size, mi->tx_size, sizeof(mi->inter_tx_size));
+    } else {
+      mi->use_intrabc = 0;
     }
   }
 
@@ -2490,6 +2655,26 @@ static AOM_FORCE_INLINE bool skip_inter_mode_nonrd(
       (*this_mode != GLOBALMV || *ref_frame != LAST_FRAME))
     return true;
 
+  // Skip the mode if use reference frame mask flag is not set.
+  if (!search_state->use_ref_frame_mask[*ref_frame]) return true;
+
+  *force_mv_inter_layer = 0;
+  if (cpi->ppi->use_svc && svc->spatial_layer_id > 0 &&
+      ((*ref_frame == LAST_FRAME && svc->skip_mvsearch_last) ||
+       (*ref_frame == GOLDEN_FRAME && svc->skip_mvsearch_gf) ||
+       (*ref_frame == ALTREF_FRAME && svc->skip_mvsearch_altref))) {
+    // Only test mode if NEARESTMV/NEARMV is (svc_mv.mv.col, svc_mv.mv.row),
+    // otherwise set NEWMV to (svc_mv.mv.col, svc_mv.mv.row).
+    // Skip newmv and filter search.
+    *force_mv_inter_layer = 1;
+    if (*this_mode == NEWMV) {
+      search_state->frame_mv[*this_mode][*ref_frame] = svc_mv;
+    } else if (search_state->frame_mv[*this_mode][*ref_frame].as_int !=
+               svc_mv.as_int) {
+      return true;
+    }
+  }
+
   // If the segment reference frame feature is enabled then do nothing if the
   // current ref frame is not allowed.
   if (segfeature_active(seg, segment_id, SEG_LVL_REF_FRAME)) {
@@ -2497,9 +2682,6 @@ static AOM_FORCE_INLINE bool skip_inter_mode_nonrd(
       return true;
     return false;
   }
-
-  // Skip the mode if use reference frame mask flag is not set.
-  if (!search_state->use_ref_frame_mask[*ref_frame]) return true;
 
   // Don't skip non_last references if LAST is not used a reference.
   if (!(cpi->ref_frame_flags & AOM_LAST_FLAG) &&
@@ -2563,23 +2745,6 @@ static AOM_FORCE_INLINE bool skip_inter_mode_nonrd(
           search_state->mode_checked, search_state->vars,
           search_state->uv_dist)) {
     return true;
-  }
-
-  *force_mv_inter_layer = 0;
-  if (cpi->ppi->use_svc && svc->spatial_layer_id > 0 &&
-      ((*ref_frame == LAST_FRAME && svc->skip_mvsearch_last) ||
-       (*ref_frame == GOLDEN_FRAME && svc->skip_mvsearch_gf) ||
-       (*ref_frame == ALTREF_FRAME && svc->skip_mvsearch_altref))) {
-    // Only test mode if NEARESTMV/NEARMV is (svc_mv.mv.col, svc_mv.mv.row),
-    // otherwise set NEWMV to (svc_mv.mv.col, svc_mv.mv.row).
-    // Skip newmv and filter search.
-    *force_mv_inter_layer = 1;
-    if (*this_mode == NEWMV) {
-      search_state->frame_mv[*this_mode][*ref_frame] = svc_mv;
-    } else if (search_state->frame_mv[*this_mode][*ref_frame].as_int !=
-               svc_mv.as_int) {
-      return true;
-    }
   }
 
   // For screen content: skip mode testing based on source_sad.
@@ -3440,6 +3605,7 @@ void av1_nonrd_pick_inter_mode_sb(AV1_COMP *cpi, TileDataEnc *tile_data,
       !x->force_zeromv_skip_for_blk &&
       x->content_state_sb.source_sad_nonrd != kZeroSad &&
       x->source_variance == 0 && bsize < cm->seq_params->sb_size &&
+      search_state.use_ref_frame_mask[LAST_FRAME] &&
       search_state.yv12_mb[LAST_FRAME][0].width == cm->width &&
       search_state.yv12_mb[LAST_FRAME][0].height == cm->height) {
     set_block_source_sad(cpi, x, bsize, &search_state.yv12_mb[LAST_FRAME][0]);
@@ -3582,7 +3748,7 @@ void av1_nonrd_pick_inter_mode_sb(AV1_COMP *cpi, TileDataEnc *tile_data,
   if (cpi->oxcf.tune_cfg.content == AOM_CONTENT_SCREEN &&
       x->content_state_sb.source_sad_nonrd != kZeroSad &&
       bsize <= BLOCK_16X16) {
-    unsigned int thresh_sse = cpi->rc.high_source_sad ? 15000 : 200000;
+    unsigned int thresh_sse = cpi->rc.high_source_sad ? 15000 : 100000;
     unsigned int thresh_source_var = cpi->rc.high_source_sad ? 50 : 200;
     unsigned int best_sse_inter_motion =
         (unsigned int)(search_state.best_rdc.sse >>
@@ -3613,7 +3779,7 @@ void av1_nonrd_pick_inter_mode_sb(AV1_COMP *cpi, TileDataEnc *tile_data,
                           x->content_state_sb.source_sad_nonrd != kZeroSad &&
                           !cpi->rc.high_source_sad &&
                           (cpi->rc.high_motion_content_screen_rtc ||
-                           cpi->rc.frame_source_sad < 10000);
+                           cpi->rc.frame_source_sad < 1000);
 
   bool try_palette = enable_palette(
       cpi, is_mode_intra(best_pickmode->best_mode), bsize, x->source_variance,
@@ -3731,6 +3897,12 @@ void av1_nonrd_pick_inter_mode_sb(AV1_COMP *cpi, TileDataEnc *tile_data,
 #endif  // COLLECT_NONRD_PICK_MODE_STAT
 
   *rd_cost = search_state.best_rdc;
+
+  mi->num_proj_ref = 0;
+  if (warped_motion_update_num_proj_ref(cpi, mi)) {
+    int pts[SAMPLES_ARRAY_SIZE], pts_inref[SAMPLES_ARRAY_SIZE];
+    mi->num_proj_ref = av1_findSamples(cm, xd, pts, pts_inref);
+  }
 
   // Reset the xd->block_ref_scale_factors[i], as they may have
   // been set to pointer &sf_no_scale, which becomes invalid afer

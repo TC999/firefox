@@ -3,14 +3,15 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "Platform.h"
+
 #include "DocAccessibleWrap.h"
 #include "SessionAccessibility.h"
-#include "mozilla/a11y/RemoteAccessible.h"
+#include "TextLeafRange.h"
 #include "mozilla/Components.h"
+#include "mozilla/a11y/RemoteAccessible.h"
 #include "nsIAccessibleEvent.h"
 #include "nsIAccessiblePivot.h"
 #include "nsIStringBundle.h"
-#include "TextLeafRange.h"
 
 #define ROLE_STRINGS_URL "chrome://global/locale/AccessFu.properties"
 
@@ -45,6 +46,12 @@ void a11y::PlatformInit() {
     sLocalizedStrings.InsertOrUpdate(u"stateRequired"_ns, localizedStr);
   }
 
+  // Preload the state mixed localized string.
+  rv = stringBundle->GetStringFromName("statePartiallyChecked", localizedStr);
+  if (NS_SUCCEEDED(rv)) {
+    sLocalizedStrings.InsertOrUpdate(u"statePartiallyChecked"_ns, localizedStr);
+  }
+
   // Preload heading level localized descriptions 1 thru 6.
   for (int32_t level = 1; level <= 6; level++) {
     nsAutoString token;
@@ -65,9 +72,14 @@ void a11y::PlatformInit() {
 #define ROLE(geckoRole, stringRole, ariaRole, atkRole, macRole, macSubrole, \
              msaaRole, ia2Role, androidClass, iosIsElement, uiaControlType, \
              nameRule)                                                      \
-  rv = stringBundle->GetStringFromName(stringRole, localizedStr);           \
-  if (NS_SUCCEEDED(rv)) {                                                   \
-    sLocalizedStrings.InsertOrUpdate(u##stringRole##_ns, localizedStr);     \
+  {                                                                         \
+    nsAutoString stringRoleToken(u##stringRole##_ns);                       \
+    stringRoleToken.StripWhitespace();                                      \
+    rv = stringBundle->GetStringFromName(                                   \
+        NS_ConvertUTF16toUTF8(stringRoleToken).get(), localizedStr);        \
+    if (NS_SUCCEEDED(rv)) {                                                 \
+      sLocalizedStrings.InsertOrUpdate(stringRoleToken, localizedStr);      \
+    }                                                                       \
   }
 
 #include "RoleMap.inc"
@@ -158,7 +170,6 @@ void a11y::PlatformCaretMoveEvent(Accessible* aTarget, int32_t aOffset,
     // Pivot to the caret's position if it has an expanded selection.
     // This is used mostly for find in page.
     Accessible* leaf = TextLeafPoint::GetCaret(aTarget).mAcc;
-    MOZ_ASSERT(leaf);
     if (leaf) {
       if (Accessible* result = AccessibleWrap::DoPivot(
               leaf, java::SessionAccessibility::HTML_GRANULARITY_DEFAULT, true,
@@ -233,4 +244,8 @@ uint64_t a11y::GetCacheDomainsForKnownClients(uint64_t aCacheDomains) {
   // XXX: Respond to clients such as TalkBack. For now, be safe and default to
   // caching all domains.
   return CacheDomain::All;
+}
+
+void a11y::GetHumanReadableInstantiatorStr(nsAString& aResult) {
+  aResult.Truncate();
 }

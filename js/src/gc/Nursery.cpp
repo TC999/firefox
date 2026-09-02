@@ -3,9 +3,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "gc/Nursery-inl.h"
-
 #include "mozilla/DebugOnly.h"
+#include "mozilla/glue/Debug.h"
 #include "mozilla/IntegerPrintfMacros.h"
 #include "mozilla/Sprintf.h"
 #include "mozilla/TimeStamp.h"
@@ -37,6 +36,7 @@
 #include "gc/BufferAllocator-inl.h"
 #include "gc/Heap-inl.h"
 #include "gc/Marking-inl.h"
+#include "gc/Nursery-inl.h"
 #include "gc/StableCellHasher-inl.h"
 #include "gc/StoreBuffer-inl.h"
 #include "vm/GeckoProfiler-inl.h"
@@ -286,7 +286,7 @@ js::Nursery::Nursery(GCRuntime* gc)
 }
 
 static void PrintAndExit(const char* message) {
-  fprintf(stderr, "%s", message);
+  printf_stderr("%s", message);
   exit(0);
 }
 
@@ -839,7 +839,7 @@ void* js::Nursery::allocateZeroedBuffer(Cell* owner, size_t nbytes,
     return nullptr;
   }
 
-  if (!registerMallocedBuffer(buffer, nbytes)) {
+  if (IsInsideNursery(owner) && !registerMallocedBuffer(buffer, nbytes)) {
     js_free(buffer);
     return nullptr;
   }
@@ -968,9 +968,16 @@ void js::Nursery::forwardBufferPointer(uintptr_t* pSlotsElems) {
   //  - Nursery-allocated buffer
   //  - A BufferRelocationOverlay inside the nursery
   //
-  // Note: The buffer has already be relocated. We are just patching stale
+  // Note: The buffer has already been relocated. We are just patching stale
   //       pointers now.
   auto* buffer = reinterpret_cast<void*>(*pSlotsElems);
+
+  // If the pointer is to the beginning of a chunk, then that chunk cannot be a
+  // nursery chunk due to the chunk header. Also, the pointer cannot be to the
+  // end of a previous nursery chunk since the last word is never allocated.
+  if ((uintptr_t(buffer) & ChunkMask) == 0) {
+    return;
+  }
 
   if (!isInside(buffer)) {
     return;
@@ -1494,13 +1501,12 @@ void js::Nursery::sendTelemetry(JS::GCReason reason, TimeDuration totalTime,
 void js::Nursery::printDeduplicationData(js::StringStats& prev,
                                          js::StringStats& curr) {
   if (curr.deduplicatedStrings > prev.deduplicatedStrings) {
-    fprintf(stderr,
-            "pid %zu: deduplicated %" PRIi64 " strings, %" PRIu64
-            " chars, %" PRIu64 " malloc bytes\n",
-            size_t(getpid()),
-            curr.deduplicatedStrings - prev.deduplicatedStrings,
-            curr.deduplicatedChars - prev.deduplicatedChars,
-            curr.deduplicatedBytes - prev.deduplicatedBytes);
+    printf_stderr("pid %zu: deduplicated %" PRIi64 " strings, %" PRIu64
+                  " chars, %" PRIu64 " malloc bytes\n",
+                  size_t(getpid()),
+                  curr.deduplicatedStrings - prev.deduplicatedStrings,
+                  curr.deduplicatedChars - prev.deduplicatedChars,
+                  curr.deduplicatedBytes - prev.deduplicatedBytes);
   }
 }
 
@@ -1648,13 +1654,19 @@ void js::Nursery::swapSpaces() {
 void js::Nursery::traceRoots(AutoGCSession& session, TenuringTracer& mover) {
   {
     // Suppress the sampling profiler to prevent it observing moved functions.
+    // Minor GC does not move JSScripts (they are tenured), so allow the
+    // sampler to keep reading tenured script data such as line/column via
+    // ProfilingStackFrame::script(); its JSFunction may be in the nursery and
+    // moving, so function() stays suppressed.
     AutoSuppressProfilerSampling suppressProfiler(
-        runtime()->mainContextFromOwnThread());
+        runtime()->mainContextFromOwnThread(), ProfilerScriptAccess::Allow);
 
     // Trace the store buffer, which must happen first.
 
     // Create an empty store buffer on the stack and swap it with the main store
-    // buffer, clearing it.
+    // buffer, clearing it. Preserve the 'mayHavePointersToDeadCells' flag over
+    // semispace collections that may not clear these entries.
+
     StoreBuffer sb(gc);
     {
       AutoEnterOOMUnsafeRegion oomUnsafe;
@@ -1662,7 +1674,13 @@ void js::Nursery::traceRoots(AutoGCSession& session, TenuringTracer& mover) {
         oomUnsafe.crash("Nursery::traceRoots");
       }
     }
+
+    bool hadPointersToDeadCells =
+        gc->storeBuffer().mayHavePointersToDeadCells();
     std::swap(sb, gc->storeBuffer());
+    if (hadPointersToDeadCells && !tenuredEverything) {
+      gc->storeBuffer().setMayHavePointersToDeadCells();
+    }
     MOZ_ASSERT(gc->storeBuffer().isEnabled());
     MOZ_ASSERT(gc->storeBuffer().isEmpty());
 
@@ -1760,14 +1778,14 @@ size_t js::Nursery::doPretenuring(JSRuntime* rt, JS::GCReason reason,
   stats().setStat(gcstats::STAT_BIGINTS_PROMOTED, numBigIntsPromoted);
 
   if (reportPretenuring() && zonesWhereStringsDisabled) {
-    fprintf(stderr,
-            "Pretenuring disabled nursery string allocation in %zu zones\n",
-            zonesWhereStringsDisabled);
+    printf_stderr(
+        "Pretenuring disabled nursery string allocation in %zu zones\n",
+        zonesWhereStringsDisabled);
   }
   if (reportPretenuring() && zonesWhereBigIntsDisabled) {
-    fprintf(stderr,
-            "Pretenuring disabled nursery big int allocation in %zu zones\n",
-            zonesWhereBigIntsDisabled);
+    printf_stderr(
+        "Pretenuring disabled nursery big int allocation in %zu zones\n",
+        zonesWhereBigIntsDisabled);
   }
 
   return sitesPretenured;
@@ -2133,8 +2151,14 @@ void js::Nursery::poisonAndInitCurrentChunk() {
 void js::Nursery::setCurrentEnd() { toSpace.setCurrentEnd(this); }
 
 void js::Nursery::Space::setCurrentEnd(Nursery* nursery) {
+  size_t chunkBytesToUse = ChunkSize;
+
+  // To avoid problems with inline object elements abutting the end of a chunk,
+  // reduce the size used slightly. This wastes 8 bytes per chunk.
+  chunkBytesToUse -= gc::CellAlignBytes;
+
   currentEnd_ = uintptr_t(chunks_[currentChunk_]) +
-                std::min(nursery->capacity(), ChunkSize);
+                std::min(nursery->capacity(), chunkBytesToUse);
 }
 
 bool js::Nursery::allocateNextChunk(AutoLockGCBgAlloc& lock) {

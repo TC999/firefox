@@ -28,6 +28,7 @@ task-defaults:
         kind: test
         tier: 2
     run:
+        clone-with: hg
         using: run-task
         checkout: false
     fetches:

@@ -43,6 +43,7 @@ UNIFIED_SOURCES += [
     "/third_party/libwebrtc/api/video_codecs/video_decoder.cc",
     "/third_party/libwebrtc/api/video_codecs/video_decoder_factory.cc",
     "/third_party/libwebrtc/api/video_codecs/video_encoder.cc",
+    "/third_party/libwebrtc/api/video_codecs/video_encoder_factory.cc",
     "/third_party/libwebrtc/api/video_codecs/vp8_frame_config.cc",
     "/third_party/libwebrtc/api/video_codecs/vp8_temporal_layers.cc",
     "/third_party/libwebrtc/api/video_codecs/vp9_profile.cc"
@@ -82,6 +83,10 @@ if CONFIG["OS_TARGET"] == "Darwin":
     DEFINES["WEBRTC_POSIX"] = True
     DEFINES["__STDC_CONSTANT_MACROS"] = True
     DEFINES["__STDC_FORMAT_MACROS"] = True
+
+    OS_LIBS += [
+        "-framework Foundation"
+    ]
 
 if CONFIG["OS_TARGET"] == "Linux":
 

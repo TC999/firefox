@@ -86,7 +86,9 @@ typedef enum {
     ssl_kea_tls13_any = 7,
     ssl_kea_ecdh_hybrid = 8,
     ssl_kea_ecdh_hybrid_psk = 9,
-    ssl_kea_size /* number of ssl_kea_ algorithms */
+    ssl_kea_kem = 10,     /* standalone KEM, e.g. ML-KEM */
+    ssl_kea_kem_psk = 11, /* standalone KEM with PSK (resumption) */
+    ssl_kea_size          /* number of ssl_kea_ algorithms */
 } SSLKEAType;
 
 /* The following defines are for backwards compatibility.
@@ -156,6 +158,10 @@ typedef enum {
     ssl_sig_dsa_sha512 = 0x0602,
     ssl_sig_ecdsa_sha1 = 0x0203,
 
+    ssl_sig_mldsa44 = 0x0904,
+    ssl_sig_mldsa65 = 0x0905,
+    ssl_sig_mldsa87 = 0x0906,
+
     /* The following value (which can't be used in the protocol), represents
      * the RSA signature using SHA-1 and MD5 that is used in TLS 1.0 and 1.1.
      * This is reported as a signature scheme when TLS 1.0 or 1.1 is used.
@@ -185,6 +191,9 @@ typedef enum {
     ssl_auth_rsa_pss = 8,    /* RSA signing with a PSS key. */
     ssl_auth_psk = 9,
     ssl_auth_tls13_any = 10,
+    ssl_auth_mldsa44 = 11, /* use separate auth for each paramset */
+    ssl_auth_mldsa65 = 12, /* so we can properly identify the certs */
+    ssl_auth_mldsa87 = 13,
     ssl_auth_size /* number of authentication types */
 } SSLAuthType;
 
@@ -260,6 +269,7 @@ typedef enum {
     ssl_grp_ffdhe_4096 = 258,
     ssl_grp_ffdhe_6144 = 259,
     ssl_grp_ffdhe_8192 = 260,
+    ssl_grp_kem_mlkem1024 = 514, /* draft-ietf-tls-mlkem */
     ssl_grp_kem_secp256r1mlkem768 = 4587,
     ssl_grp_kem_secp384r1mlkem1024 = 4589,
     ssl_grp_kem_mlkem768x25519 = 4588,

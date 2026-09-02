@@ -92,7 +92,7 @@ impl<'a> MinidumpAnalyzer<'a> {
         let used_modules = get_used_modules(&call_stacks, proc.main_module());
 
         // Set the `StackTraces` field in the extra JSON data.
-        extra_json["StackTraces"] = json!({
+        let mut stack_traces = json!({
             "error": call_stack_error(&call_stacks),
             "crash_type": crash_type,
             "crash_address": format!("{crash_address:#x}"),
@@ -133,7 +133,8 @@ impl<'a> MinidumpAnalyzer<'a> {
 
         // StackTraces should not have null values (upstream processing expects the values to be
         // omitted).
-        remove_nulls(&mut extra_json["StackTraces"]);
+        remove_nulls(&mut stack_traces);
+        extra_json["StackTraces"] = serde_json::to_string(&stack_traces).unwrap().into();
 
         let module_signature_info = proc.module_signature_info();
         if !module_signature_info.is_null() {

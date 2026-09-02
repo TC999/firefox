@@ -3,27 +3,28 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include <algorithm>
+
 #include "mozilla/Attributes.h"
 #include "mozilla/IntegerPrintfMacros.h"
+#include "mozilla/Logging.h"
 #include "mozilla/ReentrantMonitor.h"
-#include "nsIBufferedStreams.h"
-#include "nsICloneableInputStream.h"
-#include "nsIPipe.h"
-#include "nsIEventTarget.h"
-#include "nsITellableStream.h"
 #include "mozilla/RefPtr.h"
+#include "nsAlgorithm.h"
+#include "nsCOMPtr.h"
+#include "nsCRT.h"
+#include "nsIAsyncInputStream.h"
+#include "nsIAsyncOutputStream.h"
+#include "nsIBufferedStreams.h"
+#include "nsIClassInfoImpl.h"
+#include "nsICloneableInputStream.h"
+#include "nsIEventTarget.h"
+#include "nsIInputStreamPriority.h"
+#include "nsIPipe.h"
+#include "nsITellableStream.h"
+#include "nsPipe.h"
 #include "nsSegmentedBuffer.h"
 #include "nsStreamUtils.h"
 #include "nsString.h"
-#include "nsCOMPtr.h"
-#include "nsCRT.h"
-#include "mozilla/Logging.h"
-#include "nsIClassInfoImpl.h"
-#include "nsAlgorithm.h"
-#include "nsPipe.h"
-#include "nsIAsyncInputStream.h"
-#include "nsIAsyncOutputStream.h"
-#include "nsIInputStreamPriority.h"
 #include "nsThreadUtils.h"
 
 using namespace mozilla;
@@ -1041,7 +1042,7 @@ nsresult nsPipe::CloneInputStream(nsPipeInputStream* aOriginal,
                                   nsIInputStream** aCloneOut) {
   ReentrantMonitorAutoEnter mon(mReentrantMonitor);
   MOZ_RELEASE_ASSERT(!aOriginal->ReadState().mActiveRead);
-  RefPtr<nsPipeInputStream> ref = new nsPipeInputStream(*aOriginal);
+  RefPtr ref = MakeRefPtr<nsPipeInputStream>(*aOriginal);
   // don't add clones of closed pipes to mInputList.
   ref->Monitor().AssertCurrentThreadIn();
   if (NS_SUCCEEDED(ref->InputStatus(mon))) {
@@ -1798,7 +1799,7 @@ void NS_NewPipe2(nsIAsyncInputStream** aPipeIn, nsIAsyncOutputStream** aPipeOut,
       new nsPipe(aSegmentSize ? aSegmentSize : DEFAULT_SEGMENT_SIZE,
                  aSegmentCount ? aSegmentCount : DEFAULT_SEGMENT_COUNT);
 
-  RefPtr<nsPipeInputStream> pipeIn = new nsPipeInputStream(pipe);
+  RefPtr pipeIn = MakeRefPtr<nsPipeInputStream>(pipe);
   pipe->mInputList.AppendElement(pipeIn);
   RefPtr<nsPipeOutputStream> pipeOut = &pipe->mOutput;
 
@@ -1858,7 +1859,7 @@ nsPipeHolder::GetOutputStream(nsIAsyncOutputStream** aOutputStream) {
 }
 
 nsresult nsPipeConstructor(REFNSIID aIID, void** aResult) {
-  RefPtr<nsPipeHolder> pipe = new nsPipeHolder();
+  RefPtr pipe = MakeRefPtr<nsPipeHolder>();
   nsresult rv = pipe->QueryInterface(aIID, aResult);
   return rv;
 }

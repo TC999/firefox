@@ -9,14 +9,44 @@
 #include "Performance.h"
 #include "PerformanceInteractionMetrics.h"
 #include "PerformanceStorage.h"
+#include "nsRegion.h"
 #include "nsTextFrame.h"
 
 namespace mozilla::dom {
 
+class PerformanceContainerTiming;
 class PerformanceNavigationTiming;
 class PerformanceEventTiming;
 
 using TextFrameUnions = nsTHashMap<nsRefPtrHashKey<Element>, nsRect>;
+
+// Per container-root state accumulated across frames.
+// https://wicg.github.io/container-timing/#container-timing-record
+// mPaintedRegion is the union of everything painted into the container so far.
+// The mLastNewPaintedArea* fields track, within the current frame, the element
+// that added the largest new painted area; they are reset after each emit so
+// each frame's comparison starts fresh. mHasPendingChanges is set when the
+// region grew and cleared once an entry is emitted.
+struct ContainerTimingRecord {
+  nsRegion mPaintedRegion;
+  uint64_t mPaintedRegionArea = 0;
+  nsString mIdentifier;
+  TimeStamp mFirstRenderTime;
+  RefPtr<Element> mLastNewPaintedAreaElement;
+  uint64_t mLastNewPaintedAreaSize = 0;
+  bool mHasPendingChanges = false;
+
+  // Clears the per-frame tracking once an entry is emitted (or the record is
+  // skipped), so the next frame's largest-new-area comparison starts fresh.
+  void ClearPendingChanges() {
+    mHasPendingChanges = false;
+    mLastNewPaintedAreaElement = nullptr;
+    mLastNewPaintedAreaSize = 0;
+  }
+};
+
+using ContainerTimingRecordMap =
+    nsTHashMap<nsPtrHashKey<Element>, ContainerTimingRecord>;
 
 class PerformanceMainThread final : public Performance,
                                     public PerformanceStorage {
@@ -60,6 +90,9 @@ class PerformanceMainThread final : public Performance,
                         const WidgetEvent* aEvent) override;
 
   void BufferLargestContentfulPaintEntryIfNeeded(LargestContentfulPaint*);
+
+  void QueueContainerTimingEntry(PerformanceContainerTiming* aEntry);
+  void FinalizeContainerTimingEntries();
 
   TimeStamp CreationTimeStamp() const override;
 
@@ -108,9 +141,32 @@ class PerformanceMainThread final : public Performance,
 
   static constexpr uint32_t kMaxLargestContentfulPaintBufferSize = 150;
 
+  static constexpr uint32_t kMaxContainerTimingBufferSize = 150;
+
+  static constexpr size_t kMaxInteractionDurations = 2048;
+
+  // Matches web-vitals.js's INP durationThreshold for RUM comparability.
+  static constexpr double kInpEventDurationThreshold = 40.0;
+
   class EventCounts* EventCounts() override;
 
   uint64_t InteractionCount() override;
+
+  // Aggregates for the perf.page_load event, populated by
+  // UpdateInteractionTelemetry as event-timing entries are finalized.
+  struct InteractionTelemetry {
+    uint32_t inpLongest = 0;
+    uint32_t keypressMaxDuration = 0;
+    uint32_t mouseClick = 0;
+
+    // Ascending durations of interaction-tagged events; backs inpP75/inpP98.
+    // Values are clamped to UINT16_MAX (~65 s) on insert; inpLongest still
+    // tracks the unclamped max.
+    nsTArray<uint16_t> interactionEventDurations;
+  };
+  const InteractionTelemetry& GetInteractionTelemetry() const {
+    return mInteractionTelemetry;
+  }
 
   bool IsGlobalObjectWindow() const override { return true; };
 
@@ -145,9 +201,15 @@ class PerformanceMainThread final : public Performance,
     return mTextFrameUnions;
   }
 
+  ContainerTimingRecordMap& GetContainerTimingRecords() {
+    return mContainerTimingRecords;
+  }
+
   void FinalizeLCPEntriesForText();
 
   void ClearGeneratedTempDataForLCP();
+
+  void ClearContainerTimingData();
 
  protected:
   ~PerformanceMainThread();
@@ -171,6 +233,7 @@ class PerformanceMainThread final : public Performance,
 
   nsTArray<RefPtr<PerformanceEventTiming>> mEventTimingEntries;
   nsTArray<RefPtr<LargestContentfulPaint>> mLargestContentfulPaintEntries;
+  nsTArray<RefPtr<PerformanceContainerTiming>> mContainerTimingEntries;
 
   AutoCleanLinkedList<RefPtr<PerformanceEventTiming>>
       mPendingEventTimingEntries;
@@ -210,6 +273,12 @@ class PerformanceMainThread final : public Performance,
   // mTextFrameUnions's key is the containing block, and
   // the value is the unioned area.
   TextFrameUnions mTextFrameUnions;
+
+  // Updates mInteractionTelemetry from a popped PerformanceEventTiming entry.
+  void UpdateInteractionTelemetry(PerformanceEventTiming* aEntry);
+  InteractionTelemetry mInteractionTelemetry;
+
+  ContainerTimingRecordMap mContainerTimingRecords;
 };
 
 inline void ImplCycleCollectionTraverse(
@@ -219,6 +288,19 @@ inline void ImplCycleCollectionTraverse(
     CycleCollectionNoteChild(aCallback, entry.GetKey(),
                              "TextFrameUnions's key (nsRefPtrHashKey<Element>)",
                              aFlags);
+  }
+}
+
+inline void ImplCycleCollectionTraverse(
+    nsCycleCollectionTraversalCallback& aCallback,
+    const ContainerTimingRecordMap& aField, const char* aName,
+    uint32_t aFlags) {
+  // The keys (container roots) are raw pointers, managed separately; only the
+  // record's strong reference to the last painted element needs traversing.
+  for (const auto& entry : aField) {
+    CycleCollectionNoteChild(
+        aCallback, entry.GetData().mLastNewPaintedAreaElement.get(),
+        "ContainerTimingRecord mLastNewPaintedAreaElement", aFlags);
   }
 }
 

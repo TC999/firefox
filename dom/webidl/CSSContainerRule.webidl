@@ -22,4 +22,6 @@ interface CSSContainerRule : CSSConditionRule {
 
   // Performs a container query look-up for an element.
   [ChromeOnly] Element? queryContainerFor(Element element, unsigned long conditionIndex);
+
+  [ChromeOnly] boolean queryConditionMatchesElement(Element element, unsigned long conditionIndex);
 };

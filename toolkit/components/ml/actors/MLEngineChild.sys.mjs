@@ -83,6 +83,9 @@ export class MLEngineChild extends JSProcessActorChild {
       case "MLEngine:GetStatusByEngineId": {
         return this.getStatusByEngineId();
       }
+      case "MLEngine:RequestIsNativeOnnxRuntimeAvailable": {
+        return this.requestIsNativeOnnxRuntimeAvailable();
+      }
       case "MLEngine:ForceShutdown": {
         for (const engineDispatcher of this.#engineDispatchers.values()) {
           await engineDispatcher.terminate(
@@ -132,6 +135,7 @@ export class MLEngineChild extends JSProcessActorChild {
           port.postMessage({
             type: "EnginePort:EngineReady",
             error: null,
+            resolvedBackend: currentEngineDispatcher.pipelineOptions?.backend,
           });
           return;
         }
@@ -160,6 +164,9 @@ export class MLEngineChild extends JSProcessActorChild {
       port.postMessage({
         type: "EnginePort:EngineReady",
         error: null,
+        // The parent's requested backend may resolve to a more specific
+        // one, e.g. "best-onnx" will resolve to "onnx" or "onnx-native".
+        resolvedBackend: dispatcher.pipelineOptions?.backend,
       });
     } catch (error) {
       port.postMessage({
@@ -189,14 +196,50 @@ export class MLEngineChild extends JSProcessActorChild {
   }
 
   /**
-   * Selects the most appropriate backend for the current environment.
+   * Resolves to true if the native ONNX runtime is available, otherwise false.
    *
-   * @static
-   * @param {?string} backend - Requested backend or an auto-select sentinel.
+   * @returns {Promise<boolean>}
+   */
+  async requestIsNativeOnnxRuntimeAvailable() {
+    const workerConfig = await this.getWorkerConfig();
+    const worker = new lazy.BasePromiseWorker(
+      workerConfig.url,
+      workerConfig.options
+    );
+
+    try {
+      return await worker.post("isNativeOnnxRuntimeAvailable", []);
+    } finally {
+      worker.terminate();
+    }
+  }
+
+  /**
+   * Resolves a requested backend to a concrete backend identifier. "best-onnx"
+   * asks the parent for native ONNX availability, which is cached once per
+   * parent process in `EngineProcess`, and resolves to onnx-native or onnx
+   * accordingly. A `false` result is taken at face value (native unavailable or
+   * the probe failed) and resolves to wasm onnx. Any other value is already
+   * concrete.
+   *
+   * @param {string} backend - Requested backend or "best-onnx".
    * @returns {Promise<string>} Resolved backend identifier.
    */
-  chooseBestBackend(backend) {
-    return this.sendQuery("MLEngine:ChooseBestBackend", backend);
+  async chooseBestBackend(backend) {
+    if (backend !== lazy.BACKENDS.bestOnnx) {
+      return backend;
+    }
+    const available = await this.#getNativeOnnxRuntimeAvailability();
+    return available ? lazy.BACKENDS.onnxNative : lazy.BACKENDS.onnx;
+  }
+
+  /**
+   * Asks the parent for the shared native ONNX availability value.
+   *
+   * @returns {Promise<boolean>}
+   */
+  #getNativeOnnxRuntimeAvailability() {
+    return this.sendQuery("MLEngine:GetNativeOnnxRuntimeAvailability");
   }
 
   /**
@@ -387,37 +430,58 @@ class EngineDispatcher {
     lazy.console.debug("Inference engine options:", mergedOptions);
     this.pipelineOptions = mergedOptions;
 
-    this.pipelineOptions.backend = await this.mlEngineChild.chooseBestBackend(
-      pipelineOptions.backend
-    );
+    const requestedBackend = pipelineOptions.backend;
+    this.pipelineOptions.backend =
+      await this.mlEngineChild.chooseBestBackend(requestedBackend);
 
     // Retrigger validation
     this.pipelineOptions = new lazy.PipelineOptions(this.pipelineOptions);
 
-    // load the wasm if required.
-    let wasm = null;
-    if (
-      lazy.WASM_BACKENDS.includes(
-        this.pipelineOptions.backend || lazy.BACKENDS.onnx
-      )
-    ) {
-      wasm = await this.mlEngineChild.getWasmArrayBuffer(
-        this.pipelineOptions.backend
-      );
-    }
-
     const workerConfig = await this.mlEngineChild.getWorkerConfig();
 
-    return InferenceEngine.create({
-      workerUrl: workerConfig.url,
-      workerOptions: workerConfig.options,
-      wasm,
-      pipelineOptions: mergedOptions,
-      notificationsCallback,
-      getModelFileFn: this.mlEngineChild.getModelFile.bind(this.mlEngineChild),
-      notifyModelDownloadCompleteFn:
-        this.mlEngineChild.notifyModelDownloadComplete.bind(this.mlEngineChild),
-    });
+    const tryCreate = async () => {
+      const opts = /** @type {PipelineOptions} */ (this.pipelineOptions);
+      let wasm = null;
+      if (lazy.WASM_BACKENDS.includes(opts.backend || lazy.BACKENDS.onnx)) {
+        wasm = await this.mlEngineChild.getWasmArrayBuffer(opts.backend);
+      }
+      return InferenceEngine.create({
+        workerUrl: workerConfig.url,
+        workerOptions: workerConfig.options,
+        wasm,
+        pipelineOptions: opts,
+        notificationsCallback,
+        getModelFileFn: this.mlEngineChild.getModelFile.bind(
+          this.mlEngineChild
+        ),
+        notifyModelDownloadCompleteFn:
+          this.mlEngineChild.notifyModelDownloadComplete.bind(
+            this.mlEngineChild
+          ),
+      });
+    };
+
+    const triedNativeForBestOnnx =
+      requestedBackend === lazy.BACKENDS.bestOnnx &&
+      this.pipelineOptions.backend === lazy.BACKENDS.onnxNative;
+
+    try {
+      return await tryCreate();
+    } catch (error) {
+      // best-onnx promised the caller a working onnx engine. The availability
+      // gate should keep native creation from being attempted when it can't
+      // load, but if it fails anyway, fall back once to the wasm onnx backend.
+      if (!triedNativeForBestOnnx) {
+        throw error;
+      }
+      lazy.console.warn(
+        "onnx-native engine creation failed; retrying with wasm onnx backend.",
+        error
+      );
+      this.pipelineOptions.backend = lazy.BACKENDS.onnx;
+      this.pipelineOptions = new lazy.PipelineOptions(this.pipelineOptions);
+      return tryCreate();
+    }
   }
 
   /**

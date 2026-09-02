@@ -6,11 +6,11 @@ package mozilla.components.lib.auth
 
 import androidx.biometric.BiometricPrompt
 import androidx.fragment.app.Fragment
+import kotlin.test.assertNotNull
 import mozilla.components.support.test.any
 import mozilla.components.support.test.mock
 import mozilla.components.support.test.robolectric.createAddedTestFragment
 import mozilla.components.support.test.robolectric.testContext
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
@@ -27,20 +27,18 @@ class BiometricPromptAuthTest {
     @Before
     fun setup() {
         fragment = createAddedTestFragment { Fragment() }
-        biometricPromptAuth = BiometricPromptAuth(
-            testContext,
-            fragment,
-            object : AuthenticationDelegate {
-                override fun onAuthFailure() {
-                }
+        biometricPromptAuth =
+            BiometricPromptAuth(
+                testContext,
+                fragment,
+                object : AuthenticationDelegate {
+                    override fun onAuthFailure() {}
 
-                override fun onAuthSuccess() {
-                }
+                    override fun onAuthSuccess() {}
 
-                override fun onAuthError(errorText: String) {
-                }
-            },
-        )
+                    override fun onAuthError(errorText: String) {}
+                },
+            )
     }
 
     @Test

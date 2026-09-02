@@ -4,6 +4,7 @@
 
 package mozilla.components.support.ktx.kotlin
 
+import kotlin.test.assertIs
 import org.junit.Assert
 import org.junit.Test
 
@@ -35,17 +36,18 @@ class CollectionKtTest {
     fun `cross product of each pair is in order`() {
         val numbers = listOf(1, 2, 3)
         val letters = listOf('a', 'b', 'c')
-        val assertions = arrayOf(
-            1 to 'a',
-            1 to 'b',
-            1 to 'c',
-            2 to 'a',
-            2 to 'b',
-            2 to 'c',
-            3 to 'a',
-            3 to 'b',
-            3 to 'c',
-        )
+        val assertions =
+            arrayOf(
+                1 to 'a',
+                1 to 'b',
+                1 to 'c',
+                2 to 'a',
+                2 to 'b',
+                2 to 'c',
+                3 to 'a',
+                3 to 'b',
+                3 to 'c',
+            )
         var position = 0
         numbers.crossProduct(letters) { number, letter ->
             Assert.assertEquals(assertions[position].first, number)
@@ -54,15 +56,15 @@ class CollectionKtTest {
         }
     }
 
-    @Suppress("USELESS_IS_CHECK")
     @Test
     fun `cross product result is list of return type`() {
         val numbers = listOf(1, 2, 3)
         val letters = listOf('a', 'b', 'c')
-        val result = numbers.crossProduct(letters) { number, letter ->
-            number to letter
-        }
-        Assert.assertTrue(result is List)
+        val result =
+            numbers.crossProduct(letters) { number, letter ->
+                number to letter
+            }
+        assertIs<List<*>>(result)
         Assert.assertEquals(Pair::class, result[0]::class)
         Assert.assertEquals(Int::class, result[0].first::class)
         Assert.assertEquals(Char::class, result[0].second::class)

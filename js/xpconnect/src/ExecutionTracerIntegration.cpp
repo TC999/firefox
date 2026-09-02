@@ -12,6 +12,8 @@
 #include "mozilla/dom/DOMExceptionBinding.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/Location.h"
+#include "mozilla/dom/NodeList.h"
+
 #include "nsDOMAttributeMap.h"
 #include "nsQueryObject.h"
 
@@ -75,7 +77,7 @@ bool ExecutionTracerIntegration::WriteNodeSummary(
     aWriter->writeUint8(uint8_t(isConnected) << 7 |
                         uint8_t(NodeSubkind::DocumentFragment));
 
-    nsCOMPtr<nsINodeList> children = aNode->ChildNodes();
+    RefPtr<NodeList> children = aNode->ChildNodes();
     if (!children) {
       JS_ReportErrorASCII(aCx, "OOM getting node's children");
       return false;

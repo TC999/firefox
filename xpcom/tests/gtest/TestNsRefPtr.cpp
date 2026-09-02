@@ -2,12 +2,11 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include "gtest/gtest.h"
 #include "mozilla/RefPtr.h"
 #include "nsCOMPtr.h"
 #include "nsISupports.h"
 #include "nsQueryObject.h"
-
-#include "gtest/gtest.h"
 
 namespace TestNsRefPtr {
 
@@ -68,7 +67,7 @@ MozExternalRefCountType Foo::Release() {
 nsresult Foo::QueryInterface(const nsIID& aIID, void** aResult) {
   ++total_queries_;
 
-  nsISupports* rawPtr = 0;
+  nsISupports* rawPtr = nullptr;
   nsresult status = NS_OK;
 
   if (aIID.Equals(NS_GET_IID(Foo)))
@@ -149,7 +148,7 @@ Bar::~Bar() { ++total_destructions_; }
 nsresult Bar::QueryInterface(const nsID& aIID, void** aResult) {
   ++total_queries_;
 
-  nsISupports* rawPtr = 0;
+  nsISupports* rawPtr = nullptr;
   nsresult status = NS_OK;
 
   if (aIID.Equals(NS_GET_IID(Bar)))

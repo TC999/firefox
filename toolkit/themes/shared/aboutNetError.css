@@ -30,6 +30,18 @@ body.certerror {
   display: none !important;
 }
 
+#sslKeyLoggingWarning {
+  position: fixed;
+  top: 0;
+  inset-inline: 0;
+  margin: 0;
+  border-radius: 0;
+  z-index: 1;
+  --message-bar-background-color: var(--background-color-warning);
+  --message-bar-icon-background-color: var(--background-color-warning);
+  --message-bar-icon-color: var(--icon-color-warning);
+}
+
 body.captiveportal .title {
   background-image: url("chrome://global/skin/in-content/wifi.svg");
 }
@@ -108,27 +120,74 @@ button:disabled {
 .advanced-container h3 {
   margin-block-end: var(--space-small);
 
-  & + p {
-    margin-block-start: var(--space-small);
+  & + p,
+  & + ul {
+    margin-block-start: var(--space-large);
   }
 }
 
 .what-can-you-do-list {
-  list-style-position: inside;
   margin: 0;
-  padding: 0;
+  margin-block-end: var(--space-xxlarge);
+  padding-inline-start: var(--space-large);
   display: flex;
   flex-direction: column;
-  gap: var(--space-small);
+  gap: var(--space-xxsmall);
 
   & > li {
-    padding-inline-start: 1.2em;
-    text-indent: -1.2em;
+    padding-inline-start: var(--space-small);
   }
 }
 
 .custom-net-error-card h1 + p:last-of-type {
   margin-block-end: var(--space-xxlarge);
+}
+
+/* Search call-to-action on the online dnsNotFound error page (bug 2055637). */
+/* Not moz-button-group: it reorders its slotted children by moving them in the
+   light DOM, which breaks Lit's markers for the button slot this page swaps
+   between a spinner, the Search button, and an offline message. */
+.search-cta-buttons {
+  display: flex;
+  flex-flow: row wrap;
+  justify-content: flex-start;
+  align-items: center;
+  gap: var(--space-small);
+  margin-block: var(--space-large) var(--space-xxlarge);
+}
+
+.search-cta-loading {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xsmall);
+  min-width: 2.5em;
+  min-height: 2em;
+}
+
+/* loading.svg owns its own rotation and its own prefers-reduced-motion
+   fallback, and tracks the text color, so it stays visible in High Contrast
+   Mode without a forced-colors override of our own. */
+.search-cta-loading-icon {
+  width: 1em;
+  height: 1em;
+  -moz-context-properties: fill;
+  fill: currentColor;
+}
+
+.search-cta-offline {
+  margin-block: 0;
+}
+
+/* Keep the error code and Learn More lines tight together, one above the
+   other, at a slightly smaller size (bug 2055637). */
+.search-cta-error-code,
+.search-cta-learn-more {
+  display: block;
+  margin: 0;
+  padding: 0;
+  font-size: var(--font-size-small);
+  line-height: 1.5;
 }
 
 #errorCode {
@@ -186,7 +245,6 @@ button:disabled {
 }
 
 /* Felt Privacy v1 LARGER SCREEN! */
-/* stylelint-disable-next-line media-query-no-invalid */
 @media -moz-pref("security.certerrors.felt-privacy-v1") {
   .felt-privacy-body {
     justify-content: start;
@@ -197,6 +255,31 @@ button:disabled {
     min-width: min-content;
     margin-top: calc(150px - var(--error-page-padding, 0px));
     padding-block-end: var(--space-xxlarge);
+
+    @media (max-width: 640px) {
+      /* min-content holds the card wider than a narrow viewport, which is what
+         forces a horizontal scrollbar. */
+      min-width: 0;
+      margin-top: var(--space-xxlarge);
+    }
+  }
+
+  /* Narrow viewports buy width back with padding rather than by shrinking type.
+     This selector matches the page itself, and the card's own rules below reach
+     into its shadow tree. */
+  /* stylelint-disable-next-line stylelint-plugin-mozilla/no-has-selector */
+  body:has(net-error-card) {
+    @media (max-width: 640px) {
+      padding-inline: var(--space-xxlarge);
+    }
+
+    @media (max-width: 480px) {
+      padding-inline: var(--space-large);
+    }
+
+    @media (max-width: 320px) {
+      padding-inline: var(--space-small);
+    }
   }
 
   .felt-privacy-container {
@@ -206,12 +289,27 @@ button:disabled {
     > .container {
       width: 100%;
     }
+
+    /* Stack the illustration above the text, both left aligned. */
+    @media (max-width: 640px) {
+      flex-direction: column;
+      align-items: start;
+    }
   }
 
   .img-container > img {
     width: 8.75em;
     margin-block-start: 2em;
     margin-inline-end: 2.5em;
+
+    &.no-connection {
+      width: 13em;
+    }
+
+    @media (max-width: 640px) {
+      margin-block: 0 var(--space-large);
+      margin-inline-end: 0;
+    }
   }
 
   #viewCertificate {

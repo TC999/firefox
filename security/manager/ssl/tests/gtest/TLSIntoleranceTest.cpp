@@ -2,11 +2,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "nsNSSIOLayer.h"
-#include "sslproto.h"
-#include "sslerr.h"
-
 #include "gtest/gtest.h"
+#include "nsNSSIOLayer.h"
+#include "sslerr.h"
+#include "sslproto.h"
 
 constexpr auto HOST = "example.org"_ns;
 const int16_t PORT = 443;
@@ -14,7 +13,7 @@ const int16_t PORT = 443;
 class psm_TLSIntoleranceTest : public ::testing::Test {
  protected:
   RefPtr<nsSSLIOLayerHelpers> helpers =
-      new nsSSLIOLayerHelpers(PublicOrPrivate::Public, 0);
+      mozilla::MakeRefPtr<nsSSLIOLayerHelpers>(PublicOrPrivate::Public, 0);
 };
 
 TEST_F(psm_TLSIntoleranceTest, FullFallbackProcess) {

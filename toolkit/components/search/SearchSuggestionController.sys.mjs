@@ -9,6 +9,8 @@ const HTTP_OK = 200;
 const REMOTE_TIMEOUT_DEFAULT = 500;
 
 const lazy = XPCOMUtils.declareLazy({
+  ConfigSearchEngine:
+    "moz-src:///toolkit/components/search/ConfigSearchEngine.sys.mjs",
   FormHistory: "resource://gre/modules/FormHistory.sys.mjs",
   SearchService: "moz-src:///toolkit/components/search/SearchService.sys.mjs",
   SearchUtils: "moz-src:///toolkit/components/search/SearchUtils.sys.mjs",
@@ -424,18 +426,20 @@ export class SearchSuggestionController {
   #reportTelemetryForEngine(context) {
     // If the timer id has been reset, then we have already handled telemetry.
     // This might occur in the context of an abort or or cancel.
-    if (context.gleanTimerId) {
-      let engineId = context.engine.isConfigEngine
-        ? context.engine.id
-        : "other";
-      // Stop the latency stopwatch.
+    if (
+      context.engine instanceof lazy.ConfigSearchEngine &&
+      context.gleanTimerId
+    ) {
       if (context.aborted) {
-        Glean.searchSuggestions.latency[engineId].cancel(context.gleanTimerId);
+        Glean.searchSuggestions.latency[context.engine.id].cancel(
+          context.gleanTimerId
+        );
       } else {
-        Glean.searchSuggestions.latency[engineId].stopAndAccumulate(
+        Glean.searchSuggestions.latency[context.engine.id].stopAndAccumulate(
           context.gleanTimerId
         );
       }
+
       context.gleanTimerId = 0;
     }
   }
@@ -468,7 +472,7 @@ export class SearchSuggestionController {
     let method = submission.postData ? "POST" : "GET";
     request.open(method, submission.uri.spec, true);
     // Don't set or store cookies or on-disk cache.
-    request.channel.loadFlags =
+    request.channel.loadFlags |=
       Ci.nsIChannel.LOAD_ANONYMOUS | Ci.nsIChannel.INHIBIT_PERSISTENT_CACHING;
 
     lazy.logConsole.debug(
@@ -552,10 +556,10 @@ export class SearchSuggestionController {
       request.send();
     }
 
-    context.gleanTimerId =
-      Glean.searchSuggestions.latency[
-        context.engine.isConfigEngine ? context.engine.id : "other"
-      ].start();
+    if (context.engine instanceof lazy.ConfigSearchEngine) {
+      context.gleanTimerId =
+        Glean.searchSuggestions.latency[context.engine.id].start();
+    }
 
     return deferredResponse.promise;
   }

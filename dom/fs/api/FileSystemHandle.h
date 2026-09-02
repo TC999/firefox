@@ -78,6 +78,14 @@ class FileSystemHandle : public nsISupports, public nsWrapperCache {
     mMetadata = aMetadata;
   }
 
+  void UpdateMetadata(fs::EntryId&& aEntryId, const fs::Name& aName) {
+    mMetadata.entryId() = std::move(aEntryId);
+    mMetadata.entryName() = aName;
+  }
+
+ private:
+  void SetMoveFileHandleUseCounter();
+
  protected:
   virtual ~FileSystemHandle() = default;
 

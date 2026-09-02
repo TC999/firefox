@@ -1,4 +1,3 @@
-/* -*- mode: js; indent-tabs-mode: nil; js-indent-level: 2 -*- */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -271,7 +270,7 @@ export var ProcessHangMonitor = {
     let maybeStopHang = report => {
       let hungBrowserWindow = null;
       try {
-        hungBrowserWindow = report.scriptBrowser.ownerGlobal;
+        hungBrowserWindow = report.scriptBrowser.documentGlobal;
       } catch (e) {
         // Ignore failures to get the script browser - we'll be
         // conservative, and assume that if we cannot access the
@@ -358,6 +357,14 @@ export var ProcessHangMonitor = {
         uri_type = "extension";
       } else if (report.scriptFileName?.startsWith("debugger")) {
         uri_type = "devtools";
+      } else if (
+        report.scriptFileName?.startsWith(
+          "resource://pdf.js/build/pdf.scripting.mjs"
+        )
+      ) {
+        // PDF scripts are content, but their reported filename is the PDF.js
+        // scripting bundle.
+        uri_type = "content";
       } else {
         try {
           let url = new URL(report.scriptFileName);
@@ -510,7 +517,9 @@ export var ProcessHangMonitor = {
         ]);
       } else {
         let tab =
-          scriptBrowser?.ownerGlobal.gBrowser?.getTabForBrowser(scriptBrowser);
+          scriptBrowser?.documentGlobal.gBrowser?.getTabForBrowser(
+            scriptBrowser
+          );
         if (!tab) {
           notificationTag = "nonspecific_tab";
           message = bundle.getFormattedString(
@@ -614,7 +623,7 @@ export var ProcessHangMonitor = {
   },
 
   handleEvent(event) {
-    let win = event.target.ownerGlobal;
+    let win = event.target.documentGlobal;
 
     // If a new tab is selected or if a tab changes remoteness, then
     // we may need to show or hide a hang notification.

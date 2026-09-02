@@ -5,6 +5,7 @@
 #ifndef mozilla_dom_WindowGlobalChild_h
 #define mozilla_dom_WindowGlobalChild_h
 
+#include "mozilla/Maybe.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/WeakPtr.h"
 #include "mozilla/dom/Document.h"
@@ -12,6 +13,7 @@
 #include "mozilla/dom/WindowGlobalActor.h"
 #include "mozilla/dom/WindowProxyHolder.h"
 #include "nsRefPtrHashtable.h"
+#include "nsTArray.h"
 #include "nsWrapperCache.h"
 
 class nsGlobalWindowInner;
@@ -37,7 +39,7 @@ class WindowGlobalChild final : public WindowGlobalActor,
   friend class PWindowGlobalChild;
 
  public:
-  NS_DECL_CYCLE_COLLECTING_ISUPPORTS
+  NS_DECL_CYCLE_COLLECTING_ISUPPORTS_FINAL
   NS_DECL_CYCLE_COLLECTION_WRAPPERCACHE_CLASS(WindowGlobalChild)
 
   static already_AddRefed<WindowGlobalChild> GetByInnerWindowId(
@@ -64,10 +66,6 @@ class WindowGlobalChild final : public WindowGlobalActor,
 
   nsIURI* GetDocumentURI() override { return mDocumentURI; }
   void SetDocumentURI(nsIURI* aDocumentURI);
-  // See the corresponding comment for `UpdateDocumentPrincipal` in
-  // PWindowGlobal on why and when this is allowed
-  void SetDocumentPrincipal(nsIPrincipal* aNewDocumentPrincipal,
-                            nsIPrincipal* aNewDocumentStoragePrincipal);
 
   nsIPrincipal* DocumentPrincipal() { return mDocumentPrincipal; }
 
@@ -113,8 +111,14 @@ class WindowGlobalChild final : public WindowGlobalActor,
 
   void InitWindowGlobal(nsGlobalWindowInner* aWindow);
 
-  // Called when a new document is loaded in this WindowGlobalChild.
+  // Called when this WindowGlobalChild is associated with a new Document.
   void OnNewDocument(Document* aNewDocument);
+
+  // Called from the window load event path.
+  void OnDocumentLoaded();
+
+  // Called from the window unload event path.
+  void OnDocumentUnloaded();
 
   // Returns true if this WindowGlobal is same-origin with the given
   // WindowContext. Out-of-process WindowContexts are supported, and are assumed
@@ -151,7 +155,7 @@ class WindowGlobalChild final : public WindowGlobalActor,
   void BlockBFCacheFor(BFCacheStatus aStatus);
 
  protected:
-  const nsACString& GetRemoteType() const override;
+  const RemoteType& GetRemoteType() const override;
 
   already_AddRefed<JSActor> InitJSActor(JS::Handle<JSObject*> aMaybeActor,
                                         const nsACString& aName,
@@ -177,8 +181,12 @@ class WindowGlobalChild final : public WindowGlobalActor,
   mozilla::ipc::IPCResult RecvDrawSnapshot(const Maybe<IntRect>& aRect,
                                            const float& aScale,
                                            const nscolor& aBackgroundColor,
-                                           const uint32_t& aFlags,
+                                           const CrossProcessPaintFlags& aFlags,
                                            DrawSnapshotResolver&& aResolve);
+
+  mozilla::ipc::IPCResult RecvRequestDocumentLanguageMetadata(
+      uint32_t aTextSampleMinCodeUnits, uint32_t aTextSampleTargetCodeUnits,
+      RequestDocumentLanguageMetadataResolver&& aResolver);
 
   mozilla::ipc::IPCResult RecvDispatchSecurityPolicyViolation(
       const nsString& aViolationEventJSON, const nsString& aReportGroupName);
@@ -199,6 +207,9 @@ class WindowGlobalChild final : public WindowGlobalActor,
       dom::SessionStoreRestoreData* aData,
       RestoreTabContentResolver&& aResolve);
 
+  mozilla::ipc::IPCResult RecvNotifyAudioSessionStateChanged(
+      const dom::AudioSessionState& aState);
+
   mozilla::ipc::IPCResult RecvNotifyPermissionChange(const nsCString& aType,
                                                      uint32_t aPermission);
 
@@ -218,16 +229,26 @@ class WindowGlobalChild final : public WindowGlobalActor,
   virtual void ActorDestroy(ActorDestroyReason aWhy) override;
 
  private:
+  class DocumentLanguageMetadataRequest;
+
   WindowGlobalChild(dom::WindowContext* aWindowContext,
                     nsIPrincipal* aPrincipal, nsIURI* aURI);
 
   ~WindowGlobalChild();
+
+  bool CanCollectDocumentLanguageMetadata();
+  Maybe<DocumentLanguageMetadata> GetDocumentLanguageMetadata(
+      uint32_t aTextSampleTargetCodeUnits);
+  void RemoveCompletedDocumentLanguageMetadataRequests();
+  void CancelDocumentLanguageMetadataRequests();
 
   RefPtr<nsGlobalWindowInner> mWindowGlobal;
   RefPtr<dom::WindowContext> mWindowContext;
   nsCOMPtr<nsIPrincipal> mDocumentPrincipal;
   RefPtr<dom::FeaturePolicy> mContainerFeaturePolicy;
   nsCOMPtr<nsIURI> mDocumentURI;
+  nsTArray<RefPtr<DocumentLanguageMetadataRequest>>
+      mDocumentLanguageMetadataRequests;
   int64_t mBeforeUnloadListeners = 0;
 };
 

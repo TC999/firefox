@@ -19,10 +19,10 @@ use std::{
 };
 
 use neqo_common::{
-    Datagram, Role, Tos, event::Provider as _, hex, qdebug, qerror, qinfo, qlog::Qlog, qtrace,
+    Datagram, Role, Tos, event::Provider as _, hex::Hex, qdebug, qerror, qinfo, qlog::Qlog, qtrace,
     qwarn,
 };
-use neqo_crypto::{
+use nss::{
     AntiReplay, Cipher, PrivateKey, PublicKey, ZeroRttCheckResult, ZeroRttChecker,
     encode_ech_config,
 };
@@ -435,7 +435,7 @@ impl Server {
     ) -> OutputBatch {
         let mut dgrams = dgrams.into_iter();
         while let Some(mut dgram) = dgrams.next() {
-            qtrace!("Process datagram: {}", hex(&dgram[..]));
+            qtrace!("Process datagram: {}", Hex::new(&dgram[..]));
 
             // This is only looking at the first packet header in the datagram.
             // All packets in the datagram are routed to the same connection.

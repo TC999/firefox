@@ -4,8 +4,8 @@
 
 package org.mozilla.fenix.wallpapers
 
-import org.mozilla.fenix.utils.Settings
 import java.util.Date
+import org.mozilla.fenix.utils.Settings
 
 /**
  * Type that represents wallpapers.
@@ -13,10 +13,10 @@ import java.util.Date
  * @property name The name of the wallpaper.
  * @property collection The name of the collection the wallpaper belongs to.
  * @property textColor The 8 digit hex code color that should be used for text overlaying the wallpaper.
- * @property cardColorLight The 8 digit hex code color that should be used for cards overlaying the wallpaper
- * when the user's theme is set to Light.
- * @property cardColorDark The 8 digit hex code color that should be used for cards overlaying the wallpaper
- * when the user's theme is set to Dark.
+ * @property cardColorLight The 8 digit hex code color that should be used for cards overlaying the wallpaper when the
+ *   user's theme is set to Light.
+ * @property cardColorDark The 8 digit hex code color that should be used for cards overlaying the wallpaper when the
+ *   user's theme is set to Dark.
  * @property thumbnailFileState The download state of the wallpaper thumbnail.
  * @property assetsFileState The download state of the wallpaper assets.
  */
@@ -36,12 +36,12 @@ data class Wallpaper(
      * @property heading The heading of the collection.
      * @property description The description of the collection.
      * @property learnMoreUrl The URL that can be visited to learn more about a collection, if any.
-     * @property availableLocales The locales that this wallpaper is restricted to. If null, the wallpaper
-     * is not restricted.
-     * @property startDate The date the wallpaper becomes available in a promotion. If null, it is available
-     * from any date.
-     * @property endDate The date the wallpaper stops being available in a promotion. If null,
-     * the wallpaper will be available to any date.
+     * @property availableLocales The locales that this wallpaper is restricted to. If null, the wallpaper is not
+     *   restricted.
+     * @property startDate The date the wallpaper becomes available in a promotion. If null, it is available from any
+     *   date.
+     * @property endDate The date the wallpaper stops being available in a promotion. If null, the wallpaper will be
+     *   available to any date.
      */
     data class Collection(
         val name: String,
@@ -71,42 +71,55 @@ data class Wallpaper(
          * safer to do comparison directly with the collection name.
          */
         const val CLASSIC_FIREFOX_COLLECTION = "classic-firefox"
-        val ClassicFirefoxCollection = Collection(
-            name = CLASSIC_FIREFOX_COLLECTION,
-            heading = null,
-            description = null,
-            learnMoreUrl = null,
-            availableLocales = null,
-            startDate = null,
-            endDate = null,
-        )
-        val DefaultCollection = Collection(
-            name = DEFAULT,
-            heading = null,
-            description = null,
-            learnMoreUrl = null,
-            availableLocales = null,
-            startDate = null,
-            endDate = null,
-        )
-        val Default = Wallpaper(
-            name = DEFAULT,
-            collection = DefaultCollection,
-            textColor = null,
-            cardColorLight = null,
-            cardColorDark = null,
-            thumbnailFileState = ImageFileState.Downloaded,
-            assetsFileState = ImageFileState.Downloaded,
-        )
-        val EdgeToEdge = Wallpaper(
-            name = EDGE_TO_EDGE,
-            collection = DefaultCollection,
-            textColor = null,
-            cardColorLight = null,
-            cardColorDark = null,
-            thumbnailFileState = ImageFileState.Downloaded,
-            assetsFileState = ImageFileState.Downloaded,
-        )
+
+        /*
+         * Note: this collection could get out of sync with the version of it generated when fetching
+         * remote metadata. It is included mostly for convenience, but use with utmost care until
+         * we find a better way of handling the edge cases around this collection. It is generally
+         * safer to do comparison directly with the collection name.
+         */
+        const val WREXHAM_FIREFOX_COLLECTION = "wrexham"
+
+        val ClassicFirefoxCollection =
+            Collection(
+                name = CLASSIC_FIREFOX_COLLECTION,
+                heading = null,
+                description = null,
+                learnMoreUrl = null,
+                availableLocales = null,
+                startDate = null,
+                endDate = null,
+            )
+        val DefaultCollection =
+            Collection(
+                name = DEFAULT,
+                heading = null,
+                description = null,
+                learnMoreUrl = null,
+                availableLocales = null,
+                startDate = null,
+                endDate = null,
+            )
+        val Default =
+            Wallpaper(
+                name = DEFAULT,
+                collection = DefaultCollection,
+                textColor = null,
+                cardColorLight = null,
+                cardColorDark = null,
+                thumbnailFileState = ImageFileState.Downloaded,
+                assetsFileState = ImageFileState.Downloaded,
+            )
+        val EdgeToEdge =
+            Wallpaper(
+                name = EDGE_TO_EDGE,
+                collection = DefaultCollection,
+                textColor = null,
+                cardColorLight = null,
+                cardColorDark = null,
+                thumbnailFileState = ImageFileState.Downloaded,
+                assetsFileState = ImageFileState.Downloaded,
+            )
 
         /**
          * Defines the standard path at which a wallpaper resource is kept on disk.
@@ -137,7 +150,15 @@ data class Wallpaper(
             val textColor = settings.currentWallpaperTextColor
             val cardColorLight = settings.currentWallpaperCardColorLight
             val cardColorDark = settings.currentWallpaperCardColorDark
-            return if (name.isNotEmpty() && textColor != 0L && cardColorLight != 0L && cardColorDark != 0L) {
+            return if (name == EDGE_TO_EDGE && settings.enableHomepageEdgeToEdgeBackgroundFeature) {
+                EdgeToEdge
+            } else if (
+                name.isNotEmpty() &&
+                    name != EDGE_TO_EDGE &&
+                    textColor != 0L &&
+                    cardColorLight != 0L &&
+                    cardColorDark != 0L
+            ) {
                 Wallpaper(
                     name = name,
                     textColor = textColor,
@@ -147,27 +168,24 @@ data class Wallpaper(
                     thumbnailFileState = ImageFileState.Downloaded,
                     assetsFileState = ImageFileState.Downloaded,
                 )
-            } else if (name == EDGE_TO_EDGE) {
-                EdgeToEdge
             } else {
                 null
             }
         }
 
         /**
-         * Check if a wallpaper name matches the default. Considers empty strings to be default
-         * since that likely means a wallpaper has never been set. The "none" case here is to deal
-         * with a legacy case where the default wallpaper used to be Wallpaper.NONE. See
-         * commit 7a44412, Wallpaper.NONE and Settings.currentWallpaper (legacy name) for context.
+         * Check if a wallpaper name matches the default. Considers empty strings to be default since that likely means
+         * a wallpaper has never been set. The "none" case here is to deal with a legacy case where the default
+         * wallpaper used to be Wallpaper.NONE. See commit 7a44412, Wallpaper.NONE and Settings.currentWallpaper (legacy
+         * name) for context.
          *
          * @param name The name to check.
          */
-        fun nameIsDefault(name: String): Boolean =
-            name.isEmpty() || name == DEFAULT || name.lowercase() == "none"
+        fun nameIsDefault(name: String): Boolean = name.isEmpty() || name == DEFAULT || name.lowercase() == "none"
 
         /**
-         * Returns true if the wallpaper is a local wallpaper, as opposed to a distant wallpaper
-         * that needs to be downloaded from a distant URL.
+         * Returns true if the wallpaper is a local wallpaper, as opposed to a distant wallpaper that needs to be
+         * downloaded from a distant URL.
          *
          * @param name The name to check.
          * @return True if wallpaper name is Default or EdgeToEdge, False otherwise
@@ -175,24 +193,17 @@ data class Wallpaper(
         fun isLocalWallpaper(name: String): Boolean = name in localWallpapers
     }
 
-    /**
-     * Defines various image asset types that can be downloaded for each wallpaper.
-     */
+    /** Defines various image asset types that can be downloaded for each wallpaper. */
     enum class ImageType {
         Portrait,
         Landscape,
-        Thumbnail,
-        ;
+        Thumbnail;
 
-        /**
-         * Get a lowercase string representation of the [ImageType.name] for use in path segments.
-         */
+        /** Get a lowercase string representation of the [ImageType.name] for use in path segments. */
         fun lowercase(): String = this.name.lowercase()
     }
 
-    /**
-     * Defines the download state of wallpaper asset.
-     */
+    /** Defines the download state of wallpaper asset. */
     enum class ImageFileState {
         Unavailable,
         Downloading,

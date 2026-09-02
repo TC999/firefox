@@ -24,7 +24,7 @@ namespace Library {
 JSObject* Create(JSContext* cx, JS::HandleValue path,
                  const JS::CTypesCallbacks* callbacks);
 
-bool IsLibrary(JSObject* obj);
+bool IsLibrary(const JSObject* obj);
 PRLibrary* GetLibrary(JSObject* obj);
 
 [[nodiscard]] bool Open(JSContext* cx, unsigned argc, JS::Value* vp);

@@ -77,6 +77,30 @@ def get_state_dir(
     return str(state_dir)
 
 
+MACHRC_NAMES = ("machrc", ".machrc")
+
+
+def get_global_machrc_path():
+    """Return the path of the global machrc file, which may not exist yet.
+
+    This is "$state_dir/machrc", unless MACHRC already resolves to an existing
+    file, in which case that is the file mach reads settings from and thus the
+    one to write them back to. MACHRC is resolved the same way as when loading
+    settings: it either names the file itself, or a directory containing a
+    "machrc" or ".machrc".
+    """
+    machrc = os.environ.get("MACHRC")
+    if machrc:
+        machrc = Path(machrc)
+        if machrc.is_file():
+            return machrc
+        for name in MACHRC_NAMES:
+            if (machrc / name).is_file():
+                return machrc / name
+
+    return Path(get_state_dir()) / "machrc"
+
+
 def get_virtualenv_base_dir(topsrcdir):
     return os.path.join(
         get_state_dir(specific_to_topsrcdir=True, topsrcdir=topsrcdir),
@@ -100,6 +124,34 @@ def to_optional_path(path: Optional[Path]):
         return Path(path)
     else:
         return None
+
+
+# CreateProcess on Windows rejects command lines longer than 32767 characters,
+# including the executable path. Leave headroom for the tool path and for the
+# subcommand arguments that precede the paths.
+MAX_COMMAND_LINE_LENGTH = 31000
+
+
+def batch_paths(paths: list[Union[str, Path]], budget: int = MAX_COMMAND_LINE_LENGTH):
+    if not paths:
+        return
+
+    if sys.platform != "win32":
+        yield paths
+        return
+
+    batch = []
+    used = 0
+    for path in paths:
+        # Account for the separator and for possible quoting around the path.
+        size = len(str(path)) + 3
+        if batch and used + size > budget:
+            yield batch
+            batch, used = [], 0
+        batch.append(path)
+        used += size
+    if batch:
+        yield batch
 
 
 def to_optional_str(path: Optional[Path]):

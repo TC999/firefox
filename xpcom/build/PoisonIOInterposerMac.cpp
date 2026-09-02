@@ -8,25 +8,25 @@
 #  include "mach_override.h"
 #endif
 
+#include <aio.h>
+#include <dlfcn.h>
+#include <fcntl.h>
+#include <sys/param.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/uio.h>
+#include <unistd.h>
+
 #include "mozilla/Assertions.h"
 #include "mozilla/DebugOnly.h"
 #include "mozilla/IOInterposer.h"
 #include "mozilla/Mutex.h"
 #include "mozilla/ProcessedStack.h"
+#include "mozilla/StackWalk.h"
 #include "mozilla/UniquePtrExtensions.h"
 #include "nsPrintfCString.h"
-#include "mozilla/StackWalk.h"
 #include "nsTraceRefcnt.h"
 #include "prio.h"
-
-#include <sys/param.h>
-#include <sys/stat.h>
-#include <sys/socket.h>
-#include <sys/uio.h>
-#include <aio.h>
-#include <dlfcn.h>
-#include <fcntl.h>
-#include <unistd.h>
 
 #ifdef MOZ_REPLACE_MALLOC
 #  include "replace_malloc_bridge.h"
@@ -196,7 +196,7 @@ struct FuncData {
 // Wrap aio_write. We have not seen it before, so just assert/report it.
 typedef ssize_t (*aio_write_t)(struct aiocb* aAioCbp);
 ssize_t wrap_aio_write(struct aiocb* aAioCbp);
-FuncData aio_write_data = {0, (void*)wrap_aio_write, (void*)aio_write};
+FuncData aio_write_data = {nullptr, (void*)wrap_aio_write, (void*)aio_write};
 ssize_t wrap_aio_write(struct aiocb* aAioCbp) {
   MacIOAutoObservation timer(mozilla::IOInterposeObserver::OpWrite,
                              aAioCbp->aio_fildes);
@@ -282,8 +282,6 @@ FuncData* Functions[] = {&aio_write_data,
                          &writev_data,          &writev_NOCANCEL_UNIX2003_data,
                          &writev_UNIX2003_data, &writev_NOCANCEL_data};
 
-const int NumFunctions = std::size(Functions);
-
 }  // namespace
 
 /******************************** IO Poisoning ********************************/
@@ -313,8 +311,7 @@ void InitPoisonIOInterposer() {
   ReplaceMalloc::InitDebugFd(registry);
 #endif
 
-  for (int i = 0; i < NumFunctions; ++i) {
-    FuncData* d = Functions[i];
+  for (auto d : Functions) {
     if (!d->Function) {
       d->Function = dlsym(RTLD_DEFAULT, d->Name);
     }

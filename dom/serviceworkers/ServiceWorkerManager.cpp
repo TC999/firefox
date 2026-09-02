@@ -26,6 +26,7 @@
 #include "mozilla/AppShutdown.h"
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/ClearOnShutdown.h"
+#include "mozilla/Components.h"
 #include "mozilla/ContentBlockingAllowList.h"
 #include "mozilla/ErrorNames.h"
 #include "mozilla/LoadContext.h"
@@ -34,7 +35,6 @@
 #include "mozilla/Result.h"
 #include "mozilla/ScopeExit.h"
 #include "mozilla/StaticPrefs_extensions.h"
-#include "mozilla/StaticPrefs_privacy.h"
 #include "mozilla/StoragePrincipalHelper.h"
 #include "mozilla/dom/BindingUtils.h"
 #include "mozilla/dom/ClientHandle.h"
@@ -277,7 +277,7 @@ NS_IMPL_ISUPPORTS(PBMUnregisterBarrier, nsIServiceWorkerUnregisterCallback)
 already_AddRefed<nsIAsyncShutdownClient> GetAsyncShutdownBarrier() {
   AssertIsOnMainThread();
 
-  nsCOMPtr<nsIAsyncShutdownService> svc = services::GetAsyncShutdownService();
+  nsCOMPtr<nsIAsyncShutdownService> svc = components::AsyncShutdown::Service();
   MOZ_ASSERT(svc);
 
   nsCOMPtr<nsIAsyncShutdownClient> barrier;
@@ -854,8 +854,8 @@ ServiceWorkerManager::RegisterForTest(nsIPrincipal* aPrincipal,
   const nsCOMPtr<nsIPrincipal> principal(aPrincipal);
   regPromise->Then(
       GetMainThreadSerialEventTarget(), __func__,
-      [self, outer, principal,
-       scope](const ServiceWorkerRegistrationDescriptor& regDesc) {
+      [self, outer, principal, scope = std::move(scope)](
+          const ServiceWorkerRegistrationDescriptor& regDesc) {
         RefPtr<ServiceWorkerRegistrationInfo> registration =
             self->GetRegistration(principal, NS_ConvertUTF16toUTF8(scope));
         if (registration) {
@@ -930,9 +930,17 @@ RefPtr<ServiceWorkerRegistrationPromise> ServiceWorkerManager::Register(
 
   auto lifetime = DetermineLifetimeForClient(aClientInfo);
 
+  uint16_t ipAddressSpace = 0;
+  const auto& policyContainerArgs = aClientInfo.GetPolicyContainerArgs();
+  if (policyContainerArgs.isSome()) {
+    ipAddressSpace =
+        static_cast<uint16_t>(policyContainerArgs->ipAddressSpace());
+  }
+
   RefPtr<ServiceWorkerRegisterJob> job = new ServiceWorkerRegisterJob(
       principal, aScopeURL, aType, aScriptURL,
-      static_cast<ServiceWorkerUpdateViaCache>(aUpdateViaCache), lifetime);
+      static_cast<ServiceWorkerUpdateViaCache>(aUpdateViaCache), lifetime,
+      ipAddressSpace);
 
   job->AppendResultCallback(cb);
   queue->ScheduleJob(job);
@@ -1863,7 +1871,7 @@ nsresult ServiceWorkerManager::PrincipalInfoToScopeKey(
     return NS_ERROR_FAILURE;
   }
 
-  auto content = aPrincipalInfo.get_ContentPrincipalInfo();
+  const auto& content = aPrincipalInfo.get_ContentPrincipalInfo();
 
   nsAutoCString suffix;
   content.attrs().CreateSuffix(suffix);
@@ -2239,11 +2247,9 @@ void ServiceWorkerManager::DispatchFetchEvent(nsIInterceptedChannel* aChannel,
 
     // non-subresource request means the URI contains the principal
     OriginAttributes attrs = loadInfo->GetOriginAttributes();
-    if (StaticPrefs::privacy_partition_serviceWorkers()) {
-      StoragePrincipalHelper::GetOriginAttributes(
-          internalChannel, attrs,
-          StoragePrincipalHelper::eForeignPartitionedPrincipal);
-    }
+    StoragePrincipalHelper::GetOriginAttributes(
+        internalChannel, attrs,
+        StoragePrincipalHelper::eForeignPartitionedPrincipal);
 
     nsCOMPtr<nsIPrincipal> principal =
         BasePrincipal::CreateContentPrincipal(uri, attrs);
@@ -2353,20 +2359,16 @@ void ServiceWorkerManager::DispatchFetchEvent(nsIInterceptedChannel* aChannel,
 
   MOZ_DIAGNOSTIC_ASSERT(serviceWorker);
 
+  // FIXME: This doesn't need to be a runnable anymore. Previously, this code
+  // was part of the child-intercept code path for content process workers, and
+  // used a runnable here to wait for the parent process to send permissions.
+  //
+  // Nowadays this is only ever called in the parent process, so the potential
+  // dispatch is unnecessary.
   RefPtr<ContinueDispatchFetchEventRunnable> continueRunnable =
       new ContinueDispatchFetchEventRunnable(serviceWorker->WorkerPrivate(),
                                              aChannel, loadGroup);
-
-  // When this service worker was registered, we also sent down the permissions
-  // for the runnable. They should have arrived by now, but we still need to
-  // wait for them if they have not.
-  RefPtr<PermissionManager> permMgr = PermissionManager::GetInstance();
-  if (permMgr) {
-    permMgr->WhenPermissionsAvailable(serviceWorker->Principal(),
-                                      continueRunnable);
-  } else {
-    continueRunnable->HandleError();
-  }
+  continueRunnable->Run();
 }
 
 ServiceWorkerLifetimeExtension ServiceWorkerManager::DetermineLifetimeForClient(
@@ -2431,10 +2433,6 @@ bool ServiceWorkerManager::IsAvailable(nsIPrincipal* aPrincipal, nsIURI* aURI,
     nsCOMPtr<nsILoadInfo> loadInfo = aChannel->LoadInfo();
 
     if (storageAccess <= StorageAccess::eDeny) {
-      if (!StaticPrefs::privacy_partition_serviceWorkers()) {
-        return false;
-      }
-
       nsCOMPtr<nsICookieJarSettings> cookieJarSettings;
       loadInfo->GetCookieJarSettings(getter_AddRefs(cookieJarSettings));
 
@@ -2977,8 +2975,8 @@ ServiceWorkerManager::RegisterForAddonPrincipal(nsIPrincipal* aPrincipal,
   const nsCOMPtr<nsIPrincipal> principal(aPrincipal);
   regPromise->Then(
       GetMainThreadSerialEventTarget(), __func__,
-      [self, outer, principal,
-       scope](const ServiceWorkerRegistrationDescriptor& regDesc) {
+      [self, outer, principal, scope = std::move(scope)](
+          const ServiceWorkerRegistrationDescriptor& regDesc) {
         RefPtr<ServiceWorkerRegistrationInfo> registration =
             self->GetRegistration(principal, scope);
         if (registration) {

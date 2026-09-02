@@ -25,6 +25,7 @@ import {
   getFirstSourceActorForGeneratedSource,
   getSourceByURL,
   getSelectedLocation,
+  getSelectedSource,
   getShouldSelectOriginalLocation,
   tabExists,
   hasSource,
@@ -291,6 +292,7 @@ export function selectLocation(
       location = createLocation({ ...location, sourceActor });
     }
 
+    const previousSelectedSource = getSelectedSource(getState());
     if (!tabExists(getState(), source)) {
       dispatch(addTab(source));
     }
@@ -303,6 +305,10 @@ export function selectLocation(
       )
     );
 
+    if (source.isStyleSheet && source !== previousSelectedSource) {
+      Glean.devtoolsDebuggerStylesheets.stylesheetsOpenedCount.add(1);
+    }
+
     await dispatch(loadSourceText(source, sourceActor));
 
     // Stop the async work if we started selecting another location
@@ -310,7 +316,9 @@ export function selectLocation(
       return;
     }
 
-    await dispatch(setBreakableLines(location));
+    if (!source.isStyleSheet) {
+      await dispatch(setBreakableLines(location));
+    }
 
     // Stop the async work if we started selecting another location
     if (getSelectedLocation(getState()) != location) {

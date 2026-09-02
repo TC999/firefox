@@ -6,6 +6,7 @@
 #define mozilla_BasePrincipal_h
 
 #include <stdint.h>
+
 #include "ErrorList.h"
 #include "js/TypeDecls.h"
 #include "mozilla/AlreadyAddRefed.h"
@@ -146,6 +147,7 @@ class BasePrincipal : public nsJSPrincipals {
   NS_IMETHOD IsContentAccessibleAboutURI(bool* aResult) override;
   NS_IMETHOD IsL10nAllowed(nsIURI* aURI, bool* aResult) override;
   NS_IMETHOD GetAboutModuleFlags(uint32_t* flags) override;
+  NS_IMETHOD GetIsAddonPrincipal(bool* aResult) override;
   NS_IMETHOD GetIsAddonOrExpandedAddonPrincipal(bool* aResult) override;
   NS_IMETHOD GetOriginAttributes(JSContext* aCx,
                                  JS::MutableHandle<JS::Value> aVal) final;

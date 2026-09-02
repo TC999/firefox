@@ -59,12 +59,12 @@ class GPUParent final : public PGPUParent {
   mozilla::ipc::IPCResult RecvInitVsyncBridge(
       Endpoint<PVsyncBridgeParent>&& aVsyncEndpoint);
   mozilla::ipc::IPCResult RecvInitImageBridge(
-      Endpoint<PImageBridgeParent>&& aEndpoint);
+      Endpoint<PImageBridgeParent>&& aEndpoint, uint32_t aNamespace);
   mozilla::ipc::IPCResult RecvInitVideoBridge(
       Endpoint<PVideoBridgeParent>&& aEndpoint,
       const layers::VideoBridgeSource& aSource);
   mozilla::ipc::IPCResult RecvInitVRManager(
-      Endpoint<PVRManagerParent>&& aEndpoint);
+      Endpoint<PVRManagerParent>&& aEndpoint, uint32_t aNamespace);
   mozilla::ipc::IPCResult RecvInitVR(Endpoint<PVRGPUChild>&& aVRGPUChild);
   mozilla::ipc::IPCResult RecvInitUiCompositorController(
       const LayersId& aRootLayerTreeId,
@@ -81,12 +81,14 @@ class GPUParent final : public PGPUParent {
       const BatteryInformation& aBatteryInfo);
   mozilla::ipc::IPCResult RecvNewContentCompositorManager(
       Endpoint<PCompositorManagerParent>&& aEndpoint,
-      const ContentParentId& aChildId, uint32_t aNamespace);
+      const ContentParentId& aChildId, uint32_t aNamespace,
+      uint32_t aContentBridgeNamespace);
   mozilla::ipc::IPCResult RecvNewContentImageBridge(
-      Endpoint<PImageBridgeParent>&& aEndpoint,
-      const ContentParentId& aChildId);
+      Endpoint<PImageBridgeParent>&& aEndpoint, const ContentParentId& aChildId,
+      uint32_t aNamespace);
   mozilla::ipc::IPCResult RecvNewContentVRManager(
-      Endpoint<PVRManagerParent>&& aEndpoint, const ContentParentId& aChildId);
+      Endpoint<PVRManagerParent>&& aEndpoint, const ContentParentId& aChildId,
+      uint32_t aNamespace);
   mozilla::ipc::IPCResult RecvNewContentRemoteMediaManager(
       Endpoint<PRemoteMediaManagerParent>&& aEndpoint,
       const ContentParentId& aChildId);

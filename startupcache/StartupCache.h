@@ -245,8 +245,9 @@ class StartupCache : public nsIMemoryReporter {
 
   static nsresult InitSingleton();
   static void WriteTimeout(nsITimer* aTimer, void* aClosure);
-  void MaybeWriteOffMainThread(WriteType aWriteType);
-  void ThreadedPrefetch(uint8_t* aStart, size_t aSize);
+  void MaybeWriteOffMainThread(WriteType aWriteType,
+                               bool aUseLowPriorityIO = true);
+  void ThreadedPrefetch(const uint8_t* aStart, size_t aSize);
 
   Monitor mPrefetchComplete{"StartupCachePrefetch"};
   bool mPrefetchInProgress MOZ_GUARDED_BY(mPrefetchComplete){false};
@@ -260,7 +261,7 @@ class StartupCache : public nsIMemoryReporter {
   // could create dangling pointers. RefPtrs could be introduced, but it would
   // be a large amount of error-prone work to change.
   nsTArray<decltype(mTable)> mOldTables MOZ_GUARDED_BY(mTableLock);
-  size_t mAllowedInvalidationsCount;
+  size_t mAllowedInvalidationsCount = 0;
   nsCOMPtr<nsIFile> mFile;
   mozilla::loader::AutoMemMap mCacheData MOZ_GUARDED_BY(mTableLock);
   Mutex mTableLock;

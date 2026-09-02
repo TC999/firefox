@@ -7,13 +7,13 @@ Transform the openh264 signing task into an actual task description.
 
 from typing import Optional
 
+from mozilla_taskgraph.util.attributes import copy_attributes_from_dependent_job
 from taskgraph.transforms.base import TransformSequence
 from taskgraph.util.dependencies import get_primary_dependency
 from taskgraph.util.schema import Schema
 from taskgraph.util.treeherder import inherit_treeherder_from_dep, join_symbol
 
 from gecko_taskgraph.transforms.task import TaskDescriptionSchema
-from gecko_taskgraph.util.attributes import copy_attributes_from_dependent_job
 from gecko_taskgraph.util.scriptworker import get_signing_type_per_platform
 
 transforms = TransformSequence()
@@ -51,11 +51,9 @@ def make_signing_description(config, jobs):
         build_platform = dep_job.attributes.get("build_platform")
         is_nightly = True  # cert_scope_per_platform uses this to choose the right cert
 
+        build_type = attributes.get("build_type")
         description = (
-            "Signing of OpenH264 Binaries for '{build_platform}/{build_type}'".format(
-                build_platform=attributes.get("build_platform"),
-                build_type=attributes.get("build_type"),
-            )
+            f"Signing of OpenH264 Binaries for '{build_platform}/{build_type}'"
         )
 
         dependencies = {"openh264": dep_job.label}
@@ -64,30 +62,35 @@ def make_signing_description(config, jobs):
 
         signing_type = get_signing_type_per_platform(build_platform, is_nightly, config)
 
-        worker_type = "linux-signing"
-        worker = {
-            "implementation": "scriptworker-signing",
-            "signing-type": signing_type,
-        }
         upstream_artifact = {
             "taskId": {"task-reference": "<openh264>"},
             "taskType": "build",
         }
 
+        worker_type = "linux-signing"
+        worker = {
+            "implementation": "scriptworker-signing",
+            "signing-type": signing_type,
+        }
+
         if "win" in build_platform:
             upstream_artifact["formats"] = ["gcp_prod_autograph_authenticode_202412"]
         elif "mac" in build_platform:
+            worker_type = "mac-signing"
+            worker = {
+                "implementation": "iscript",
+                "signing-type": signing_type,
+                "mac-behavior": "mac_single_file",
+            }
             upstream_artifact["formats"] = ["mac_single_file"]
             upstream_artifact["singleFileGlobs"] = ["libgmpopenh264.dylib"]
-            worker_type = "mac-signing"
-            worker["implementation"] = "iscript"
-            worker["mac-behavior"] = "mac_notarize_single_file"
         else:
             upstream_artifact["formats"] = ["gcp_prod_autograph_gpg"]
 
         version = attributes.get("openh264_version")
         if not version:
             raise Exception(f"openh264_version attribute missing from {dep_job.label}")
+        my_attributes["openh264_version"] = version
         upstream_artifact["paths"] = [
             f"private/openh264/openh264-v{version}-{build_platform}.zip",
         ]
@@ -99,7 +102,7 @@ def make_signing_description(config, jobs):
             "symbol",
             join_symbol(
                 dep_th.get("groupSymbol", "?"),
-                _generate_treeherder_symbol(dep_th.get("symbol")),
+                (dep_th.get("symbol") or "") + "s",
             ),
         )
 
@@ -116,8 +119,3 @@ def make_signing_description(config, jobs):
         }
 
         yield task
-
-
-def _generate_treeherder_symbol(build_symbol):
-    symbol = build_symbol + "s"
-    return symbol

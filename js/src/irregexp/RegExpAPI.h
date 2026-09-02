@@ -28,8 +28,8 @@ namespace JS {
 class RegExpFlags;
 }
 
-namespace v8::internal {
-class RegExpStack;
+namespace v8::internal::regexp {
+class Stack;
 }
 
 namespace js {
@@ -74,7 +74,7 @@ RegExpRunStatus ExecuteForFuzzing(JSContext* cx, Handle<JSAtom*> pattern,
                                   VectorMatchPairs* matches,
                                   RegExpShared::CodeKind codeKind);
 
-bool GrowBacktrackStack(v8::internal::RegExpStack* regexp_stack);
+bool GrowBacktrackStack(v8::internal::regexp::Stack* regexp_stack);
 
 uint32_t CaseInsensitiveCompareNonUnicode(const char16_t* substring1,
                                           const char16_t* substring2,

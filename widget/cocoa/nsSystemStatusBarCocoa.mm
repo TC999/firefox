@@ -4,11 +4,11 @@
 
 #import <Cocoa/Cocoa.h>
 
-#include "nsComponentManagerUtils.h"
-#include "nsSystemStatusBarCocoa.h"
 #include "NativeMenuMac.h"
-#include "nsObjCExceptions.h"
 #include "mozilla/dom/Element.h"
+#include "nsComponentManagerUtils.h"
+#include "nsObjCExceptions.h"
+#include "nsSystemStatusBarCocoa.h"
 
 using mozilla::dom::Element;
 using mozilla::widget::NativeMenuMac;
@@ -21,7 +21,7 @@ nsSystemStatusBarCocoa::AddItem(Element* aElement) {
     return NS_ERROR_FAILURE;
   }
 
-  RefPtr<NativeMenuMac> menu = new NativeMenuMac(aElement);
+  auto menu = mozilla::MakeRefPtr<NativeMenuMac>(aElement);
 
   nsCOMPtr<nsISupports> keyPtr = aElement;
   mItems.InsertOrUpdate(keyPtr, mozilla::MakeUnique<StatusItem>(menu));

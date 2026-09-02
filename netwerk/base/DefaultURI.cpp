@@ -3,14 +3,14 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "DefaultURI.h"
+
+#include "mozilla/ipc/URIParams.h"
 #include "nsIClassInfoImpl.h"
 #include "nsIObjectInputStream.h"
 #include "nsIObjectOutputStream.h"
 #include "nsReadableUtils.h"
 #include "nsURLHelper.h"
 #include "urlpattern_glue/URLPatternGlue.h"
-
-#include "mozilla/ipc/URIParams.h"
 
 namespace mozilla {
 namespace net {
@@ -47,7 +47,8 @@ NS_IMPL_CI_INTERFACE_GETTER0(DefaultURI)
 NS_IMPL_ADDREF(DefaultURI)
 NS_IMPL_RELEASE(DefaultURI)
 NS_INTERFACE_TABLE_HEAD(DefaultURI)
-  NS_INTERFACE_TABLE(DefaultURI, nsIURI, nsISerializable)
+  NS_INTERFACE_TABLE(DefaultURI, nsIURI, nsISerializable, nsIIPCSerializableURI,
+                     nsIURIWithSizeOf)
   NS_INTERFACE_TABLE_TO_MAP_SEGUE
   NS_IMPL_QUERY_CLASSINFO(DefaultURI)
   if (aIID.Equals(kDefaultURICID)) {
@@ -76,6 +77,8 @@ NS_IMETHODIMP DefaultURI::GetSpec(nsACString& aSpec) {
   aSpec = mURL->Spec();
   return NS_OK;
 }
+
+uint32_t DefaultURI::SpecHash() { return CachedSpecHash(mURL->Spec()); }
 
 NS_IMETHODIMP DefaultURI::GetPrePath(nsACString& aPrePath) {
   aPrePath = mURL->PrePath();

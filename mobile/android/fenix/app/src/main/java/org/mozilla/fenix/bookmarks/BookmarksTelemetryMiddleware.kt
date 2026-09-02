@@ -32,12 +32,25 @@ internal class BookmarksTelemetryMiddleware : Middleware<BookmarksState, Bookmar
     ) {
         when (action) {
             is DeletionDialogAction -> state.handleDeleteDialogAction(action)
-            is BookmarkClicked -> { recordBookmarkClickedMetrics(state) }
-            is BookmarksListMenuAction -> { handleBookmarksListMenuAction(action, state) }
-            is SelectFolderAction -> { handleSelectFolderActions(action) }
-            SearchClicked -> { BookmarksManagement.searchIconTapped.record(NoExtras()) }
+            is BookmarkClicked -> {
+                recordBookmarkClickedMetrics(state)
+            }
+            is BookmarksListMenuAction -> {
+                handleBookmarksListMenuAction(action, state)
+            }
+            is SelectFolderAction -> {
+                handleSelectFolderActions(action)
+            }
+            SearchAction.SearchClicked -> {
+                BookmarksManagement.searchIconTapped.record(NoExtras())
+            }
             BackClicked -> state.handleBackClick()
-            EditBookmarkAction.DeleteClicked -> { recordEditDeleteMetrics() }
+            is ImportAction -> handleImportAction(action)
+            EditBookmarkAction.DeleteClicked -> {
+                recordEditDeleteMetrics()
+            }
+            RootOverflowMenuClicked,
+            RootOverflowMenuDismissed,
             EditBookmarkAction.FolderClicked,
             is EditBookmarkAction.TitleChanged,
             is EditBookmarkAction.URLChanged,
@@ -49,17 +62,25 @@ internal class BookmarksTelemetryMiddleware : Middleware<BookmarksState, Bookmar
             EditFolderAction.ParentFolderClicked,
             is SnackbarAction,
             is BookmarkLongClicked,
-            is BookmarksLoaded, is SearchDismissed, is EditBookmarkClicked, is FolderClicked,
+            is BookmarksLoaded,
+            is SearchAction.SearchDismissed,
+            is SearchAction.ReceivedSearchResults,
+            is SearchAction.SearchQueryChanged,
+            is EditBookmarkClicked,
+            is FolderClicked,
             is FolderLongClicked,
             is RecursiveSelectionCountLoaded,
             is OpenTabsConfirmationDialogAction.Present,
-            is InitEdit,
-            is InitEditLoaded,
+            is ViewAppeared,
+            is BookmarkToEditLoaded,
             is ReceivedSyncSignInUpdate,
-            CloseClicked, AddFolderClicked, Init, SignIntoSyncClicked,
-            OpenTabsConfirmationDialogAction.CancelTapped, OpenTabsConfirmationDialogAction.ConfirmTapped,
-            FirstSyncCompleted, PrivateBrowsingAuthorized,
-                -> Unit
+            CloseClicked,
+            AddFolderClicked,
+            SignIntoSyncClicked,
+            OpenTabsConfirmationDialogAction.CancelTapped,
+            OpenTabsConfirmationDialogAction.ConfirmTapped,
+            FirstSyncCompleted,
+            PrivateBrowsingAuthorized -> Unit
         }
     }
 
@@ -76,9 +97,7 @@ internal class BookmarksTelemetryMiddleware : Middleware<BookmarksState, Bookmar
         }
     }
 
-    private fun handleSelectFolderActions(
-        action: SelectFolderAction,
-    ) {
+    private fun handleSelectFolderActions(action: SelectFolderAction) {
         when (action) {
             is SelectFolderAction.SearchQueryUpdated,
             is SelectFolderAction.SortMenu,
@@ -89,8 +108,7 @@ internal class BookmarksTelemetryMiddleware : Middleware<BookmarksState, Bookmar
             is SelectFolderAction.ItemClicked,
             SelectFolderAction.SearchClicked,
             SelectFolderAction.SearchDismissed,
-            SelectFolderAction.ViewAppeared,
-                -> Unit
+            SelectFolderAction.ViewAppeared -> Unit
         }
     }
 
@@ -113,14 +131,14 @@ internal class BookmarksTelemetryMiddleware : Middleware<BookmarksState, Bookmar
             }
 
             BookmarksListMenuAction.MultiSelect.ShareClicked -> {
-                selectedItems.filterIsInstance<BookmarkItem.Bookmark>()
-                    .forEach { _ -> BookmarksManagement.shared.record(NoExtras()) }
+                selectedItems.filterIsInstance<BookmarkItem.Bookmark>().forEach { _ ->
+                    BookmarksManagement.shared.record(NoExtras())
+                }
             }
 
             BookmarksListMenuAction.MultiSelect.DeleteClicked,
             BookmarksListMenuAction.MultiSelect.EditClicked,
-            BookmarksListMenuAction.MultiSelect.MoveClicked,
-                -> Unit
+            BookmarksListMenuAction.MultiSelect.MoveClicked -> Unit
         }
     }
 
@@ -150,10 +168,11 @@ internal class BookmarksTelemetryMiddleware : Middleware<BookmarksState, Bookmar
                 BookmarksManagement.moved.record(NoExtras())
             }
 
-            is BookmarksListMenuAction.Bookmark.DeleteClicked -> { recordListDeleteMetrics() }
+            is BookmarksListMenuAction.Bookmark.DeleteClicked -> {
+                recordListDeleteMetrics()
+            }
             is BookmarksListMenuAction.Bookmark.EditClicked,
-            is BookmarksListMenuAction.Bookmark.SelectClicked,
-                -> Unit
+            is BookmarksListMenuAction.Bookmark.SelectClicked -> Unit
         }
     }
 
@@ -181,8 +200,7 @@ internal class BookmarksTelemetryMiddleware : Middleware<BookmarksState, Bookmar
 
             is BookmarksListMenuAction.Folder.EditClicked,
             is BookmarksListMenuAction.Folder.DeleteClicked,
-            is BookmarksListMenuAction.Folder.SelectClicked,
-                -> Unit
+            is BookmarksListMenuAction.Folder.SelectClicked -> Unit
         }
     }
 
@@ -206,8 +224,9 @@ internal class BookmarksTelemetryMiddleware : Middleware<BookmarksState, Bookmar
             }
 
             bookmarksSelectFolderState != null -> {
-                if (bookmarksMultiselectMoveState != null &&
-                    bookmarksMultiselectMoveState.destination != currentFolder.guid
+                if (
+                    bookmarksMultiselectMoveState != null &&
+                        bookmarksMultiselectMoveState.destination != currentFolder.guid
                 ) {
                     BookmarksManagement.moved.record(NoExtras())
                 }
@@ -215,15 +234,16 @@ internal class BookmarksTelemetryMiddleware : Middleware<BookmarksState, Bookmar
         }
     }
 
-    private fun BookmarksListMenuAction.SortMenu.record() = when (this) {
-        BookmarksListMenuAction.SortMenu.SortMenuButtonClicked -> BookmarksManagement.sortMenuClicked.record()
-        BookmarksListMenuAction.SortMenu.SortMenuDismissed -> Unit
-        BookmarksListMenuAction.SortMenu.CustomSortClicked -> BookmarksManagement.sortByCustom.record()
-        BookmarksListMenuAction.SortMenu.NewestClicked -> BookmarksManagement.sortByNewest.record()
-        BookmarksListMenuAction.SortMenu.OldestClicked -> BookmarksManagement.sortByOldest.record()
-        BookmarksListMenuAction.SortMenu.AtoZClicked -> BookmarksManagement.sortByAToZ.record()
-        BookmarksListMenuAction.SortMenu.ZtoAClicked -> BookmarksManagement.sortByZToA.record()
-    }
+    private fun BookmarksListMenuAction.SortMenu.record() =
+        when (this) {
+            BookmarksListMenuAction.SortMenu.SortMenuButtonClicked -> BookmarksManagement.sortMenuClicked.record()
+            BookmarksListMenuAction.SortMenu.SortMenuDismissed -> Unit
+            BookmarksListMenuAction.SortMenu.CustomSortClicked -> BookmarksManagement.sortByCustom.record()
+            BookmarksListMenuAction.SortMenu.NewestClicked -> BookmarksManagement.sortByNewest.record()
+            BookmarksListMenuAction.SortMenu.OldestClicked -> BookmarksManagement.sortByOldest.record()
+            BookmarksListMenuAction.SortMenu.AtoZClicked -> BookmarksManagement.sortByAToZ.record()
+            BookmarksListMenuAction.SortMenu.ZtoAClicked -> BookmarksManagement.sortByZToA.record()
+        }
 
     private fun BookmarksState.handleDeleteDialogAction(action: DeletionDialogAction) {
         when (action) {
@@ -241,8 +261,7 @@ internal class BookmarksTelemetryMiddleware : Middleware<BookmarksState, Bookmar
             }
 
             is DeletionDialogAction.CountLoaded,
-            DeletionDialogAction.CancelTapped,
-                -> Unit
+            DeletionDialogAction.CancelTapped -> Unit
         }
     }
 
@@ -271,4 +290,22 @@ internal class BookmarksTelemetryMiddleware : Middleware<BookmarksState, Bookmar
             )
         }
     }
+
+    private fun handleImportAction(action: ImportAction) =
+        when (action) {
+            is ImportAction.ImportFailed ->
+                BookmarksManagement.importFailed.record(
+                    extra = BookmarksManagement.ImportFailedExtra(errorCode = action.error.code.toString())
+                )
+            is ImportAction.ImportCancelled -> BookmarksManagement.importCancelled.record(NoExtras())
+            is ImportAction.ImportFileClicked.FromMenu -> BookmarksManagement.importFromFileMenuClick.record(NoExtras())
+            is ImportAction.ImportSucceeded -> {
+                BookmarksManagement.importSuccessful.record(
+                    extra = BookmarksManagement.ImportSuccessfulExtra(bookmarksCount = action.count)
+                )
+            }
+            is ImportAction.ImportStarted -> {
+                BookmarksManagement.importStarted.record(NoExtras())
+            }
+        }
 }

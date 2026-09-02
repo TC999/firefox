@@ -857,10 +857,6 @@ void RetainedDisplayListBuilder::GetModifiedAndFramesWithProps(
     if (flags.contains(RetainedDisplayListData::FrameFlag::HasProps)) {
       aOutFramesWithProps->AppendElement(frame);
     }
-
-    if (flags.contains(RetainedDisplayListData::FrameFlag::HadWillChange)) {
-      Builder()->RemoveFromWillChangeBudgets(frame);
-    }
   }
 
   Data()->Clear();
@@ -965,7 +961,7 @@ static bool ProcessFrameInternal(nsIFrame* aFrame,
     // that frame.
     aOverflow = nsLayoutUtils::TransformFrameRectToAncestor(
         currentFrame, aOverflow, aStopAtFrame, nullptr, nullptr,
-        /* aStopAtStackingContextAndDisplayPortAndOOFFrame = */ true,
+        TransformMatrixFlag::StopAtStackingContextAndDisplayPort,
         &currentFrame);
     if (IsInPreserve3DContext(currentFrame)) {
       return false;

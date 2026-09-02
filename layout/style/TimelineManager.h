@@ -49,20 +49,25 @@ class TimelineManager {
     Scroll,
     View,
   };
-  void UpdateTimelines(dom::Element* aElement,
-                       const PseudoStyleRequest& aPseudoRequest,
-                       const ComputedStyle* aComputedStyle,
-                       ProgressTimelineType aType);
+  nsTArray<RefPtr<const nsAtom>> UpdateTimelines(
+      dom::Element* aElement, const PseudoStyleRequest& aPseudoRequest,
+      const ComputedStyle* aComputedStyle, ProgressTimelineType aType);
 
   void UpdateTimelineScopes(const dom::Element* aElement,
                             const ComputedStyle* aComputedStyle);
-
-  Maybe<already_AddRefed<dom::AnimationTimeline>> GetScopedTimeline(
-      const dom::Element* aScopeElement, const nsAtom* aName) const;
+  bool TimelineNameScopedByElement(const dom::Element* aElement,
+                                   const nsAtom* aName) const;
+  static RefPtr<dom::AnimationTimeline> GetNamedTimelineForThisElement(
+      const dom::Element* aElement, const PseudoStyleRequest& aPseudoRequest,
+      const nsAtom* aName, const dom::ShadowRoot* aTargetShadowRoot);
+  already_AddRefed<dom::AnimationTimeline> GetNamedTimelineInSubtree(
+      const dom::Element* aRoot, const nsAtom* aName,
+      const dom::ShadowRoot* aTargetShadowRoot, dom::Document* aDocument) const;
 
  private:
+  // Array of timelines. Should be maintained in frame tree order.
   template <typename TimelineType>
-  using Timelines = nsTArray<RefPtr<TimelineType>>;
+  using Timelines = nsTArray<TimelineEntry<TimelineType>>;
   // Mapping from timeline names to timelines of that name. Depending on
   // the use of `timeline-scope`, may or may not be visible from the
   // element specifying `animation-timeline`.
@@ -78,25 +83,21 @@ class TimelineManager {
     nsTArray<RefPtr<nsAtom>> mNames;
   };
 
-  const TimelineScopeEntry* GetTimelineScope(const dom::Element* aScopeElement,
-                                             const nsAtom* aName) const;
-
   template <typename TimelineType>
-  TimelineType* DoGetScopedTimeline(
-      const dom::Element* aScopeElement, const nsAtom* aName,
+  TimelineType* DoGetNamedTimelineInSubtree(
+      const dom::Element* aRoot, const nsAtom* aName,
       const TimelineNameMap<TimelineType>& aTimelineNameMap,
-      bool& aDuplicateFound) const;
+      const dom::ShadowRoot* aTargetShadowRoot) const;
 
   // TODO(dshin, bug 2021326): Depending on general usage, this may end up being
   // a hashmap.
   using TimelineScopes = nsTArray<TimelineScopeEntry>;
 
-  template <typename StyleType, typename TimelineType>
-  void DoUpdateTimelines(nsPresContext* aPresContext, dom::Element* aElement,
-                         const PseudoStyleRequest& aPseudoRequest,
-                         const nsStyleAutoArray<StyleType>& aStyleTimelines,
-                         size_t aTimelineCount,
-                         TimelineNameMap<TimelineType>& aTimelineNameMap);
+  template <typename TimelineType>
+  nsTArray<RefPtr<const nsAtom>> DoUpdateTimelines(
+      nsPresContext* aPresContext, dom::Element* aElement,
+      const PseudoStyleRequest& aPseudoRequest, const nsStyleUIReset* aUIReset,
+      TimelineNameMap<TimelineType>& aTimelineNameMap);
 
   template <typename T>
   void AddTimelineCollection(TimelineCollection<T>* aCollection);
@@ -117,7 +118,7 @@ class TimelineManager {
 
   // Destroy all timelines relating to the given (pseudo) element.
   template <typename TimelineType>
-  static void TryDestroyTimeline(
+  nsTArray<RefPtr<const nsAtom>> TryDestroyTimeline(
       dom::Element* aElement, const PseudoStyleRequest& aPseudoRequest,
       TimelineNameMap<TimelineType>& aTimelineNameMap);
 

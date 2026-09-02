@@ -27,7 +27,7 @@ enum class AttrModType : uint8_t;  // Defined in nsIMutationObserver.h
 namespace mozilla {
 struct CSSPropertyId;
 enum class StyleCssRuleType : uint8_t;
-class DeclarationBlock;
+struct StyleLockedDeclarationBlock;
 struct DeclarationBlockMutationClosure;
 namespace css {
 class Loader;
@@ -52,6 +52,9 @@ struct MutationClosureData {
 
 class nsDOMCSSDeclaration : public nsICSSDeclaration {
  public:
+  using Block = mozilla::StyleLockedDeclarationBlock;
+  static already_AddRefed<Block> EnsureBlockMutable(Block*);
+
   // Only implement QueryInterface; subclasses have the responsibility
   // of implementing AddRef/Release.
   NS_IMETHOD QueryInterface(REFNSIID aIID, void** aInstancePtr) override;
@@ -62,6 +65,12 @@ class nsDOMCSSDeclaration : public nsICSSDeclaration {
   NS_IMETHOD_(MozExternalRefCountType) AddRef() override = 0;
   NS_IMETHOD_(MozExternalRefCountType) Release() override = 0;
 
+  /**
+   * Typed getter: Get property value by CSSPropertyId.
+   * This handles both non-custom properties and custom properties (--*).
+   */
+  virtual void GetPropertyValue(const mozilla::CSSPropertyId& aPropertyId,
+                                nsACString& aValue);
   /**
    * Method analogous to CSSStyleDeclaration::GetPropertyValue,
    * which obeys all the same restrictions.
@@ -100,6 +109,8 @@ class nsDOMCSSDeclaration : public nsICSSDeclaration {
   bool HasLonghandProperty(const nsACString& propertyName) override;
   void RemoveProperty(const nsACString& propertyName, nsACString& _retval,
                       mozilla::ErrorResult& aRv) override;
+  void RemoveProperty(const mozilla::CSSPropertyId& aPropertyId,
+                      mozilla::ErrorResult& aRv);
   void GetPropertyPriority(const nsACString& propertyName,
                            nsACString& aPriority) override;
   void SetProperty(const nsACString& propertyName, const nsACString& value,
@@ -145,12 +156,11 @@ class nsDOMCSSDeclaration : public nsICSSDeclaration {
 
   // If aOperation is Modify, aCreated must be non-null and the call may set it
   // to point to the newly created object.
-  virtual mozilla::DeclarationBlock* GetOrCreateCSSDeclaration(
-      Operation aOperation, mozilla::DeclarationBlock** aCreated) = 0;
+  virtual Block* GetOrCreateCSSDeclaration(Operation aOperation,
+                                           Block** aCreated) = 0;
 
   virtual nsresult SetCSSDeclaration(
-      mozilla::DeclarationBlock* aDecl,
-      mozilla::MutationClosureData* aClosureData) = 0;
+      Block* aDecl, mozilla::MutationClosureData* aClosureData) = 0;
   // Document that we must call BeginUpdate/EndUpdate on around the
   // calls to SetCSSDeclaration and the style rule mutation that leads
   // to it.
@@ -183,11 +193,6 @@ class nsDOMCSSDeclaration : public nsICSSDeclaration {
 
   nsresult SetPropertyTypedValue(const mozilla::CSSPropertyId& aPropId,
                                  const nsACString& aPropValue);
-
-  void RemovePropertyInternal(NonCustomCSSPropertyId aPropId,
-                              mozilla::ErrorResult& aRv);
-  void RemovePropertyInternal(const nsACString& aPropert,
-                              mozilla::ErrorResult& aRv);
 
   virtual void GetPropertyChangeClosure(
       mozilla::DeclarationBlockMutationClosure* aClosure,

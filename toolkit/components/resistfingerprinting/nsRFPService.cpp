@@ -1,4 +1,3 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
@@ -60,6 +59,7 @@
 #include "nsAboutProtocolUtils.h"
 #include "nsBaseHashtable.h"
 #include "nsComponentManagerUtils.h"
+#include "nsCRT.h"
 #include "nsCOMPtr.h"
 #include "nsContentUtils.h"
 #include "nsCoord.h"
@@ -146,7 +146,7 @@ static constexpr uint32_t kVideoDroppedRatio = 1;
 #  define DESKTOP_DEFAULT(name) RFPTarget::name,
 #endif
 
-#if defined(MOZ_WIDGET_ANDROID) || !defined(NIGHTLY_BUILD)
+#if defined(MOZ_WIDGET_ANDROID) && !defined(NIGHTLY_BUILD)
 constinit
 #else
 MOZ_RUNINIT
@@ -3182,6 +3182,8 @@ void nsRFPService::GetExemptedDomainsLowercase(nsCString& aExemptedDomains) {
 #define EXEMPTED_DOMAINS_PREF_NAME \
   "privacy.resistFingerprinting.exemptedDomains"
 
+  // Callers compare this against a lower-cased host, and
+  // nsContentUtils::IsURIInList() asserts that the list is lower-case.
   static bool sInited = false;
   if (!sInited) {
     sInited = true;
@@ -3189,10 +3191,12 @@ void nsRFPService::GetExemptedDomainsLowercase(nsCString& aExemptedDomains) {
     ClearOnShutdown(sExemptedDomainsLowercase);
     Preferences::GetCString(EXEMPTED_DOMAINS_PREF_NAME,
                             *sExemptedDomainsLowercase);
+    ToLowerCase(*sExemptedDomainsLowercase);
     Preferences::RegisterCallback(
         [](const char* aPref, void* aData) {
           Preferences::GetCString(EXEMPTED_DOMAINS_PREF_NAME,
                                   *sExemptedDomainsLowercase);
+          ToLowerCase(*sExemptedDomainsLowercase);
         },
         EXEMPTED_DOMAINS_PREF_NAME);
   }
@@ -3218,8 +3222,17 @@ CSSIntRect nsRFPService::GetSpoofedScreenAvailSize(const nsRect& aRect,
   spoofedHeightOffset =
       NS_lround(float(spoofedHeightOffset) / aScale * AppUnitsPerCSSPixel());
 
-  return CSSIntRect::FromAppUnitsRounded(
-      nsRect{0, 0, aRect.width, aRect.height - spoofedHeightOffset});
+  int spoofedHeightStart = aIsFullscreen ? 0 :
+#ifdef XP_MACOSX
+                                         25;
+#else
+                                         0;
+#endif
+  spoofedHeightStart =
+      NS_lround(float(spoofedHeightStart) / aScale * AppUnitsPerCSSPixel());
+
+  return CSSIntRect::FromAppUnitsRounded(nsRect{
+      0, spoofedHeightStart, aRect.width, aRect.height - spoofedHeightOffset});
 }
 
 /* static */
@@ -3378,9 +3391,11 @@ void nsRFPService::CalculateFontLocaleAllowlist() {
 #elif defined(XP_MACOSX)
 #  include "../../gfx/thebes/StandardFonts-macos.inc"
 #elif defined(XP_LINUX)
-#  include "../../gfx/thebes/StandardFonts-linux.inc"
-#elif defined(XP_ANDROID)
-#  include "../../gfx/thebes/StandardFonts-android.inc"
+#  if defined(ANDROID)
+#    include "../../gfx/thebes/StandardFonts-android.inc"
+#  else
+#    include "../../gfx/thebes/StandardFonts-linux.inc"
+#  endif
 #endif
 
 #undef FontInclusionByLocaleRules

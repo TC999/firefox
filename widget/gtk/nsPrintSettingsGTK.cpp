@@ -3,6 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "nsPrintSettingsGTK.h"
+
 #include "nsIFile.h"
 #include "nsNetUtil.h"
 
@@ -43,7 +44,7 @@ nsPrintSettingsGTK::nsPrintSettingsGTK()
 
 already_AddRefed<nsIPrintSettings> CreatePlatformPrintSettings(
     const mozilla::PrintSettingsInitializer& aSettings) {
-  RefPtr<nsPrintSettings> settings = new nsPrintSettingsGTK();
+  auto settings = mozilla::MakeRefPtr<nsPrintSettingsGTK>();
   settings->InitWithInitializer(aSettings);
   settings->SetDefaultFileName();
   return settings.forget();

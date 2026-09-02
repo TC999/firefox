@@ -27,11 +27,14 @@
 
 namespace mozilla {
 enum class MediaFeatureChangeReason : uint8_t;
+enum class StyleAnimationComposition : uint8_t;
 enum class StylePageSizeOrientation : uint8_t;
 enum class StyleRuleChangeKind : uint32_t;
 enum class StyleRelativeSelectorNthEdgeInvalidateFor : uint8_t;
+enum class StyleContainerAttributeDependencyKind;
 union StylePositionTryFallbacksItem;
 struct StyleRuleChange;
+struct StyleCascadeLevel;
 
 class ErrorResult;
 
@@ -260,8 +263,8 @@ class ServoStyleSet {
       ComputedStyle* aParentStyle, const AtomArray& aInputWord);
 
   already_AddRefed<ComputedStyle> ResolvePositionTry(
-      dom::Element& aElement, const ComputedStyle& aStyle,
-      const StylePositionTryFallbacksItem&);
+      StyleCascadeLevel aScope, dom::Element& aElement,
+      const ComputedStyle& aStyle, const StylePositionTryFallbacksItem&);
 
   size_t SheetCount(Origin) const;
   StyleSheet* SheetAt(Origin, size_t aIndex) const;
@@ -428,7 +431,7 @@ class ServoStyleSet {
     // synchronization measures.
     AssertIsMainThreadOrServoFontMetricsLocked();
 
-    mPostTraversalTasks.AppendElement(aTask);
+    mPostTraversalTasks.AppendElement(std::move(aTask));
   }
 
   // Returns true if a restyle of the document is needed due to cloning
@@ -448,6 +451,17 @@ class ServoStyleSet {
    */
   bool MightHaveAttributeDependency(const dom::Element&,
                                     nsAtom* aAttribute) const;
+
+  /**
+   * Returns the ContainerAttributeDependencyKind for invalidating descendants.
+   * None if the attribute does not depend on attr() being used inside of a
+   * style container query. UnnamedContainer if the rule we're matching is not
+   * inside a named container query and would only affect direct children.
+   * NamedContainer if the rule we are matching for is a named container and
+   * therefore could affect elements further down the tree.
+   */
+  StyleContainerAttributeDependencyKind MightHaveAttributeDependencyInContainer(
+      const dom::Element&, nsAtom* aAttribute) const;
 
   /**
    * Returns true if a modification to an attribute with the specified local

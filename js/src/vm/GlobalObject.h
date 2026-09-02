@@ -5,8 +5,6 @@
 #ifndef vm_GlobalObject_h
 #define vm_GlobalObject_h
 
-#include "js/GlobalObject.h"
-
 #include "mozilla/Assertions.h"
 #include "mozilla/EnumeratedArray.h"
 
@@ -17,6 +15,8 @@
 #include "jspubtd.h"
 #include "jstypes.h"
 #include "NamespaceImports.h"
+
+#include "js/GlobalObject.h"
 
 #ifdef JS_HAS_INTL_API
 #  include "builtin/intl/GlobalIntlData.h"
@@ -103,13 +103,13 @@ static PlainObjectSlotsKind PlainObjectSlotsKindFromAllocKind(
 class GlobalObjectData {
   friend class js::GlobalObject;
 
-  GlobalObjectData(const GlobalObjectData&) = delete;
-  void operator=(const GlobalObjectData&) = delete;
-
  public:
   explicit GlobalObjectData(Zone* zone);
 
   ~GlobalObjectData();
+
+  GlobalObjectData(const GlobalObjectData&) = delete;
+  void operator=(const GlobalObjectData&) = delete;
 
   // The original values for built-in constructors (with their prototype
   // objects) based on JSProtoKey.
@@ -461,9 +461,6 @@ class GlobalObject : public NativeObject {
     return inited;
   }
 
-  // Disallow use of unqualified JSObject::create in GlobalObject.
-  static GlobalObject* create(...) = delete;
-
   friend struct ::JSRuntime;
   static GlobalObject* createInternal(JSContext* cx, const JSClass* clasp);
 
@@ -472,6 +469,9 @@ class GlobalObject : public NativeObject {
                             JSPrincipals* principals,
                             JS::OnNewGlobalHookOption hookOption,
                             const JS::RealmOptions& options);
+
+  // Disallow use of unqualified JSObject::create in GlobalObject.
+  static GlobalObject* create(...) = delete;
 
   /*
    * Create a constructor function with the specified name and length using

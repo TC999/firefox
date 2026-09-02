@@ -1,4 +1,3 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode:nil; c-basic-offset: 2 -*- */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -6,6 +5,35 @@
 #include "nsComponentManagerUtils.h"
 #include "nsSystemAlertsService.h"
 #include "nsAlertsIconListener.h"
+#include "mozilla/Components.h"
+#include "mozilla/WidgetUtilsGtk.h"
+
+#ifdef MOZ_ENABLE_DBUS
+#  include "rust/src/PortalAlertsService.h"
+#endif
+
+NS_IMPL_COMPONENT_FACTORY(nsIAlertsService) {
+#ifdef MOZ_ENABLE_DBUS
+  if (mozilla::widget::ShouldUsePortal(
+          mozilla::widget::PortalKind::Notification)) {
+    nsCOMPtr<nsIAlertsService> service;
+    if (NS_SUCCEEDED(new_portal_alerts_service(NS_GET_IID(nsIAlertsService),
+                                               getter_AddRefs(service)))) {
+      return service.forget();
+    }
+    return nullptr;
+  }
+
+  RefPtr service = mozilla::MakeRefPtr<nsSystemAlertsService>();
+  if (NS_FAILED(service->Init())) {
+    return nullptr;
+  }
+  return service.forget().downcast<nsIAlertsService>();
+#else
+  // The libnotify backend requires D-Bus as well.
+  return nullptr;
+#endif
+}
 
 NS_IMPL_ADDREF(nsSystemAlertsService)
 NS_IMPL_RELEASE(nsSystemAlertsService)
@@ -24,6 +52,11 @@ nsresult nsSystemAlertsService::Init() { return NS_OK; }
 
 NS_IMETHODIMP nsSystemAlertsService::ShowAlert(nsIAlertNotification* aAlert,
                                                nsIObserver* aAlertListener) {
+  return NS_ERROR_NOT_IMPLEMENTED;  // Implemented in nsAlertsService
+}
+
+NS_IMETHODIMP nsSystemAlertsService::ShowAlertWithCallbacks(
+    nsIAlertNotification* aAlert, nsIAlertCallbacks* aAlertCallbacks) {
   NS_ENSURE_ARG(aAlert);
 
   nsAutoString alertName;
@@ -40,7 +73,7 @@ NS_IMETHODIMP nsSystemAlertsService::ShowAlert(nsIAlertNotification* aAlert,
   }
 
   AddListener(alertName, alertListener);
-  return alertListener->InitAlert(aAlert, aAlertListener);
+  return alertListener->InitAlert(aAlert, aAlertCallbacks);
 }
 
 NS_IMETHODIMP nsSystemAlertsService::CloseAlert(const nsAString& aAlertName,
@@ -93,6 +126,11 @@ NS_IMETHODIMP nsSystemAlertsService::Teardown() {
 }
 
 NS_IMETHODIMP nsSystemAlertsService::PbmTeardown() {
+  return NS_ERROR_NOT_IMPLEMENTED;
+}
+
+NS_IMETHODIMP nsSystemAlertsService::IsFullscreen(bool* aRetVal) {
+  *aRetVal = false;
   return NS_ERROR_NOT_IMPLEMENTED;
 }
 

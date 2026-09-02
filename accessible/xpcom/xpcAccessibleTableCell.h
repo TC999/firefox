@@ -6,7 +6,6 @@
 #define mozilla_a11y_xpcom_xpcAccessibletableCell_h_
 
 #include "nsIAccessibleTable.h"
-
 #include "xpcAccessibleHyperText.h"
 
 namespace mozilla {
@@ -22,6 +21,9 @@ class xpcAccessibleTableCell : public xpcAccessibleHyperText,
   explicit xpcAccessibleTableCell(Accessible* aIntl)
       : xpcAccessibleHyperText(aIntl) {}
 
+  xpcAccessibleTableCell(const xpcAccessibleTableCell&) = delete;
+  xpcAccessibleTableCell& operator=(const xpcAccessibleTableCell&) = delete;
+
   NS_DECL_ISUPPORTS_INHERITED
 
   // nsIAccessibleTableCell
@@ -35,13 +37,10 @@ class xpcAccessibleTableCell : public xpcAccessibleHyperText,
   NS_IMETHOD IsSelected(bool* aSelected) final;
 
  protected:
-  virtual ~xpcAccessibleTableCell() {}
+  virtual ~xpcAccessibleTableCell() = default;
 
  private:
   TableCellAccessible* Intl() { return mIntl->AsTableCell(); }
-
-  xpcAccessibleTableCell(const xpcAccessibleTableCell&) = delete;
-  xpcAccessibleTableCell& operator=(const xpcAccessibleTableCell&) = delete;
 };
 
 }  // namespace a11y

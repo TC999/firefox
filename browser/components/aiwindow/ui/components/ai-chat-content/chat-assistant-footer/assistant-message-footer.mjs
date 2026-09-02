@@ -3,7 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 import { MozLitElement } from "chrome://global/content/lit-utils.mjs";
-import { html } from "chrome://global/content/vendor/lit.all.mjs";
+import { html, nothing } from "chrome://global/content/vendor/lit.all.mjs";
 // eslint-disable-next-line import/no-unassigned-import
 import "chrome://browser/content/aiwindow/components/applied-memories-button.mjs";
 
@@ -18,6 +18,7 @@ import "chrome://browser/content/aiwindow/components/applied-memories-button.mjs
  *   - A copy button for copying the assistant response.
  *   - A retry button for regenerating the response.
  *   - An applied memories button for viewing and/or deleting applied memories.
+ *   - Thumbs up/down feedback buttons.
  *
  * Data updates and network behavior are controlled by its parent.
  *
@@ -28,10 +29,18 @@ import "chrome://browser/content/aiwindow/components/applied-memories-button.mjs
  *   List of applied memories for the message. Passed through to the
  *   <applied-memories-button> child.
  *
+ * @property {boolean} hideRetry
+ *   Hides the retry button, e.g. for a resume-activity response, where
+ *   retrying would lose its bespoke context.
+ *
  * Events dispatched:
  *   - "copy-message"
  *       detail: { messageId }
  *   - "retry-message"
+ *       detail: { messageId }
+ *   - "thumbs-up"
+ *       detail: { messageId }
+ *   - "thumbs-down"
  *       detail: { messageId }
  */
 export class AssistantMessageFooter extends MozLitElement {
@@ -39,6 +48,7 @@ export class AssistantMessageFooter extends MozLitElement {
     messageId: { type: String, attribute: "message-id" },
     appliedMemories: { attribute: false },
     showCallout: { type: Boolean },
+    hideRetry: { type: Boolean, attribute: "hide-retry" },
   };
 
   constructor() {
@@ -46,6 +56,7 @@ export class AssistantMessageFooter extends MozLitElement {
     this.messageId = null;
     this.appliedMemories = [];
     this.showCallout = false;
+    this.hideRetry = false;
   }
 
   static eventBehaviors = {
@@ -57,6 +68,8 @@ export class AssistantMessageFooter extends MozLitElement {
     return {
       copy: "copy-message",
       retry: "retry-message",
+      thumbsUp: "thumbs-up",
+      thumbsDown: "thumbs-down",
     };
   }
 
@@ -77,6 +90,16 @@ export class AssistantMessageFooter extends MozLitElement {
     this.#emit(this.constructor.events.retry, { messageId: this.messageId });
   }
 
+  #emitThumbsUp() {
+    this.#emit(this.constructor.events.thumbsUp, { messageId: this.messageId });
+  }
+
+  #emitThumbsDown() {
+    this.#emit(this.constructor.events.thumbsDown, {
+      messageId: this.messageId,
+    });
+  }
+
   render() {
     return html`
       <link
@@ -84,6 +107,30 @@ export class AssistantMessageFooter extends MozLitElement {
         href="chrome://browser/content/aiwindow/components/assistant-message-footer.css"
       />
       <div class="footer">
+        <moz-button
+          data-l10n-id="aiwindow-thumbs-up"
+          data-l10n-attrs="tooltiptext,aria-label"
+          class="footer-icon-button thumbs-up-button"
+          type="ghost"
+          size="small"
+          iconsrc="chrome://global/skin/icons/thumbs-up-20.svg"
+          @click=${() => {
+            this.#emitThumbsUp();
+          }}
+        >
+        </moz-button>
+        <moz-button
+          data-l10n-id="aiwindow-thumbs-down"
+          data-l10n-attrs="tooltiptext,aria-label"
+          class="footer-icon-button thumbs-down-button"
+          type="ghost"
+          size="small"
+          iconsrc="chrome://global/skin/icons/thumbs-down-20.svg"
+          @click=${() => {
+            this.#emitThumbsDown();
+          }}
+        >
+        </moz-button>
         <moz-button
           data-l10n-id="aiwindow-copy-message"
           data-l10n-attrs="tooltiptext,aria-label"
@@ -96,18 +143,22 @@ export class AssistantMessageFooter extends MozLitElement {
           }}
         >
         </moz-button>
-        <moz-button
-          data-l10n-id="aiwindow-retry"
-          data-l10n-attrs="tooltiptext,aria-label"
-          type="ghost"
-          size="small"
-          iconsrc="chrome://global/skin/icons/reload.svg"
-          class="footer-icon-button retry-button"
-          @click=${() => {
-            this.#emitRetry();
-          }}
-        >
-        </moz-button>
+        ${this.hideRetry
+          ? nothing
+          : html`
+              <moz-button
+                data-l10n-id="aiwindow-retry"
+                data-l10n-attrs="tooltiptext,aria-label"
+                type="ghost"
+                size="small"
+                iconsrc="chrome://global/skin/icons/reload.svg"
+                class="footer-icon-button retry-button"
+                @click=${() => {
+                  this.#emitRetry();
+                }}
+              >
+              </moz-button>
+            `}
         <applied-memories-button
           .messageId=${this.messageId}
           .appliedMemories=${this.appliedMemories ?? []}

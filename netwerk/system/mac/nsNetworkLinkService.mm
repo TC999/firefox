@@ -1,42 +1,42 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-#include <vector>
 #include <algorithm>
+#include <vector>
 
 #include <sys/socket.h>
 #include <sys/sysctl.h>
 
+#include <arpa/inet.h>
+#include <ifaddrs.h>
 #include <net/if.h>
 #include <net/if_dl.h>
 #include <net/if_types.h>
 #include <net/route.h>
-#include <netinet/in.h>
 #include <netinet/if_ether.h>
-#include <arpa/inet.h>
-#include <ifaddrs.h>
+#include <netinet/in.h>
 #include <resolv.h>
 
-#include "nsCOMPtr.h"
-#include "nsIObserverService.h"
-#include "nsServiceManagerUtils.h"
-#include "nsString.h"
-#include "nsCRT.h"
-#include "nsNetCID.h"
-#include "nsThreadUtils.h"
-#include "mozilla/AppShutdown.h"
-#include "mozilla/Components.h"
-#include "mozilla/Logging.h"
-#include "mozilla/StaticPrefs_network.h"
-#include "mozilla/SHA1.h"
-#include "mozilla/Base64.h"
-#include "mozilla/ScopeExit.h"
-#include "mozilla/Services.h"
-#include "mozilla/glean/NetwerkMetrics.h"
-#include "nsNetworkLinkService.h"
 #include "../../base/IPv6Utils.h"
 #include "../LinkServiceCommon.h"
 #include "../NetworkLinkServiceDefines.h"
+#include "mozilla/AppShutdown.h"
+#include "mozilla/Base64.h"
+#include "mozilla/Components.h"
+#include "mozilla/Logging.h"
+#include "mozilla/SHA1.h"
+#include "mozilla/ScopeExit.h"
+#include "mozilla/Services.h"
+#include "mozilla/StaticPrefs_network.h"
+#include "mozilla/glean/NetwerkMetrics.h"
+#include "nsCOMPtr.h"
+#include "nsCRT.h"
+#include "nsIObserverService.h"
+#include "nsNetCID.h"
+#include "nsNetworkLinkService.h"
+#include "nsServiceManagerUtils.h"
+#include "nsString.h"
+#include "nsThreadUtils.h"
 
 #import <Cocoa/Cocoa.h>
 #import <netinet/in.h>
@@ -160,7 +160,14 @@ void nsNetworkLinkService::GetDnsSuffixListInternal() {
       LOG(("DNS search domain from [%s]\n", res.dnsrch[i]));
       result.AppendElement(nsCString(res.dnsrch[i]));
     }
-    res_nclose(&res);
+    // Calls to res_ninit() should be matched with calls to res_ndestroy()
+    // when available, as it is on macOS. This resolves bug 2039387. On
+    // macOS 26.5 (and up?) a call to res_ninit() always triggers a call to
+    // notify_register_check(). But only res_ndestroy() triggers a
+    // corresponding call to notify_cancel(). res_nclose() doesn't. So
+    // calling only res_nclose() here leaks resources on macOS 26.5. And it
+    // eventually crashes our app when a "registration limit" is exceeded.
+    res_ndestroy(&res);
   }
 
   MutexAutoLock lock(mMutex);
@@ -532,7 +539,7 @@ bool nsNetworkLinkService::IPv6NetworkId(SHA1Sum* sha1) {
     bool hasNonLocalIPv6 = false;
     struct ifaddrs* ifa;
     for (ifa = ifap; ifa; ifa = ifa->ifa_next) {
-      if (ifa->ifa_addr == NULL) {
+      if (ifa->ifa_addr == nullptr) {
         continue;
       }
       if ((AF_INET6 == ifa->ifa_addr->sa_family) &&

@@ -9,7 +9,6 @@
 #include "mozilla/intl/BidiEmbeddingLevel.h"
 #include "nsBidiPresUtils.h"
 #include "nsContainerFrame.h"
-#include "nsGkAtoms.h"
 #include "nsILineIterator.h"
 #include "nsLayoutUtils.h"
 #include "nsPresContext.h"
@@ -463,8 +462,8 @@ const char* ChildListName(FrameChildListID aListID) {
       return "OverflowContainersList";
     case FrameChildListID::ExcessOverflowContainers:
       return "ExcessOverflowContainersList";
-    case FrameChildListID::OverflowOutOfFlow:
-      return "OverflowOutOfFlowList";
+    case FrameChildListID::OverflowFloats:
+      return "OverflowFloatsList";
     case FrameChildListID::Float:
       return "FloatList";
     case FrameChildListID::Marker:

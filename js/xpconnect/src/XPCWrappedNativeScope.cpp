@@ -4,21 +4,22 @@
 
 /* Class used to manage the wrapped native objects within a JS scope. */
 
+#include "mozilla/BasePrincipal.h"
+#include "mozilla/dom/BindingUtils.h"
+#include "mozilla/Preferences.h"
+
 #include "AccessCheck.h"
-#include "xpcprivate.h"
-#include "XPCWrapper.h"
+#include "ExpandedPrincipal.h"
+#include "mozJSModuleLoader.h"
 #include "nsContentUtils.h"
 #include "nsCycleCollectionNoteRootCallback.h"
-#include "ExpandedPrincipal.h"
-#include "mozilla/BasePrincipal.h"
-#include "mozilla/Preferences.h"
 #include "XPCMaps.h"
+#include "xpcprivate.h"
+#include "XPCWrapper.h"
+
 #include "js/Object.h"              // JS::GetCompartment
 #include "js/PropertyAndElement.h"  // JS_DefineProperty, JS_DefinePropertyById
 #include "js/RealmIterators.h"
-#include "mozJSModuleLoader.h"
-
-#include "mozilla/dom/BindingUtils.h"
 
 using namespace mozilla;
 using namespace xpc;
@@ -379,14 +380,6 @@ JSObject* XPCWrappedNativeScope::GetExpandoChain(HandleObject target) {
     return nullptr;
   }
   return mXrayExpandos.lookup(target);
-}
-
-JSObject* XPCWrappedNativeScope::DetachExpandoChain(HandleObject target) {
-  MOZ_ASSERT(ObjectScope(target) == this);
-  if (!mXrayExpandos.initialized()) {
-    return nullptr;
-  }
-  return mXrayExpandos.removeValue(target);
 }
 
 bool XPCWrappedNativeScope::SetExpandoChain(JSContext* cx, HandleObject target,

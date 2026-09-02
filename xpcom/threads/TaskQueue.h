@@ -9,7 +9,6 @@
 #include "mozilla/Maybe.h"
 #include "mozilla/Monitor.h"
 #include "mozilla/MozPromise.h"
-#include "mozilla/Queue.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/TargetShutdownTaskSet.h"
 #include "mozilla/TaskDispatcher.h"
@@ -74,7 +73,8 @@ class TaskQueue final : public AbstractThread,
 
   static RefPtr<TaskQueue> Create(already_AddRefed<nsIEventTarget> aTarget,
                                   StaticString aName,
-                                  bool aSupportsTailDispatch = false);
+                                  enum TailDispatchPolicy aTailDispatchPolicy =
+                                      TailDispatchPolicy::NoTailDispatch);
 
   TaskDispatcher& TailDispatcher() override;
 
@@ -165,7 +165,7 @@ class TaskQueue final : public AbstractThread,
 
  private:
   TaskQueue(already_AddRefed<nsIEventTarget> aTarget, const char* aName,
-            bool aSupportsTailDispatch);
+            enum TailDispatchPolicy aPolicy);
 
   virtual ~TaskQueue();
 
@@ -188,13 +188,18 @@ class TaskQueue final : public AbstractThread,
   // mShutdownTasks;
   Monitor mQueueMonitor;
 
-  typedef struct TaskStruct {
+  struct TaskStruct {
     nsCOMPtr<nsIRunnable> event;
     DispatchFlags flags;
-  } TaskStruct;
+  };
+  // NOTE: A `mozilla::Queue` is not used here, as Runner steals tasks from the
+  // TaskQueue in bulk. The efficiency of `mozilla::Queue` for mixing adding and
+  // removing entries would be unused. A small inline buffer is used to reduce
+  // allocations in the common case where few tasks are queued.
+  using TaskArray = AutoTArray<TaskStruct, 4>;
 
   // Queue of tasks to run.
-  Queue<TaskStruct> mTasks MOZ_GUARDED_BY(mQueueMonitor);
+  TaskArray mTasks MOZ_GUARDED_BY(mQueueMonitor);
 
   // List of tasks to run during shutdown.
   TargetShutdownTaskSet mShutdownTasks MOZ_GUARDED_BY(mQueueMonitor);
@@ -217,8 +222,7 @@ class TaskQueue final : public AbstractThread,
       // NB: We don't hold the lock to aQueue here. Don't do anything that
       // might require it.
       MOZ_ASSERT(!mQueue->mTailDispatcher);
-      mTaskDispatcher.emplace(aQueue,
-                              /* aIsTailDispatcher = */ true);
+      mTaskDispatcher.emplace(aQueue, aQueue->mTailDispatcherPolicy);
       mQueue->mTailDispatcher = mTaskDispatcher.ptr();
 
       mLastCurrentThread = sCurrentThreadTLS.get();
@@ -286,12 +290,31 @@ class TaskQueue final : public AbstractThread,
 
   class Runner : public Runnable {
    public:
-    explicit Runner(TaskQueue* aQueue)
-        : Runnable("TaskQueue::Runner"), mQueue(aQueue) {}
+    Runner(TaskQueue* aQueue, nsIEventTarget* aTarget, Observer* aObserver,
+           TaskArray&& aTasks)
+        : Runnable("TaskQueue::Runner"),
+          mQueue(aQueue),
+          mTarget(aTarget),
+          mObserver(aObserver),
+          mTasks(std::move(aTasks)) {}
     NS_IMETHOD Run() override;
 
    private:
     RefPtr<TaskQueue> mQueue;
+
+    // Local cache of mTarget and mObserver in the task runner, so that they can
+    // be read without acquiring mQueue->mMonitor. Re-loaded from the TaskQueue
+    // every time mTasks is exhausted.
+    nsCOMPtr<nsIEventTarget> mTarget;
+    RefPtr<Observer> mObserver;
+
+    // List of tasks taken from the TaskQueue and being actively processed.
+    TaskArray mTasks;
+
+    // Index of the next task to process in mTasks. Once this reaches
+    // mTasks.Length(), Runner will re-load mTasks from the task queue and
+    // continue running if new tasks have been posted.
+    size_t mNextTask = 0;
   };
 };
 

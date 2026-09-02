@@ -4,22 +4,16 @@
 
 package org.mozilla.fenix.utils
 
-import android.content.Context
 import androidx.core.content.edit
 import androidx.preference.PreferenceGroup
 import androidx.preference.PreferenceScreen
-import org.mozilla.fenix.ext.settings
 
-/**
- * Resets secret settings preferences to their default values defined in [Settings].
- */
-class SecretSettingsPrefDefaults(private val context: Context) {
+/** Resets secret settings preferences to their default values defined in [Settings]. */
+class SecretSettingsPrefDefaults(private val settings: Settings) {
 
-    /**
-     * Removes all preferences in the given [preferenceScreen] from shared preferences.
-     */
+    /** Removes all preferences in the given [preferenceScreen] from shared preferences. */
     fun resetAll(preferenceScreen: PreferenceScreen) {
-        context.settings().preferences.edit {
+        settings.preferences.edit {
             keysFromScreen(preferenceScreen).forEach { remove(it) }
         }
     }

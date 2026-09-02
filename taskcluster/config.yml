@@ -5,13 +5,39 @@
 trust-domain: gecko
 project-repo-param-prefix: ''
 product-dir: 'browser'
+# Mapping of project to the branches that should be considered "production"
+# releases. A value of `true` means all branches of the project are release
+# branches, while a list restricts releases to the named branches. Consumed by
+# mozilla_taskgraph.util.attributes:release_level.
+release-branches:
+    # https://github.com/mozilla-firefox/firefox
+    firefox:
+        - main
+        - beta
+        - release
+        - esr140
+        - esr153
+    mozilla-central: true
+    mozilla-beta: true
+    mozilla-release: true
+    mozilla-esr115: true
+    mozilla-esr140: true
+    mozilla-esr153: true
+    # bug 1845368: pine is a permanent project branch used for testing
+    # nightly updates
+    pine: true
+    # bug 1877483: larch has similar needs for nightlies
+    larch: true
+    # maple is also an L3 branch: https://phabricator.services.mozilla.com/D184833
+    maple: true
+    # bug 1988213: cypress project branch
+    cypress: true
 treeherder:
     group-names:
         'js-bench-sm': 'JavaScript shell benchmarks with Spidermonkey'
         'js-bench-v8': 'JavaScript shell benchmarks with Google V8'
         'node': 'Node tests'
         'py3': 'Python 3 unit tests'
-        'A': 'Android Gradle tests'
         'Bpgo': 'Profile-guided optimization builds'
         'Btime': 'Browsertime performance tests on Firefox'
         'Btime-cache': 'Browsertime performance tests on Firefox with populated bytecode cache.'
@@ -61,6 +87,7 @@ treeherder:
         'Btime-100M_40ms': 'Browsertime network benchmark tests with 100M_40ms condition'
         'Btime-ChR-100M_40ms': 'Browsertime network benchmark tests with 100M_40ms condition'
         'Btime-CaR-100M_40ms': 'Browsertime network benchmark tests with 100M_40ms condition'
+        'DTbc': 'DevTools remote debugging backward compatibility tests'
         'Fetch': 'Fetch and store content'
         'Fxfn': 'Firefox functional tests'
         'l10n-bump': 'L10n Bumper'
@@ -97,6 +124,8 @@ treeherder:
         'W-pb': 'Web platform tests with private browsing enabled'
         'W-ioi': 'Web platform tests tagged with inc-origin-init'
         'W-ioi-cf': 'Web platform tests tagged with inc-origin-init for confirm failure'
+        'W-oh264': 'Web platform tests with OpenH264 preferred'
+        'W-oh264-cf': 'Web platform tests with OpenH264 preferred for confirm failure'
         'W-pb-ioi': 'Web platform tests with private browsing enabled and tagged with inc-origin-init'
         'X': 'Xpcshell tests'
         'X-f': 'Xpcshell tests that fail on a given config'
@@ -105,6 +134,7 @@ treeherder:
         'L10n': 'Localised Repacks'
         'L10n-Rpk': 'Localized Repackaged Repacks'
         'deb-L10n': 'Localized Debian Repacks'
+        'pkg-Rpk': 'MacOS pkg repackage'
         'BM': 'Beetmover'
         'BMR': 'Beetmover repackages'
         'BM-apt': 'Beetmover .deb packages'
@@ -179,6 +209,8 @@ treeherder:
         'py': 'Python checks'
         'java': 'Java checks'
         'rust': 'Rust checks'
+        'vendor': 'Vendoring checks'
+        'tests': 'Test verification'
         'android': 'Android checks'
         'Static-Analysis': 'Full tree static-analysis'
         'SS': 'Shadow scheduler'
@@ -196,6 +228,12 @@ treeherder:
         'l10n': 'Localization checks'
         'wc': 'webcompat'
         'Boot': 'Bootstrap'
+        'inst': 'Linux installer tests'
+        'inst-apt': 'Linux installer tests: apt'
+        'inst-rpm': 'Linux installer tests: rpm'
+        'inst-flatpak': 'Linux installer tests: flatpak'
+        'inst-tarball': 'Linux installer tests: tarball'
+        'inst-snap': 'Linux installer tests: snap'
         'Attr-L10n': 'Build Attribution'
         'android-l10n': 'Import strings from android-l10n repo'
         'updt-tst': 'Test updates to release from older firefox versions'
@@ -204,7 +242,6 @@ treeherder:
         'buildconfig': 'Make sure the content of .buildconfig.yml matches what gradle knows about its projects'
         'compare-locales': 'Validate strings.xml with compare-locales'
         'detekt': 'detekt linter'
-        'ktlint': 'ktlint linter'
         'lint': 'gradle lint linter'
 
         'focus': 'Focus general tasks no matter the variant'
@@ -217,6 +254,7 @@ treeherder:
         'fenix-beta': 'Fenix beta-related tasks'
         'fenix-debug': 'Fenix builds made for testing'
         'fenix-nightly': 'Fenix nightly-related tasks'
+        'fenix-nightly-nobp': 'Fenix nightly builds without baseline profiles'
         'fenix-nightlySim': 'Nightly-related tasks that run on each github push'
         'fenix-release': 'Fenix production-related tasks'
 
@@ -243,14 +281,19 @@ treeherder:
         'concept-integrity': 'concept-integrity'
         'concept-awesomebar': 'concept-awesomebar'
         'concept-base': 'concept-base'
+        'concept-bookmarks-file': 'concept-bookmarks-file'
         'compose-base': 'compose-base'
+        'concept-bookmarks-parser': 'concept-bookmarks-parser'
         'compose-cfr': 'compose-cfr'
         'concept-engine': 'concept-engine'
         'concept-fetch': 'concept-fetch'
         'concept-llm': 'concept-llm'
         'concept-menu': 'concept-menu'
+        'concept-passwords-file': 'concept-passwords-file'
+        'concept-passwords-parser': 'concept-passwords-parser'
         'concept-push': 'concept-push'
         'concept-storage': 'concept-storage'
+        'concept-storage-bookmarks': 'concept-storage-bookmarks'
         'concept-sync': 'concept-sync'
         'concept-tabstray': 'concept-tabstray'
         'concept-toolbar': 'concept-toolbar'
@@ -259,6 +302,7 @@ treeherder:
         'feature-addons': 'feature-addons'
         'feature-app-links': 'feature-app-links'
         'feature-autofill': 'feature-autofill'
+        'feature-automotive': 'feature-automotive'
         'feature-awesomebar': 'feature-awesomebar'
         'feature-containers': 'feature-containers'
         'feature-contextmenu': 'feature-contextmenu'
@@ -267,6 +311,9 @@ treeherder:
         'feature-example': 'feature-example'
         'feature-findinpage': 'feature-findinpage'
         'feature-fxsuggest': 'feature-fxsuggest'
+        'feature-importer': 'feature-importer'
+        'feature-password-importer': 'feature-password-importer'
+        'feature-listentopage': 'feature-listentopage'
         'feature-intent': 'feature-intent'
         'feature-ipprotection': 'feature-ipprotection'
         'feature-logins': 'feature-logins'
@@ -296,6 +343,8 @@ treeherder:
         'lib-ai-controls': 'lib-ai-controls'
         'lib-crash': 'lib-crash'
         'lib-auth': 'lib-auth'
+        'lib-bookmarks-file': 'lib-bookmarks-file'
+        'lib-bookmark-parser-jsoup': 'lib-bookmark-parser-jsoup'
         'lib-crash-sentry': 'lib-crash-sentry'
         'lib-crash-sentry-legacy': 'lib-crash-sentry-legacy'
         'lib-dataprotect': 'lib-dataprotect'
@@ -304,10 +353,13 @@ treeherder:
         'lib-llm-gemininano': 'lib-llm-gemininano'
         'lib-llm-mlpa': 'lib-llm-mlpa'
         'lib-integrity-googleplay': 'lib-integrity-googleplay'
+        'lib-passwords-file': 'lib-passwords-file'
+        'lib-password-parser-csv': 'lib-password-parser-csv'
         'lib-shake': 'lib-shake'
         'lib-publicsuffixlist': 'lib-publicsuffixlist'
         'lib-push-firebase': 'lib-push-firebase'
         'lib-state': 'lib-state'
+        'samples-acorn-components': 'samples-acorn-components'
         'samples-compose-browser': 'samples-compose-browser'
         'samples-crash': 'samples-crash'
         'samples-dataprotect': 'samples-dataprotect'
@@ -327,8 +379,10 @@ treeherder:
         'service-location': 'service-location'
         'service-mars': 'service-mars'
         'service-merino-manifest': 'service-merino-manifest'
+        'service-merino-weather': 'service-merino-weather'
         'service-nimbus': 'service-nimbus'
         'service-pocket': 'service-pocket'
+        'service-sync': 'service-sync'
         'service-sync-autofill': 'service-sync-autofill'
         'service-sync-logins': 'service-sync-logins'
         'support-android-test': 'support-android-test'
@@ -353,6 +407,7 @@ treeherder:
         'tooling-detekt': 'tooling-detekt'
         'tooling-fetch-tests': 'tooling-fetch-tests'
         'tooling-lint': 'tooling-lint'
+        'ui-animation': 'ui-animation'
         'ui-autocomplete': 'ui-autocomplete'
         'ui-colors': 'ui-colors'
         'ui-fonts': 'ui-fonts'
@@ -383,6 +438,7 @@ index:
         - 'static-analysis'
         - 'devedition'
         - 'source'
+        - 'test'
         - 'system-symbols'
         - 'geckodriver'
 
@@ -544,7 +600,7 @@ taskgraph:
 
 workers:
     aliases:
-        b-linux(|-docker(|-x?large)-amd|-medium|-aarch64|-xlarge|-kvm):
+        b-linux(|-docker(|-x?large|-updatebot)-amd|-medium|-aarch64|-xlarge|-kvm):
             provisioner: '{trust-domain}-{level}'
             implementation: docker-worker
             os: linux
@@ -554,12 +610,7 @@ workers:
             implementation: generic-worker
             os: windows
             worker-type: '{alias}-azure'
-        b-win2022:
-            provisioner: '{trust-domain}-{level}'
-            implementation: generic-worker
-            os: windows
-            worker-type: '{alias}'
-        b-win2022-xxlarge:
+        b-win2022(|-xxlarge|-updatebot):
             provisioner: '{trust-domain}-{level}'
             implementation: generic-worker
             os: windows
@@ -788,6 +839,11 @@ workers:
             implementation: generic-worker
             os: macosx
             worker-type: 'gecko-{alias}'
+        t-osx-1500-m-vms:
+            provisioner: releng-hardware
+            implementation: generic-worker
+            os: macosx
+            worker-type: 'gecko-{alias}'
         t-osx-1015-power:
             provisioner: releng-hardware
             implementation: generic-worker
@@ -915,6 +971,7 @@ mac-signing:
                       - "/Contents/MacOS/updater.app"
                       - "/Contents/MacOS/gpu-helper.app"
                       - "/Contents/Library/LaunchServices/org.mozilla.updater"
+                      - "/Contents/Library/LaunchServices/org.mozilla.dmgInstallHelper"
                       - "/Contents/MacOS/XUL"
                       - "/Contents/MacOS/pingsender"
                       - "/Contents/MacOS/nmhproxy"
@@ -969,6 +1026,7 @@ mac-signing:
                       - "/Contents/MacOS/updater.app"
                       - "/Contents/MacOS/gpu-helper.app"
                       - "/Contents/Library/LaunchServices/org.mozilla.updater"
+                      - "/Contents/Library/LaunchServices/org.mozilla.dmgInstallHelper"
                       - "/Contents/MacOS/pingsender"
                       - "/Contents/MacOS/nmhproxy"
                       - "/Contents/Frameworks/ChannelPrefs.framework"

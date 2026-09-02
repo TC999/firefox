@@ -120,7 +120,7 @@
 #include "vm/JSObject.h"
 #include "vm/NumberObject.h"
 #include "vm/PlainObject.h"    // js::PlainObject
-#include "vm/PromiseObject.h"  // js::PromiseObject, js::PromiseSlot_*
+#include "vm/PromiseObject.h"  // js::PromiseObject
 #include "vm/ProxyObject.h"
 #include "vm/RealmFuses.h"
 #include "vm/RuntimeFuses.h"
@@ -130,7 +130,7 @@
 #include "vm/StencilObject.h"  // StencilObject, StencilXDRBufferObject
 #include "vm/StringObject.h"
 #include "vm/StringType.h"
-#include "wasm/AsmJS.h"
+#include "vm/WrapperObject.h"
 #include "wasm/WasmBaselineCompile.h"
 #include "wasm/WasmBuiltinModule.h"
 #include "wasm/WasmDump.h"
@@ -140,6 +140,7 @@
 #include "wasm/WasmIonCompile.h"
 #include "wasm/WasmJS.h"
 #include "wasm/WasmModule.h"
+#include "wasm/WasmProcess.h"
 #include "wasm/WasmValType.h"
 #include "wasm/WasmValue.h"
 
@@ -576,20 +577,7 @@ static bool GetBuildConfiguration(JSContext* cx, unsigned argc, Value* vp) {
     return false;
   }
 
-#ifdef ENABLE_EXPLICIT_RESOURCE_MANAGEMENT
   value = BooleanValue(true);
-#else
-  value = BooleanValue(false);
-#endif
-  if (!JS_SetProperty(cx, info, "explicit-resource-management", value)) {
-    return false;
-  }
-
-#ifdef ENABLE_SOURCE_PHASE_IMPORTS
-  value = BooleanValue(true);
-#else
-  value = BooleanValue(false);
-#endif
   if (!JS_SetProperty(cx, info, "source-phase-imports", value)) {
     return false;
   }
@@ -662,6 +650,35 @@ static bool GetBuildConfiguration(JSContext* cx, unsigned argc, Value* vp) {
 
   value = Int32Value(js::FatInlineAtom::MAX_LENGTH_TWO_BYTE);
   if (!JS_SetProperty(cx, info, "fat-inline-atom-two-byte-chars", value)) {
+    return false;
+  }
+
+  // True when the build is suitable for --strict-benchmark-mode (no debug,
+  // sanitizers, simulators, or fuzzing). Must stay in sync with the
+  // compile-time checks in ApplyBenchmarkMode in js.cpp.
+  {
+    bool suitable = true;
+#ifdef JS_DEBUG
+    suitable = false;
+#endif
+#ifdef MOZ_ASAN
+    suitable = false;
+#endif
+#ifdef MOZ_TSAN
+    suitable = false;
+#endif
+#ifdef MOZ_MSAN
+    suitable = false;
+#endif
+#if defined(JS_SIMULATOR)
+    suitable = false;
+#endif
+#ifdef FUZZING
+    suitable = false;
+#endif
+    value = BooleanValue(suitable);
+  }
+  if (!JS_SetProperty(cx, info, "benchmark-suitable", value)) {
     return false;
   }
 
@@ -845,16 +862,11 @@ static bool GCParameter(JSContext* cx, unsigned argc, Value* vp) {
     return false;
   }
 
-  if (fuzzingSafe) {
-    // Some Params are not yet fuzzing safe and so we silently skip
-    // changing said parameters.
-    switch (param) {
-      case JSGC_SEMISPACE_NURSERY_ENABLED:
-        args.rval().setUndefined();
-        return true;
-      default:
-        break;
-    }
+  // Some Params are not yet fuzzing safe and so we silently skip changing said
+  // parameters.
+  if (fuzzingSafe && !IsGCParameterFuzzingSafe(param)) {
+    args.rval().setUndefined();
+    return true;
   }
 
   if (disableOOMFunctions) {
@@ -976,46 +988,118 @@ static bool WasmHugeMemorySupported(JSContext* cx, unsigned argc, Value* vp) {
   return true;
 }
 
+static bool WasmHugeMemoryEnabled(JSContext* cx, unsigned argc, Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+
+  wasm::AddressType addressType = wasm::AddressType::I32;
+  if (args.length() >= 1) {
+    if (!wasm::ToAddressType(cx, args.get(0), &addressType)) {
+      return false;
+    }
+  }
+
+  wasm::PageSize pageSize = wasm::PageSize::Standard;
+  if (args.length() >= 2) {
+    if (!wasm::ToPageSize(cx, args.get(1), &pageSize)) {
+      return false;
+    }
+  }
+
+  args.rval().setBoolean(wasm::IsHugeMemoryEnabled(addressType, pageSize));
+  return true;
+}
+
 static bool WasmMaxMemoryPages(JSContext* cx, unsigned argc, Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
   if (args.length() < 1) {
     JS_ReportErrorASCII(cx, "not enough arguments");
     return false;
   }
-  if (!args.get(0).isString()) {
-    JS_ReportErrorASCII(cx, "address type must be a string");
+
+  wasm::AddressType addressType;
+  if (!wasm::ToAddressType(cx, args.get(0), &addressType)) {
     return false;
   }
-  RootedString s(cx, args.get(0).toString());
-  Rooted<JSLinearString*> ls(cx, s->ensureLinear(cx));
-  if (!ls) {
-    return false;
-  }
+
   wasm::PageSize pageSize = wasm::PageSize::Standard;
-  if (argc > 1 && args.get(1).isInt32()) {
-    uint32_t pageSizeBytes = args.get(1).toInt32();
-    if (pageSizeBytes != PageSizeInBytes(wasm::PageSize::Standard)) {
-      JS_ReportErrorASCII(cx, "bad page size");
+  if (args.length() >= 2) {
+    if (!wasm::ToPageSize(cx, args.get(1), &pageSize)) {
       return false;
     }
   }
-  if (StringEqualsLiteral(ls, "i32")) {
-    wasm::Pages pages = wasm::MaxMemoryPages(wasm::AddressType::I32, pageSize);
-    args.rval().setInt32(pages.pageCount());
-    return true;
-  }
-  if (StringEqualsLiteral(ls, "i64")) {
-    wasm::Pages pages = wasm::MaxMemoryPages(wasm::AddressType::I64, pageSize);
-    args.rval().setNumber(pages.pageCount());
-    return true;
-  }
-  JS_ReportErrorASCII(cx, "bad address type");
-  return false;
+
+  wasm::Pages pages = wasm::MaxMemoryPages(addressType, pageSize);
+  args.rval().setNumber(pages.pageCount());
+  return true;
 }
 
 static bool WasmThreadsEnabled(JSContext* cx, unsigned argc, Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
   args.rval().setBoolean(wasm::ThreadsAvailable(cx));
+  return true;
+}
+
+static bool GetWasmSupportedFeatures(JSContext* cx, unsigned argc, Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+  RootedObject features(cx, JS_NewPlainObject(cx));
+  if (!features) {
+    return false;
+  }
+  RootedValue value(cx);
+
+#define WASM_FEATURE(NAME, SHORT_NAME, COMPILE_PRED, ...)  \
+  value.setBoolean(COMPILE_PRED ? true : false);           \
+  if (!JS_SetProperty(cx, features, #SHORT_NAME, value)) { \
+    return false;                                          \
+  }
+  JS_FOR_WASM_FEATURES(WASM_FEATURE);
+#undef WASM_FEATURE
+
+#ifdef ENABLE_WASM_SIMD
+  value.setBoolean(true);
+#else
+  value.setBoolean(false);
+#endif
+  if (!JS_SetProperty(cx, features, "simd", value)) {
+    return false;
+  }
+
+  value.setBoolean(true);
+  if (!JS_SetProperty(cx, features, "threads", value)) {
+    return false;
+  }
+
+  args.rval().setObject(*features.get());
+  return true;
+}
+
+static bool GetWasmEnabledFeatures(JSContext* cx, unsigned argc, Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+  RootedObject features(cx, JS_NewPlainObject(cx));
+  if (!features) {
+    return false;
+  }
+  RootedValue value(cx);
+
+#define WASM_FEATURE(NAME, SHORT_NAME, ...)                \
+  value.setBoolean(wasm::NAME##Available(cx));             \
+  if (!JS_SetProperty(cx, features, #SHORT_NAME, value)) { \
+    return false;                                          \
+  }
+  JS_FOR_WASM_FEATURES(WASM_FEATURE);
+#undef WASM_FEATURE
+
+  value.setBoolean(wasm::SimdAvailable(cx));
+  if (!JS_SetProperty(cx, features, "simd", value)) {
+    return false;
+  }
+
+  value.setBoolean(wasm::ThreadsAvailable(cx));
+  if (!JS_SetProperty(cx, features, "threads", value)) {
+    return false;
+  }
+
+  args.rval().setObject(*features.get());
   return true;
 }
 
@@ -1364,8 +1448,15 @@ static bool WasmGlobalExtractLane(JSContext* cx, unsigned argc, Value* vp) {
 
   RootedObject proto(
       cx, GlobalObject::getOrCreatePrototype(cx, JSProto_WasmGlobal));
+  if (!proto) {
+    return false;
+  }
   Rooted<WasmGlobalObject*> result(
       cx, WasmGlobalObject::create(cx, val, false, proto));
+  if (!result) {
+    return false;
+  }
+
   args.rval().setObject(*result.get());
   return true;
 }
@@ -1651,7 +1742,7 @@ static bool WasmLosslessInvoke(JSContext* cx, unsigned argc, Value* vp) {
   if (!wasmCallFrame.resize(len)) {
     return false;
   }
-  wasmCallFrame[0].set(ObjectValue(*func));
+  wasmCallFrame[0].setObject(*func);
   wasmCallFrame[1].set(args.thisv());
   // Copy over the arguments needed to invoke the provided wasm function,
   // skipping the wasm function we're calling that is at `args.get(0)`.
@@ -1781,14 +1872,7 @@ static bool DisassembleNative(JSContext* cx, unsigned argc, Value* vp) {
   uint8_t* jit_begin = nullptr;
   uint8_t* jit_end = nullptr;
 
-  if (fun->isAsmJSNative() || fun->isWasmWithJitEntry()) {
-    if (IsAsmJSModule(fun)) {
-      JS_ReportErrorASCII(cx, "Can't disassemble asm.js module function.");
-      return false;
-    }
-    if (fun->isAsmJSNative()) {
-      sprinter.printf("; backend=asmjs\n");
-    }
+  if (fun->isWasmWithJitEntry()) {
     sprinter.printf("; backend=wasm\n");
 
     js::wasm::Instance& inst = fun->wasmInstance();
@@ -2040,7 +2124,7 @@ static bool WasmDisassemble(JSContext* cx, unsigned argc, Value* vp) {
 
   CallArgs args = CallArgsFromVp(argc, vp);
 
-  args.rval().set(UndefinedValue());
+  args.rval().setUndefined();
 
   if (!args.get(0).isObject()) {
     JS_ReportErrorASCII(cx, "argument is not an object");
@@ -2161,7 +2245,7 @@ static bool WasmModuleToText(JSContext* cx, unsigned argc, Value* vp) {
     ReportOutOfMemory(cx);
     return false;
   }
-  args.rval().set(StringValue(str));
+  args.rval().setString(str);
   return true;
 }
 
@@ -2173,7 +2257,7 @@ static bool WasmFunctionTier(JSContext* cx, unsigned argc, Value* vp) {
 
   CallArgs args = CallArgsFromVp(argc, vp);
 
-  args.rval().set(UndefinedValue());
+  args.rval().setUndefined();
 
   if (!args.get(0).isObject()) {
     JS_ReportErrorASCII(cx, "argument is not an object");
@@ -2203,7 +2287,7 @@ static bool WasmDumpIon(JSContext* cx, unsigned argc, Value* vp) {
 
   CallArgs args = CallArgsFromVp(argc, vp);
 
-  args.rval().set(UndefinedValue());
+  args.rval().setUndefined();
 
   if (!args.get(0).isObject()) {
     JS_ReportErrorASCII(cx, "argument is not an object");
@@ -2255,7 +2339,7 @@ static bool WasmDumpIon(JSContext* cx, unsigned argc, Value* vp) {
     ReportOutOfMemory(cx);
     return false;
   }
-  args.rval().set(StringValue(str));
+  args.rval().setString(str);
   return true;
 }
 
@@ -2289,7 +2373,7 @@ static bool WasmReturnFlag(JSContext* cx, unsigned argc, Value* vp, Flag flag) {
       break;
   }
 
-  args.rval().set(BooleanValue(b));
+  args.rval().setBoolean(b);
   return true;
 }
 
@@ -2377,7 +2461,7 @@ static bool WasmBuiltinI8VecMul(JSContext* cx, unsigned argc, Value* vp) {
                                   &module)) {
     return false;
   }
-  args.rval().set(ObjectValue(*module.get()));
+  args.rval().setObject(*module.get());
   return true;
 }
 
@@ -2431,6 +2515,43 @@ static bool WasmGcArrayLength(JSContext* cx, unsigned argc, Value* vp) {
   args.rval().setInt32(int32_t(arr.numElements_));
   return true;
 }
+
+#ifdef ENABLE_WASM_COMPONENTS
+static bool WasmComponentCoreInstance(JSContext* cx, unsigned argc, Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+  RootedObject callee(cx, &args.callee());
+
+  if (!args.requireAtLeast(cx, "wasmComponentCoreInstance", 2)) {
+    return false;
+  }
+
+  if (!args[0].isObject() ||
+      !args[0].toObject().is<WasmComponentInstanceObject>()) {
+    ReportUsageErrorASCII(
+        cx, callee, "First argument must be a WebAssembly component instance");
+    return false;
+  }
+
+  uint32_t coreInstanceIndex;
+  if (!JS::ToUint32(cx, args[1], &coreInstanceIndex)) {
+    return false;
+  }
+
+  const WasmComponentInstanceObject& instanceObj =
+      args[0].toObject().as<WasmComponentInstanceObject>();
+  const wasm::ComponentInstance& instance = instanceObj.instance();
+  WasmInstanceObject* coreInstance = instance.coreInstance(coreInstanceIndex);
+  if (!coreInstance) {
+    ReportUsageErrorASCII(
+        cx, callee,
+        "Second argument must refer to a `(core instance (instantiate ...))`");
+    return false;
+  }
+
+  args.rval().setObject(*coreInstance);
+  return true;
+}
+#endif
 
 static bool LargeArrayBufferSupported(JSContext* cx, unsigned argc, Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
@@ -3199,11 +3320,11 @@ static bool IsAtomMarked(JSContext* cx, unsigned argc, Value* vp) {
   Maybe<bool> result;
   gc::GCRuntime* gc = &cx->runtime()->gc;
   if (args[1].isSymbol()) {
-    result = Some(gc->atomMarking.atomIsMarked(zone, args[1].toSymbol()));
+    result = Some(gc->atomReferences.hasRef(zone, args[1].toSymbol()));
   } else if (args[1].isString()) {
     JSString* str = args[1].toString();
     if (str->isAtom()) {
-      result = Some(gc->atomMarking.atomIsMarked(zone, &str->asAtom()));
+      result = Some(gc->atomReferences.hasRef(zone, &str->asAtom()));
     }
   }
 
@@ -3234,17 +3355,17 @@ static bool GetAtomMarkIndex(JSContext* cx, unsigned argc, Value* vp) {
       (atom->is<JS::Symbol>() &&
        atom->as<JS::Symbol>()->isPermanentAndMayBeShared())) {
     ReportUsageErrorASCII(
-        cx, callee, "Atom marking bitmap is not used for permanent atoms");
+        cx, callee, "Atom reference bitmap is not used for permanent atoms");
     return false;
   }
 
   if (atom->is<JSString>() && atom->as<JSString>()->asAtom().isPinned()) {
     ReportUsageErrorASCII(cx, callee,
-                          "Atom marking bitmap is not used for pinned atoms");
+                          "Atom reference bitmap is not used for pinned atoms");
     return false;
   }
 
-  size_t index = gc::AtomMarkingRuntime::getAtomBit(atom);
+  size_t index = gc::AtomRefRuntime::getAtomBit(atom);
   MOZ_RELEASE_ASSERT(index <= INT32_MAX);
   args.rval().setInt32(index);
   return true;
@@ -3274,7 +3395,7 @@ static bool GetAtomMarkColor(JSContext* cx, unsigned argc, Value* vp) {
   size_t index = args[1].toInt32();
 
   gc::GCRuntime* gc = &cx->runtime()->gc;
-  gc::CellColor color = gc->atomMarking.getAtomMarkColorForIndex(zone, index);
+  gc::CellColor color = gc->atomReferences.getRefColorForIndex(zone, index);
   RootedString name(cx, JS_NewStringCopyZ(cx, gc::CellColorName(color)));
   if (!name) {
     return false;
@@ -3350,10 +3471,11 @@ class HasChildTracer final : public JS::CallbackTracer {
   RootedValue child_;
   bool found_;
 
-  void onChild(JS::GCCellPtr thing, const char* name) override {
+  bool onChild(JS::GCCellPtr thing, const char* name) override {
     if (thing.asCell() == child_.toGCThing()) {
       found_ = true;
     }
+    return true;
   }
 
  public:
@@ -3626,16 +3748,7 @@ static bool NewObjectWithAddPropertyHook(JSContext* cx, unsigned argc,
   };
 
   static const JSClassOps classOps = {
-      addPropHook,  // addProperty
-      nullptr,      // delProperty
-      nullptr,      // enumerate
-      nullptr,      // newEnumerate
-      nullptr,      // resolve
-      nullptr,      // mayResolve
-      nullptr,      // finalize
-      nullptr,      // call
-      nullptr,      // construct
-      nullptr,      // trace
+      .addProperty = addPropHook,
   };
   static const JSClass cls = {
       "ObjectWithAddPropHook",
@@ -3735,16 +3848,8 @@ static bool NewObjectWithCallHook(JSContext* cx, unsigned argc, Value* vp) {
   };
 
   static const JSClassOps classOps = {
-      nullptr,        // addProperty
-      nullptr,        // delProperty
-      nullptr,        // enumerate
-      nullptr,        // newEnumerate
-      nullptr,        // resolve
-      nullptr,        // mayResolve
-      nullptr,        // finalize
-      callHook,       // call
-      constructHook,  // construct
-      nullptr,        // trace
+      .call = callHook,
+      .construct = constructHook,
   };
   static const JSClass cls = {
       "ObjectWithCallHook",
@@ -3869,7 +3974,8 @@ static bool GetObjectFuseState(JSContext* cx, unsigned argc, Value* vp) {
   // definition order.
   Rooted<PropertyInfoWithKeyVector> propsVec(cx, PropertyInfoWithKeyVector(cx));
   for (ShapePropertyIter<CanGC> iter(cx, obj->shape()); !iter.done(); iter++) {
-    if (iter->hasSlot() && !propsVec.append(*iter)) {
+    if (iter->hasSlot() && ObjectFuse::tracksPropertyKey(iter->key()) &&
+        !propsVec.append(*iter)) {
       return false;
     }
   }
@@ -4494,7 +4600,7 @@ class MOZ_STACK_CLASS IterativeFailureTest {
 
   JSContext* const cx;
   FailureSimulator& simulator;
-  size_t compartmentCount;
+  size_t compartmentCount = 0;
 
   // Test parameters set by initParams.
   RootedFunction testFunction;
@@ -4867,12 +4973,12 @@ static bool SettlePromiseNow(JSContext* cx, unsigned argc, Value* vp) {
   }
 
   int32_t flags = promise->flags();
-  promise->setNeverGCThingFixedSlot(
-      PromiseSlot_Flags,
+  promise->setFixedSlotTyped(
+      PromiseObject::FLAGS_SLOT,
       Int32Value(flags | PROMISE_FLAG_RESOLVED | PROMISE_FLAG_FULFILLED));
-  promise->setFixedSlot(PromiseSlot_ReactionsOrResult, UndefinedValue());
+  promise->setFixedSlot(PromiseObject::REACTIONS_OR_RESULT_SLOT,
+                        UndefinedValue());
 
-  DebugAPI::onPromiseSettled(cx, promise);
   return true;
 }
 
@@ -4909,7 +5015,7 @@ static bool GetWaitForAllPromise(JSContext* cx, unsigned argc, Value* vp) {
     return false;
   }
 
-  args.rval().set(ObjectValue(*resultPromise));
+  args.rval().setObject(*resultPromise);
   return true;
 }
 
@@ -4949,6 +5055,34 @@ static bool ResolvePromise(JSContext* cx, unsigned argc, Value* vp) {
   }
   return result;
 }
+
+#ifdef NIGHTLY_BUILD
+static bool SafeResolvePromise(JSContext* cx, unsigned argc, Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+  if (!args.requireAtLeast(cx, "safeResolvePromise", 2)) {
+    return false;
+  }
+  if (!args[0].isObject() ||
+      !UncheckedUnwrap(&args[0].toObject())->is<PromiseObject>()) {
+    JS_ReportErrorASCII(
+        cx, "first argument must be a maybe-wrapped Promise object");
+    return false;
+  }
+
+  RootedObject promise(cx, &args[0].toObject());
+  RootedValue resolution(cx, args[1]);
+
+  if (IsPromiseForAsyncFunctionOrGenerator(UncheckedUnwrap(promise))) {
+    JS_ReportErrorASCII(
+        cx,
+        "async function/generator's promise shouldn't be manually resolved");
+    return false;
+  }
+
+  args.rval().setUndefined();
+  return JS::SafeResolve(cx, promise, resolution);
+}
+#endif  // NIGHTLY_BUILD
 
 static bool RejectPromise(JSContext* cx, unsigned argc, Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
@@ -4994,16 +5128,7 @@ static void finalize_counter_finalize(JS::GCContext* gcx, JSObject* obj) {
 }
 
 static const JSClassOps FinalizeCounterClassOps = {
-    nullptr,                    // addProperty
-    nullptr,                    // delProperty
-    nullptr,                    // enumerate
-    nullptr,                    // newEnumerate
-    nullptr,                    // resolve
-    nullptr,                    // mayResolve
-    finalize_counter_finalize,  // finalize
-    nullptr,                    // call
-    nullptr,                    // construct
-    nullptr,                    // trace
+    .finalize = finalize_counter_finalize,
 };
 
 static const JSClass FinalizeCounterClass = {
@@ -5872,16 +5997,7 @@ class CloneBufferObject : public NativeObject {
 };
 
 static const JSClassOps CloneBufferObjectClassOps = {
-    nullptr,                      // addProperty
-    nullptr,                      // delProperty
-    nullptr,                      // enumerate
-    nullptr,                      // newEnumerate
-    nullptr,                      // resolve
-    nullptr,                      // mayResolve
-    CloneBufferObject::Finalize,  // finalize
-    nullptr,                      // call
-    nullptr,                      // construct
-    nullptr,                      // trace
+    .finalize = CloneBufferObject::Finalize,
 };
 
 const JSClass CloneBufferObject::class_ = {
@@ -6329,10 +6445,8 @@ static bool Deserialize(JSContext* cx, unsigned argc, Value* vp) {
                                  &args[0].toObject().as<CloneBufferObject>());
 
   JS::CloneDataPolicy policy;
+  Maybe<JS::StructuredCloneScope> scopeOption;
 
-  JS::StructuredCloneScope scope =
-      obj->isSynthetic() ? JS::StructuredCloneScope::DifferentProcess
-                         : JS::StructuredCloneScope::SameProcess;
   if (args.get(1).isObject()) {
     RootedObject opts(cx, &args[1].toObject());
     if (!opts) {
@@ -6374,21 +6488,27 @@ static bool Deserialize(JSContext* cx, unsigned argc, Value* vp) {
       if (!str) {
         return false;
       }
-      auto maybeScope = ParseCloneScope(cx, str);
-      if (!maybeScope) {
+      scopeOption = ParseCloneScope(cx, str);
+      if (!scopeOption) {
         JS_ReportErrorASCII(cx, "Invalid structured clone scope");
         return false;
       }
-
-      if (*maybeScope < scope) {
-        JS_ReportErrorASCII(cx,
-                            "Cannot use less restrictive scope "
-                            "than the deserialized clone buffer's scope");
-        return false;
-      }
-
-      scope = *maybeScope;
     }
+  }
+
+  // Determine the scope after reading options, since option getters may
+  // modify the clone buffer.
+  JS::StructuredCloneScope scope =
+      obj->isSynthetic() ? JS::StructuredCloneScope::DifferentProcess
+                         : JS::StructuredCloneScope::SameProcess;
+  if (scopeOption.isSome()) {
+    if (*scopeOption < scope) {
+      JS_ReportErrorASCII(cx,
+                          "Cannot use less restrictive scope "
+                          "than the deserialized clone buffer's scope");
+      return false;
+    }
+    scope = *scopeOption;
   }
 
   if (scope > JS::StructuredCloneScope::SameProcess &&
@@ -6448,6 +6568,37 @@ static bool DetachArrayBuffer(JSContext* cx, unsigned argc, Value* vp) {
   }
 
   args.rval().setUndefined();
+  return true;
+}
+
+static bool StealArrayBufferContents(JSContext* cx, unsigned argc, Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+  Rooted<JSObject*> callee(cx, &args.callee());
+
+  if (!args.get(0).isObject() ||
+      !JS::IsArrayBufferObject(&args[0].toObject())) {
+    js::ReportUsageErrorASCII(cx, callee, "Argument must be an ArrayBuffer");
+    return false;
+  }
+
+  Rooted<JSObject*> obj(cx, &args[0].toObject());
+  size_t length = JS::GetArrayBufferByteLength(obj);
+
+  // Note: JS::StealArrayBufferContents will either return the stolen data or
+  // throw an exception.
+  void* contents = JS::StealArrayBufferContents(cx, obj);
+  if (!contents) {
+    return false;
+  }
+
+  UniquePtr<void, JS::FreePolicy> ptr(contents);
+  JSObject* newBuffer =
+      JS::NewArrayBufferWithContents(cx, length, std::move(ptr));
+  if (!newBuffer) {
+    return false;
+  }
+
+  args.rval().setObject(*newBuffer);
   return true;
 }
 
@@ -6642,16 +6793,8 @@ class ShapeSnapshotObject : public NativeObject {
 };
 
 /*static */ const JSClassOps ShapeSnapshotObject::classOps_ = {
-    nullptr,                        // addProperty
-    nullptr,                        // delProperty
-    nullptr,                        // enumerate
-    nullptr,                        // newEnumerate
-    nullptr,                        // resolve
-    nullptr,                        // mayResolve
-    ShapeSnapshotObject::finalize,  // finalize
-    nullptr,                        // call
-    nullptr,                        // construct
-    ShapeSnapshotObject::trace,     // trace
+    .finalize = ShapeSnapshotObject::finalize,
+    .trace = ShapeSnapshotObject::trace,
 };
 
 /*static */ const JSClass ShapeSnapshotObject::class_ = {
@@ -7189,10 +7332,10 @@ class BackEdge {
   JS::ubi::Node predecessor_;
 
   // The name of this edge.
-  EdgeName name_;
+  EdgeName name_{nullptr};
 
  public:
-  BackEdge() : name_(nullptr) {}
+  BackEdge() = default;
   // Construct an initialized back edge, taking ownership of |name|.
   BackEdge(JS::ubi::Node predecessor, EdgeName name)
       : predecessor_(predecessor), name_(std::move(name)) {}
@@ -8333,7 +8476,8 @@ static bool AllocationMarker(JSContext* cx, unsigned argc, Value* vp) {
   JSObject* obj =
       allocateInsideNursery
           ? NewObjectWithGivenProto<AllocationMarkerObject>(cx, nullptr)
-          : NewTenuredObjectWithGivenProto<AllocationMarkerObject>(cx, nullptr);
+          : NewObjectWithGivenProto<AllocationMarkerObject>(
+                cx, nullptr, {.newKind = TenuredObject});
   if (!obj) {
     return false;
   }
@@ -9237,9 +9381,9 @@ static bool GetAllPrefNames(JSContext* cx, unsigned argc, Value* vp) {
     return values.append(StringValue(s));
   };
 
-#define ADD_NAME(NAME, CPP_NAME, TYPE, SETTER, IS_STARTUP_PREF) \
-  if (!addPref(NAME)) {                                         \
-    return false;                                               \
+#define ADD_NAME(NAME, CPP_NAME, TYPE, SETTER, IS_STARTUP_PREF, FUZZING_SAFE) \
+  if (!addPref(NAME)) {                                                       \
+    return false;                                                             \
   }
   FOR_EACH_JS_PREF(ADD_NAME)
 #undef ADD_NAME
@@ -9280,7 +9424,8 @@ static bool GetPrefValue(JSContext* cx, unsigned argc, Value* vp) {
   };
 
   // Search for a matching pref and return its value.
-#define CHECK_PREF(NAME, CPP_NAME, TYPE, SETTER, IS_STARTUP_PREF) \
+#define CHECK_PREF(NAME, CPP_NAME, TYPE, SETTER, IS_STARTUP_PREF, \
+                   FUZZING_SAFE)                                  \
   if (StringEqualsLiteral(name, NAME)) {                          \
     setReturnValue(JS::Prefs::CPP_NAME());                        \
     return true;                                                  \
@@ -9619,11 +9764,7 @@ static bool BaselineCompile(JSContext* cx, unsigned argc, Value* vp) {
       returnedStr = "baseline disabled";
       break;
     }
-    if (script->length() > jit::BaselineMaxScriptLength ||
-        script->nslots() > jit::BaselineMaxScriptSlots) {
-      script->disableBaselineCompile();
-    }
-    if (!script->canBaselineCompile()) {
+    if (!jit::CanBaselineCompileScript(cx, script)) {
       returnedStr = "can't compile";
       break;
     }
@@ -9709,6 +9850,111 @@ static bool HasBaselineHint(JSContext* cx, unsigned argc, Value* vp) {
   bool hasHint = jitHints->mightHaveEagerBaselineHint(script);
 
   args.rval().setBoolean(hasHint);
+  return true;
+}
+
+static bool RecordIonCompilationForHints(JSContext* cx, unsigned argc,
+                                         Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+  RootedObject callee(cx, &args.callee());
+
+  if (args.length() != 1) {
+    ReportUsageErrorASCII(cx, callee, "Wrong number of arguments");
+    return false;
+  }
+
+  RootedScript script(cx, TestingFunctionArgumentToScript(cx, args[0]));
+  if (!script) {
+    return false;
+  }
+
+  if (!cx->runtime()->jitRuntime() ||
+      !cx->runtime()->jitRuntime()->hasJitHintsMap() ||
+      !script->hasJitScript()) {
+    args.rval().setUndefined();
+    return true;
+  }
+
+  jit::JitHintsMap* jitHints = cx->runtime()->jitRuntime()->getJitHintsMap();
+  jitHints->setEagerBaselineHint(script);
+  if (!jitHints->recordIonCompilation(script)) {
+    return false;
+  }
+
+  args.rval().setUndefined();
+  return true;
+}
+
+static bool HasMegamorphicIC(JSContext* cx, unsigned argc, Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+  RootedObject callee(cx, &args.callee());
+
+  if (args.length() != 1) {
+    ReportUsageErrorASCII(cx, callee, "Wrong number of arguments");
+    return false;
+  }
+
+  RootedScript script(cx, TestingFunctionArgumentToScript(cx, args[0]));
+  if (!script) {
+    return false;
+  }
+
+  if (!script->hasJitScript()) {
+    args.rval().setBoolean(false);
+    return true;
+  }
+
+  uint32_t numEntries = script->jitScript()->numICEntries();
+  for (uint32_t i = 0; i < numEntries; i++) {
+    jit::ICState::Mode mode =
+        script->jitScript()->fallbackStub(i)->state().mode();
+    if (mode >= jit::ICState::Mode::Megamorphic) {
+      args.rval().setBoolean(true);
+      return true;
+    }
+  }
+
+  args.rval().setBoolean(false);
+  return true;
+}
+
+static bool ResetFallbackStubStates(JSContext* cx, unsigned argc, Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+  RootedObject callee(cx, &args.callee());
+
+  if (args.length() != 1) {
+    ReportUsageErrorASCII(cx, callee, "Wrong number of arguments");
+    return false;
+  }
+
+  RootedScript script(cx, TestingFunctionArgumentToScript(cx, args[0]));
+  if (!script) {
+    return false;
+  }
+
+  if (!script->hasJitScript()) {
+    args.rval().setUndefined();
+    return true;
+  }
+
+  jit::ICScript* icScript = script->jitScript()->icScript();
+  gc::AutoMarkingLock lock(cx->zone(), icScript->markingLock());
+
+  uint32_t numEntries = script->jitScript()->numICEntries();
+  JS::Zone* zone = script->zone();
+  for (uint32_t i = 0; i < numEntries; i++) {
+    jit::ICFallbackStub* stub = script->jitScript()->fallbackStub(i);
+    stub->discardStubs(zone, &icScript->icEntry(i), lock);
+
+    if (icScript->hasInlinedChild(stub->pcOffset())) {
+      icScript->removeInlinedChild(stub->pcOffset());
+    }
+
+    stub->state().reset();
+  }
+  script->jitScript()->notePurgedStubs();
+
+  args.rval().setUndefined();
   return true;
 }
 
@@ -10099,6 +10345,26 @@ static bool GetLastOOMStackTrace(JSContext* cx, unsigned argc, Value* vp) {
   return true;
 }
 
+static bool ValueAsRawBits(JSContext* cx, unsigned argc, Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+
+  if (js::SupportDifferentialTesting()) {
+    RootedObject callee(cx, &args.callee());
+    ReportUsageErrorASCII(cx, callee,
+                          "Function unavailable in differential testing mode.");
+    return false;
+  }
+
+  uint64_t rawBits = args.get(0).asRawBits();
+  auto* bigInt = BigInt::createFromUint64(cx, rawBits);
+  if (!bigInt) {
+    return false;
+  }
+
+  args.rval().setBigInt(bigInt);
+  return true;
+}
+
 // clang-format off
 static const JSFunctionSpecWithHelp TestingFunctions[] = {
     JS_FN_HELP("gc", ::GC, 0, 0,
@@ -10384,9 +10650,7 @@ static const JSFunctionSpecWithHelp TestingFunctions[] = {
     JS_FN_HELP("settlePromiseNow", SettlePromiseNow, 1, 0,
 "settlePromiseNow(promise)",
 "  'Settle' a 'promise' immediately. This just marks the promise as resolved\n"
-"  with a value of `undefined` and causes the firing of any onPromiseSettled\n"
-"  hooks set on Debugger instances that are observing the given promise's\n"
-"  global as a debuggee."),
+"  with a value of `undefined`."),
     JS_FN_HELP("getWaitForAllPromise", GetWaitForAllPromise, 1, 0,
 "getWaitForAllPromise(densePromisesArray)",
 "  Calls the 'GetWaitForAllPromise' JSAPI function and returns the result\n"
@@ -10394,6 +10658,13 @@ static const JSFunctionSpecWithHelp TestingFunctions[] = {
 JS_FN_HELP("resolvePromise", ResolvePromise, 2, 0,
 "resolvePromise(promise, resolution)",
 "  Resolve a Promise by calling the JSAPI function JS::ResolvePromise."),
+#ifdef NIGHTLY_BUILD
+JS_FN_HELP("safeResolvePromise", SafeResolvePromise, 2, 0,
+"safeResolvePromise(promise, resolution)",
+"  Resolve a Promise by calling the JSAPI function JS::SafeResolve, which\n"
+"  implements the SafePromiseResolve abstract operation from the\n"
+"  thenable-curtailment proposal."),
+#endif  // NIGHTLY_BUILD
 JS_FN_HELP("rejectPromise", RejectPromise, 2, 0,
 "rejectPromise(promise, reason)",
 "  Reject a Promise by calling the JSAPI function JS::RejectPromise."),
@@ -10502,11 +10773,11 @@ gc::ZealModeHelpText),
 
     JS_FN_HELP("getAtomMarkIndex", GetAtomMarkIndex, 1, 0,
 "getAtomMarkIndex(atom)",
-"  Return the atom marking bitmap's index for |atom|."),
+"  Return the atom reference bitmap's index for |atom|."),
 
     JS_FN_HELP("getAtomMarkColor", GetAtomMarkColor, 2, 0,
 "getAtomMarkColor(obj, index)",
-"  Return the atom marking bitmap's mark color for |index| relative to the zone containing |obj|."),
+"  Return the atom reference bitmap's color for |index| relative to the zone containing |obj|."),
 
     JS_FN_HELP("setMallocMaxDirtyPageModifier", SetMallocMaxDirtyPageModifier, 1, 0,
 "setMallocMaxDirtyPageModifier(value)",
@@ -10572,24 +10843,9 @@ gc::ZealModeHelpText),
 "  inferred name based on where the function was defined. This can be\n"
 "  different from the 'name' property on the function."),
 
-    JS_FN_HELP("isAsmJSCompilationAvailable", IsAsmJSCompilationAvailable, 0, 0,
-"isAsmJSCompilationAvailable",
-"  Returns whether asm.js compilation is currently available or whether it is disabled\n"
-"  (e.g., by the debugger)."),
-
     JS_FN_HELP("getJitCompilerOptions", GetJitCompilerOptions, 0, 0,
 "getJitCompilerOptions()",
 "  Return an object describing some of the JIT compiler options.\n"),
-
-    JS_FN_HELP("isAsmJSModule", IsAsmJSModule, 1, 0,
-"isAsmJSModule(fn)",
-"  Returns whether the given value is a function containing \"use asm\" that has been\n"
-"  validated according to the asm.js spec."),
-
-    JS_FN_HELP("isAsmJSFunction", IsAsmJSFunction, 1, 0,
-"isAsmJSFunction(fn)",
-"  Returns whether the given value is a nested function in an asm.js module that has been\n"
-"  both compile- and link-time validated."),
 
     JS_FN_HELP("isAvxPresent", IsAvxPresent, 0, 0,
 "isAvxPresent([minVersion])",
@@ -10622,6 +10878,12 @@ gc::ZealModeHelpText),
 "  Returns a boolean indicating whether WebAssembly supports using a large"
 "  virtual memory reservation in order to elide bounds checks on this platform."),
 
+    JS_FN_HELP("wasmHugeMemoryEnabled", WasmHugeMemoryEnabled, 0, 0,
+"wasmHugeMemoryEnabled([addressType[, pageSizeBytes]])",
+"  Returns a boolean indicating whether WebAssembly huge memory is enabled at"
+"  runtime for the given address type (\"i32\" or \"i64\", default \"i32\") and"
+"  page size in bytes (default 65536)."),
+
     JS_FN_HELP("wasmMaxMemoryPages", WasmMaxMemoryPages, 1, 0,
 "wasmMaxMemoryPages(addressType)",
 "  Returns an int with the maximum number of pages that can be allocated to a memory."
@@ -10630,6 +10892,14 @@ gc::ZealModeHelpText),
 "  a given combination of those; there is no guarantee that that size allocation will"
 "  always succeed, only that it can succeed in principle.  The addressType is a string,"
 "  'i32' or 'i64'."),
+
+    JS_FN_HELP("getWasmSupportedFeatures", GetWasmSupportedFeatures, 0, 0,
+"getWasmSupportedFeatures()",
+"  Get the wasm features SpiderMonkey was built with support for.\n"),
+
+    JS_FN_HELP("getWasmEnabledFeatures", GetWasmEnabledFeatures, 0, 0,
+"getWasmEnabledFeatures()",
+"  Get the wasm features that are runtime enabled in SpiderMonkey.\n"),
 
 #define WASM_FEATURE(NAME, ...) \
     JS_FN_HELP("wasm" #NAME "Enabled", Wasm##NAME##Enabled, 0, 0, \
@@ -10858,6 +11128,12 @@ JS_FOR_WASM_FEATURES(WASM_FEATURE)
 "ensureNonInline(view or buffer)",
 "  Ensure that the memory for the given ArrayBuffer or ArrayBufferView\n"
 "  is not inline."),
+
+    JS_FN_HELP("stealArrayBufferContents", StealArrayBufferContents, 1, 0,
+"stealArrayBufferContents(buffer)",
+"  Steal the contents of the given ArrayBuffer using JS::StealArrayBufferContents\n"
+"  and return a new ArrayBuffer wrapping the stolen contents. The original buffer\n"
+"  is detached."),
 
     JS_FN_HELP("pinArrayBufferOrViewLength", PinArrayBufferOrViewLength, 1, 0,
 "pinArrayBufferOrViewLength(view or buffer[, pin])",
@@ -11126,6 +11402,18 @@ JS_FOR_WASM_FEATURES(WASM_FEATURE)
     JS_FN_HELP("hasBaselineHint", HasBaselineHint, 1, 0,
 "hasBaselineHint(fun)",
 "  Returns true if the given function has a baseline JIT hint set.\n"),
+    JS_FN_HELP("recordIonCompilationForHints", RecordIonCompilationForHints, 1,
+               0,
+"recordIonCompilationForHints(fun)",
+"  Records Ion compilation hints for the given function's current IC states.\n"
+"  The function must already be baseline compiled.\n"),
+    JS_FN_HELP("hasMegamorphicIC", HasMegamorphicIC, 1, 0,
+"hasMegamorphicIC(fun)",
+"  Returns true if any fallback stub in the function's JIT script is at\n"
+"  Megamorphic or Generic IC mode.\n"),
+    JS_FN_HELP("resetFallbackStubStates", ResetFallbackStubStates, 1, 0,
+"resetFallbackStubStates(fun)",
+"  Resets all fallback stub IC states to Specialized mode.\n"),
 
     JS_FN_HELP("encodeAsUtf8InBuffer", EncodeAsUtf8InBuffer, 2, 0,
 "encodeAsUtf8InBuffer(str, uint8Array)",
@@ -11239,6 +11527,10 @@ JS_FN_HELP("isSmallFunction", IsSmallFunction, 1, 0,
 JS_FN_HELP("supportDifferentialTesting", TestingFunc_SupportDifferentialTesting, 0, 0,
 "supportDifferentialTesting()",
 "  Return the value of JS::SupportDifferentialTesting."),
+
+  JS_FN_HELP("valueAsRawBits", ValueAsRawBits, 1, 0,
+"valueAsRawBits(value)",
+"  Return the raw bits of the input value as a BigInt."),
 
   JS_FS_HELP_END
 };
@@ -11391,6 +11683,12 @@ JS_FN_HELP("getFuseState", GetFuseState, 0, 0,
     JS_FN_HELP("wasmMetadataAnalysis", wasmMetadataAnalysis, 1, 0,
 "wasmMetadataAnalysis(wasmObject)",
 "  Prints an analysis of the size of metadata on this wasm object.\n"),
+
+#ifdef ENABLE_WASM_COMPONENTS
+    JS_FN_HELP("wasmComponentCoreInstance", WasmComponentCoreInstance, 2, 0,
+"wasmComponentCoreInstance(componentInstance, coreInstanceIndex)",
+"  Extracts a WebAssembly.Instance from a WebAssembly.ComponentInstance.\n"),
+#endif
 
     JS_FS_HELP_END
 };

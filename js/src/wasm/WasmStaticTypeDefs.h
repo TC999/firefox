@@ -30,7 +30,10 @@ class TypeDef;
 // definitions. Rethink this if we have more than several type definitions.
 struct StaticTypeDefs {
   static const TypeDef* arrayMutI16;
-  static const TypeDef* jsTag;
+  static const TypeDef* jsExceptionTag;
+#ifdef ENABLE_WASM_JSPI
+  static const TypeDef* jsPromiseTag;
+#endif
 
   [[nodiscard]] static bool init();
   static void destroy();

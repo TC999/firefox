@@ -5,11 +5,11 @@
 #include "TLSServer.h"
 
 #include <stdio.h>
+
+#include <fstream>
 #include <string>
 #include <thread>
 #include <vector>
-#include <fstream>
-#include <iostream>
 #ifdef XP_WIN
 #  include <windows.h>
 #else
@@ -39,20 +39,14 @@ static const uint16_t LISTEN_PORT = 8443;
 
 SSLAntiReplayContext* antiReplay = nullptr;
 
+SSLAntiReplayContext* GetAntiReplayContext() { return antiReplay; }
+
 DebugLevel gDebugLevel = DEBUG_ERRORS;
 uint16_t gCallbackPort = 0;
 
 static const char kPEMBegin[] = "-----BEGIN ";
 static const char kPEMEnd[] = "-----END ";
 const char DEFAULT_CERT_NICKNAME[] = "default-ee";
-
-struct Connection {
-  PRFileDesc* mSocket;
-  char mByte;
-
-  explicit Connection(PRFileDesc* aSocket);
-  ~Connection();
-};
 
 Connection::Connection(PRFileDesc* aSocket) : mSocket(aSocket), mByte(0) {}
 
@@ -476,10 +470,15 @@ SECStatus ConfigSecureServerWithNamedCert(
     return SECFailure;
   }
 
-  if (extraData) {
+  // SSL_ConfigServerCert is the preferred way to configure the server
+  // certificate, but it is too strict for the inadequate key usage tests.
+  SSLKEAType certKEA = NSS_FindCertKEAType(cert.get());
+  if (cert->keyUsage & KU_DIGITAL_SIGNATURE) {
     SSLExtraServerCertData dataCopy = {ssl_auth_null, nullptr, nullptr,
                                        nullptr,       nullptr, nullptr};
-    memcpy(&dataCopy, extraData, sizeof(dataCopy));
+    if (extraData) {
+      memcpy(&dataCopy, extraData, sizeof(dataCopy));
+    }
     dataCopy.certChain = certList.get();
 
     if (SSL_ConfigServerCert(fd, cert.get(), key.get(), &dataCopy,
@@ -487,19 +486,16 @@ SECStatus ConfigSecureServerWithNamedCert(
       PrintPRError("SSL_ConfigServerCert failed");
       return SECFailure;
     }
-
   } else {
-    // This is the deprecated setup mechanism, to be cleaned up in Bug 1569222
-    SSLKEAType certKEA = NSS_FindCertKEAType(cert.get());
     if (SSL_ConfigSecureServerWithCertChain(fd, cert.get(), certList.get(),
                                             key.get(), certKEA) != SECSuccess) {
-      PrintPRError("SSL_ConfigSecureServer failed");
+      PrintPRError("SSL_ConfigSecureServerWithCertChain failed");
       return SECFailure;
     }
+  }
 
-    if (keaOut) {
-      *keaOut = certKEA;
-    }
+  if (keaOut) {
+    *keaOut = certKEA;
   }
 
   if (certOut) {
@@ -537,7 +533,8 @@ PidType ConvertPid(const char* pidStr) {
 }
 
 int StartServer(int argc, char* argv[], SSLSNISocketConfig sniSocketConfig,
-                void* sniSocketConfigArg, ServerConfigFunc configFunc) {
+                void* sniSocketConfigArg, ServerConfigFunc configFunc,
+                ConnectionHandlerFunc connectionHandler) {
   if (argc != 3) {
     fprintf(stderr, "usage: %s <NSS DB directory> <ppid>\n", argv[0]);
     return 1;
@@ -605,7 +602,13 @@ int StartServer(int argc, char* argv[], SSLSNISocketConfig sniSocketConfig,
     return 1;
   }
 
-  if (PR_Listen(serverSocket.get(), 1) != PR_SUCCESS) {
+  // Backlog of 1 is enough for tests that strictly open one conn at a
+  // time, but the HE 0-RTT race tests drive several overlapping TCP
+  // connects via a reverse proxy — with backlog=1 macOS silently
+  // drops the extras and the proxy retransmits the SYN, arriving
+  // after the server has already moved its TLS state forward on the
+  // accepted conn. A modest backlog is enough to absorb the race.
+  if (PR_Listen(serverSocket.get(), 32) != PR_SUCCESS) {
     PrintPRError("PR_Listen failed");
     return 1;
   }
@@ -713,7 +716,11 @@ int StartServer(int argc, char* argv[], SSLSNISocketConfig sniSocketConfig,
     PRNetAddr clientAddr;
     PRFileDesc* clientSocket =
         PR_Accept(serverSocket.get(), &clientAddr, PR_INTERVAL_NO_TIMEOUT);
-    HandleConnection(clientSocket, modelSocket);
+    if (connectionHandler) {
+      connectionHandler(clientSocket, modelSocket);
+    } else {
+      HandleConnection(clientSocket, modelSocket);
+    }
   }
 }
 

@@ -56,7 +56,7 @@ add_setup(async function () {
  * @returns {Promise} - Resolves once the prompt has been closed.
  */
 async function testUploadPrompt(confirmUpload) {
-  // eslint-disable-next-line @microsoft/sdl/no-insecure-url
+  // eslint-disable-next-line sdl/no-insecure-url
   await BrowserTestUtils.withNewTab("http://example.com", async browser => {
     // Create file input element
     await SpecialPowers.spawn(browser, [], () => {
@@ -89,11 +89,7 @@ async function testUploadPrompt(confirmUpload) {
     let path = getTestDirectory();
     await SpecialPowers.spawn(browser, [{ path }], args => {
       let MockFilePicker = content.SpecialPowers.MockFilePicker;
-      MockFilePicker.init(
-        content.browsingContext,
-        "A Mock File Picker",
-        content.SpecialPowers.Ci.nsIFilePicker.modeGetFolder
-      );
+      MockFilePicker.init();
       MockFilePicker.useDirectory(args.path);
 
       let input = content.document.getElementById("filepicker");

@@ -31,7 +31,7 @@ NS_IMPL_ISUPPORTS_INHERITED(ExternalHelperAppParent, nsHashPropertyBag,
                             nsIStreamListener, nsIExternalHelperAppParent)
 
 ExternalHelperAppParent::ExternalHelperAppParent(
-    nsIURI* uri, const int64_t& aContentLength, const bool& aWasFileChannel,
+    nsIURI* uri, const int64_t& aContentLength,
     const nsACString& aContentDispositionHeader,
     const uint32_t& aContentDispositionHint,
     const nsAString& aContentDispositionFilename)
@@ -42,7 +42,9 @@ ExternalHelperAppParent::ExternalHelperAppParent(
       mStatus(NS_OK),
       mCanceled(false),
       mContentLength(aContentLength),
-      mWasFileChannel(aWasFileChannel) {
+      // Never trust a child-supplied flag for the native helper-launch
+      // decision: derive it from the actual URI the parent will operate on.
+      mWasFileChannel(uri && uri->SchemeIs("file")) {
   mContentDispositionHeader = aContentDispositionHeader;
   if (!mContentDispositionHeader.IsEmpty()) {
     NS_GetFilenameFromDisposition(mContentDispositionFilename,
@@ -107,7 +109,8 @@ mozilla::ipc::IPCResult ExternalHelperAppParent::RecvOnStartRequest(
     const nsACString& entityID) {
   mEntityID = entityID;
   mPending = true;
-  mStatus = mListener->OnStartRequest(this);
+  RefPtr<nsIStreamListener> listener = mListener;
+  mStatus = listener->OnStartRequest(this);
   return IPC_OK();
 }
 
@@ -123,8 +126,9 @@ mozilla::ipc::IPCResult ExternalHelperAppParent::RecvOnDataAvailable(
   DebugOnly<nsresult> rv = NS_NewByteInputStream(
       getter_AddRefs(stringStream), Span(data), NS_ASSIGNMENT_DEPEND);
   NS_ASSERTION(NS_SUCCEEDED(rv), "failed to create dependent string!");
+  RefPtr<nsIStreamListener> listener = mListener;
   mStatus =
-      mListener->OnDataAvailable(this, stringStream, offset, data.Length());
+      listener->OnDataAvailable(this, stringStream, offset, data.Length());
 
   return IPC_OK();
 }
@@ -132,7 +136,8 @@ mozilla::ipc::IPCResult ExternalHelperAppParent::RecvOnDataAvailable(
 mozilla::ipc::IPCResult ExternalHelperAppParent::RecvOnStopRequest(
     const nsresult& code) {
   mPending = false;
-  mListener->OnStopRequest(
+  RefPtr<nsIStreamListener> listener = mListener;
+  listener->OnStopRequest(
       this, (NS_SUCCEEDED(code) && NS_FAILED(mStatus)) ? mStatus : code);
   Delete();
   return IPC_OK();
@@ -146,17 +151,20 @@ NS_IMETHODIMP
 ExternalHelperAppParent::OnDataAvailable(nsIRequest* request,
                                          nsIInputStream* input, uint64_t offset,
                                          uint32_t count) {
-  return mListener->OnDataAvailable(request, input, offset, count);
+  RefPtr<nsIStreamListener> listener = mListener;
+  return listener->OnDataAvailable(request, input, offset, count);
 }
 
 NS_IMETHODIMP
 ExternalHelperAppParent::OnStartRequest(nsIRequest* request) {
-  return mListener->OnStartRequest(request);
+  RefPtr<nsIStreamListener> listener = mListener;
+  return listener->OnStartRequest(request);
 }
 
 NS_IMETHODIMP
 ExternalHelperAppParent::OnStopRequest(nsIRequest* request, nsresult status) {
-  nsresult rv = mListener->OnStopRequest(request, status);
+  RefPtr<nsIStreamListener> listener = mListener;
+  nsresult rv = listener->OnStopRequest(request, status);
   Delete();
   return rv;
 }
@@ -311,6 +319,19 @@ ExternalHelperAppParent::GetLoadInfo(nsILoadInfo** aLoadInfo) {
 
 NS_IMETHODIMP
 ExternalHelperAppParent::SetLoadInfo(nsILoadInfo* aLoadInfo) {
+  return NS_ERROR_NOT_IMPLEMENTED;
+}
+
+NS_IMETHODIMP
+ExternalHelperAppParent::GetParentProcessChannelHandle(
+    mozilla::dom::ParentProcessChannelHandle** aValue) {
+  *aValue = nullptr;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+ExternalHelperAppParent::SetParentProcessChannelHandle(
+    mozilla::dom::ParentProcessChannelHandle* aValue) {
   return NS_ERROR_NOT_IMPLEMENTED;
 }
 

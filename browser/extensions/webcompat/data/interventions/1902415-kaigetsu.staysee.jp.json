@@ -9,9 +9,12 @@
   "interventions": [
     {
       "platforms": ["all"],
-      "content_scripts": {
-        "css": ["bug1902415-kaigetsu.staysee.jp-hide-unsupported.css"]
-      }
+      "hide_messages": [
+        {
+          "container": ".flashMessage",
+          "message": "Google Chrome"
+        }
+      ]
     }
   ]
 }

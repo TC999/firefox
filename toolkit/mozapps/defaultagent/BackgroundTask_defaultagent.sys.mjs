@@ -1,4 +1,3 @@
-/* -*- js-indent-level: 2; indent-tabs-mode: nil -*- */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -73,7 +72,8 @@ const kNotificationAction = Object.freeze({
 //   is run. unique-token is required and should be some string that uniquely
 //   identifies this installation of the product; typically this will be the
 //   install path hash that's used for the update directory, the AppUserModelID,
-//   and other related purposes.
+//   and other related purposes. For MSIX builds, this command is a no-op. we register
+//   the task during first startup.
 // update-task [unique-token]
 //   Update an existing task registration, without changing its schedule. This
 //   should be called during updates of the application, in case this program
@@ -83,14 +83,16 @@ const kNotificationAction = Object.freeze({
 // unregister-task [unique-token]
 //   Removes the previously created task. The unique token argument is required
 //   and should be the same one that was passed in when the task was registered.
+//   No-op for MSIX builds.
 // uninstall [unique-token]
 //   Removes the previously created task, and also removes all registry entries
 //   running the task may have created. The unique token argument is required
 //   and should be the same one that was passed in when the task was registered.
-// do-task [app-user-model-id]
+// do-task [unused-app-user-model-id (non-MSIX)]
 //   Actually performs the default agent task, which currently means generating
 //   and sending our telemetry ping and possibly showing a notification to the
-//   user if their browser has switched from Firefox to Edge with Blink.
+//   user if their browser has switched from Firefox to Edge with Blink. The
+//   argument is unused: non-MSIX launches pass one, an MSIX launch cannot.
 // set-default-browser-user-choice [app-user-model-id] [[.file1 ProgIDRoot1]
 // ...]
 //   Set the default browser via the UserChoice registry keys.  Additional
@@ -151,10 +153,9 @@ export async function runBackgroundTask(commandLine) {
       return EXIT_CODE.SUCCESS;
     }
     case "do-task": {
-      let aumid = commandLine.getArgument(1);
       let force = commandLine.findFlag("force", true) != -1;
 
-      lazy.log.info(`Running do-task with AUMID "${aumid}"`);
+      lazy.log.info("Running do-task");
 
       try {
         lazy.log.info("Running JS do-task.");
@@ -237,6 +238,23 @@ export async function doTask(defaultAgent, force) {
   let defaultPdfHandler = defaultAgent.getDefaultPdfHandler();
   lazy.log.debug(`Default PDF Handler: ${defaultPdfHandler}`);
 
+  let isTaskbarPinned = "Error";
+  try {
+    let shellService = Cc["@mozilla.org/browser/shell-service;1"].getService(
+      Ci.nsIWindowsShellService
+    );
+    let winTaskbar = Cc["@mozilla.org/windows-taskbar;1"].getService(
+      Ci.nsIWinTaskbar
+    );
+    let pinned = await shellService.isCurrentAppPinnedToTaskbar(
+      winTaskbar.defaultGroupId
+    );
+    isTaskbarPinned = pinned ? "IsPinned" : "NotPinned";
+    lazy.log.debug(`Is pinned to taskbar: ${isTaskbarPinned}`);
+  } catch (ex) {
+    lazy.log.error(`Pin detection failed: ${ex}`);
+  }
+
   let notificationTelemetry = {
     shown: kNotificationShown.notShown,
     action: kNotificationAction.noAction,
@@ -250,7 +268,9 @@ export async function doTask(defaultAgent, force) {
 
     notificationTelemetry = await Promise.race([notification, timeout]);
   }
-  lazy.log.debug(`Notification telemetry: ${notificationTelemetry}`);
+  lazy.log.debug(
+    `Notification telemetry: ${JSON.stringify(notificationTelemetry)}`
+  );
 
   if (
     notificationTelemetry.action ==
@@ -268,7 +288,8 @@ export async function doTask(defaultAgent, force) {
     defaultPdfHandler,
     notificationTelemetry.shown,
     notificationTelemetry.action,
-    daysSinceLastAppLaunch
+    daysSinceLastAppLaunch,
+    isTaskbarPinned
   );
 }
 
@@ -297,10 +318,10 @@ async function showNotification(name) {
       "browser/backgroundtasks/defaultagent.ftl",
     ]);
     let [title, body, yesButtonText, noButtonText] = await l10n.formatValues([
-      { id: "default-browser-notification-header-text" },
-      { id: "default-browser-notification-body-text" },
+      { id: "default-browser-notification-privacy-header-text" },
+      { id: "default-browser-notification-privacy-body-text" },
       { id: "default-browser-notification-yes-button-text" },
-      { id: "default-browser-notification-no-button-text" },
+      { id: "default-browser-notification-privacy-no-button-text" },
     ]);
 
     let yesAction = "yes-action";
@@ -351,7 +372,7 @@ async function makeAlert(options) {
   let image = null;
   try {
     const uri = Services.io.newURI(
-      "chrome://global/content/defaultagent/fox-doodle-peek.png"
+      "chrome://global/content/defaultagent/default-browser-notification-privacy-image.svg"
     );
     const channel = Services.io.newChannelFromURI(
       uri,
@@ -383,6 +404,7 @@ async function makeAlert(options) {
     true /* aRequireInteraction */
   );
   alert.image = image;
+  alert.imagePlacement = alert.eInline;
 
   alert.actions = options.actions;
 

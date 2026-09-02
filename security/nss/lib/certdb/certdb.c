@@ -695,7 +695,7 @@ cert_IsRootCert(CERTCertificate *cert)
                 if (!SECITEM_ItemsAreEqual(&cert->derIssuer, caName)) {
                     return PR_FALSE;
                 } /* else fall through */
-            }     /* else ??? could not get general name as directory name? */
+            } /* else ??? could not get general name as directory name? */
         }
         if (cert->authKeyID->authCertSerialNumber.len > 0) {
             if (!SECITEM_ItemsAreEqual(
@@ -1234,6 +1234,7 @@ CERT_CheckKeyUsage(CERTCertificate *cert, unsigned int requiredUsage)
                 requiredUsage |= KU_DIGITAL_SIGNATURE;
                 break;
             case dhKey:
+            case kyberKey:
                 requiredUsage |= KU_KEY_AGREEMENT;
                 break;
             case ecKey:

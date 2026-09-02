@@ -82,6 +82,8 @@ support-files = [
   "import_attributes_css.mjs",
   "import_attributes_data.css",
   "import_attributes_data.json",
+  "import_attributes_data.txt",
+  "import_attributes_text.mjs",
   "import_attributes_worker.js",
 ]
 
@@ -185,6 +187,8 @@ support-files = [
 
 ["test_cenums.js"]
 
+["test_classinfo_too_many_interfaces.js"]
+
 ["test_compileScript.js"]
 
 ["test_components.js"]
@@ -215,6 +219,8 @@ skip-if = [
 ["test_eventSource.js"]
 
 ["test_exportFunction.js"]
+
+["test_exportFunction_constructor.js"]
 
 ["test_file2.js"]
 
@@ -333,6 +339,10 @@ head = "head_ongc.js"
 ["test_rtcIdentityProvider.js"]
 
 ["test_sandbox_DOMException.js"]
+
+["test_sandbox_SharedArrayBuffer.js"]
+
+["test_sandbox_associated_window.js"]
 
 ["test_sandbox_atob.js"]
 

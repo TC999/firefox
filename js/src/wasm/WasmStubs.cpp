@@ -29,6 +29,7 @@
 #include "wasm/WasmGenerator.h"
 #include "wasm/WasmInstance.h"
 #include "wasm/WasmPI.h"
+#include "wasm/WasmStacks.h"
 
 #include "jit/MacroAssembler-inl.h"
 #include "wasm/WasmInstance-inl.h"
@@ -2006,13 +2007,10 @@ static bool GenerateImportInterpExit(MacroAssembler& masm, const FuncImport& fi,
   // The abiArgCount includes a stack result pointer argument if needed.
   unsigned abiArgCount = ArgTypeVector(funcType).lengthWithStackResults();
   unsigned argBytes = std::max<size_t>(1, abiArgCount) * sizeof(Value);
-  unsigned frameAlignment =
-      ComputeByteAlignment(sizeof(Frame), ABIStackAlignment);
   unsigned framePushed = AlignBytes(argOffset + argBytes, ABIStackAlignment);
   GenerateExitPrologue(masm, ExitReason::Fixed::ImportInterp,
-                       /*switchToMainStack*/ true,
-                       /*framePushedPreSwitch*/ frameAlignment,
-                       /*framePushedPostSwitch*/ framePushed, offsets);
+                       /*switchToMainStack*/ true, ExitFrameAlignment::Static,
+                       /*frameSize*/ framePushed, offsets);
 
   // Fill the argument array.
   Register scratch = ABINonArgReturnReg0;
@@ -2132,7 +2130,8 @@ static bool GenerateImportInterpExit(MacroAssembler& masm, const FuncImport& fi,
 #endif
 
   GenerateExitEpilogue(masm, ExitReason::Fixed::ImportInterp,
-                       /*switchToMainStack*/ true, offsets);
+                       /*switchToMainStack*/ true, ExitFrameAlignment::Static,
+                       offsets);
 
   return FinishOffsets(masm, offsets);
 }
@@ -2530,13 +2529,11 @@ bool wasm::GenerateBuiltinThunk(MacroAssembler& masm, ABIFunctionType abiType,
   masm.setFramePushed(0);
 
   ABIFunctionArgs args(abiType);
-  unsigned frameAlignment =
-      ComputeByteAlignment(sizeof(Frame), ABIStackAlignment);
   unsigned framePushed =
       AlignBytes(StackArgBytesForNativeABI(args), ABIStackAlignment);
   GenerateExitPrologue(masm, exitReason, switchToMainStack,
-                       /*framePushedPreSwitch*/ frameAlignment,
-                       /*framePushedPostSwitch*/ framePushed, offsets);
+                       ExitFrameAlignment::Static,
+                       /*frameSize*/ framePushed, offsets);
 
   // Copy out and convert caller arguments, if needed. We are translating from
   // the wasm ABI to the system ABI.
@@ -2615,7 +2612,8 @@ bool wasm::GenerateBuiltinThunk(MacroAssembler& masm, ABIFunctionType abiType,
   }
 #endif
 
-  GenerateExitEpilogue(masm, exitReason, switchToMainStack, offsets);
+  GenerateExitEpilogue(masm, exitReason, switchToMainStack,
+                       ExitFrameAlignment::Static, offsets);
   return FinishOffsets(masm, offsets);
 }
 
@@ -2743,11 +2741,15 @@ static bool GenerateTrapExit(MacroAssembler& masm, Label* throwLabel,
   // alignment. Store it in a register that won't be used in the stack switch
   // operation.
   Register originalStackPointer = ABINonArgReg3;
+#ifdef ENABLE_WASM_JSPI
+  masm.reserveStack(sizeof(void*) * 2);
+#endif
   masm.moveStackPtrTo(originalStackPointer);
 
 #ifdef ENABLE_WASM_JSPI
-  GenerateExitPrologueMainStackSwitch(masm, InstanceReg, ABINonArgReg0,
-                                      ABINonArgReg1, ABINonArgReg2);
+  GenerateExitPrologueMainStackSwitch(masm, Address(masm.getStackPointer(), 0),
+                                      InstanceReg, ABINonArgReg0, ABINonArgReg1,
+                                      ABINonArgReg2);
 #endif
 
   // We know that StackPointer is word-aligned, but not necessarily
@@ -2778,20 +2780,22 @@ static bool GenerateTrapExit(MacroAssembler& masm, Label* throwLabel,
     masm.addToStackPtr(Imm32(ShadowStackSpace));
   }
 
-#ifdef ENABLE_WASM_JSPI
-  // We don't need to reload the InstanceReg because it is non-volatile in the
-  // system ABI.
-  MOZ_ASSERT(NonVolatileRegs.has(InstanceReg));
-  LoadActivation(masm, InstanceReg, ABINonArgReturnReg0);
-  GenerateExitEpilogueMainStackReturn(masm, InstanceReg, ABINonArgReturnReg0,
-                                      ABINonArgReturnReg1);
-#endif
-
   // Get the original stack pointer back for before we dynamically aligned it.
   // This will switch the SP back to the original stack we were on. Be careful
   // not to use the return register for this, which is live.
   masm.loadPtr(Address(masm.getStackPointer(), 0), ABINonArgReturnReg0);
   masm.moveToStackPtr(ABINonArgReturnReg0);
+
+#ifdef ENABLE_WASM_JSPI
+  // We don't need to reload the InstanceReg because it is non-volatile in the
+  // system ABI.
+  MOZ_ASSERT(NonVolatileRegs.has(InstanceReg));
+  GenerateExitEpilogueMainStackReturn(masm, Address(masm.getStackPointer(), 0),
+                                      InstanceReg, ABINonArgReturnReg0,
+                                      ABINonArgReturnReg1);
+
+  masm.freeStack(sizeof(void*) * 2);
+#endif
 
   // Otherwise, the return value is the TrapData::resumePC we must jump to.
   // We must restore register state before jumping, which will clobber
@@ -2809,7 +2813,7 @@ static bool GenerateTrapExit(MacroAssembler& masm, Label* throwLabel,
   return FinishOffsets(masm, offsets);
 }
 
-static void ClobberWasmRegsForLongJmp(MacroAssembler& masm, Register jumpReg) {
+void wasm::ClobberWasmRegsForLongJmp(MacroAssembler& masm, Register jumpReg) {
   // Get the set of all registers that are allocatable in wasm functions
   AllocatableGeneralRegisterSet gprs(GeneralRegisterSet::All());
   RegisterAllocator::takeWasmRegisters(gprs);
@@ -2845,21 +2849,287 @@ static void ClobberWasmRegsForLongJmp(MacroAssembler& masm, Register jumpReg) {
   }
 }
 
+#ifdef ENABLE_WASM_JSPI
+
+bool wasm::GenerateContBaseFrameStub(jit::MacroAssembler& masm,
+                                     const FuncType& funcType,
+                                     Offsets* offsets) {
+  AssertExpectedSP(masm);
+  masm.haltingAlign(CodeAlignment);
+  masm.setFramePushed(0);
+
+  offsets->begin = masm.currentOffset();
+
+  Register scratch1 = ABINonArgReg0;
+  Register scratch2 = ABINonArgReg1;
+  Register scratch3 = ABINonArgReg2;
+  Register scratch4 = ABINonArgReg3;
+
+  int32_t offsetFromFPToStack = -ContStack::offsetOfBaseFrameFP();
+
+  // Store initial callee's InstanceReg into calleeInstance_ before clearing
+  // initialResumeTarget_, so the frame iterator and GC can recover the instance
+  // for this base frame.
+  masm.storePtr(InstanceReg,
+                Address(FramePointer,
+                        static_cast<int32_t>(
+                            wasm::FrameWithInstances::calleeInstanceOffset())));
+
+  // Load paramsArea before clearing initialResumeTarget_.
+  masm.loadPtr(
+      Address(FramePointer, offsetFromFPToStack +
+                                ContStack::offsetOfInitialResumeTarget() +
+                                offsetof(wasm::SwitchTarget, paramsArea)),
+      scratch1);
+
+  // Clear the 'resumeTarget' in the frame (use scratch2 for the address).
+  masm.computeEffectiveAddress(
+      Address(FramePointer,
+              offsetFromFPToStack + ContStack::offsetOfInitialResumeTarget()),
+      scratch2);
+  EmitClearSwitchTarget(masm, scratch2);
+
+  // Load the cont.new callee funcref into WasmCallRefReg, and clear the field.
+  MOZ_ASSERT(scratch4 == WasmCallRefReg);
+  masm.loadPtr(
+      Address(FramePointer,
+              offsetFromFPToStack + ContStack::offsetOfInitialResumeCallee()),
+      scratch4);
+  masm.storePtr(
+      ImmWord(0),
+      Address(FramePointer,
+              offsetFromFPToStack + ContStack::offsetOfInitialResumeCallee()));
+
+  // scratch1 holds the paramsArea pointer; scratch2 is now free.
+
+  ArgTypeVector args(funcType);
+  size_t stackArgBytes = StackArgBytesForWasmABI(funcType);
+
+  ResultType results = ResultType::Vector(funcType.results());
+  uint32_t stackResultBytes = ABIResultIter::MeasureStackBytes(results);
+  size_t alignedStackResultBytes =
+      AlignBytes(stackResultBytes, WasmStackAlignment);
+
+  size_t reserveSize = ComputeByteAlignment(sizeof(Frame), WasmStackAlignment) +
+                       AlignBytes(stackArgBytes, WasmStackAlignment);
+
+  // The stack result area is appended past the arg area so the callee can write
+  // stack results there via the hidden pointer argument.
+  size_t stackResultAreaOffset = reserveSize;
+  reserveSize += alignedStackResultBytes;
+
+  masm.reserveStack(reserveSize);
+  masm.assertStackAlignment(WasmStackAlignment);
+
+  // Single pass over the args. scratch1 holds the paramsArea base; each param
+  // occupies MIRTypeToABIResultSize bytes there. ABIArgIter tracks where each
+  // param goes for the call_ref: register args are loaded into their ABI
+  // register and stack args are copied (through scratch3) into the reserved arg
+  // area. The synthetic stack-results pointer, if present, is pointed at the
+  // reserved stack result area rather than copied from paramsArea.
+  {
+    size_t paramsAreaByteOffset = 0;
+    for (ABIArgIter iter(args, ABIKind::Wasm); !iter.done(); iter++) {
+      MIRType type = iter.mirType();
+      if (type == MIRType::StackResults) {
+        Address stackResultArea(masm.getStackPointer(), stackResultAreaOffset);
+        if (iter->kind() == ABIArg::GPR) {
+          masm.computeEffectiveAddress(stackResultArea, iter->gpr());
+        } else {
+          MOZ_ASSERT(iter->kind() == ABIArg::Stack);
+          masm.computeEffectiveAddress(stackResultArea, scratch3);
+          masm.storePtr(scratch3, Address(masm.getStackPointer(),
+                                          iter->offsetFromArgBase()));
+        }
+        // The hidden pointer is not a resume param, so it consumes no
+        // paramsArea space: don't advance paramsAreaByteOffset.
+        continue;
+      }
+      Address src(scratch1, paramsAreaByteOffset);
+      if (iter->kind() == ABIArg::Stack) {
+        Address dst(masm.getStackPointer(), iter->offsetFromArgBase());
+        StackCopy(masm, type, scratch3, src, dst);
+      } else {
+        // Register argument: load directly into its ABI register.
+        switch (iter->kind()) {
+          case ABIArg::GPR:
+            if (type == MIRType::Int32) {
+              masm.load32(src, iter->gpr());
+            } else if (type == MIRType::Int64) {
+              masm.load64(src, iter->gpr64());
+            } else {
+              masm.loadPtr(src, iter->gpr());
+            }
+            break;
+          case ABIArg::FPU:
+            if (type == MIRType::Float32) {
+              masm.loadFloat32(src, iter->fpu());
+#  ifdef ENABLE_WASM_SIMD
+            } else if (type == MIRType::Simd128) {
+              masm.loadUnalignedSimd128(src, iter->fpu());
+#  endif
+            } else {
+              masm.loadDouble(src, iter->fpu());
+            }
+            break;
+#  ifdef JS_CODEGEN_REGISTER_PAIR
+          case ABIArg::GPR_PAIR:
+            masm.load64(src, iter->gpr64());
+            break;
+#  endif
+          default:
+            break;
+        }
+      }
+      paramsAreaByteOffset += MIRTypeToABIResultSize(type);
+    }
+  }
+
+  wasm::CallSiteDesc callSite(CallSiteKind::FuncRef);
+  wasm::CalleeDesc callee = wasm::CalleeDesc::wasmFuncRef();
+  CodeOffset fastCallOffset;
+  CodeOffset slowCallOffset;
+  masm.wasmCallRef(callSite, callee, &fastCallOffset, &slowCallOffset);
+
+  // Store results to returnTarget.paramsArea in source order. scratch3 holds
+  // the paramsArea pointer for the whole routine, so it must not alias a result
+  // register: loading it would clobber the register result. We store the
+  // register result first, while it is still live in ReturnReg; once it is in
+  // memory, scratch2 (the stack-result shuffle temporary) may safely alias a
+  // result register.
+  if (!results.empty()) {
+    MOZ_ASSERT(scratch3 != ReturnReg);
+#  ifndef JS_PUNBOX64
+    MOZ_ASSERT(scratch3 != ReturnReg64.high && scratch3 != ReturnReg64.low);
+#  endif
+    masm.loadPtr(Address(FramePointer,
+                         offsetFromFPToStack + ContStack::offsetOfHandlers()),
+                 scratch3);
+    masm.loadPtr(
+        Address(scratch3, offsetof(wasm::Handlers, returnTarget) +
+                              offsetof(wasm::SwitchTarget, paramsArea)),
+        scratch3);
+
+    // The call leaves SP unchanged, so the stack results the callee wrote
+    // through the hidden pointer are still at SP + stackResultAreaOffset.
+    int32_t stackAreaSPOffset = static_cast<int32_t>(stackResultAreaOffset);
+
+    // Iterate in Prev direction (source order: result[0], result[1], ...) and
+    // accumulate each result's byte offset into the paramsArea. Only a single
+    // result is ever in a register (the last one in source order); store it now
+    // while ReturnReg is still live.
+    ABIResultIter iter(results);
+    while (!iter.done()) {
+      iter.next();
+    }
+    iter.switchToPrev();
+    size_t paramsAreaByteOffset = 0;
+    for (; !iter.done(); iter.prev()) {
+      const ABIResult& result = iter.cur();
+      MIRType type = result.type().toMIRType();
+      if (result.inRegister()) {
+        Address dst(scratch3, paramsAreaByteOffset);
+        switch (result.type().kind()) {
+          case ValType::I32:
+            masm.store32(result.gpr(), dst);
+            break;
+          case ValType::I64:
+            masm.store64(result.gpr64(), dst);
+            break;
+          case ValType::F32:
+            masm.storeFloat32(result.fpr(), dst);
+            break;
+          case ValType::F64:
+            masm.storeDouble(result.fpr(), dst);
+            break;
+          case ValType::Ref:
+            masm.storePtr(result.gpr(), dst);
+            break;
+#  ifdef ENABLE_WASM_SIMD
+          case ValType::V128:
+            masm.storeUnalignedSimd128(result.fpr(), dst);
+            break;
+#  endif
+          default:
+            MOZ_CRASH(
+                "unexpected register result type in typed base frame stub");
+        }
+      }
+      paramsAreaByteOffset += MIRTypeToABIResultSize(type);
+    }
+
+    // Now copy the stack results into the paramsArea. The register result is
+    // already stored, so scratch2 may alias a result register here. StackCopy
+    // handles the 32-bit i64 case without needing a register pair.
+    iter.reset();
+    while (!iter.done()) {
+      iter.next();
+    }
+    iter.switchToPrev();
+    paramsAreaByteOffset = 0;
+    for (; !iter.done(); iter.prev()) {
+      const ABIResult& result = iter.cur();
+      MIRType type = result.type().toMIRType();
+      if (!result.inRegister()) {
+        Address src(
+            masm.getStackPointer(),
+            stackAreaSPOffset + static_cast<int32_t>(result.stackOffset()));
+        Address dst(scratch3, paramsAreaByteOffset);
+        StackCopy(masm, type, scratch2, src, dst);
+      }
+      paramsAreaByteOffset += MIRTypeToABIResultSize(type);
+    }
+  }
+
+  // Switch back to the handler's return stack.
+  masm.loadPtr(Address(FramePointer,
+                       offsetFromFPToStack + ContStack::offsetOfHandlers()),
+               scratch1);
+  masm.computeEffectiveAddress(
+      Address(scratch1, offsetof(wasm::Handlers, returnTarget)), scratch1);
+  wasm::EmitSwitchStack(masm, scratch1, scratch2, scratch3, scratch4);
+
+  // We should never reach here.
+  masm.breakpoint();
+
+  return FinishOffsets(masm, offsets);
+}
+#endif
+
 // Generates code to jump to a Wasm catch handler after unwinding the stack.
 // The |rfe| register stores a pointer to the ResumeFromException struct
 // allocated on the stack.
 void wasm::GenerateJumpToCatchHandler(MacroAssembler& masm, Register rfe,
-                                      Register scratch1, Register scratch2) {
+                                      Register scratch1, Register scratch2,
+                                      Register scratch3) {
   masm.loadPtr(Address(rfe, ResumeFromException::offsetOfInstance()),
                InstanceReg);
   masm.loadWasmPinnedRegsFromInstance(mozilla::Nothing());
   masm.switchToWasmInstanceRealm(scratch1, scratch2);
+
+#ifdef ENABLE_WASM_JSPI
+  // Restore the stack-switching state for the catch handler's stack. Exception
+  // unwinding may have freed continuation stacks and returned to the main
+  // stack, so we need to restore baseHandlers_ (which may now be null) and
+  // enter the correct StackTarget so that currentStack_ and stackLimit are
+  // consistent with where the catch handler lives.
+  masm.loadPtr(Address(InstanceReg, wasm::Instance::offsetOfCx()), scratch1);
+  masm.loadPtr(Address(rfe, ResumeFromException::offsetOfBaseHandlers()),
+               scratch2);
+  masm.storePtr(scratch2,
+                Address(scratch1, JSContext::offsetOfWasm() +
+                                      wasm::Context::offsetOfBaseHandlers()));
+  masm.loadPtr(Address(rfe, ResumeFromException::offsetOfStackTarget()),
+               scratch2);
+  EmitEnterStackTarget(masm, scratch1, scratch2, scratch3);
+#endif
+
   masm.loadPtr(Address(rfe, ResumeFromException::offsetOfTarget()), scratch1);
   masm.loadPtr(Address(rfe, ResumeFromException::offsetOfFramePointer()),
                FramePointer);
   masm.loadStackPtr(Address(rfe, ResumeFromException::offsetOfStackPointer()));
   MoveSPForJitABI(masm);
-  ClobberWasmRegsForLongJmp(masm, scratch1);
+  wasm::ClobberWasmRegsForLongJmp(masm, scratch1);
   masm.jump(scratch1);
 }
 
@@ -2938,22 +3208,10 @@ static bool GenerateDebugStub(MacroAssembler& masm, Label* throwLabel,
   masm.setFramePushed(0);
 
   GenerateExitPrologue(masm, ExitReason::Fixed::DebugStub,
-                       /*switchToMainStack*/ true, 0, 0, offsets);
+                       /*switchToMainStack*/ true, ExitFrameAlignment::Dynamic,
+                       0, offsets);
 
   uint32_t framePushed = masm.framePushed();
-
-  // This method might be called with unaligned stack -- aligning and
-  // saving old stack pointer at the top.
-#ifdef JS_CODEGEN_ARM64
-  // On ARM64 however the stack is always aligned.
-  static_assert(ABIStackAlignment == 16, "ARM64 SP alignment");
-#else
-  Register scratch = ABINonArgReturnReg0;
-  masm.moveStackPtrTo(scratch);
-  masm.subFromStackPtr(Imm32(sizeof(intptr_t)));
-  masm.andToStackPtr(Imm32(~(ABIStackAlignment - 1)));
-  masm.storePtr(scratch, Address(masm.getStackPointer(), 0));
-#endif
 
   if (ShadowStackSpace) {
     masm.subFromStackPtr(Imm32(ShadowStackSpace));
@@ -2966,15 +3224,17 @@ static bool GenerateDebugStub(MacroAssembler& masm, Label* throwLabel,
   if (ShadowStackSpace) {
     masm.addToStackPtr(Imm32(ShadowStackSpace));
   }
-#ifndef JS_CODEGEN_ARM64
-  masm.pop(scratch);
-  masm.moveToStackPtr(scratch);
-#endif
+
+  // Memory can moving-grow during debugging, so we need to update the HeapReg.
+  // InstanceReg is still live here because it is non-volatile.
+  MOZ_ASSERT(NonVolatileRegs.has(InstanceReg));
+  masm.loadWasmPinnedRegsFromInstance(mozilla::Nothing());
 
   masm.setFramePushed(framePushed);
 
   GenerateExitEpilogue(masm, ExitReason::Fixed::DebugStub,
-                       /*switchToMainStack*/ true, offsets);
+                       /*switchToMainStack*/ true, ExitFrameAlignment::Dynamic,
+                       offsets);
 
   return FinishOffsets(masm, offsets);
 }
@@ -2994,22 +3254,10 @@ static bool GenerateRequestTierUpStub(MacroAssembler& masm,
   masm.setFramePushed(0);
 
   GenerateExitPrologue(masm, ExitReason::Fixed::RequestTierUp,
-                       /*switchToMainStack*/ false, 0, 0, offsets);
+                       /*switchToMainStack*/ true, ExitFrameAlignment::Dynamic,
+                       0, offsets);
 
   uint32_t framePushed = masm.framePushed();
-
-  // This method might be called with unaligned stack -- aligning and
-  // saving old stack pointer at the top.
-#ifdef JS_CODEGEN_ARM64
-  // On ARM64 however the stack is always aligned.
-  static_assert(ABIStackAlignment == 16, "ARM64 SP alignment");
-#else
-  Register scratch = ABINonArgReturnReg0;
-  masm.moveStackPtrTo(scratch);
-  masm.subFromStackPtr(Imm32(sizeof(intptr_t)));
-  masm.andToStackPtr(Imm32(~(ABIStackAlignment - 1)));
-  masm.storePtr(scratch, Address(masm.getStackPointer(), 0));
-#endif
 
   if (ShadowStackSpace > 0) {
     masm.subFromStackPtr(Imm32(ShadowStackSpace));
@@ -3048,15 +3296,12 @@ static bool GenerateRequestTierUpStub(MacroAssembler& masm,
   if (ShadowStackSpace > 0) {
     masm.addToStackPtr(Imm32(ShadowStackSpace));
   }
-#ifndef JS_CODEGEN_ARM64
-  masm.pop(scratch);
-  masm.moveToStackPtr(scratch);
-#endif
 
   masm.setFramePushed(framePushed);
 
   GenerateExitEpilogue(masm, ExitReason::Fixed::RequestTierUp,
-                       /*switchToMainStack*/ false, offsets);
+                       /*switchToMainStack*/ true, ExitFrameAlignment::Dynamic,
+                       offsets);
 
   return FinishOffsets(masm, offsets);
 }
@@ -3312,7 +3557,7 @@ bool wasm::GenerateEntryStubs(const CodeMetadata& codeMeta,
       continue;
     }
     if (!GenerateEntryStubs(masm, i, fe, funcType, noAbsolute,
-                            codeMeta.isAsmJS(), &code->codeRanges)) {
+                            &code->codeRanges)) {
       return false;
     }
   }
@@ -3327,10 +3572,9 @@ bool wasm::GenerateEntryStubs(const CodeMetadata& codeMeta,
 
 bool wasm::GenerateEntryStubs(MacroAssembler& masm, size_t funcExportIndex,
                               const FuncExport& fe, const FuncType& funcType,
-                              const Maybe<ImmPtr>& callee, bool isAsmJS,
+                              const Maybe<ImmPtr>& callee,
                               CodeRangeVector* codeRanges) {
   MOZ_ASSERT(!callee == fe.hasEagerStubs());
-  MOZ_ASSERT_IF(isAsmJS, fe.hasEagerStubs());
 
   Offsets offsets;
   if (!GenerateInterpEntry(masm, fe, funcType, callee, &offsets)) {
@@ -3341,7 +3585,7 @@ bool wasm::GenerateEntryStubs(MacroAssembler& masm, size_t funcExportIndex,
     return false;
   }
 
-  if (isAsmJS || !funcType.canHaveJitEntry()) {
+  if (!funcType.canHaveJitEntry()) {
     return true;
   }
 
@@ -3466,7 +3710,7 @@ bool wasm::GenerateStubs(const CodeMetadata& codeMeta,
       continue;
     }
     if (!GenerateEntryStubs(masm, i, fe, funcType, noAbsolute,
-                            codeMeta.isAsmJS(), &code->codeRanges)) {
+                            &code->codeRanges)) {
       return false;
     }
   }
@@ -3481,6 +3725,28 @@ bool wasm::GenerateStubs(const CodeMetadata& codeMeta,
   if (!code->codeRanges.emplaceBack(CodeRange::TrapExit, offsets)) {
     return false;
   }
+
+#ifdef ENABLE_WASM_JSPI
+  if (codeMeta.stackSwitchingEnabled()) {
+    uint32_t numTypes = codeMeta.types->length();
+    for (uint32_t i = 0; i < numTypes; i++) {
+      const TypeDef& typeDef = codeMeta.types->type(i);
+      if (!typeDef.isContType()) {
+        continue;
+      }
+      const FuncType& funcType = typeDef.contType().funcType();
+      if (!GenerateContBaseFrameStub(masm, funcType, &offsets)) {
+        return false;
+      }
+      if (!code->codeRanges.emplaceBack(CodeRange::ContBaseFrame, offsets)) {
+        return false;
+      }
+      if (!code->contBaseFrameOffsets.putNew(i, offsets.begin)) {
+        return false;
+      }
+    }
+  }
+#endif
 
   CallableOffsets callableOffsets;
   if (!GenerateDebugStub(masm, &throwLabel, &callableOffsets)) {

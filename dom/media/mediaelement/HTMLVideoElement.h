@@ -24,6 +24,8 @@ namespace dom {
 
 class WakeLock;
 class VideoPlaybackQuality;
+class EventHandlerNonNull;
+class PictureInPictureWindow;
 
 class HTMLVideoElement final : public HTMLMediaElement {
   class SecondaryVideoOutput;
@@ -34,7 +36,7 @@ class HTMLVideoElement final : public HTMLMediaElement {
 
   typedef mozilla::dom::NodeInfo NodeInfo;
 
-  explicit HTMLVideoElement(already_AddRefed<NodeInfo>&& aNodeInfo);
+  explicit HTMLVideoElement(already_AddRefed<NodeInfo> aNodeInfo);
 
   NS_IMPL_FROMNODE_HTML_WITH_TAG(HTMLVideoElement, video)
 
@@ -54,13 +56,18 @@ class HTMLVideoElement final : public HTMLMediaElement {
                       nsAttrValue& aResult) override;
   NS_IMETHOD_(bool) IsAttributeMapped(const nsAtom* aAttribute) const override;
 
+  void AfterSetAttr(int32_t aNameSpaceID, nsAtom* aName,
+                    const nsAttrValue* aValue, const nsAttrValue* aOldValue,
+                    nsIPrincipal* aMaybeScriptedPrincipal,
+                    bool aNotify) override;
+
   nsMapRuleToAttributesFunc GetAttributeMappingFunction() const override;
 
   nsresult Clone(NodeInfo*, nsINode** aResult) const override;
 
   nsresult CopyInnerTo(Element* aDest);
 
-  void UnbindFromTree(UnbindContext&) override;
+  MOZ_CAN_RUN_SCRIPT_BOUNDARY void UnbindFromTree(UnbindContext&) override;
 
   mozilla::Maybe<mozilla::CSSIntSize> GetVideoSize() const;
 
@@ -89,9 +96,9 @@ class HTMLVideoElement final : public HTMLMediaElement {
     SetUnsignedIntAttr(nsGkAtoms::height, aValue, 0, aRv);
   }
 
-  uint32_t VideoWidth();
+  uint32_t VideoWidth() const;
 
-  uint32_t VideoHeight();
+  uint32_t VideoHeight() const;
 
   VideoRotation RotationDegrees() const { return mMediaInfo.mVideo.mRotation; }
 
@@ -118,10 +125,10 @@ class HTMLVideoElement final : public HTMLMediaElement {
 
   already_AddRefed<VideoPlaybackQuality> GetVideoPlaybackQuality();
 
-  already_AddRefed<Promise> CloneElementVisually(HTMLVideoElement& aTarget,
-                                                 ErrorResult& rv);
+  MOZ_CAN_RUN_SCRIPT already_AddRefed<Promise> CloneElementVisually(
+      HTMLVideoElement& aTarget, ErrorResult& rv);
 
-  void StopCloningElementVisually();
+  MOZ_CAN_RUN_SCRIPT void StopCloningElementVisually();
 
   bool IsCloningElementVisually() const { return !!mVisualCloneTarget; }
 
@@ -132,6 +139,16 @@ class HTMLVideoElement final : public HTMLMediaElement {
 
   void OnVisibilityChange(Visibility aNewVisibility) override;
 
+  void ClosePictureInPictureWindowAndFireEvent();
+
+  already_AddRefed<Promise> RequestPictureInPicture(ErrorResult& aRv);
+
+  // Picture-in-Picture event handlers
+  EventHandlerNonNull* GetOnenterpictureinpicture();
+  void SetOnenterpictureinpicture(EventHandlerNonNull* aCallback);
+  EventHandlerNonNull* GetOnleavepictureinpicture();
+  void SetOnleavepictureinpicture(EventHandlerNonNull* aCallback);
+
   bool DisablePictureInPicture() const {
     return GetBoolAttr(nsGkAtoms::disablepictureinpicture);
   }
@@ -139,6 +156,9 @@ class HTMLVideoElement final : public HTMLMediaElement {
   void SetDisablePictureInPicture(bool aValue, ErrorResult& aError) {
     SetHTMLBoolAttr(nsGkAtoms::disablepictureinpicture, aValue, aError);
   }
+
+  void SetAssociatedPictureInPictureWindow(PictureInPictureWindow* aWindow);
+  PictureInPictureWindow* GetAssociatedPictureInPictureWindow() const;
 
  protected:
   virtual ~HTMLVideoElement();
@@ -159,7 +179,7 @@ class HTMLVideoElement final : public HTMLMediaElement {
   void CreateVideoWakeLockIfNeeded();
   void ReleaseVideoWakeLockIfExists();
 
-  gfx::IntSize GetVideoIntrinsicDimensions();
+  gfx::IntSize GetVideoIntrinsicDimensions() const;
 
   RefPtr<WakeLock> mScreenWakeLock;
 
@@ -201,6 +221,9 @@ class HTMLVideoElement final : public HTMLMediaElement {
   // SetVisualCloneTarget() instead.
   RefPtr<HTMLVideoElement> mVisualCloneSource;
 
+  // Reference to the current PictureInPictureWindow for this video element
+  RefPtr<PictureInPictureWindow> mPictureInPictureWindow;
+
  private:
   void ResetState() override;
 
@@ -234,7 +257,7 @@ class HTMLVideoElement final : public HTMLMediaElement {
   double TotalPlayTime() const;
 
   virtual void MaybeBeginCloningVisually() override;
-  void EndCloningVisually();
+  MOZ_CAN_RUN_SCRIPT void EndCloningVisually();
 };
 
 }  // namespace dom

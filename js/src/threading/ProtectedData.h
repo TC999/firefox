@@ -6,8 +6,11 @@
 #define threading_ProtectedData_h
 
 #include "mozilla/Atomics.h"
+
 #include <utility>
+
 #include "jstypes.h"
+
 #include "threading/ThreadId.h"
 
 struct JS_PUBLIC_API JSContext;
@@ -100,7 +103,7 @@ class ProtectedData {
 
   template <typename U>
   ThisType& operator=(U&& p) {
-    this->ref() = std::move(p);
+    this->ref() = std::forward<U>(p);
     return *this;
   }
 

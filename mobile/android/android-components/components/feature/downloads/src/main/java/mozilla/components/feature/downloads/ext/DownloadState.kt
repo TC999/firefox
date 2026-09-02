@@ -5,17 +5,18 @@
 package mozilla.components.feature.downloads.ext
 
 import androidx.core.net.toUri
+import java.io.InputStream
+import java.net.URLConnection
 import mozilla.components.browser.state.state.content.DownloadState
 import mozilla.components.concept.fetch.Headers
 import mozilla.components.concept.fetch.Headers.Names.CONTENT_DISPOSITION
 import mozilla.components.concept.fetch.Headers.Names.CONTENT_LENGTH
 import mozilla.components.concept.fetch.Headers.Names.CONTENT_TYPE
 import mozilla.components.concept.fetch.Headers.Names.E_TAG
-import mozilla.components.support.ktx.kotlin.decode
+import mozilla.components.feature.downloads.parseContentRange
 import mozilla.components.support.ktx.kotlin.sanitizeFileName
 import mozilla.components.support.utils.DownloadFileUtils
-import java.io.InputStream
-import java.net.URLConnection
+import mozilla.components.support.utils.ext.decodeIfNeeded
 
 internal fun DownloadState.isScheme(protocols: Iterable<String>): Boolean {
     val scheme = url.trim().toUri().scheme ?: return false
@@ -35,37 +36,37 @@ internal fun DownloadState.withResponse(
     stream: InputStream?,
 ): DownloadState {
     val contentDisposition = headers[CONTENT_DISPOSITION]
-    var contentType = this.contentType
-    if (contentType == null && stream != null) {
-        contentType = URLConnection.guessContentTypeFromStream(stream)
-    }
-    if (contentType == null) {
-        contentType = headers[CONTENT_TYPE]
-    }
+    val contentType = resolveContentType(headers, stream)
 
-    val newFileName = if (fileName.isNullOrBlank()) {
-        downloadFileUtils.guessFileName(
-            contentDisposition = contentDisposition,
-            url = url,
-            mimeType = contentType,
-        )
-    } else {
-        fileName
-    }
+    val newFileName =
+        if (fileName.isNullOrBlank()) {
+            downloadFileUtils.guessFileName(
+                contentDisposition = contentDisposition,
+                url = url,
+                mimeType = contentType,
+            )
+        } else {
+            fileName
+        }
     return copy(
-        fileName = newFileName?.decode()?.sanitizeFileName(),
+        fileName = newFileName?.decodeIfNeeded()?.sanitizeFileName(),
         contentType = contentType,
-        contentLength = contentLength ?: headers[CONTENT_LENGTH]?.toLongOrNull(),
+        contentLength = resolveContentLength(headers),
         etag = headers[E_TAG],
     )
 }
 
-internal fun DownloadState.getRealFilenameOrGuessed(
-    downloadFileUtils: DownloadFileUtils,
-): String {
-    return fileName ?: downloadFileUtils.guessFileName(
-        contentDisposition = null,
-        url = url,
-        mimeType = contentType,
-    )
+private fun DownloadState.resolveContentType(headers: Headers, stream: InputStream?): String? =
+    contentType ?: stream?.let { URLConnection.guessContentTypeFromStream(it) } ?: headers[CONTENT_TYPE]
+
+private fun DownloadState.resolveContentLength(headers: Headers): Long? =
+    contentLength ?: parseContentRange(headers)?.totalLength ?: headers[CONTENT_LENGTH]?.toLongOrNull()
+
+internal fun DownloadState.getRealFilenameOrGuessed(downloadFileUtils: DownloadFileUtils): String {
+    return fileName
+        ?: downloadFileUtils.guessFileName(
+            contentDisposition = null,
+            url = url,
+            mimeType = contentType,
+        )
 }

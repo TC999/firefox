@@ -15,13 +15,14 @@
 #include <cstring>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/strings/string_view.h"
-#include "api/array_view.h"
 #include "api/dtls_transport_interface.h"
+#include "api/environment/environment.h"
 #include "api/ice_transport_interface.h"
 #include "api/rtc_error.h"
 #include "api/scoped_refptr.h"
@@ -56,7 +57,7 @@ class FakeDtlsTransport : public DtlsTransportInternal {
             ice_transport_ref_->internal())),
         transport_name_(ice_transport_->transport_name()),
         component_(ice_transport_->component()),
-        dtls_fingerprint_("", nullptr) {
+        dtls_fingerprint_("", std::span<const uint8_t>()) {
     RTC_DCHECK(ice_transport_);
     ice_transport_->RegisterReceivedPacketCallback(
         this, [&](PacketTransportInternal* transport,
@@ -69,10 +70,11 @@ class FakeDtlsTransport : public DtlsTransportInternal {
         });
   }
   explicit FakeDtlsTransport(std::unique_ptr<FakeIceTransportInternal> ice)
-      : owned_ice_transport_(std::move(ice)),
+      : DtlsTransportInternal(ice->network_thread()),
+        owned_ice_transport_(std::move(ice)),
         transport_name_(owned_ice_transport_->transport_name()),
         component_(owned_ice_transport_->component()),
-        dtls_fingerprint_("", ArrayView<const uint8_t>()) {
+        dtls_fingerprint_("", std::span<const uint8_t>()) {
     ice_transport_ = owned_ice_transport_.get();
     ice_transport_->RegisterReceivedPacketCallback(
         this, [&](PacketTransportInternal* transport,
@@ -87,14 +89,18 @@ class FakeDtlsTransport : public DtlsTransportInternal {
 
   // If this constructor is called, a new fake ICE transport will be created,
   // and this FakeDtlsTransport will take the ownership.
-  FakeDtlsTransport(const std::string& name, int component)
+  FakeDtlsTransport(const Environment& env,
+                    const std::string& name,
+                    int component)
       : FakeDtlsTransport(
-            std::make_unique<FakeIceTransportInternal>(name, component)) {}
-  FakeDtlsTransport(const std::string& name,
+            std::make_unique<FakeIceTransportInternal>(env, name, component)) {}
+  FakeDtlsTransport(const Environment& env,
+                    const std::string& name,
                     int component,
                     Thread* network_thread)
       : FakeDtlsTransport(
-            std::make_unique<FakeIceTransportInternal>(name,
+            std::make_unique<FakeIceTransportInternal>(env,
+                                                       name,
                                                        component,
                                                        network_thread)) {}
 
@@ -187,7 +193,7 @@ class FakeDtlsTransport : public DtlsTransportInternal {
   bool SetRemoteFingerprint(absl::string_view alg,
                             const uint8_t* digest,
                             size_t digest_len) {
-    dtls_fingerprint_ = SSLFingerprint(alg, MakeArrayView(digest, digest_len));
+    dtls_fingerprint_ = SSLFingerprint(alg, std::span(digest, digest_len));
     return true;
   }
   bool SetDtlsRole(SSLRole role) override {

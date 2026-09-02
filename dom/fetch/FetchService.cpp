@@ -8,6 +8,7 @@
 #include "FetchParent.h"
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/ClearOnShutdown.h"
+#include "mozilla/Components.h"
 #include "mozilla/SchedulerGroup.h"
 #include "mozilla/UniquePtr.h"
 #include "mozilla/dom/ClientInfo.h"
@@ -231,10 +232,9 @@ RefPtr<FetchServicePromises> FetchService::FetchInstance::Fetch() {
 
   nsAutoCString principalSpec;
   MOZ_ALWAYS_SUCCEEDS(mPrincipal->GetAsciiSpec(principalSpec));
-  nsAutoCString requestURL;
-  mRequest->GetURL(requestURL);
+  nsCOMPtr<nsIURI> requestURL = mRequest->GetURL();
   FETCH_LOG(("FetchInstance::Fetch [%p], mRequest URL: %s mPrincipal: %s", this,
-             requestURL.get(), principalSpec.get()));
+             requestURL->GetSpecOrDefault().get(), principalSpec.get()));
 
   nsresult rv;
 
@@ -717,7 +717,7 @@ nsresult FetchService::RegisterNetworkObserver() {
     return NS_ERROR_UNEXPECTED;
   }
 
-  nsCOMPtr<nsIIOService> ioService = services::GetIOService();
+  nsCOMPtr<nsIIOService> ioService = components::IO::Service();
   if (!ioService) {
     return NS_ERROR_UNEXPECTED;
   }

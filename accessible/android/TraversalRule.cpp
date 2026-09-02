@@ -4,11 +4,10 @@
 
 #include "TraversalRule.h"
 
-#include "mozilla/a11y/Accessible.h"
-
-#include "mozilla/a11y/Role.h"
 #include "HTMLListAccessible.h"
 #include "SessionAccessibility.h"
+#include "mozilla/a11y/Accessible.h"
+#include "mozilla/a11y/Role.h"
 #include "nsAccUtils.h"
 #include "nsIAccessiblePivot.h"
 
@@ -174,6 +173,7 @@ uint16_t TraversalRule::ControlMatch(Accessible* aAccessible) {
     case roles::COMBOBOX:
     case roles::LISTBOX:
     case roles::ENTRY:
+    case roles::SEARCHBOX:
     case roles::PASSWORD_TEXT:
     case roles::PAGETAB:
     case roles::RADIOBUTTON:
@@ -267,6 +267,7 @@ uint16_t TraversalRule::DefaultMatch(Accessible* aAccessible) {
     case roles::RADIO_MENU_ITEM:
     case roles::TOGGLE_BUTTON:
     case roles::ENTRY:
+    case roles::SEARCHBOX:
     case roles::KEY:
     case roles::SLIDER:
     case roles::SPINBUTTON:

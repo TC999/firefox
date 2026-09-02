@@ -40,7 +40,6 @@
 #include "nsEmbedCID.h"
 #include "nsIWebBrowser.h"
 #include "nsIDocShell.h"
-#include "gfxPlatform.h"
 
 #include "nsWebBrowser.h"
 #include "nsDocShell.h"
@@ -204,14 +203,6 @@ NS_IMETHODIMP
 WebBrowserChrome2Stub::GetChromeFlags(uint32_t* aChromeFlags) {
   *aChromeFlags = 0;
   return NS_OK;
-}
-
-NS_IMETHODIMP
-WebBrowserChrome2Stub::SetChromeFlags(uint32_t aChromeFlags) {
-  MOZ_ASSERT_UNREACHABLE(
-      "WebBrowserChrome2Stub::SetChromeFlags is "
-      "not supported");
-  return NS_ERROR_NOT_IMPLEMENTED;
 }
 
 NS_IMETHODIMP
@@ -393,15 +384,10 @@ nsAppShellService::CreateWindowlessBrowser(bool aIsChrome, uint32_t aChromeMask,
 
   /* A windowless web browser doesn't have an associated OS level window. To
    * accomplish this, we initialize the window associated with our instance of
-   * nsWebBrowser with an instance of HeadlessWidget/PuppetWidget, which provide
-   * a stub implementation of nsIWidget.
+   * nsWebBrowser with an instance of PuppetWidget, which provides a stub
+   * implementation of nsIWidget.
    */
-  nsCOMPtr<nsIWidget> widget;
-  if (gfxPlatform::IsHeadless()) {
-    widget = nsIWidget::CreateHeadlessWidget();
-  } else {
-    widget = nsIWidget::CreatePuppetWidget(nullptr);
-  }
+  nsCOMPtr<nsIWidget> widget = nsIWidget::CreatePuppetWidget(nullptr);
   if (!widget) {
     NS_ERROR("Couldn't create instance of stub widget");
     return NS_ERROR_FAILURE;
@@ -501,6 +487,10 @@ nsresult nsAppShellService::JustCreateTopWindow(
     widgetInitData.mIsAnimationSuppressed = true;
   }
 
+  if (aChromeMask & nsIWebBrowserChrome::CHROME_SUPPRESS_INITIAL_FULLSCREEN) {
+    widgetInitData.mIsInitialFullscreenSuppressed = true;
+  }
+
   if (aChromeMask & nsIWebBrowserChrome::CHROME_ALWAYS_ON_TOP) {
     widgetInitData.mAlwaysOnTop = true;
   }
@@ -515,11 +505,8 @@ nsresult nsAppShellService::JustCreateTopWindow(
   uint32_t pipMask = nsIWebBrowserChrome::CHROME_ALWAYS_ON_TOP |
                      nsIWebBrowserChrome::CHROME_OPENAS_CHROME |
                      nsIWebBrowserChrome::CHROME_WINDOW_RESIZE;
-  uint32_t barMask = nsIWebBrowserChrome::CHROME_MENUBAR |
-                     nsIWebBrowserChrome::CHROME_TOOLBAR |
-                     nsIWebBrowserChrome::CHROME_LOCATIONBAR |
-                     nsIWebBrowserChrome::CHROME_TITLEBAR |
-                     nsIWebBrowserChrome::CHROME_STATUSBAR;
+  uint32_t barMask = nsIWebBrowserChrome::CHROME_TOOLBAR |
+                     nsIWebBrowserChrome::CHROME_TITLEBAR;
   if (widgetInitData.mWindowType == widget::WindowType::Dialog &&
       ((aChromeMask & pipMask) == pipMask) && !(aChromeMask & barMask)) {
     widgetInitData.mPiPType = mozilla::widget::PiPType::MediaPiP;
@@ -554,15 +541,9 @@ nsresult nsAppShellService::JustCreateTopWindow(
              nsIWebBrowserChrome::CHROME_ALL) {
     widgetInitData.mBorderStyle = BorderStyle::All;
   } else {
-    widgetInitData.mBorderStyle = BorderStyle::None;  // assumes none == 0x00
-    if (aChromeMask & nsIWebBrowserChrome::CHROME_WINDOW_BORDERS) {
-      widgetInitData.mBorderStyle |= BorderStyle::Border;
-    }
+    widgetInitData.mBorderStyle = BorderStyle::Border;
     if (aChromeMask & nsIWebBrowserChrome::CHROME_TITLEBAR) {
       widgetInitData.mBorderStyle |= BorderStyle::Title;
-    }
-    if (aChromeMask & nsIWebBrowserChrome::CHROME_WINDOW_CLOSE) {
-      widgetInitData.mBorderStyle |= BorderStyle::Close;
     }
     if (aChromeMask & nsIWebBrowserChrome::CHROME_WINDOW_RESIZE) {
       widgetInitData.mResizable = true;
@@ -751,7 +732,7 @@ nsAppShellService::RegisterTopLevelWindow(nsIAppWindow* aWindow) {
       do_GetService(NS_WINDOWWATCHER_CONTRACTID));
   NS_ASSERTION(wwatcher, "No windowwatcher?");
   if (wwatcher && domWindow) {
-    wwatcher->AddWindow(domWindow, 0);
+    wwatcher->AddWindow(domWindow, nullptr);
   }
 
   // an ongoing attempt to quit is stopped by a newly opened window

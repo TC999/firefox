@@ -13,7 +13,7 @@
 edition = "2024"
 rust-version = "1.90.0"
 name = "neqo-http3"
-version = "0.25.0"
+version = "0.30.1"
 authors = ["The Neqo Authors <necko@mozilla.com>"]
 build = false
 autolib = false
@@ -50,7 +50,6 @@ name = "streams_simulated"
 
 [package.metadata.bench.codspeed]
 mode = "simulation"
-memory = false
 
 [[package.metadata.bench]]
 name = "streams_walltime"
@@ -62,21 +61,21 @@ memory = false
 [features]
 bench = [
     "neqo-common/bench",
-    "neqo-crypto/bench",
     "neqo-qpack/bench",
     "neqo-transport/bench",
+    "test-fixture/bench",
     "log/release_max_level_info",
 ]
 build-fuzzing-corpus = [
     "neqo-common/build-fuzzing-corpus",
     "neqo-transport/disable-encryption",
-    "neqo-crypto/disable-encryption",
-    "neqo-crypto/disable-random",
+    "nss/disable-encryption",
+    "nss/disable-random",
     "test-fixture/disable-random",
 ]
 disable-encryption = [
     "neqo-transport/disable-encryption",
-    "neqo-crypto/disable-encryption",
+    "nss/disable-encryption",
 ]
 draft-29 = ["neqo-transport/draft-29"]
 
@@ -130,7 +129,8 @@ version = "1.1"
 default-features = false
 
 [dependencies.http]
-version = "0.2.9"
+version = "1"
+features = ["std"]
 default-features = false
 
 [dependencies.log]
@@ -140,14 +140,18 @@ default-features = false
 [dependencies.neqo-common]
 path = "./../neqo-common"
 
-[dependencies.neqo-crypto]
-path = "./../neqo-crypto"
-
 [dependencies.neqo-qpack]
 path = "./../neqo-qpack"
+default-features = false
 
 [dependencies.neqo-transport]
 path = "./../neqo-transport"
+default-features = false
+
+[dependencies.nss]
+version = "0.13"
+git = "https://github.com/mozilla/nss-rs"
+package = "nss-rs"
 
 [dependencies.qlog]
 version = "0.16.0"
@@ -163,6 +167,10 @@ version = "0.14"
 features = ["parsed-types"]
 default-features = false
 
+[dependencies.static_assertions]
+version = "1.1"
+default-features = false
+
 [dependencies.strum]
 version = "0.27"
 features = ["derive"]
@@ -173,13 +181,14 @@ version = "2.0.12"
 default-features = false
 
 [dev-dependencies.criterion]
-version = "4"
+version = "5"
 default-features = false
 package = "codspeed-criterion-compat"
 
 [dev-dependencies.neqo-http3]
 path = "."
 features = ["draft-29"]
+default-features = false
 
 [dev-dependencies.test-fixture]
 path = "../test-fixture"

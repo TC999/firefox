@@ -306,7 +306,7 @@ class AndroidEmulatorTest(
             ),
         ]
 
-        raw_log_file, error_summary_file = self.get_indexed_logs(
+        raw_log_file, error_summary_file, test_summary_file = self.get_indexed_logs(
             dirs["abs_blob_upload_dir"], self.test_suite
         )
 
@@ -328,6 +328,7 @@ class AndroidEmulatorTest(
             "log_tbpl_level": self.log_tbpl_level,
             "log_raw_level": self.log_raw_level,
             "error_summary_file": error_summary_file,
+            "test_summary_file": test_summary_file,
             "xpcshell_extra": c.get("xpcshell_extra", ""),
             "gtest_dir": os.path.join(dirs["abs_test_install_dir"], "gtest"),
         }
@@ -402,14 +403,11 @@ class AndroidEmulatorTest(
         if c.get("enable_xorigin_tests"):
             cmd.extend(["--enable-xorigin-tests"])
 
-        try_options, try_tests = self.try_args(self.test_suite)
-        cmd.extend(try_options)
         if not self.verify_enabled and not self.per_test_coverage and not user_paths:
             cmd.extend(
                 self.query_tests_args(
                     self.config["suite_definitions"][self.test_suite].get("tests"),
                     None,
-                    try_tests,
                 )
             )
 
@@ -584,6 +582,7 @@ class AndroidEmulatorTest(
                     parser.formatter = ref_formatter.ReftestFormatter()
 
                 self.run_command(final_cmd, cwd=cwd, env=env, output_parser=parser)
+                self.append_test_summary(self.query_abs_dirs()["abs_blob_upload_dir"])
                 tbpl_status, log_level, summary = parser.evaluate_parser(
                     0, previous_summary=summary
                 )

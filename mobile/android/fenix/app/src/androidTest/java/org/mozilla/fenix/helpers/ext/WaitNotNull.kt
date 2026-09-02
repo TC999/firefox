@@ -7,7 +7,7 @@ package org.mozilla.fenix.helpers.ext
 import android.util.Log
 import androidx.test.uiautomator.SearchCondition
 import androidx.test.uiautomator.UiDevice
-import org.junit.Assert.assertNotNull
+import kotlin.test.assertNotNull
 import org.mozilla.fenix.helpers.Constants.TAG
 import org.mozilla.fenix.helpers.TestAssetHelper
 

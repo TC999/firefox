@@ -15,7 +15,7 @@ namespace mozilla::dom {
 
 mozilla::ipc::IPCResult WebGLParent::RecvInitialize(
     const webgl::InitContextDesc& desc, webgl::InitContextResult* const out) {
-  mHost = HostWebGLContext::Create({nullptr, this}, desc, out);
+  mHost = HostWebGLContext::Create(this, desc, out);
 
   if (!mHost) {
     MOZ_ASSERT(!out->error->empty());
@@ -229,6 +229,39 @@ IPCResult WebGLParent::RecvReadPixels(const webgl::ReadPixelsDesc& desc,
 
   const auto res = mHost->ReadPixelsInto(desc, range);
   *ret = {res, Some(shmem.Extract())};
+  return IPC_OK();
+}
+
+IPCResult WebGLParent::RecvReadPixelsAsync(const webgl::ReadPixelsDesc& aDesc,
+                                           uint64_t aByteSize,
+                                           ReadPixelsAsyncResolver&& aResolve) {
+  AUTO_PROFILER_LABEL("WebGLParent::RecvReadPixelsAsync", GRAPHICS);
+
+  if (!mHost) {
+    return IPC_FAIL(this, "HostWebGLContext is not initialized.");
+  }
+
+  CheckedInt<size_t> checkedSize(aByteSize);
+  if (!checkedSize.isValid()) {
+    return IPC_FAIL(this, "Invalid ReadPixels byte size.");
+  }
+
+  const size_t allocSize = std::max<size_t>(1, checkedSize.value());
+
+  auto shmem = webgl::RaiiShmem::Alloc(this, allocSize);
+  if (!shmem) {
+    NS_WARNING("Failed to allocate shmem for RecvReadPixelsAsync.");
+    aResolve(webgl::ReadPixelsResultIpc{});
+    return IPC_OK();
+  }
+
+  const auto res = mHost->ReadPixelsInto(aDesc, shmem.ByteRange());
+
+  aResolve(webgl::ReadPixelsResultIpc{
+      res,
+      Some(shmem.Extract()),
+  });
+
   return IPC_OK();
 }
 

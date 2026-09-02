@@ -27,6 +27,10 @@ class SrcRepository(Repository):
     def head_ref(self):
         pass
 
+    @property
+    def head_rev(self):
+        pass
+
     def is_cinnabar_repo(self) -> bool:
         return False
 
@@ -149,15 +153,17 @@ class SrcRepository(Repository):
         ref: Optional[str] = None,
         dest_branch: Optional[str] = None,
         force: bool = False,
+        env: Optional[dict] = None,
     ):
         pass
 
-    def push_to_try(
-        self,
-        message: str,
-        changed_files: dict[str, str] = {},
-        allow_log_capture: bool = False,
-    ):
+    def _resolve_try_branch(self):
+        pass
+
+    def _push_to_git_try(self, *args, **kwargs):
+        pass
+
+    def _push_to_hg_try(self, *args, **kwargs):
         pass
 
     def set_config(self, name, value):

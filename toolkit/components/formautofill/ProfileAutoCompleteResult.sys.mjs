@@ -5,16 +5,21 @@
 const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
+  AutofillDataTypes: "resource://gre/modules/shared/AutofillDataTypes.sys.mjs",
   CreditCard: "resource://gre/modules/CreditCard.sys.mjs",
 });
 
 ChromeUtils.defineLazyGetter(
   lazy,
   "l10n",
-  () => new Localization(["toolkit/formautofill/formAutofill.ftl"], true)
+  () =>
+    new Localization(
+      ["branding/brand.ftl", "toolkit/formautofill/formAutofill.ftl"],
+      true
+    )
 );
 
-class ProfileAutoCompleteResult {
+export class ProfileAutoCompleteResult {
   externalEntries = [];
 
   constructor(
@@ -74,10 +79,40 @@ class ProfileAutoCompleteResult {
       this._allFieldNames,
       this._matchingProfiles
     );
+    this._footerLabel = this._generateFooterLabel();
+  }
+
+  /**
+   * The footer row, kept last so that it stays below the entries contributed
+   * by other providers. Subclasses that have a footer override this; the
+   * default is to have none.
+   *
+   * @returns {object | null} The footer row, or null when there is none.
+   */
+  _generateFooterLabel() {
+    return null;
+  }
+
+  /**
+   * The item groups in display order: the profile rows, then the entries
+   * contributed by other providers, then the footer.
+   *
+   * @returns {Array<Array<object>>} The groups, in display order.
+   */
+  _orderedGroups() {
+    return [
+      this._popupLabels,
+      this.externalEntries,
+      this._footerLabel ? [this._footerLabel] : [],
+    ];
+  }
+
+  _footerIndex() {
+    return this._footerLabel ? this.matchCount - 1 : -1;
   }
 
   getAt(index) {
-    for (const group of [this._popupLabels, this.externalEntries]) {
+    for (const group of this._orderedGroups()) {
       if (index < group.length) {
         return group[index];
       }
@@ -94,7 +129,11 @@ class ProfileAutoCompleteResult {
    * @returns {number} The number of results
    */
   get matchCount() {
-    return this._popupLabels.length + this.externalEntries.length;
+    return (
+      this._popupLabels.length +
+      this.externalEntries.length +
+      (this._footerLabel ? 1 : 0)
+    );
   }
 
   /**
@@ -249,11 +288,28 @@ class ProfileAutoCompleteResult {
       return "clear";
     }
 
-    if (index == this._popupLabels.length - 1) {
+    if (index == this._footerIndex()) {
       return "manage";
     }
 
     return "item";
+  }
+
+  /**
+   * Build the autocomplete result for a data type. The result classes live
+   * here, so this factory owns the type-id -> class mapping.
+   *
+   * @param {string} typeId An AutofillDataTypes id.
+   * @param {...any} args Forwarded to the result constructor.
+   * @returns {ProfileAutoCompleteResult}
+   */
+  static createResult(typeId, ...args) {
+    switch (typeId) {
+      case lazy.AutofillDataTypes.CREDIT_CARD:
+        return new CreditCardResult(...args);
+      default:
+        return new AddressResult(...args);
+    }
   }
 }
 
@@ -330,26 +386,22 @@ export class AddressResult extends ProfileAutoCompleteResult {
     return ""; // Nothing matched.
   }
 
-  _generateLabels(focusedFieldName, allFieldNames, profiles) {
-    const manageLabel = lazy.l10n.formatValueSync(
-      "autofill-manage-addresses-label"
-    );
-
-    let footerItem = {
-      primary: manageLabel,
+  _generateFooterLabel() {
+    return {
+      primary: lazy.l10n.formatValueSync("autofill-manage-addresses-label"),
       secondary: "",
     };
+  }
 
+  _generateLabels(focusedFieldName, allFieldNames, profiles) {
     if (this._isInputAutofilled) {
       const clearLabel = lazy.l10n.formatValueSync("autofill-clear-form-label");
 
-      let labels = [
+      return [
         {
           primary: clearLabel,
         },
       ];
-      labels.push(footerItem);
-      return labels;
     }
 
     const labels = [];
@@ -381,10 +433,11 @@ export class AddressResult extends ProfileAutoCompleteResult {
         primary,
         secondary,
         ariaLabel,
+        // eslint-disable-next-line mozilla/no-browser-refs-in-toolkit
+        image: "chrome://browser/skin/fxa/avatar-empty.svg",
+        type: "address",
       });
     }
-
-    labels.push(footerItem);
 
     return labels;
   }
@@ -396,6 +449,15 @@ export class CreditCardResult extends ProfileAutoCompleteResult {
   }
 
   _getSecondaryLabel(focusedFieldName, allFieldNames, profile) {
+    // A form can ask for the security code on its own, in which case there is
+    // no other credit card field to match against below. The card number is
+    // the only thing keeping those entries distinguishable, so always use it.
+    if (focusedFieldName == "cc-csc") {
+      return profile["cc-number"]
+        ? lazy.CreditCard.formatMaskedNumber(profile["cc-number"])
+        : "";
+    }
+
     const GROUP_FIELDS = {
       "cc-name": [
         "cc-name",
@@ -441,6 +503,19 @@ export class CreditCardResult extends ProfileAutoCompleteResult {
     return ""; // Nothing matched.
   }
 
+  _generateFooterLabel() {
+    // An insecure form only shows the warning row.
+    if (!this._isSecure) {
+      return null;
+    }
+
+    return {
+      primary: lazy.l10n.formatValueSync(
+        "autofill-manage-payment-methods-label"
+      ),
+    };
+  }
+
   _generateLabels(focusedFieldName, allFieldNames, profiles) {
     if (!this._isSecure) {
       return [
@@ -450,24 +525,14 @@ export class CreditCardResult extends ProfileAutoCompleteResult {
       ];
     }
 
-    const manageLabel = lazy.l10n.formatValueSync(
-      "autofill-manage-payment-methods-label"
-    );
-
-    let footerItem = {
-      primary: manageLabel,
-    };
-
     if (this._isInputAutofilled) {
       const clearLabel = lazy.l10n.formatValueSync("autofill-clear-form-label");
 
-      let labels = [
+      return [
         {
           primary: clearLabel,
         },
       ];
-      labels.push(footerItem);
-      return labels;
     }
 
     // Skip results without a primary label.
@@ -480,7 +545,14 @@ export class CreditCardResult extends ProfileAutoCompleteResult {
 
         if (focusedFieldName == "cc-number") {
           primary = lazy.CreditCard.formatMaskedNumber(primary);
+        } else if (focusedFieldName == "cc-csc") {
+          // The security code must never be displayed, so name the entry after
+          // the field instead.
+          primary = lazy.l10n.formatValueSync(
+            "autofill-card-security-code-label"
+          );
         }
+
         const secondary = this._getSecondaryLabel(
           focusedFieldName,
           allFieldNames,
@@ -497,7 +569,7 @@ export class CreditCardResult extends ProfileAutoCompleteResult {
           : (ccType ?? ""); // Unknown card type
         const ariaLabel = [
           ccTypeName,
-          primary.toString().replaceAll("*", ""),
+          primary.toString().replaceAll("•", ""),
           secondary,
         ]
           .filter(chunk => !!chunk) // Exclude empty chunks.
@@ -507,10 +579,9 @@ export class CreditCardResult extends ProfileAutoCompleteResult {
           secondary: secondary.toString().replaceAll("*", "•"),
           ariaLabel,
           image,
+          type: "payment",
         };
       });
-
-    labels.push(footerItem);
 
     return labels;
   }

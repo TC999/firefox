@@ -42,7 +42,7 @@ headless:
 a11y-checks:
     description: "{description} with accessibility checks enabled"
     component: "Core::Disability Access APIs"
-    expiration: "2026-09-01"
+    expiration: "2027-03-01"
     suffix: "a11y-checks"
     mozinfo: "a11y_checks"
     replace:
@@ -69,7 +69,7 @@ a11y-checks:
 aab:
     description: "{description} with aab test_runner"
     component: "GeckoView::General"
-    expiration: "2026-09-01"
+    expiration: "2027-03-01"
     when: &gv_e10s_filter
         $eval: '"android" in task["test-platform"]'
     suffix: "aab"
@@ -87,6 +87,8 @@ aab:
                         - linux64-fix-stacks
                         - linux64-jdk
                         - linux64-hostutils
+                        - linux64-samply
+                        - profiler-node-tools
     replace:
         target: "geckoview-test_runner.aab"
 
@@ -105,15 +107,10 @@ trainhop-release:
             chunked: false
             extra-options:
                 - --install-extension=newtab.xpi
-                # This preference is normally set via Nimbus when doing a New Tab
-                # train-hop, but when running the tests in automation like this, we
-                # install the XPI using the more traditional extension install
-                # mechanism.
-                #
-                # This is kind of a hack, but so long as this string here is not
-                # empty, we bypass the uninstall that occurs at startup, and read
-                # from the installed XPI.
+                # Setting these to "any" allows us to install the newtab.xpi
+                # regardless of what version it is.
                 - --setpref=browser.newtabpage.trainhopAddon.version=any
+                - --setpref=browser.newtabpage.trainhopAddonDeployment.version=any
         dependencies:
             newtab-xpi-job: build-extensions-browser
     replace:
@@ -149,15 +146,10 @@ trainhop-beta:
             chunked: false
             extra-options:
                 - --install-extension=newtab.xpi
-                # This preference is normally set via Nimbus when doing a New Tab
-                # train-hop, but when running the tests in automation like this, we
-                # install the XPI using the more traditional extension install
-                # mechanism.
-                #
-                # This is kind of a hack, but so long as this string here is not
-                # empty, we bypass the uninstall that occurs at startup, and read
-                # from the installed XPI.
+                # Setting these to "any" allows us to install the newtab.xpi
+                # regardless of what version it is.
                 - --setpref=browser.newtabpage.trainhopAddon.version=any
+                - --setpref=browser.newtabpage.trainhopAddonDeployment.version=any
         dependencies:
             newtab-xpi-job: build-extensions-browser
 
@@ -197,7 +189,7 @@ standalone:
 geckoview-no-fission:
     description: "{description} without fission enabled"
     component: "GeckoView::General"
-    expiration: "2026-09-01"
+    expiration: "2027-03-01"
     when:
         <<: *gv_e10s_filter
     suffix: "nofis"
@@ -210,7 +202,7 @@ geckoview-no-fission:
 geckoview-fission:
     description: "{description} with fission enabled and default isolation strategy"
     component: "GeckoView::General"
-    expiration: "2026-09-01"
+    expiration: "2027-03-01"
     when:
         <<: *gv_e10s_filter
     suffix: "fis"
@@ -219,7 +211,7 @@ geckoview-fission:
 geckoview-fission-isolate-high-value:
     description: "{description} with fission enabled and isolation strategy isolateHighValue"
     component: "GeckoView::General"
-    expiration: "2026-09-01"
+    expiration: "2027-03-01"
     when:
         <<: *gv_e10s_filter
     suffix: "fis-hv"
@@ -232,7 +224,7 @@ geckoview-fission-isolate-high-value:
 no-fission:
     description: "{description} without fission enabled"
     component: "Core::DOM: Content Processes"
-    expiration: "2026-09-01"
+    expiration: "2027-03-01"
     suffix: "nofis"
     mozinfo: "fission"
     when:
@@ -248,7 +240,7 @@ no-fission:
 geckoview-zygote:
     description: "{description} with app Zygote preloading enabled"
     component: "GeckoView::General"
-    expiration: "2026-09-01"
+    expiration: "2027-03-01"
     suffix: "zygote"
     when:
         <<: *gv_e10s_filter
@@ -271,7 +263,6 @@ xorigin:
         mozharness:
             extra-options:
                 - "--enable-xorigin-tests"
-                - "--setpref=privacy.partition.always_partition_third_party_non_cookie_storage=false"
 
 conditioned_profile:
     description: "{description} with conditioned profile"
@@ -307,7 +298,7 @@ conditioned_profile:
 socketprocess:
     description: "{description} with socket process enabled"
     component: "Core::Networking"
-    expiration: "2026-09-01"
+    expiration: "2027-06-01"
     suffix: "spi"
     mozinfo: "socketprocess_e10s"
     when:
@@ -324,7 +315,7 @@ socketprocess:
 webrender-dcomp-disabled:
     description: "{description} with dcomp disabled"
     component: "Core::Graphics: WebRender"
-    expiration: "2026-09-01"
+    expiration: "2027-03-01"
     suffix: "wr-dc0"
     when:
         $eval: '"windows1" in task["test-platform"]'
@@ -340,7 +331,7 @@ webrender-dcomp-disabled:
 webrender-dcomp-present:  # Default variant ends up like this.
     description: "{description} with dcomp present but not overlays"
     component: "Core::Graphics: WebRender"
-    expiration: "2026-09-01"
+    expiration: "2027-03-01"
     suffix: "wr-dc1-p"
     when:
         $eval: '"windows1" in task["test-platform"]'
@@ -356,7 +347,7 @@ webrender-dcomp-present:  # Default variant ends up like this.
 webrender-dcomp-overlays:
     description: "{description} with dcomp overlays but not compositing"
     component: "Core::Graphics: WebRender"
-    expiration: "2026-09-01"
+    expiration: "2027-03-01"
     suffix: "wr-dc2-o"
     when:
         $eval: '"windows1" in task["test-platform"]'
@@ -372,7 +363,7 @@ webrender-dcomp-overlays:
 webrender-dcomp-compositing:
     description: "{description} with dcomp compositing"
     component: "Core::Graphics: WebRender"
-    expiration: "2026-09-01"
+    expiration: "2027-03-01"
     suffix: "wr-dc3-c"
     when:
         $eval: '"windows1" in task["test-platform"]'
@@ -442,6 +433,64 @@ eme-wmf:
                 - "--setpref=media.wmf.media-engine.bypass-gfx-blocklist=true"
                 - "--setpref=media.eme.mfcdm.origin-filter.enabled=0"
 
+# Use OpenH264 plugin built in CI and make it preferred over other codecs.
+openh264:
+    description: "{description} with OpenH264 preferred"
+    component: "Core::Audio/Video: Playback"
+    expiration: "never"
+    suffix: "openh264"
+    treeherder-suffix: "oh264"
+    when:
+        $eval: '(
+                    "linux" in task["test-platform"]
+                    || "windows" in task["test-platform"]
+                    || "macosx" in task["test-platform"]
+                ) && !(
+                    "asan" in task["test-platform"]
+                    || "tsan" in task["test-platform"]
+                    || "ccov" in task["test-platform"]
+                )'
+    merge:
+        dependencies:
+            openh264-plugin:
+                by-test-platform:
+                    macosx.*-aarch64.*: openh264-plugin-macosx64-aarch64/opt
+                    macosx.*-64.*: openh264-plugin-macosx64/opt
+                    windows.*-aarch64.*: openh264-plugin-win64-aarch64/opt
+                    windows.*-64.*: openh264-plugin-win64/opt
+                    windows.*-32.*: openh264-plugin-win32/opt
+                    linux.*-aarch64.*: openh264-plugin-linux64-aarch64/opt
+                    linux.*-64.*: openh264-plugin-linux64/opt
+        fetches:
+            openh264-plugin:
+                by-test-platform:
+                    macosx.*-aarch64.*:
+                        - artifact: /private/openh264/openh264-v{openh264_version}-macosx64-aarch64.zip
+                          dest: gmp-gmpopenh264/{openh264_version}
+                    macosx.*-64.*:
+                        - artifact: /private/openh264/openh264-v{openh264_version}-macosx64.zip
+                          dest: gmp-gmpopenh264/{openh264_version}
+                    windows.*-aarch64.*:
+                        - artifact: /private/openh264/openh264-v{openh264_version}-win64-aarch64.zip
+                          dest: gmp-gmpopenh264/{openh264_version}
+                    windows.*-64.*:
+                        - artifact: /private/openh264/openh264-v{openh264_version}-win64.zip
+                          dest: gmp-gmpopenh264/{openh264_version}
+                    windows.*-32.*:
+                        - artifact: /private/openh264/openh264-v{openh264_version}-win32.zip
+                          dest: gmp-gmpopenh264/{openh264_version}
+                    linux.*-aarch64.*:
+                        - artifact: /private/openh264/openh264-v{openh264_version}-linux64-aarch64.zip
+                          dest: gmp-gmpopenh264/{openh264_version}
+                    linux.*-64.*:
+                        - artifact: /private/openh264/openh264-v{openh264_version}-linux64.zip
+                          dest: gmp-gmpopenh264/{openh264_version}
+        mozharness:
+            extra-options:
+                - "--setpref=media.gmp.encoder.enabled=true"
+                - "--setpref=media.gmp.encoder.preferred=true"
+                - "--setpref=media.gmp.decoder.preferred=true"
+
 media-gpu:
     description: "{description} for running media tests on the GPU worker"
     component: "Core::Audio/Video: Playback"
@@ -454,7 +503,12 @@ media-gpu:
                         "windows" in task["test-platform"]
                         && "hw" in task["test-platform"]
                     )
-                    || "macosx" in task["test-platform"] ||
+                    ||
+                    (
+                        "macosx" in task["test-platform"]
+                        && !("vms" in task["test-platform"])
+                    )
+                    ||
                     (
                         "android" in task["test-platform"]
                         && "hw" in task["test-platform"]
@@ -510,11 +564,15 @@ msix:
                         || "debug" in task["test-platform"]
                     ) && !(
                         "asan" in task["test-platform"]
+                        || "artifact" in task["test-platform"]
                         || "ccov" in task["test-platform"]
                         || "devedition" in task["test-platform"]
                     )
                 '
     replace:
+        target:
+            by-test-platform:
+                windows11-64.*: target.installer.msix
         mozharness:
             extra-options:
                 - "--variant=msix"
@@ -523,7 +581,7 @@ msix:
 http3:
     description: "{description} with http3 server"
     component: "Core::Networking"
-    expiration: "2026-09-01"
+    expiration: "2027-06-01"
     suffix: "http3"
     mozinfo: "http3"
     when:
@@ -542,7 +600,7 @@ http3:
 http2:
     description: "{description} with http2 server"
     component: "Core::Networking"
-    expiration: "2026-09-01"
+    expiration: "2027-06-01"
     suffix: "http2"
     mozinfo: "http2"
     when:
@@ -592,12 +650,13 @@ async-event-dispatching:
         mozharness:
             extra-options:
                 - "--setpref=remote.events.async.mouse.enabled=true"
+                - "--setpref=remote.events.async.touch.enabled=true"
                 - "--setpref=remote.events.async.wheel.enabled=true"
 
 vertical-tabs:
     description: "{description} limited to tests identified as being applicable to also run with vertical tabs enabled"
     component: "Firefox::Tabbed Browser"
-    expiration: "2026-11-01"
+    expiration: "never"
     suffix: "vt"
     mozinfo: "vertical_tab"
     merge:
@@ -612,7 +671,7 @@ vertical-tabs:
 inc-origin-init:
     description: "{description} limited to tests identified as being applicable to also run with incremental origin initialization enabled"
     component: "Core::Storage: Quota Manager"
-    expiration: "2026-05-01"
+    expiration: "2026-12-31"
     suffix: "ioi"
     mozinfo: "inc_origin_init"
     replace:
@@ -635,6 +694,7 @@ privatebrowsing:
             env:
                 MOZHARNESS_TEST_TAG:
                     - "privatebrowsing"
+                MOZ_PRIVATE_BROWSING: "1"
         mozharness:
             extra-options:
                 - "--setpref=browser.privatebrowsing.autostart=true"
@@ -642,7 +702,7 @@ privatebrowsing:
 privatebrowsing-inc-origin-init:
     description: "{description} limited to tests identified as being applicable to also run in private browsing mode and with incremental origin initialization enabled"
     component: "Core::Storage: Quota Manager"
-    expiration: "2026-05-01"
+    expiration: "2026-12-31"
     suffix: "pb-ioi"
     replace:
         tier: 3
@@ -652,6 +712,32 @@ privatebrowsing-inc-origin-init:
                 MOZHARNESS_TEST_TAG:
                     - "privatebrowsing-inc-origin-init"
                 MOZ_ENABLE_INC_ORIGIN_INIT: "1"
+                MOZ_PRIVATE_BROWSING: "1"
         mozharness:
             extra-options:
                 - "--setpref=browser.privatebrowsing.autostart=true"
+
+no-nova:
+    description: "{description} with Nova disabled"
+    component: "Firefox::Theme"
+    expiration: "2026-12-31"
+    suffix: "no-nv"
+    merge:
+        mozharness:
+            extra-options:
+                - "--setpref=browser.nova.enabled=false"
+
+urlbar-ipc:
+    description: "{description} with the urlbar actor message-passing path forced on"
+    component: "Firefox::Address Bar"
+    expiration: "2027-06-01"
+    suffix: "uipc"
+    mozinfo: "urlbar_ipc"
+    merge:
+        worker:
+            env:
+                MOZHARNESS_TEST_TAG:
+                    - "urlbar"
+        mozharness:
+            extra-options:
+                - "--setpref=browser.urlbar.ipc.chromeMessagePassing=true"

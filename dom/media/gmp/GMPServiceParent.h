@@ -8,7 +8,6 @@
 #include "GMPService.h"
 #include "GMPStorage.h"
 #include "mozIGeckoMediaPluginChromeService.h"
-#include "mozilla/Atomics.h"
 #include "mozilla/MozPromise.h"
 #include "mozilla/dom/ContentParent.h"
 #include "mozilla/gmp/PGMPParent.h"
@@ -60,7 +59,7 @@ class GeckoMediaPluginServiceParent final
   NS_DECL_MOZIGECKOMEDIAPLUGINCHROMESERVICE
   NS_DECL_NSIOBSERVER
 
-  RefPtr<GenericPromise> EnsureInitialized();
+  RefPtr<GenericNonExclusivePromise> EnsureInitialized();
   RefPtr<GenericPromise> AsyncAddPluginDirectory(const nsAString& aDirectory);
 
   // GMP thread access only
@@ -107,6 +106,7 @@ class GeckoMediaPluginServiceParent final
 
   virtual ~GeckoMediaPluginServiceParent();
 
+  void ClearTemporaryStorage();
   void ClearStorage();
 
   already_AddRefed<GMPParent> SelectPluginForAPI(
@@ -199,10 +199,6 @@ class GeckoMediaPluginServiceParent final
   // Protected by mMutex from the base class.
   nsTArray<RefPtr<GMPParent>> mPlugins MOZ_GUARDED_BY(mMutex);
 
-  // True if we've inspected MOZ_GMP_PATH on the GMP thread and loaded any
-  // plugins found there into mPlugins.
-  Atomic<bool> mScannedPluginOnDisk;
-
   template <typename T>
   class MainThreadOnly {
    public:
@@ -234,7 +230,7 @@ class GeckoMediaPluginServiceParent final
   // Synchronization for barrier that ensures we've loaded GMPs from
   // MOZ_GMP_PATH before allowing GetContentParentFrom() to proceed.
   Monitor mInitPromiseMonitor;
-  MozMonitoredPromiseHolder<GenericPromise> mInitPromise;
+  MozMonitoredPromiseHolder<GenericNonExclusivePromise> mInitPromise;
   bool mLoadPluginsFromDiskComplete;
 
   // Hashes nodeId to the hashtable of storage for that nodeId.
@@ -289,13 +285,23 @@ class GMPServiceParent final : public PGMPServiceParent {
                                nsTArray<ProcessId>&& aAlreadyBridgedTo,
                                LaunchGMPResolver&& aResolve) override;
 
+  // Releases the profile-before-change shutdown blocker. Called from
+  // GeckoMediaPluginServiceParent::UnloadPlugins(). Must be called with
+  // mService->mMutex held (asserted); safe to null the UniquePtr from any
+  // thread because ~ShutdownBlockingTicketImpl posts RemoveBlocker to the
+  // main thread internally.
+  void BeginShutdown();
+
  private:
   ~GMPServiceParent();
 
   const RefPtr<GeckoMediaPluginServiceParent> mService;
 
-  // Ticket that controls the shutdown blocker.
-  const UniquePtr<media::ShutdownBlockingTicket> mShutdownBlocker;
+  // Ticket that holds a blocker on the profile-before-change barrier.
+  // Released when this actor is destroyed, or proactively from BeginShutdown()
+  // so that profile-before-change isn't blocked waiting for the PGMPService
+  // channel to close at xpcom-shutdown-threads.
+  UniquePtr<media::ShutdownBlockingTicket> mShutdownBlocker;
 };
 
 }  // namespace gmp

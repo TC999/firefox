@@ -29,6 +29,10 @@ ChromeUtils.defineESModuleGetters(lazy, {
   PermissionsUtils: "resource://gre/modules/PermissionsUtils.sys.mjs",
   QuarantinedDomains: "resource://gre/modules/ExtensionPermissions.sys.mjs",
   ExtensionPermissions: "resource://gre/modules/ExtensionPermissions.sys.mjs",
+  getL10nThemeString:
+    "resource://gre/modules/addons/ThemesBundledLocalization.sys.mjs",
+  hasThemeIdBundledLocalization:
+    "resource://gre/modules/addons/ThemesBundledLocalization.sys.mjs",
 });
 
 // A temporary hidden pref just meant to be used as a last resort, in case
@@ -708,6 +712,15 @@ export class AddonInternal {
       if (this.location.isSystem && !allowSystemAddons) {
         throw new Error(`Cannot disable system add-on ${this.id}`);
       }
+      if (
+        val &&
+        Services.policies &&
+        !Services.policies.isAllowed(`disable-extension:${this.id}`)
+      ) {
+        throw new Error(
+          `Cannot disable add-on ${this.id}: disallowed by enterprise policy`
+        );
+      }
       await XPIDatabase.updateAddonDisabledState(this, { userDisabled: val });
     } else {
       this.userDisabled = val;
@@ -850,7 +863,10 @@ export class AddonInternal {
       if (!Services.policies.isAllowed(`disable-extension:${this.id}`)) {
         permissions &= ~lazy.AddonManager.PERM_CAN_DISABLE;
       }
-      if (Services.policies.getExtensionSettings(this.id)?.updates_disabled) {
+      const updatesDisabled = Services.policies.getExtensionSettings(
+        this.id
+      )?.updates_disabled;
+      if (updatesDisabled === true) {
         permissions &= ~lazy.AddonManager.PERM_CAN_UPGRADE;
       }
     }
@@ -1094,10 +1110,27 @@ export class AddonWrapper {
     );
   }
 
+  get isApplyBackgroundUpdatesControlledByPolicies() {
+    const { updates_disabled } =
+      Services.policies?.getExtensionSettings(this.id) ?? {};
+    return typeof updates_disabled === "boolean";
+  }
+
   get applyBackgroundUpdates() {
+    if (this.isApplyBackgroundUpdatesControlledByPolicies) {
+      const { updates_disabled } = Services.policies.getExtensionSettings(
+        this.id
+      );
+      return updates_disabled
+        ? lazy.AddonManager.AUTOUPDATE_DISABLE
+        : lazy.AddonManager.AUTOUPDATE_ENABLE;
+    }
     return addonFor(this).applyBackgroundUpdates;
   }
   set applyBackgroundUpdates(val) {
+    if (this.isApplyBackgroundUpdatesControlledByPolicies) {
+      return;
+    }
     let addon = addonFor(this);
     if (
       val != lazy.AddonManager.AUTOUPDATE_DEFAULT &&
@@ -1365,23 +1398,6 @@ export class AddonWrapper {
   get isSyncable() {
     let addon = addonFor(this);
     return addon.location.name == KEY_APP_PROFILE;
-  }
-
-  /**
-   * Returns true if the addon is configured to be installed
-   * by enterprise policy.
-   *
-   * Should be kept in sync with Extension.sys.mjs
-   */
-  get isInstalledByEnterprisePolicy() {
-    const policySettings = Services.policies?.getExtensionSettings(this.id);
-    const legacyLockedSettings =
-      Services.policies?.getActivePolicies()?.Extensions?.Locked ?? [];
-    return (
-      ["force_installed", "normal_installed"].includes(
-        policySettings?.installation_mode
-      ) || legacyLockedSettings.includes(this.id)
-    );
   }
 
   /**
@@ -1653,32 +1669,23 @@ defineAddonWrapperProperty("signedDate", function () {
   });
 });
 
-// Add to this Map if you need to change an addon's Fluent ID. Keep it in sync
-// with the list in browser_verify_l10n_strings.js
-const updatedAddonFluentIds = new Map([
-  ["extension-default-theme-name", "extension-default-theme-name-auto"],
-]);
-
 ["name", "description", "creator", "homepageURL"].forEach(function (aProp) {
   defineAddonWrapperProperty(aProp, function () {
     let addon = addonFor(this);
 
-    let formattedMessage;
+    let formattedValue;
     // We want to make sure that all built-in themes that are localizable can
-    // actually localized, particularly those for thunderbird and desktop.
+    // be actually localized, particularly those for thunderbird and desktop, as
+    // well as curated AMO-hosted themes with bundled Fluent localization (e.g.
+    // Nova themes).
     if (
       (aProp === "name" || aProp === "description") &&
-      addon.location.name === KEY_APP_BUILTINS &&
-      addon.type === "theme"
+      addon.type === "theme" &&
+      (addon.location.name === KEY_APP_BUILTINS ||
+        lazy.hasThemeIdBundledLocalization(addon.id))
     ) {
-      // Built-in themes are localized with Fluent instead of the WebExtension API.
-      let addonIdPrefix = addon.id.replace("@mozilla.org", "");
-      let defaultFluentId = `extension-${addonIdPrefix}-${aProp}`;
-      let fluentId =
-        updatedAddonFluentIds.get(defaultFluentId) || defaultFluentId;
       try {
-        const l10n = new Localization(["browser/appExtensionFields.ftl"], true);
-        [formattedMessage] = l10n.formatMessagesSync([{ id: fluentId }]);
+        formattedValue = lazy.getL10nThemeString(addon.id, aProp);
       } catch (e) {
         // Log a warning when no fluent string was found, but fallback to the value set
         // in the manifest field or values got from AMO and stored in the AddonRepository.
@@ -1689,8 +1696,8 @@ const updatedAddonFluentIds = new Map([
       }
     }
 
-    if (formattedMessage) {
-      return formattedMessage.value;
+    if (formattedValue) {
+      return formattedValue;
     }
 
     let [result, usedRepository] = chooseValue(
@@ -2691,7 +2698,7 @@ export const XPIDatabase = {
     if (
       this.mustSign(aAddon.type) &&
       aAddon.adminInstallOnly &&
-      !aAddon.wrapper.isInstalledByEnterprisePolicy
+      !Services.policies?.isAddonRequiredByPolicy(aAddon.id)
     ) {
       logger.warn(
         `Add-on ${aAddon.id} is installable only from policies, but no policy extension settings have been found.`
@@ -2761,7 +2768,14 @@ export const XPIDatabase = {
       return true;
     }
 
-    if (Services.policies && !Services.policies.mayInstallAddon(aAddon)) {
+    if (
+      Services.policies &&
+      !Services.policies.mayInstallAddon({
+        id: aAddon.id,
+        type: aAddon.type,
+        permissions: aAddon.userPermissions?.permissions,
+      })
+    ) {
       return false;
     }
 

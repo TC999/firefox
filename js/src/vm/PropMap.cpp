@@ -2,8 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "vm/PropMap-inl.h"
-
 #include "gc/HashUtil.h"
 #include "js/GCVector.h"
 #include "js/Printer.h"  // js::GenericPrinter, js::Fprinter
@@ -14,6 +12,7 @@
 #include "gc/Marking-inl.h"
 #include "vm/JSContext-inl.h"
 #include "vm/ObjectFlags-inl.h"
+#include "vm/PropMap-inl.h"
 
 using namespace js;
 
@@ -1087,18 +1086,13 @@ void PropMap::forEachPropMapFlag(uintptr_t flags, KnownF known,
 }
 
 const char* PropMapTypeToString(const js::PropMap* map) {
-  if (map->isLinked()) {
-    return "js::LinkedPropMap";
+  if (map->isDictionary()) {
+    return "js::DictionaryPropMap";
   }
-
-  if (map->isShared()) {
-    if (map->isCompact()) {
-      return "js::CompactPropMap";
-    }
-    return "js::NormalPropMap";
+  if (map->isCompact()) {
+    return "js::CompactPropMap";
   }
-
-  return "js::DictionaryPropMap";
+  return "js::NormalPropMap";
 }
 
 void PropMap::dumpFields(js::JSONPrinter& json) const {

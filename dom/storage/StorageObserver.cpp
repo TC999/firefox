@@ -147,7 +147,7 @@ void StorageObserver::Notify(const char* aTopic,
 
   MOZ_ASSERT(sSelf);
 
-  for (auto sink : mSinks.ForwardRange()) {
+  for (auto const& sink : mSinks.ForwardRange()) {
     sink->Observe(aTopic, aOriginAttributesPattern, aOriginScope);
   }
 }
@@ -177,7 +177,7 @@ nsresult StorageObserver::GetOriginScope(const char16_t* aData,
     return rv;
   }
 
-  aOriginScope = originScope;
+  aOriginScope = std::move(originScope);
   return NS_OK;
 }
 

@@ -362,6 +362,27 @@ namespace ChromeUtils {
                               optional (UTF8String or object) data);
 
   /**
+   * Create a new profiler counter for counting a scalar value, and displaying it
+   * in the profiler UI as a track in the thread list. The counter can be incremented
+   * or decremented as frequently as you want, but its value is only recorded when
+   * the profiler records a sample.
+   *
+   * Counters are a general-purpose way to record how some quantity changes over the
+   * course of time. In Nightly, the profiler automatically tracks total allocated memory
+   * through a ProfilerCounter. This API lets any subsystem expose its own metric
+   * as a graphed track.
+   *
+   * Usage:
+   *   const counter = ChromeUtils.addProfilerCounter({ name: "Cache Size", category: "Memory" });
+   *   counter.add(10);
+   *   counter.add(-3);
+   *
+   * @param options:  Options for how to configure the counter.
+   */
+  [Exposed=Window]
+  ProfilerCounter addProfilerCounter(ProfilerCounterOptions options);
+
+  /**
    * Register a custom marker schema for use with the profiler.
    *
    * The schema defines how markers with a given "type" field should be displayed
@@ -773,6 +794,16 @@ partial namespace ChromeUtils {
   Promise<ParentProcInfoDictionary> requestProcInfo();
 
   /**
+   * Requests an XDG activation token from the Wayland compositor.
+   * See: https://wayland.app/protocols/xdg-activation-v1
+   *
+   * Resolves with null on non-Wayland platforms, or when no token could be
+   * obtained.
+   */
+  [NewObject]
+  Promise<UTF8String?> requestXDGActivationToken();
+
+  /**
    * For testing purpose.
    */
   [ChromeOnly]
@@ -950,6 +981,46 @@ partial namespace ChromeUtils {
   // or null if no OOM stack trace is available. The stack trace shows the JavaScript
   // call stack at the time the out-of-memory condition occurred
   DOMString getLastOOMStackTrace();
+
+  /**
+   * Given a URI to be loaded, predict a remote type which is reasonable to
+   * start the load within. A null `uri` argument is treated as about:blank.
+   *
+   * This is not guaranteed to be the same remoteType as will be used to
+   * complete the navigation, as that can only be known when the network
+   * response is received.
+   *
+   * In general, the remote type returned here is used to initialize the initial
+   * remote type for a newly created <browser> element to avoid unnecessary
+   * process creation or switches.
+   *
+   * See PredictRemoteTypeOptions for documentation on additional flags. While
+   * these are technically optional, not providing them can often lead to
+   * incorrect predictions.
+   *
+   * NOTE: Because it's a pain to change, `null` (a.k.a. E10SUtils.NOT_REMOTE)
+   * is a remote type indicating the parent process, and must not be used to
+   * indicate the absence of a remote type.
+   */
+  [Throws]
+  UTF8String? predictRemoteTypeForURI(URI? uri,
+                                      optional PredictRemoteTypeOptions options = {});
+
+  /**
+   * Like predictRemoteTypeForURI(URI uri), except will attempt to parse (with
+   * uri fixup) the given URI string, and use that for predicting.
+   */
+  [Throws]
+  UTF8String? predictRemoteTypeForURI(UTF8String uriString,
+                                      optional PredictRemoteTypeOptions options = {});
+
+  boolean isBlobURLValid(Principal principal, UTF8String uriString);
+
+  /*
+   * Validates the given service worker scope and throws an exception when invalid.
+   */
+  [Throws]
+  undefined validateServiceWorkerScope(Principal principal, URI uri);
 };
 
 /*
@@ -1028,6 +1099,7 @@ enum WebIDLUtilityActorName {
   "windowsUtils",
   "windowsFileDialog",
   "pkcs11Module",
+  "hwInference",
 };
 
 dictionary UtilityActorsDictionary {
@@ -1326,4 +1398,47 @@ dictionary HTTPCacheControlParseResult {
   boolean public = false;
   boolean private = false;
   boolean immutable = false;
+};
+
+dictionary PredictRemoteTypeOptions {
+  /**
+   * The chrome window where this load will be performed.
+   */
+  Window? window = null;
+
+  /**
+   * If specified, this remote type is "preferred" when the final remote type
+   * would otherwise be ambiguous. This is generally only specified if a process
+   * with the given remote type is known to already be launched.
+   */
+  UTF8String? preferredRemoteType;
+
+  /**
+   * Which container the load will be performed in.
+   */
+  unsigned long userContextId = 0;
+  DOMString geckoViewSessionContextId = "";
+
+  /**
+   * The private browsing state of the context where the load will occur.
+   * If not provided, this will be inferred from the window.
+   */
+  unsigned long privateBrowsingId;
+
+  /**
+   * Specify whether or not the BrowsingContext which this remote type will be
+   * used in has `useRemoteTabs` enabled. If it does not, this method will only
+   * return `NOT_REMOTE_TYPE`. Usually inferred from the window.
+   */
+  boolean useRemoteTabs;
+
+  /**
+   * Specify whether or not the BrowsingContext which this remote type will be
+   * used in has 'useRemoteSubframes' enabled, and therefore can perform
+   * per-origin isolation. Usually inferred from the window.
+   *
+   * NOTE: This method respects the fission.webContentIsolationStrategy
+   * preference, which may disable per-origin isolation.
+   */
+  boolean useRemoteSubframes;
 };

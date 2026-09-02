@@ -13,6 +13,7 @@ import mozilla.components.support.utils.DefaultDownloadFileUtils
 import mozilla.components.support.utils.DownloadFileUtils
 import org.mozilla.fenix.downloads.listscreen.store.DownloadUIAction
 import org.mozilla.fenix.downloads.listscreen.store.DownloadUIState
+import org.mozilla.fenix.ext.components
 import org.mozilla.fenix.settings.downloads.DownloadLocationManager
 
 /**
@@ -23,12 +24,17 @@ import org.mozilla.fenix.settings.downloads.DownloadLocationManager
  */
 class DownloadUIShareMiddleware(
     private val applicationContext: Context,
-    private val downloadFileUtils: DownloadFileUtils = DefaultDownloadFileUtils(
-        context = applicationContext,
-        downloadLocation = {
-            DownloadLocationManager(applicationContext).defaultLocation
-        },
-    ),
+    private val downloadFileUtils: DownloadFileUtils =
+        DefaultDownloadFileUtils(
+            context = applicationContext,
+            downloadLocation = {
+                DownloadLocationManager(
+                        applicationContext.components.settings,
+                        applicationContext.contentResolver,
+                    )
+                    .defaultLocation
+            },
+        ),
 ) : Middleware<DownloadUIState, DownloadUIAction> {
 
     override fun invoke(
@@ -39,11 +45,12 @@ class DownloadUIShareMiddleware(
         next(action)
         when (action) {
             is DownloadUIAction.ShareUrlClicked -> applicationContext.share(action.url)
-            is DownloadUIAction.ShareFileClicked -> shareFile(
-                directoryPath = action.directoryPath,
-                fileName = action.fileName,
-                contentType = action.contentType,
-            )
+            is DownloadUIAction.ShareFileClicked ->
+                shareFile(
+                    directoryPath = action.directoryPath,
+                    fileName = action.fileName,
+                    contentType = action.contentType,
+                )
 
             else -> {
                 // no - op
@@ -52,10 +59,11 @@ class DownloadUIShareMiddleware(
     }
 
     private fun shareFile(directoryPath: String, fileName: String?, contentType: String?) {
-        val downloadFileUri = downloadFileUtils.findDownloadFileUri(
-            fileName = fileName,
-            directoryPath = directoryPath,
-        )
+        val downloadFileUri =
+            downloadFileUtils.findShareableDownloadFileUri(
+                fileName = fileName,
+                directoryPath = directoryPath,
+            )
         downloadFileUri?.let {
             applicationContext.shareFile(
                 contentUri = it,

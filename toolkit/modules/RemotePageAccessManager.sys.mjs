@@ -50,6 +50,12 @@ export let RemotePageAccessManager = {
         "security.certerror.hideAddException",
         "security.certerrors.felt-privacy-v1",
         "browser.ipProtection.userEnabled",
+        "network.sslkeylog_warning",
+        // net-error-card.mjs is shared with about:neterror and reads this at
+        // module scope, so it must be allowed here too even though the search
+        // CTA itself only ever renders on about:neterror. A denied read throws,
+        // which would leave every cert error page blank.
+        "browser.netError.searchCTA.enabled",
       ],
       RPMGetIntPref: [
         "security.dialog_enable_delay",
@@ -60,6 +66,7 @@ export let RemotePageAccessManager = {
       RPMGetHostForDisplay: ["*"],
       RPMGetInnermostAsciiHost: ["*"],
       RPMIsWindowPrivate: ["*"],
+      RPMIsSSLKeyLoggingEnabled: ["*"],
     },
     "about:home": {
       RPMSendAsyncMessage: ["ActivityStream:ContentToMain"],
@@ -77,12 +84,21 @@ export let RemotePageAccessManager = {
     "about:certificate": {
       RPMSendQuery: ["getCertificates"],
     },
+    "about:pdf": {
+      RPMCanSetDefaultPDFHandler: ["*"],
+      RPMGetBoolPref: ["browser.aboutpdf.promo.dismissed"],
+      RPMPickPDFFile: ["*"],
+      RPMSetDefaultPDFHandler: ["*"],
+      RPMSetPref: ["browser.aboutpdf.promo.dismissed"],
+    },
     "about:keyboard": {
       RPMAddMessageListener: ["CustomKeys:CapturedKey"],
+      RPMGetFormatURLPref: ["app.support.baseURL"],
       RPMSendAsyncMessage: ["CustomKeys:CaptureKey"],
       RPMSendQuery: [
         "CustomKeys:ChangeKey",
         "CustomKeys:ClearKey",
+        "CustomKeys:Confirm",
         "CustomKeys:GetDefaultKey",
         "CustomKeys:GetKeys",
         "CustomKeys:ResetAll",
@@ -100,6 +116,8 @@ export let RemotePageAccessManager = {
         "Browser:ResetEnterpriseRootsPref",
         "DisplayOfflineSupportPage",
         "OpenTRRPreferences",
+        "SearchCTA:Search",
+        "SearchCTA:SearchAborted",
       ],
       RPMCheckAlternateHostAvailable: ["*"],
       RPMRecordGleanEvent: [
@@ -121,6 +139,8 @@ export let RemotePageAccessManager = {
         "security.certerror.hideAddException",
         "security.certerrors.felt-privacy-v1",
         "browser.ipProtection.userEnabled",
+        "network.sslkeylog_warning",
+        "browser.netError.searchCTA.enabled",
       ],
       RPMGetHostForDisplay: ["*"],
       RPMGetInnermostAsciiHost: ["*"],
@@ -133,7 +153,8 @@ export let RemotePageAccessManager = {
       RPMIsSiteSpecificTRRError: ["*"],
       RPMSetTRRDisabledLoadFlags: ["*"],
       RPMShowOSXLocalNetworkPermissionWarning: ["*"],
-      RPMSendQuery: ["Browser:AddTRRExcludedDomain"],
+      RPMIsSSLKeyLoggingEnabled: ["*"],
+      RPMSendQuery: ["Browser:AddTRRExcludedDomain", "SearchCTA:GetInfo"],
       RPMGetIntPref: ["network.trr.mode", "security.dialog_enable_delay"],
     },
     "about:newtab": {
@@ -158,7 +179,7 @@ export let RemotePageAccessManager = {
       RPMRemoveMessageListener: ["*"],
       RPMGetFormatURLPref: ["app.support.baseURL"],
       RPMIsWindowPrivate: ["*"],
-      RPMGetBoolPref: ["browser.privatebrowsing.felt-privacy-v1"],
+      RPMGetBoolPref: ["browser.nova.enabled"],
     },
     "about:deleteprofile": {
       RPMSendQuery: ["Profiles:GetDeleteProfileContent"],
@@ -177,6 +198,7 @@ export let RemotePageAccessManager = {
         "Profiles:CloseProfileTab",
         "Profiles:MoreThemes",
         "Profiles:PageHide",
+        "Profiles:RecordThemeTelemetry",
       ],
     },
     "about:newprofile": {
@@ -184,6 +206,7 @@ export let RemotePageAccessManager = {
         "Profiles:GetNewProfileContent",
         "Profiles:UpdateProfileTheme",
         "Profiles:UpdateProfileAvatar",
+        "Profiles:GetEditProfileContent",
       ],
       RPMSendAsyncMessage: [
         "Profiles:UpdateProfileName",
@@ -191,6 +214,7 @@ export let RemotePageAccessManager = {
         "Profiles:CloseProfileTab",
         "Profiles:MoreThemes",
         "Profiles:PageHide",
+        "Profiles:RecordThemeTelemetry",
       ],
       RPMGetBoolPref: ["browser.profiles.profile-name.updated"],
       RPMGetFormatURLPref: ["app.support.baseURL"],
@@ -208,7 +232,6 @@ export let RemotePageAccessManager = {
         "FetchMonitorData",
         "FetchContentBlockingEvents",
         "FetchMobileDeviceConnected",
-        "GetShowProxyCard",
         "FetchEntryPoint",
         "FetchVPNSubStatus",
         "FetchShowVPNCard",
@@ -226,7 +249,6 @@ export let RemotePageAccessManager = {
         "privacy.fingerprintingProtection",
         "privacy.socialtracking.block_cookies.enabled",
         "browser.contentblocking.report.privacy_metrics.enabled",
-        "browser.contentblocking.report.proxy.enabled",
         "privacy.trackingprotection.cryptomining.enabled",
         "privacy.trackingprotection.fingerprinting.enabled",
         "privacy.trackingprotection.harmfuladdon.enabled",
@@ -241,7 +263,6 @@ export let RemotePageAccessManager = {
         "browser.contentblocking.report.monitor.url",
         "browser.contentblocking.report.monitor.sign_in_url",
         "browser.contentblocking.report.manage_devices.url",
-        "browser.contentblocking.report.proxy_extension.url",
         "browser.contentblocking.report.lockwise.mobile-android.url",
         "browser.contentblocking.report.lockwise.mobile-ios.url",
         "browser.contentblocking.report.mobile-ios.url",

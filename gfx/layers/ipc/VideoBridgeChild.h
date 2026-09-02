@@ -5,10 +5,10 @@
 #ifndef MOZILLA_GFX_VIDEOBRIDGECHILD_H
 #define MOZILLA_GFX_VIDEOBRIDGECHILD_H
 
-#include "mozilla/layers/PVideoBridgeChild.h"
-#include "mozilla/layers/VideoBridgeUtils.h"
 #include "ISurfaceAllocator.h"
 #include "TextureForwarder.h"
+#include "mozilla/layers/PVideoBridgeChild.h"
+#include "mozilla/layers/VideoBridgeUtils.h"
 
 namespace mozilla {
 namespace layers {
@@ -25,15 +25,6 @@ class VideoBridgeChild final : public PVideoBridgeChild,
 
   static RefPtr<VideoBridgeChild> GetSingleton();
 
-  // PVideoBridgeChild
-  PTextureChild* AllocPTextureChild(const SurfaceDescriptor& aSharedData,
-                                    ReadLockDescriptor& aReadLock,
-                                    const LayersBackend& aLayersBackend,
-                                    const TextureFlags& aFlags,
-                                    const dom::ContentParentId& aContentId,
-                                    const uint64_t& aSerial);
-  bool DeallocPTextureChild(PTextureChild* actor);
-
   mozilla::ipc::IPCResult RecvPing(PingResolver&& aResolver);
 
   void ActorDestroy(ActorDestroyReason aWhy) override;
@@ -44,17 +35,17 @@ class VideoBridgeChild final : public PVideoBridgeChild,
   bool DeallocShmem(mozilla::ipc::Shmem& aShmem) override;
 
   // TextureForwarder
-  PTextureChild* CreateTexture(
+  already_AddRefed<PTextureChild> CreateTexture(
       const SurfaceDescriptor& aSharedData, ReadLockDescriptor&& aReadLock,
       LayersBackend aLayersBackend, TextureFlags aFlags,
       const dom::ContentParentId& aContentId, uint64_t aSerial,
       wr::MaybeExternalImageId& aExternalImageId) override;
 
-  // ClientIPCAllocator
+  // LayersIPCChannel
   base::ProcessId GetParentPid() const override { return OtherPid(); }
   nsISerialEventTarget* GetThread() const override { return mThread; }
   void CancelWaitForNotifyNotUsed(uint64_t aTextureId) override {
-    MOZ_ASSERT(false, "NO RECYCLING HERE");
+    MOZ_ASSERT_UNREACHABLE("NO RECYCLING HERE");
   }
 
   // ISurfaceAllocator

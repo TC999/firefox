@@ -10,6 +10,7 @@ task-defaults:
     worker:
         max-run-time: 3600
     run:
+        clone-with: hg
         script: build-rust-based-toolchain.sh
         toolchain-artifact: public/build/cbindgen.tar.zst
 
@@ -45,7 +46,7 @@ linux64-cbindgen-base:
         fetch:
             # If you update this, make sure to update the minimum version in
             # build/moz.configure/bindgen.configure as well.
-            - cbindgen-0.29.1
+            - cbindgen-0.29.4
 
 linux64-aarch64-cbindgen:
     treeherder:

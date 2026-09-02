@@ -16,6 +16,7 @@ task-defaults:
         kind: other
         tier: 2
     run:
+        clone-with: hg
         using: run-task
         tooltool-downloads: public
     fetches:
@@ -31,6 +32,7 @@ task-defaults:
             - '**/*.cxx'
             - '**/*.m'
             - '**/*.mm'
+            - 'tools/clang-tidy/**'
 
 tidy:
     description: Run static-analysis (clang-tidy) on C/C++ patches

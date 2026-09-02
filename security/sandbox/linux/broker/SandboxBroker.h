@@ -5,13 +5,12 @@
 #ifndef mozilla_SandboxBroker_h
 #define mozilla_SandboxBroker_h
 
-#include "mozilla/SandboxBrokerCommon.h"
-
 #include "base/platform_thread.h"
+#include "mozilla/SandboxBrokerCommon.h"
 #include "mozilla/UniquePtr.h"
-#include "nsTHashMap.h"
 #include "nsHashKeys.h"
 #include "nsString.h"
+#include "nsTHashMap.h"
 
 namespace mozilla {
 
@@ -35,6 +34,10 @@ class FileDescriptor;
 class SandboxBroker final : private SandboxBrokerCommon,
                             public PlatformThread::Delegate {
  public:
+  // Holding a UniquePtr should disallow copying, but to make that explicit:
+  SandboxBroker(const SandboxBroker&) = delete;
+  void operator=(const SandboxBroker&) = delete;
+
   NS_INLINE_DECL_THREADSAFE_REFCOUNTING(SandboxBroker)
 
   enum Perms {
@@ -153,9 +156,9 @@ class SandboxBroker final : private SandboxBrokerCommon,
   ~SandboxBroker() override;
 
   void ThreadMain(void) override;
-  void AuditPermissive(int aOp, int aFlags, uint64_t aId, int aPerms,
+  void AuditPermissive(Operation aOp, int aFlags, uint64_t aId, int aPerms,
                        const char* aPath);
-  void AuditDenial(int aOp, int aFlags, uint64_t aId, int aPerms,
+  void AuditDenial(Operation aOp, int aFlags, uint64_t aId, int aPerms,
                    const char* aPath);
   // Remap relative paths to absolute paths.
   size_t ConvertRelativePath(char* aPath, size_t aBufSize, size_t aPathLen);
@@ -166,10 +169,6 @@ class SandboxBroker final : private SandboxBrokerCommon,
   // In SandboxBrokerRealPath.cpp
   char* SymlinkPath(const Policy* aPolicy, const char* __restrict aPath,
                     char* __restrict aResolved, int* aPermission);
-
-  // Holding a UniquePtr should disallow copying, but to make that explicit:
-  SandboxBroker(const SandboxBroker&) = delete;
-  void operator=(const SandboxBroker&) = delete;
 };
 
 }  // namespace mozilla

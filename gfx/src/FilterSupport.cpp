@@ -3,20 +3,18 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "FilterSupport.h"
+
 #include "FilterDescription.h"
-
-#include "mozilla/gfx/2D.h"
-#include "mozilla/gfx/Filters.h"
-#include "mozilla/gfx/Logging.h"
-#include "mozilla/ArrayUtils.h"
-#include "mozilla/PodOperations.h"
-
+#include "gfx2DGlue.h"
 #include "gfxContext.h"
 #include "gfxPattern.h"
 #include "gfxPlatform.h"
 #include "gfxUtils.h"
-#include "gfx2DGlue.h"
-
+#include "mozilla/ArrayUtils.h"
+#include "mozilla/PodOperations.h"
+#include "mozilla/gfx/2D.h"
+#include "mozilla/gfx/Filters.h"
+#include "mozilla/gfx/Logging.h"
 #include "nsMargin.h"
 
 // c = n / 255
@@ -462,8 +460,8 @@ bool ComputeColorMatrix(const ColorMatrixAttributes& aMatrixAttributes,
 
       float hueRotateValue = aMatrixAttributes.mValues[0];
 
-      float c = static_cast<float>(cos(hueRotateValue * M_PI / 180));
-      float s = static_cast<float>(sin(hueRotateValue * M_PI / 180));
+      float c = static_cast<float>(cos(hueRotateValue * kRadPerDegree));
+      float s = static_cast<float>(sin(hueRotateValue * kRadPerDegree));
 
       aOutMatrix[0] = lumR + oneMinusLumR * c - lumR * s;
       aOutMatrix[1] = lumG - lumG * c - lumG * s;

@@ -198,6 +198,8 @@ const POLICIES_TESTS = [
       "xpinstall.enabled": false,
       "browser.newtabpage.activity-stream.asrouter.userprefs.cfr.addons": false,
       "browser.newtabpage.activity-stream.asrouter.userprefs.cfr.features": false,
+      "extensions.getAddons.showPane": false,
+      "extensions.htmlaboutaddons.recommendations.enabled": false,
     },
   },
 
@@ -631,9 +633,83 @@ const POLICIES_TESTS = [
       },
     },
     lockedPrefs: {
-      "browser.newtabpage.activity-stream.feeds.system.topstories": false,
       "browser.newtabpage.activity-stream.feeds.section.topstories": false,
       "browser.newtabpage.activity-stream.showSponsored": false,
+    },
+  },
+
+  // POLICY: FirefoxHome (Weather sets both the legacy and Nova prefs)
+  {
+    policies: {
+      FirefoxHome: {
+        Weather: false,
+        Locked: true,
+      },
+    },
+    lockedPrefs: {
+      "browser.newtabpage.activity-stream.showWeather": false,
+      "browser.newtabpage.activity-stream.widgets.weather.enabled": false,
+    },
+  },
+
+  // POLICY: FirefoxHome (locking both sponsored settings locks the parent
+  // "Support Firefox" toggle to their combined value)
+  {
+    policies: {
+      FirefoxHome: {
+        SponsoredTopSites: false,
+        SponsoredStories: false,
+        Locked: true,
+      },
+    },
+    lockedPrefs: {
+      "browser.newtabpage.activity-stream.showSponsoredCheckboxes": false,
+    },
+  },
+
+  // POLICY: FirefoxHome->Widgets (Enabled honors Locked)
+  // Must run before the Locked entry below, which locks the same prefs.
+  {
+    policies: {
+      FirefoxHome: {
+        Widgets: {
+          Enabled: false,
+        },
+      },
+    },
+    unlockedPrefs: {
+      "browser.newtabpage.activity-stream.widgets.enabled": false,
+    },
+  },
+
+  // POLICY: FirefoxHome->Widgets
+  {
+    policies: {
+      FirefoxHome: {
+        Widgets: {
+          Enabled: true,
+          Blocked: ["crossword"],
+        },
+        Locked: true,
+      },
+    },
+    lockedPrefs: {
+      "browser.newtabpage.activity-stream.widgets.enabled": true,
+      "browser.newtabpage.activity-stream.widgets.crossword.enabled": false,
+    },
+  },
+
+  // POLICY: FirefoxHome->Widgets (Blocked locks even without Locked)
+  {
+    policies: {
+      FirefoxHome: {
+        Widgets: {
+          Blocked: ["stocks"],
+        },
+      },
+    },
+    lockedPrefs: {
+      "browser.newtabpage.activity-stream.widgets.stocks.enabled": false,
     },
   },
 
@@ -1058,6 +1134,33 @@ const POLICIES_TESTS = [
 
   {
     policies: {
+      Cookies: {
+        Behavior: "reject-tracker",
+        BehaviorPrivateBrowsing: "partition-foreign",
+        Locked: true,
+      },
+    },
+    lockedPrefs: {
+      "network.cookie.cookieBehavior": 4,
+      "network.cookie.cookieBehavior.pbmode": 5,
+    },
+  },
+  {
+    policies: {
+      Cookies: {
+        Behavior: "partition-foreign",
+        BehaviorPrivateBrowsing: "accept",
+        Locked: true,
+      },
+    },
+    lockedPrefs: {
+      "network.cookie.cookieBehavior": 5,
+      "network.cookie.cookieBehavior.pbmode": 0,
+    },
+  },
+
+  {
+    policies: {
       UseSystemPrintDialog: true,
     },
     lockedPrefs: {
@@ -1156,6 +1259,16 @@ const POLICIES_TESTS = [
     lockedPrefs: {
       "network.http.http3.enable_kyber": false,
       "security.tls.enable_kyber": false,
+    },
+  },
+
+  // POLICY: CNSA2KeyAgreementEnabled
+  {
+    policies: {
+      CNSA2KeyAgreementEnabled: true,
+    },
+    lockedPrefs: {
+      "security.tls.enable_mlkem1024": true,
     },
   },
 

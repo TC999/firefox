@@ -766,26 +766,17 @@ specialize qw/vpx_sse sse4_1 avx2 neon neon_dotprod/;
 #
 # Single block SAD
 #
-add_proto qw/unsigned int vpx_sad64x64/, "const uint8_t *src_ptr, int src_stride, const uint8_t *ref_ptr, int ref_stride";
-specialize qw/vpx_sad64x64 neon neon_dotprod avx512 avx2 msa vsx mmi lsx/, "$sse2_asm";
-
 add_proto qw/unsigned int vpx_sad64x32/, "const uint8_t *src_ptr, int src_stride, const uint8_t *ref_ptr, int ref_stride";
 specialize qw/vpx_sad64x32 neon neon_dotprod avx512 avx2 msa vsx mmi/, "$sse2_asm";
 
 add_proto qw/unsigned int vpx_sad32x64/, "const uint8_t *src_ptr, int src_stride, const uint8_t *ref_ptr, int ref_stride";
 specialize qw/vpx_sad32x64 neon neon_dotprod avx2 msa vsx mmi/, "$sse2_asm";
 
-add_proto qw/unsigned int vpx_sad32x32/, "const uint8_t *src_ptr, int src_stride, const uint8_t *ref_ptr, int ref_stride";
-specialize qw/vpx_sad32x32 neon neon_dotprod avx2 msa vsx mmi lsx/, "$sse2_asm";
-
 add_proto qw/unsigned int vpx_sad32x16/, "const uint8_t *src_ptr, int src_stride, const uint8_t *ref_ptr, int ref_stride";
 specialize qw/vpx_sad32x16 neon neon_dotprod avx2 msa vsx mmi/, "$sse2_asm";
 
 add_proto qw/unsigned int vpx_sad16x32/, "const uint8_t *src_ptr, int src_stride, const uint8_t *ref_ptr, int ref_stride";
 specialize qw/vpx_sad16x32 neon neon_dotprod msa vsx mmi/, "$sse2_asm";
-
-add_proto qw/unsigned int vpx_sad16x16/, "const uint8_t *src_ptr, int src_stride, const uint8_t *ref_ptr, int ref_stride";
-specialize qw/vpx_sad16x16 neon neon_dotprod msa vsx mmi lsx/, "$sse2_asm";
 
 add_proto qw/unsigned int vpx_sad16x8/, "const uint8_t *src_ptr, int src_stride, const uint8_t *ref_ptr, int ref_stride";
 specialize qw/vpx_sad16x8 neon neon_dotprod msa vsx mmi/, "$sse2_asm";
@@ -1268,6 +1259,18 @@ if (vpx_config("CONFIG_VP9_HIGHBITDEPTH") eq "yes") {
 }  # CONFIG_ENCODERS
 
 if (vpx_config("CONFIG_ENCODERS") eq "yes" || vpx_config("CONFIG_POSTPROC") eq "yes" || vpx_config("CONFIG_VP9_POSTPROC") eq "yes") {
+
+#
+# Single block SAD
+#
+add_proto qw/unsigned int vpx_sad16x16/, "const uint8_t *src_ptr, int src_stride, const uint8_t *ref_ptr, int ref_stride";
+specialize qw/vpx_sad16x16 neon neon_dotprod msa vsx mmi lsx/, "$sse2_asm";
+
+add_proto qw/unsigned int vpx_sad32x32/, "const uint8_t *src_ptr, int src_stride, const uint8_t *ref_ptr, int ref_stride";
+specialize qw/vpx_sad32x32 neon neon_dotprod avx2 msa vsx mmi lsx/, "$sse2_asm";
+
+add_proto qw/unsigned int vpx_sad64x64/, "const uint8_t *src_ptr, int src_stride, const uint8_t *ref_ptr, int ref_stride";
+specialize qw/vpx_sad64x64 neon neon_dotprod avx512 avx2 msa vsx mmi lsx/, "$sse2_asm";
 
 #
 # Variance
@@ -1829,10 +1832,10 @@ if (vpx_config("CONFIG_POSTPROC") eq "yes" || vpx_config("CONFIG_VP9_POSTPROC") 
     specialize qw/vpx_mbpost_proc_down sse2 neon msa vsx/;
 
     add_proto qw/void vpx_mbpost_proc_across_ip/, "unsigned char *src, int pitch, int rows, int cols,int flimit";
-    specialize qw/vpx_mbpost_proc_across_ip neon msa vsx/, "$sse2_asm";
+    specialize qw/vpx_mbpost_proc_across_ip sse2 neon msa vsx/;
 
     add_proto qw/void vpx_post_proc_down_and_across_mb_row/, "unsigned char *src, unsigned char *dst, int src_pitch, int dst_pitch, int cols, unsigned char *flimits, int size";
-    specialize qw/vpx_post_proc_down_and_across_mb_row neon msa vsx/, "$sse2_asm";
+    specialize qw/vpx_post_proc_down_and_across_mb_row sse2 neon msa vsx/;
 
 }
 

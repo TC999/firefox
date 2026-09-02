@@ -3,12 +3,13 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "nsIncrementalStreamLoader.h"
-#include "nsIInputStream.h"
-#include "nsIChannel.h"
-#include "nsError.h"
-#include "mozilla/ProfilerLabels.h"
 
 #include <limits>
+
+#include "mozilla/ProfilerLabels.h"
+#include "nsError.h"
+#include "nsIChannel.h"
+#include "nsIInputStream.h"
 
 nsIncrementalStreamLoader::nsIncrementalStreamLoader() = default;
 
@@ -43,7 +44,8 @@ nsIncrementalStreamLoader::GetRequest(nsIRequest** aRequest) {
 
 NS_IMETHODIMP
 nsIncrementalStreamLoader::OnStartRequest(nsIRequest* request) {
-  nsresult rv = mObserver->OnStartRequest(request);
+  nsCOMPtr<nsIIncrementalStreamLoaderObserver> observer = mObserver;
+  nsresult rv = observer->OnStartRequest(request);
   if (NS_FAILED(rv)) {
     return rv;
   }

@@ -8,12 +8,12 @@ Transform the repackage signing task into an actual task description.
 import os
 from typing import Optional
 
+from mozilla_taskgraph.util.attributes import copy_attributes_from_dependent_job
 from taskgraph.transforms.base import TransformSequence
 from taskgraph.util.dependencies import get_primary_dependency
 from taskgraph.util.schema import Schema
 
 from gecko_taskgraph.transforms.task import TaskDescriptionSchema
-from gecko_taskgraph.util.attributes import copy_attributes_from_dependent_job
 from gecko_taskgraph.util.scriptworker import get_signing_type_per_platform
 
 
@@ -121,12 +121,20 @@ def make_repackage_signing_description(config, jobs):
         for artifact in sorted(dep_job.attributes.get("release_artifacts")):
             basename = os.path.basename(artifact)
             if basename in SIGNING_FORMATS:
-                upstream_artifacts.append({
+                artifact_entry = {
                     "taskId": {"task-reference": f"<{dep_kind}>"},
                     "taskType": "repackage",
                     "paths": [artifact],
-                    "formats": SIGNING_FORMATS[os.path.basename(artifact)],
-                })
+                    "formats": SIGNING_FORMATS[basename],
+                }
+                if basename == "target.installer.msi":
+                    msi_display_name = dep_job.attributes.get(
+                        "msi_display_name", "Firefox"
+                    )
+                    artifact_entry["authenticode_comment"] = (
+                        f"{msi_display_name} Installer"
+                    )
+                upstream_artifacts.append(artifact_entry)
 
         task = {
             "label": label,

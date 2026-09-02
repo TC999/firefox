@@ -30,6 +30,7 @@ task-defaults:
     worker:
         max-run-time: 3600
     run:
+        clone-with: hg
         sparse-profile: startup-test
     attributes:
         build_type: opt

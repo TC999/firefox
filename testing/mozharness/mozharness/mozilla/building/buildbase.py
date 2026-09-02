@@ -719,16 +719,6 @@ items from that key's value."
 
         self._generate_build_stats()
 
-    def static_analysis_autotest(self):
-        """Run mach static-analysis autotest, in order to make sure we dont regress"""
-        self.preflight_build()
-        self._run_mach_command_in_build_env(["configure"])
-        self._run_mach_command_in_build_env([
-            "static-analysis",
-            "autotest",
-            "--intree-tool",
-        ])
-
     def _query_mach(self):
         return [sys.executable, "mach"]
 
@@ -883,18 +873,9 @@ items from that key's value."
                 "mach",
                 "source-package",
                 "--output=source.tar.xz",
+                f"--upload={env['UPLOAD_PATH']}",
             ],
             cwd=dirs["abs_src_dir"],
-            env=env,
-            output_timeout=60 * 45,
-            halt_on_failure=True,
-        )
-        self.run_command(
-            command=[
-                "make",
-                "source-upload",
-            ],
-            cwd=dirs["abs_obj_dir"],
             env=env,
             output_timeout=60 * 45,
             halt_on_failure=True,

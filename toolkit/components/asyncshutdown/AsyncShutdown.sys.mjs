@@ -277,27 +277,26 @@ function safeGetState(fetchState) {
 }
 
 /**
- * Countdown for a given duration, skipping beats if the computer is too busy,
- * sleeping or otherwise unavailable.
+ * Countdown for a given duration of monotonic time: a busy main thread cannot
+ * stretch it, while a suspended computer does not count against it.
  *
- * @param {number} delay An approximate delay to wait in milliseconds (rounded
- * up to the closest second).
+ * @param {number} delay A delay to wait in milliseconds. We may resolve up to
+ * one beat late.
  *
  * @return Deferred
  */
-function looseTimer(delay) {
+function monotonicCountdown(delay) {
   let DELAY_BEAT = 1000;
   let timer = Cc["@mozilla.org/timer;1"].createInstance(Ci.nsITimer);
-  let beats = Math.ceil(delay / DELAY_BEAT);
+  let deadline = ChromeUtils.now() + delay;
   let deferred = Promise.withResolvers();
   timer.initWithCallback(
     function () {
-      if (beats <= 0) {
+      if (ChromeUtils.now() >= deadline) {
         deferred.resolve();
       }
-      --beats;
     },
-    DELAY_BEAT,
+    Math.min(DELAY_BEAT, Math.max(delay, 1)),
     Ci.nsITimer.TYPE_REPEATING_PRECISE_CAN_SKIP
   );
   // Ensure that the timer is both canceled once we are done with it
@@ -805,11 +804,19 @@ function Barrier(name) {
       }
 
       let blocker = {
-        trigger,
+        trigger: () => {
+          blocker.triggerTime = ChromeUtils.now();
+          trigger();
+        },
         promise,
         name,
         fetchState,
         getOrigin: () => getOrigin(topFrame, filename, lineNumber, stack),
+        // Time at which this blocker was registered, used as the start time of
+        // the profiler marker emitted when the blocker is removed.
+        addTime: ChromeUtils.now(),
+        // Time at which the barrier started waiting for this blocker.
+        triggerTime: null,
       };
 
       this._waitForMe.add(promise);
@@ -828,7 +835,7 @@ function Barrier(name) {
         // The wait has already started. The blocker should be
         // notified asap. We do it out of band as clients probably
         // expect `addBlocker` to return immediately.
-        Promise.resolve().then(trigger);
+        Promise.resolve().then(() => blocker.trigger());
       }
     },
 
@@ -1012,16 +1019,31 @@ Barrier.prototype = Object.freeze({
       let timeToCrash = null;
 
       // If after |crashAfterMS| milliseconds (adjusted to take into
-      // account sleep and otherwise busy computer) we have not finished
-      // this shutdown phase, we assume that the shutdown is somehow
-      // frozen, presumably deadlocked. At this stage, the only thing we
-      // can do to avoid leaving the user's computer in an unstable (and
-      // battery-sucking) situation is report the issue and crash.
-      timeToCrash = looseTimer(crashAfterMS);
+      // account sleep) we have not finished this shutdown phase, we
+      // assume that the shutdown is somehow frozen, presumably
+      // deadlocked. At this stage, the only thing we can do to avoid
+      // leaving the user's computer in an unstable (and battery-sucking)
+      // situation is report the issue and crash.
+      timeToCrash = monotonicCountdown(crashAfterMS);
       timeToCrash.promise.then(
         () => {
           // Report the problem as best as we can, then crash.
           let state = this.state;
+
+          // Emit a profiler marker for each blocker that is still pending, so
+          // the blockers responsible for the hang are visible in a profile
+          // captured at the timeout. The marker spans from when the blocker was
+          // registered to now.
+          for (let blocker of this._promiseToBlocker.values()) {
+            let { filename, lineNumber } = blocker.getOrigin();
+            ChromeUtils.addProfilerMarker(
+              "AsyncShutdown timeout",
+              { startTime: blocker.addTime },
+              `${topic}: ${blocker.name} (${filename}:${lineNumber}) - ${JSON.stringify(
+                safeGetState(blocker.fetchState)
+              )}`
+            );
+          }
 
           // If you change the following message, please make sure
           // that any information on the topic and state appears
@@ -1036,12 +1058,6 @@ Barrier.prototype = Object.freeze({
             " within a reasonable amount of time. Causing a crash to" +
             " ensure that we do not leave the user with an unresponsive" +
             " process draining resources.";
-          fatalerr(msg);
-          if (gBrokenAddBlockers.length) {
-            fatalerr(
-              "Broken addBlocker calls: " + JSON.stringify(gBrokenAddBlockers)
-            );
-          }
           if (Services.appinfo.crashReporterEnabled) {
             Services.appinfo.annotateCrashReport(
               "AsyncShutdownTimeout",
@@ -1062,6 +1078,32 @@ Barrier.prototype = Object.freeze({
             ({ filename, lineNumber } = blocker.getOrigin());
             break;
           }
+
+          // In a profiled test run, give the harness a chance to save a profile
+          // and end the process with an unmissable failure instead of crashing,
+          // so the profile leading up to the hang isn't lost. This mirrors
+          // MOZ_DUMP_PROFILE_OR_CRASH_UNSAFE: if the profiler is inactive, or no
+          // harness handles the notification, we fall through and crash below.
+          // The fatalerr() logging is deferred until after this so a run the
+          // harness handles (saving a profile and ending the process) doesn't
+          // also emit this crash's FATAL ERROR line.
+          if (Services.profiler.IsActive()) {
+            Services.obs.notifyObservers(null, "profiler-dump-and-quit", msg);
+          }
+
+          // If the profiler is mid-write on a scheduled dump, block here until
+          // it finishes rather than aborting over a half-written profile. When
+          // that dump exits the process on completion, this never returns and
+          // the abort below is avoided.
+          Services.profiler.waitForScheduledDump();
+
+          fatalerr(msg);
+          if (gBrokenAddBlockers.length) {
+            fatalerr(
+              "Broken addBlocker calls: " + JSON.stringify(gBrokenAddBlockers)
+            );
+          }
+
           lazy.gDebug.abort(filename, lineNumber);
         },
         function onSatisfied() {
@@ -1103,6 +1145,26 @@ Barrier.prototype = Object.freeze({
       // The blocker has already been removed
       return false;
     }
+
+    // Emit an interval profiler marker spanning the lifetime of the blocker, so
+    // we can see in profiles when each blocker was added and removed.
+    let blocker = this._promiseToBlocker.get(promise);
+    ChromeUtils.addProfilerMarker(
+      "AsyncShutdown blocker",
+      { startTime: blocker.addTime },
+      `${this._name}: ${blocker.name}`
+    );
+
+    // The marker above spans from registration, which for most blockers is
+    // startup. Emit a second one covering only the wait.
+    if (blocker.triggerTime !== null) {
+      ChromeUtils.addProfilerMarker(
+        "AsyncShutdown blocker wait",
+        { startTime: blocker.triggerTime },
+        `${this._name}: ${blocker.name}`
+      );
+    }
+
     this._conditionToPromise.delete(condition);
     this._promiseToBlocker.delete(promise);
     return this._waitForMe.delete(promise);

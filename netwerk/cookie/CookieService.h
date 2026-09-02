@@ -5,20 +5,18 @@
 #ifndef mozilla_net_CookieService_h
 #define mozilla_net_CookieService_h
 
-#include "nsICookieService.h"
-#include "nsICookieManager.h"
-#include "nsIObserver.h"
-#include "nsWeakReference.h"
-
 #include "Cookie.h"
 #include "CookieCommons.h"
 #include "ThirdPartyCookieBlockingExceptions.h"
-
-#include "nsString.h"
-#include "nsICookieValidation.h"
-#include "nsIMemoryReporter.h"
 #include "mozilla/MemoryReporting.h"
 #include "mozilla/MozPromise.h"
+#include "nsICookieManager.h"
+#include "nsICookieService.h"
+#include "nsICookieValidation.h"
+#include "nsIMemoryReporter.h"
+#include "nsIObserver.h"
+#include "nsString.h"
+#include "nsWeakReference.h"
 
 class nsIConsoleReportCollector;
 class nsICookieJarSettings;
@@ -140,7 +138,13 @@ class CookieService final : public nsICookieService,
   // private browsing.
   RefPtr<CookieStorage> mPersistentStorage;
   RefPtr<CookieStorage> mPrivateStorage;
-  RefPtr<CookieStorage> mDummyStorage;
+
+  // Holds the real persistent storage after shutdown swap so it is not
+  // destroyed (and its in-memory cookie tree torn down) on the main thread
+  // during the critical shutdown window. Releases naturally with the service.
+  RefPtr<CookieStorage> mRetiredStorage;
+
+  void RetirePersistentStorageForShutdown();
 
  private:
   nsresult AddInternal(nsIURI* aCookieURI, const nsACString& aHost,
@@ -151,8 +155,6 @@ class CookieService final : public nsICookieService,
                        nsICookie::schemeType aSchemeMap, bool aIsPartitioned,
                        bool aFromHttp, const nsID* aOperationID,
                        nsICookieValidation** aValidation);
-
-  CookieStorage* MaybeCreateDummyStorage();
 };
 
 }  // namespace net

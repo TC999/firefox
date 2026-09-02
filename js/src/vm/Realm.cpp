@@ -3,7 +3,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "js/shadow/Realm.h"  // JS::shadow::Realm
-#include "vm/Realm-inl.h"
 
 #include "mozilla/MemoryReporting.h"
 
@@ -32,6 +31,7 @@
 #include "gc/Marking-inl.h"
 #include "gc/WeakMap-inl.h"
 #include "vm/JSObject-inl.h"
+#include "vm/Realm-inl.h"
 
 using namespace js;
 
@@ -40,7 +40,9 @@ Realm::DebuggerVectorEntry::DebuggerVectorEntry(js::Debugger* dbg_,
     : dbg(dbg_), debuggerLink(link) {}
 
 ObjectRealm::ObjectRealm(JS::Zone* zone)
-    : innerViews(zone, zone), iteratorCache(zone) {}
+    : innerViews(zone, zone),
+      moduleScriptSources(zone, zone),
+      iteratorCache(zone) {}
 
 Realm::Realm(Compartment* comp, const JS::RealmOptions& options)
     : JS::shadow::Realm(comp),
@@ -342,6 +344,7 @@ void Realm::traceWeakGlobalEdge(JSTracer* trc) {
   // If the global is dead, free its GlobalObjectData.
   auto result = TraceWeakEdge(trc, &global_, "Realm::global_");
   if (result.isDead()) {
+    global_ = nullptr;
     result.initialTarget()->releaseData(runtime_->gcContext());
   }
 }
@@ -362,6 +365,7 @@ void Realm::purge() {
   newProxyCache.purge();
   newPlainObjectWithPropsCache.purge();
   plainObjectAssignCache.purge();
+  plainObjectSpreadCache.purge();
   objects_.iteratorCache.clearAndCompact();
 }
 
@@ -387,8 +391,8 @@ void Realm::setAllocationMetadataBuilder(
     }
   }
 
-  for (wasm::Instance* instance : wasm.instances()) {
-    instance->setAllocationMetadataBuilder(builder);
+  for (auto iter = wasm.instances().iter(); !iter.done(); iter.next()) {
+    iter.get()->setAllocationMetadataBuilder(builder);
   }
   allocationMetadataBuilder_ = builder;
 }
@@ -407,8 +411,8 @@ void Realm::forgetAllocationMetadataBuilder() {
 
   zone()->decNumRealmsWithAllocMetadataBuilder();
 
-  for (wasm::Instance* instance : wasm.instances()) {
-    instance->setAllocationMetadataBuilder(nullptr);
+  for (auto iter = wasm.instances().iter(); !iter.done(); iter.next()) {
+    iter.get()->setAllocationMetadataBuilder(nullptr);
   }
   allocationMetadataBuilder_ = nullptr;
 }
@@ -442,8 +446,7 @@ void Realm::setNewObjectMetadata(JSContext* cx, HandleObject obj) {
 void Realm::updateDebuggerObservesFlag(unsigned flag) {
   MOZ_ASSERT(isDebuggee());
   MOZ_ASSERT(flag == DebuggerObservesAllExecution ||
-             flag == DebuggerObservesCoverage ||
-             flag == DebuggerObservesAsmJS || flag == DebuggerObservesWasm ||
+             flag == DebuggerObservesCoverage || flag == DebuggerObservesWasm ||
              flag == DebuggerObservesNativeCall);
 
   GlobalObject* global =
@@ -456,8 +459,6 @@ void Realm::updateDebuggerObservesFlag(unsigned flag) {
                isTracingExecution_;
   } else if (flag == DebuggerObservesCoverage) {
     observes = DebugAPI::debuggerObservesCoverage(global);
-  } else if (flag == DebuggerObservesAsmJS) {
-    observes = DebugAPI::debuggerObservesAsmJS(global);
   } else if (flag == DebuggerObservesWasm) {
     observes = DebugAPI::debuggerObservesWasm(global);
   } else if (flag == DebuggerObservesNativeCall) {
@@ -872,7 +873,7 @@ JS_PUBLIC_API Realm* JS::GetFunctionRealm(JSContext* cx, HandleObject objArg) {
 
 JS_PUBLIC_API void JS::ResetRealmMathRandomSeed(JSContext* cx) {
   MOZ_ASSERT(cx->realm());
-  auto rng = cx->realm()->getOrCreateRandomNumberGenerator();
+  auto& rng = cx->realm()->getOrCreateRandomNumberGenerator();
   mozilla::Array<uint64_t, 2> seed;
   GenerateXorShift128PlusSeed(seed);
   rng.setState(seed[0], seed[1]);

@@ -48,11 +48,10 @@ class IMEContentObserver final : public nsStubMutationObserver,
   using IMENotificationRequest = widget::IMENotificationRequest;
   using IMENotificationRequests = widget::IMENotificationRequests;
   using IMEMessage = widget::IMEMessage;
-  enum class ForRemoval : bool { No, Yes };
 
   IMEContentObserver();
 
-  NS_DECL_CYCLE_COLLECTING_ISUPPORTS
+  NS_DECL_CYCLE_COLLECTING_ISUPPORTS_FINAL
   NS_DECL_CYCLE_COLLECTION_CLASS_AMBIGUOUS(IMEContentObserver,
                                            nsIReflowObserver)
   NS_DECL_NSIMUTATIONOBSERVER_CHARACTERDATAWILLCHANGE
@@ -70,6 +69,11 @@ class IMEContentObserver final : public nsStubMutationObserver,
    * OnSelectionChange() is called when selection is changed in the editor.
    */
   void OnSelectionChange(dom::Selection& aSelection);
+
+  void EditContextTextChanged(uint32_t aRangeStart, uint32_t aRangeEnd,
+                              const nsAString& aText);
+  void EditContextSelectionChanged();
+  void EditContextPositionChanged();
 
   MOZ_CAN_RUN_SCRIPT bool OnMouseButtonEvent(nsPresContext& aPresContext,
                                              WidgetMouseEvent& aMouseEvent);
@@ -155,9 +159,20 @@ class IMEContentObserver final : public nsStubMutationObserver,
                                            const EditorBase& aEditorBase) const;
   bool IsObserving(const TextComposition& aTextComposition) const;
   bool WasInitializedWith(const EditorBase& aEditorBase) const {
+    // If we switch between an EditContext editor and a non-EditContext editor,
+    // we always need to recreate the IMEContentObserver, since we observe
+    // DOM changes for contenteditable but not for EditContext.
+    // (Recreating the IMEContentObserver also notifies IME of focus, which
+    //  is needed since the text/selection may have changed without the
+    //  focused element changing.)
+    if (!!aEditorBase.ComputeEditContext() != mIsForEditContext) {
+      return false;
+    }
+
     return mEditorBase == &aEditorBase;
   }
   bool IsEditorHandlingEventForComposition() const;
+  bool IsPreparingTextEditor() const;
   bool KeepAliveDuringDeactive() const {
     return mIMENotificationRequests &&
            mIMENotificationRequests->contains(
@@ -172,6 +187,7 @@ class IMEContentObserver final : public nsStubMutationObserver,
   nsPresContext* GetPresContext() const;
   nsresult GetSelectionAndRoot(dom::Selection** aSelection,
                                dom::Element** aRootElement) const;
+  dom::Selection* GetSelection() const;
 
   /**
    * TryToFlushPendingNotifications() should be called when pending events
@@ -185,7 +201,7 @@ class IMEContentObserver final : public nsStubMutationObserver,
    * MaybeNotifyCompositionEventHandled() posts composition event handled
    * notification into the pseudo queue.
    */
-  void MaybeNotifyCompositionEventHandled();
+  void MaybeNotifyCompositionEventHandled(EventMessage);
 
   /**
    * Following methods are called when the editor:
@@ -196,6 +212,14 @@ class IMEContentObserver final : public nsStubMutationObserver,
   void OnEditActionHandled();
   void BeforeEditAction();
   void CancelEditAction();
+
+  /**
+   * Return true if this is initialized for design mode.
+   */
+  [[nodiscard]] bool IsForDesignMode() const {
+    return mRootEditableNodeOrTextControlElement &&
+           mRootEditableNodeOrTextControlElement->IsDocument();
+  }
 
   /**
    * Return an Element if and only if this instance is observing the element.
@@ -246,6 +270,8 @@ class IMEContentObserver final : public nsStubMutationObserver,
   void OnIMEReceivedFocus();
   void Clear();
 
+  dom::Element* ComputeRootElement(PresShell* aPresShell) const;
+
   /**
    * Return true if aElement is observed by this instance.
    */
@@ -284,8 +310,9 @@ class IMEContentObserver final : public nsStubMutationObserver,
   void MaybeNotifyIMEOfSelectionChange(bool aCausedByComposition,
                                        bool aCausedBySelectionEvent,
                                        bool aOccurredDuringComposition);
-  void PostPositionChangeNotification();
-  void MaybeNotifyIMEOfPositionChange();
+  enum class Immediately : bool { No, Yes };
+  void PostPositionChangeNotification(Immediately aImmediately);
+  void MaybeNotifyIMEOfPositionChange(Immediately aImmediately);
   void CancelNotifyingIMEOfPositionChange();
   void PostCompositionEventHandledNotification();
 
@@ -363,14 +390,14 @@ class IMEContentObserver final : public nsStubMutationObserver,
     mNeedsToNotifyIMEOfFocusSet = false;
     mNeedsToNotifyIMEOfTextChange = false;
     mNeedsToNotifyIMEOfSelectionChange = false;
-    mNeedsToNotifyIMEOfPositionChange = false;
+    mTicksUntilNotifyIMEOfPositionChange = 0;
     mNeedsToNotifyIMEOfCompositionEventHandled = false;
     mTextChangeData.Clear();
   }
   bool NeedsToNotifyIMEOfSomething() const {
     return mNeedsToNotifyIMEOfFocusSet || mNeedsToNotifyIMEOfTextChange ||
            mNeedsToNotifyIMEOfSelectionChange ||
-           mNeedsToNotifyIMEOfPositionChange ||
+           mTicksUntilNotifyIMEOfPositionChange ||
            mNeedsToNotifyIMEOfCompositionEventHandled;
   }
 
@@ -392,7 +419,6 @@ class IMEContentObserver final : public nsStubMutationObserver,
   // focused editor is in XUL panel, this should be the widget of the panel.
   // On the other hand, mWidget is its parent which handles IME.
   nsCOMPtr<nsIWidget> mFocusedWidget;
-  RefPtr<dom::Selection> mSelection;
   // The anonymous <div> element if mEditorBase is a TextEditor or an editing
   // host if mEditorBase is an HTMLEditor.
   RefPtr<dom::Element> mRootElement;
@@ -485,7 +511,7 @@ class IMEContentObserver final : public nsStubMutationObserver,
     }
 
     NS_DECL_CYCLE_COLLECTION_CLASS(DocumentObserver)
-    NS_DECL_CYCLE_COLLECTING_ISUPPORTS
+    NS_DECL_CYCLE_COLLECTING_ISUPPORTS_FINAL
     NS_DECL_NSIDOCUMENTOBSERVER_BEGINUPDATE
     NS_DECL_NSIDOCUMENTOBSERVER_ENDUPDATE
 
@@ -599,11 +625,9 @@ class IMEContentObserver final : public nsStubMutationObserver,
      *                          For avoiding to generate a redundant line break
      *                          at open tag of this element, this is required
      *                          to call methods of ContentEventHandler.
-     * @param aForRemoval       Whether aContent is about to be removed.
      */
     [[nodiscard]] static Result<uint32_t, nsresult> ComputeTextLengthOfContent(
-        const nsIContent& aContent, const dom::Element* aRootElement,
-        ForRemoval = ForRemoval::No);
+        const nsIContent& aContent, const dom::Element* aRootElement);
 
     /**
      * Return flattened text length of starting from first content of
@@ -679,8 +703,7 @@ class IMEContentObserver final : public nsStubMutationObserver,
      * of aContent in such case.
      */
     [[nodiscard]] Maybe<uint32_t> GetFlatTextLengthBeforeContent(
-        const nsIContent& aContent, const dom::Element* aRootElement,
-        ForRemoval = ForRemoval::No) const;
+        const nsIContent& aContent, const dom::Element* aRootElement) const;
 
     /**
      * Return text length before aFirstContent if it's exactly cached or can
@@ -846,13 +869,17 @@ class IMEContentObserver final : public nsStubMutationObserver,
   // not sending any notification.
   IMEMessage mSendingNotification = widget::NOTIFY_IME_OF_NOTHING;
 
+  // If this is set to non-zero, we need to notify IME of a position change when
+  // it becomes 0.
+  uint8_t mTicksUntilNotifyIMEOfPositionChange = 0;
+
   bool mIsObserving = false;
   bool mIsTextControl = false;
+  bool mIsForEditContext = false;
   bool mIMEHasFocus = false;
   bool mNeedsToNotifyIMEOfFocusSet = false;
   bool mNeedsToNotifyIMEOfTextChange = false;
   bool mNeedsToNotifyIMEOfSelectionChange = false;
-  bool mNeedsToNotifyIMEOfPositionChange = false;
   bool mNeedsToNotifyIMEOfCompositionEventHandled = false;
   // mIsHandlingQueryContentEvent is true when IMEContentObserver is handling
   // WidgetQueryContentEvent with ContentEventHandler.

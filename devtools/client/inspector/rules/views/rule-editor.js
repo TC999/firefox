@@ -375,8 +375,7 @@ class RuleEditor extends EventEmitter {
       if (ancestorData.type == "container") {
         this.#createAncestorContainerQuerySelector(
           selectorContainer,
-          ancestorData,
-          index
+          ancestorData
         );
       } else if (ancestorData.type == "layer") {
         selectorContainer.append(
@@ -461,30 +460,8 @@ class RuleEditor extends EventEmitter {
    *        should be added.
    * @param {object} containerQueryData
    * @param {Array<object>} containerQueryData.conditions
-   * @param {number} ancestorDataIndex
    */
-  #createAncestorContainerQuerySelector(
-    selectorContainer,
-    containerQueryData,
-    ancestorDataIndex
-  ) {
-    // @backward-compat { version 151 } Before, we were receiving single
-    // containerName and containerQuery. Firefox 150 added the possibility to have
-    // multiple conditions in a container query, so we need to transform the "old"
-    // data to match the shape of the new one.
-    // This step can be removed once 151 hits release
-    if (!containerQueryData.conditions) {
-      containerQueryData.conditions = [
-        {
-          containerName: containerQueryData.containerName,
-          containerQuery: containerQueryData.containerQuery,
-          // in this case we only have one condition, so it's guaranteed to match,
-          // otherwise we wouldn't get this rule
-          matched: true,
-        },
-      ];
-    }
-
+  #createAncestorContainerQuerySelector(selectorContainer, containerQueryData) {
     const containerQueryEl = createChild(selectorContainer, "span", {
       class: "container-query",
     });
@@ -495,49 +472,18 @@ class RuleEditor extends EventEmitter {
       conditionIndex < containerQueryData.conditions.length;
       conditionIndex++
     ) {
-      const { containerName, containerQuery, matched } =
+      const { containerName, containerQuery, hasContainer, matched } =
         containerQueryData.conditions[conditionIndex];
 
       const containerConditionEl = createChild(containerQueryEl, "span", {
         class:
-          "container-condition has-tooltip" + (!matched ? " unmatched" : ""),
+          "container-condition has-tooltip" +
+          (!hasContainer || !matched ? " unmatched" : ""),
         "data-condition-index": conditionIndex,
       });
 
       if (containerName) {
         containerConditionEl.append(containerName);
-      }
-
-      if (matched) {
-        const jumpToNodeButton = createChild(containerConditionEl, "button", {
-          class: "open-inspector",
-          title: l10n("rule.containerQuery.selectContainerButton.tooltip"),
-        });
-
-        let containerNodeFront;
-        const getNodeFront = async () => {
-          if (!containerNodeFront) {
-            const res = await this.rule.domRule.getQueryContainerForNode(
-              ancestorDataIndex,
-              this.rule.inherited ||
-                this.ruleView.inspector.selection.nodeFront,
-              conditionIndex
-            );
-            containerNodeFront = res.node;
-          }
-          return containerNodeFront;
-        };
-
-        jumpToNodeButton.addEventListener("click", async () => {
-          const front = await getNodeFront();
-          if (!front) {
-            return;
-          }
-          this.ruleView.inspector.selection.setNodeFront(front);
-          await this.ruleView.inspector.highlighters.hideHighlighterType(
-            this.ruleView.inspector.highlighters.TYPES.BOXMODEL
-          );
-        });
       }
 
       // Add a space between the container name and the query so the title,
@@ -633,7 +579,7 @@ class RuleEditor extends EventEmitter {
 
     const { inspector } = this.ruleView;
     if (Tools.styleEditor.isToolSupported(inspector.toolbox)) {
-      inspector.toolbox.viewSourceInStyleEditorByResource(
+      inspector.toolbox.viewStyleSourceByResource(
         this.rule.sheet,
         this.rule.ruleLine,
         this.rule.ruleColumn
@@ -744,15 +690,7 @@ class RuleEditor extends EventEmitter {
       });
     }
 
-    let focusedElSelector;
     if (reset) {
-      // If we're going to reset the rule (i.e. if this is the `element` rule),
-      // we want to restore the focus after the rule is populated.
-      // So if this element contains the active element, retrieve its selector for later use.
-      if (this.element.contains(this.doc.activeElement)) {
-        focusedElSelector = CssLogic.findCssSelector(this.doc.activeElement);
-      }
-
       this.propertyList.replaceChildren();
     }
 
@@ -810,19 +748,6 @@ class RuleEditor extends EventEmitter {
       this.#updateShowUnusedCustomCssPropertiesButtonText();
     } else if (this.#showUnusedCustomCssPropertiesButton) {
       this.#nullifyShowUnusedCustomCssProperties();
-    }
-
-    // Set focus if the focus is still in the current document (avoid stealing
-    // the focus, see Bug 1911627).
-    if (this.doc.hasFocus() && focusedElSelector) {
-      const elementToFocus = this.doc.querySelector(focusedElSelector);
-      if (elementToFocus && this.element.contains(elementToFocus)) {
-        // We need to wait for a tick for the focus to be properly set
-        setTimeout(() => {
-          elementToFocus.focus();
-          this.ruleView.emitForTests("rule-editor-focus-reset");
-        }, 0);
-      }
     }
   }
 
@@ -1017,13 +942,11 @@ class RuleEditor extends EventEmitter {
 
     let selectorContainerTitle;
     if (
-      typeof this.rule.selector.selectorsSpecificity?.[selectorIndex] !==
-      "undefined"
+      typeof this.rule.selectorsSpecificity?.[selectorIndex] !== "undefined"
     ) {
       // The specificity that we get from the platform is a single number that we
       // need to format into the common `(x,y,z)` specificity string.
-      const specificity =
-        this.rule.selector.selectorsSpecificity?.[selectorIndex];
+      const specificity = this.rule.selectorsSpecificity?.[selectorIndex];
       const a = Math.floor(specificity / (1024 * 1024));
       const b = Math.floor((specificity % (1024 * 1024)) / 1024);
       const c = specificity % 1024;

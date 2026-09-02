@@ -69,6 +69,15 @@ class PartnerUrlsConfig(Schema, kw_only=True):
         Optional[str],
         use_msgspec=True,
     )
+    enterprise_repack: Optional[
+        optionally_keyed_by(
+            "release-product",
+            "release-level",
+            "release-type",
+            Optional[str],
+            use_msgspec=True,
+        )
+    ] = None
     release_partner_attribution: Optional[
         optionally_keyed_by(
             "release-product",
@@ -180,3 +189,9 @@ class GraphConfigSchema(Schema, kw_only=True):
         dict[str, str],
         use_msgspec=True,
     )
+    # Mapping of project to the branches that should be considered "production"
+    # releases. A value of ``True`` means all branches of the project are release
+    # branches, while a list restricts releases to the named branches. Consumed by
+    # ``mozilla_taskgraph.util.attributes:release_level``.
+    # TODO: remove once mozilla-taskgraph can extend GraphConfigSchema directly.
+    release_branches: Optional[dict[str, Union[bool, list[str]]]] = None

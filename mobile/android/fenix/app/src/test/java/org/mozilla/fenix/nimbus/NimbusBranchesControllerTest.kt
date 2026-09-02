@@ -24,30 +24,32 @@ class NimbusBranchesControllerTest {
     private lateinit var controller: NimbusBranchesController
     private lateinit var nimbusBranchesStore: NimbusBranchesStore
     private lateinit var settings: Settings
-    private lateinit var notifyUserToEnableExperiments: () -> Unit
+    private var notifyUserToEnableExperimentsCount = 0
+    private val notifyUserToEnableExperiments: () -> Unit = { notifyUserToEnableExperimentsCount++ }
 
     @Before
     fun setup() {
         settings = mockk(relaxed = true)
-        notifyUserToEnableExperiments = mockk(relaxed = true)
 
         nimbusBranchesStore = NimbusBranchesStore(NimbusBranchesState(emptyList()))
-        controller = NimbusBranchesController(
-            isTelemetryEnabled = { true },
-            isExperimentationEnabled = { true },
-            nimbusBranchesStore = nimbusBranchesStore,
-            experiments = experiments,
-            experimentId = experimentId,
-            notifyUserToEnableExperiments = notifyUserToEnableExperiments,
-        )
+        controller =
+            NimbusBranchesController(
+                isTelemetryEnabled = { true },
+                isExperimentationEnabled = { true },
+                nimbusBranchesStore = nimbusBranchesStore,
+                experiments = experiments,
+                experimentId = experimentId,
+                notifyUserToEnableExperiments = notifyUserToEnableExperiments,
+            )
     }
 
     @Test
     fun `WHEN branch item is clicked THEN branch is opted into and selectedBranch state is updated`() {
-        val branch = Branch(
-            slug = "slug",
-            ratio = 1,
-        )
+        val branch =
+            Branch(
+                slug = "slug",
+                ratio = 1,
+            )
 
         controller.onBranchItemClicked(branch)
 
@@ -62,10 +64,11 @@ class NimbusBranchesControllerTest {
     fun `WHEN branch item is clicked THEN branch is opted out and selectedBranch state is updated`() {
         every { experiments.getExperimentBranch(experimentId) } returns "slug"
 
-        val branch = Branch(
-            slug = "slug",
-            ratio = 1,
-        )
+        val branch =
+            Branch(
+                slug = "slug",
+                ratio = 1,
+            )
 
         controller.onBranchItemClicked(branch)
 
@@ -76,10 +79,11 @@ class NimbusBranchesControllerTest {
 
     @Test
     fun `WHEN studies and telemetry are ON and item is clicked THEN branch is opted in`() {
-        val branch = Branch(
-            slug = "slug",
-            ratio = 1,
-        )
+        val branch =
+            Branch(
+                slug = "slug",
+                ratio = 1,
+            )
 
         controller.onBranchItemClicked(branch)
 
@@ -92,46 +96,50 @@ class NimbusBranchesControllerTest {
 
     @Test
     fun `WHEN studies and telemetry are Off THEN branch is opted in AND data is not sent`() {
-        controller = NimbusBranchesController(
-            isTelemetryEnabled = { false },
-            isExperimentationEnabled = { false },
-            nimbusBranchesStore = nimbusBranchesStore,
-            experiments = experiments,
-            experimentId = experimentId,
-            notifyUserToEnableExperiments = notifyUserToEnableExperiments,
-        )
+        controller =
+            NimbusBranchesController(
+                isTelemetryEnabled = { false },
+                isExperimentationEnabled = { false },
+                nimbusBranchesStore = nimbusBranchesStore,
+                experiments = experiments,
+                experimentId = experimentId,
+                notifyUserToEnableExperiments = notifyUserToEnableExperiments,
+            )
 
-        val branch = Branch(
-            slug = "slug",
-            ratio = 1,
-        )
+        val branch =
+            Branch(
+                slug = "slug",
+                ratio = 1,
+            )
 
         controller.onBranchItemClicked(branch)
 
         verifyAll {
             experiments.getExperimentBranch(experimentId)
             experiments.optInWithBranch(experimentId, branch.slug)
-            notifyUserToEnableExperiments()
         }
+        assertEquals(1, notifyUserToEnableExperimentsCount)
 
         assertEquals(branch.slug, nimbusBranchesStore.state.selectedBranch)
     }
 
     @Test
     fun `WHEN studies are ON and telemetry Off THEN branch is opted in`() {
-        controller = NimbusBranchesController(
-            isTelemetryEnabled = { false },
-            isExperimentationEnabled = { true },
-            nimbusBranchesStore = nimbusBranchesStore,
-            experiments = experiments,
-            experimentId = experimentId,
-            notifyUserToEnableExperiments = notifyUserToEnableExperiments,
-        )
+        controller =
+            NimbusBranchesController(
+                isTelemetryEnabled = { false },
+                isExperimentationEnabled = { true },
+                nimbusBranchesStore = nimbusBranchesStore,
+                experiments = experiments,
+                experimentId = experimentId,
+                notifyUserToEnableExperiments = notifyUserToEnableExperiments,
+            )
 
-        val branch = Branch(
-            slug = "slug",
-            ratio = 1,
-        )
+        val branch =
+            Branch(
+                slug = "slug",
+                ratio = 1,
+            )
 
         controller.onBranchItemClicked(branch)
 
@@ -144,19 +152,21 @@ class NimbusBranchesControllerTest {
 
     @Test
     fun `WHEN studies are OFF and telemetry ON THEN branch is opted in`() {
-        controller = NimbusBranchesController(
-            isTelemetryEnabled = { true },
-            isExperimentationEnabled = { false },
-            nimbusBranchesStore = nimbusBranchesStore,
-            experiments = experiments,
-            experimentId = experimentId,
-            notifyUserToEnableExperiments = notifyUserToEnableExperiments,
-        )
+        controller =
+            NimbusBranchesController(
+                isTelemetryEnabled = { true },
+                isExperimentationEnabled = { false },
+                nimbusBranchesStore = nimbusBranchesStore,
+                experiments = experiments,
+                experimentId = experimentId,
+                notifyUserToEnableExperiments = notifyUserToEnableExperiments,
+            )
 
-        val branch = Branch(
-            slug = "slug",
-            ratio = 1,
-        )
+        val branch =
+            Branch(
+                slug = "slug",
+                ratio = 1,
+            )
 
         controller.onBranchItemClicked(branch)
 

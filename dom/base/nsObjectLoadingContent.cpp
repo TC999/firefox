@@ -51,7 +51,6 @@
 #include "mozilla/LoadInfo.h"
 #include "mozilla/PresShell.h"
 #include "mozilla/ProfilerLabels.h"
-#include "mozilla/StaticPrefs_browser.h"
 #include "mozilla/StaticPrefs_dom.h"
 #include "mozilla/dom/BindingUtils.h"
 #include "mozilla/dom/ContentChild.h"
@@ -64,8 +63,8 @@
 #include "mozilla/dom/ScriptSettings.h"
 #include "mozilla/dom/UserActivation.h"
 #include "mozilla/dom/nsCSPContext.h"
+#include "mozilla/net/ChannelClassifierUtils.h"
 #include "mozilla/net/DocumentChannel.h"
-#include "mozilla/net/UrlClassifierFeatureFactory.h"
 #include "mozilla/widget/IMEData.h"
 #include "nsChannelClassifier.h"
 #include "nsFocusManager.h"
@@ -228,7 +227,6 @@ nsObjectLoadingContent::nsObjectLoadingContent()
     : mType(ObjectType::Loading),
       mChannelLoaded(false),
       mNetworkCreated(true),
-      mContentBlockingEnabled(false),
       mIsStopping(false),
       mIsLoading(false),
       mScriptRequested(false),
@@ -293,7 +291,8 @@ nsObjectLoadingContent::OnStartRequest(nsIRequest* aRequest) {
           NS_GetFinalChannelURI(mChannel, getter_AddRefs(mURI)));
     }
 
-    return mFinalListener->OnStartRequest(aRequest);
+    nsCOMPtr<nsIStreamListener> listener = mFinalListener;
+    return listener->OnStartRequest(aRequest);
   }
 
   // Otherwise we should be state loading, and call LoadObject with the channel
@@ -319,12 +318,10 @@ nsObjectLoadingContent::OnStartRequest(nsIRequest* aRequest) {
               u" since it was found on an internal Firefox blocklist.");
       console->LogStringMessage(message.get());
     }
-    mContentBlockingEnabled = true;
     return NS_ERROR_FAILURE;
   }
 
-  if (UrlClassifierFeatureFactory::IsClassifierBlockingErrorCode(status)) {
-    mContentBlockingEnabled = true;
+  if (ChannelClassifierUtils::IsClassifierBlockingErrorCode(status)) {
     return NS_ERROR_FAILURE;
   }
 
@@ -350,7 +347,7 @@ nsObjectLoadingContent::OnStopRequest(nsIRequest* aRequest,
   // fingerprinting, cryptomining, etc.).
   // We make a note of this object node by including it in a dedicated
   // array of blocked tracking nodes under its parent document.
-  if (UrlClassifierFeatureFactory::IsClassifierBlockingErrorCode(aStatusCode)) {
+  if (ChannelClassifierUtils::IsClassifierBlockingErrorCode(aStatusCode)) {
     nsCOMPtr<nsIContent> thisNode =
         do_QueryInterface(static_cast<nsIObjectLoadingContent*>(this));
     if (thisNode && thisNode->IsInComposedDoc()) {
@@ -420,7 +417,7 @@ class ObjectInterfaceRequestorShim final : public nsIInterfaceRequestor,
                                            public nsIChannelEventSink,
                                            public nsIStreamListener {
  public:
-  NS_DECL_CYCLE_COLLECTING_ISUPPORTS
+  NS_DECL_CYCLE_COLLECTING_ISUPPORTS_FINAL
   NS_DECL_CYCLE_COLLECTION_CLASS_AMBIGUOUS(ObjectInterfaceRequestorShim,
                                            nsIInterfaceRequestor)
   NS_DECL_NSIINTERFACEREQUESTOR
@@ -586,7 +583,8 @@ void nsObjectLoadingContent::MaybeRewriteYoutubeEmbed(nsIURI* aURI,
   if (NS_FAILED(rv)) {
     return;
   }
-  AutoTArray<nsString, 2> params = {utf16OldURI, utf16URI};
+  AutoTArray<nsString, 2> params = {std::move(utf16OldURI),
+                                    std::move(utf16URI)};
   const char* msgName;
   // If there's no query to rewrite, just notify in the developer console
   // that we're changing the embed.
@@ -1220,13 +1218,6 @@ nsresult nsObjectLoadingContent::LoadObject(bool aNotify, bool aForceLoad,
     mType = type;
   }
 
-  // Items resolved as Image/Document are not candidates for content blocking,
-  // as well as invalid plugins (they will not have the mContentType set).
-  if (mType == ObjectType::Fallback && ShouldBlockContent()) {
-    LOG(("OBJLC [%p]: Enable content blocking", this));
-    mType = ObjectType::Loading;
-  }
-
   // Sanity check: We shouldn't have any loaded resources, pending events, or
   // a final listener at this point
   if (mFrameLoader || mFinalListener) {
@@ -1426,6 +1417,17 @@ nsresult nsObjectLoadingContent::OpenChannel() {
   // E.g. mms://
   if (!mURI || !CanHandleURI(mURI)) {
     return NS_ERROR_NOT_AVAILABLE;
+  }
+
+  // The channel's own security check happens in the parent process, which for
+  // a document load is only reached after the nsDocShellLoadState has already
+  // crossed IPC. Check here as well so that a load which content is not
+  // allowed to trigger never gets that far.
+  rv = nsContentUtils::GetSecurityManager()->CheckLoadURIWithPrincipal(
+      el->NodePrincipal(), mURI, nsIScriptSecurityManager::STANDARD,
+      doc->InnerWindowID());
+  if (NS_FAILED(rv)) {
+    return rv;
   }
 
   nsCOMPtr<nsILoadGroup> group = doc->GetDocumentLoadGroup();
@@ -1772,11 +1774,6 @@ nsObjectLoadingContent::UpgradeLoadToDocument(
 
   bc.forget(aBrowsingContext);
   return NS_OK;
-}
-
-bool nsObjectLoadingContent::ShouldBlockContent() {
-  return mContentBlockingEnabled && mURI && IsFlashMIME(mContentType) &&
-         StaticPrefs::browser_safebrowsing_blockedURIs_enabled();
 }
 
 Document* nsObjectLoadingContent::GetContentDocument(

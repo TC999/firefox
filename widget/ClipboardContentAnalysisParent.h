@@ -5,8 +5,8 @@
 #ifndef MOZILLA_WIDGET_CLIPBOARDCONTENTANALYSISPARENT_H_
 #define MOZILLA_WIDGET_CLIPBOARDCONTENTANALYSISPARENT_H_
 
-#include "mozilla/dom/ContentParent.h"
 #include "mozilla/PClipboardContentAnalysisParent.h"
+#include "mozilla/dom/ContentParent.h"
 #include "nsIClipboard.h"
 
 namespace mozilla {
@@ -41,6 +41,11 @@ class ClipboardContentAnalysisParent final
       const nsIClipboard::ClipboardType& aWhichClipboard,
       const uint64_t& aRequestingWindowContextId,
       IPCTransferableDataOrError* aTransferableDataOrError);
+  ipc::IPCResult RecvGetClipboardDataIfSmallerThan(
+      nsTArray<nsCString>&& aTypes, uint64_t aThreshold,
+      const nsIClipboard::ClipboardType& aWhichClipboard,
+      const uint64_t& aRequestingWindowContextId,
+      GetClipboardDataIfSmallerThanResolver&& aResolver);
 };
 }  // namespace mozilla
 

@@ -14,6 +14,7 @@
 #include "jit/CacheIRGenerator.h"
 #include "jit/CacheIRHealth.h"
 #include "jit/JitFrames.h"
+#include "jit/JitHints.h"
 #include "jit/JitRuntime.h"
 #include "jit/JitSpewer.h"
 #include "jit/Linker.h"
@@ -470,12 +471,28 @@ bool ICCacheIRStub::traceWeak(JSTracer* trc) {
 
 static void MaybeTransition(JSContext* cx, BaselineFrame* frame,
                             ICFallbackStub* stub) {
+  if (!stub->state().newStubIsFirstStub() && !JitOptions.disableJitHints &&
+      MOZ_LIKELY(cx->runtime()->hasJitRuntime()) &&
+      cx->runtime()->jitRuntime()->hasJitHintsMap()) {
+    JitHintsMap* hints = cx->runtime()->jitRuntime()->getJitHintsMap();
+    ICScript* icScript = frame->icScript();
+    if (hints->shouldTransitionMegamorphic(frame->script(), icScript, stub)) {
+      gc::AutoMarkingLock lock(cx->zone(), icScript->markingLock());
+      ICEntry* icEntry = icScript->icEntryForStub(stub);
+      stub->state().forceTransition();
+      stub->discardStubs(cx->zone(), icEntry, lock);
+      return;
+    }
+  }
+
   if (stub->state().shouldTransition()) {
-    if (!TryFoldingStubs(cx, stub, frame->script(), frame->icScript())) {
+    ICScript* icScript = frame->icScript();
+    if (!TryFoldingStubs(cx, stub, frame->script(), icScript)) {
       cx->recoverFromOutOfMemory();
     }
     if (stub->state().maybeTransition()) {
-      ICEntry* icEntry = frame->icScript()->icEntryForStub(stub);
+      gc::AutoMarkingLock lock(cx->zone(), icScript->markingLock());
+      ICEntry* icEntry = icScript->icEntryForStub(stub);
 #ifdef JS_CACHEIR_SPEW
       if (cx->spewer().enabled(cx, frame->script(),
                                SpewChannel::CacheIRHealthReport)) {
@@ -485,7 +502,7 @@ static void MaybeTransition(JSContext* cx, BaselineFrame* frame,
                               SpewContext::Transition);
       }
 #endif
-      stub->discardStubs(cx->zone(), icEntry);
+      stub->discardStubs(cx->zone(), icEntry, lock);
     }
   }
 }
@@ -562,7 +579,8 @@ void ICFallbackStub::unlinkStubUnbarriered(ICEntry* icEntry,
 #endif
 }
 
-void ICFallbackStub::discardStubs(Zone* zone, ICEntry* icEntry) {
+void ICFallbackStub::discardStubs(Zone* zone, ICEntry* icEntry,
+                                  const gc::AutoMarkingLock& lock) {
   ICStub* stub = icEntry->firstStub();
   while (stub != this) {
     unlinkStub(zone, icEntry, /* prev = */ nullptr, stub->toCacheIRStub());

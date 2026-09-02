@@ -7,19 +7,33 @@
 
 #ifdef MOZ_ENABLE_DBUS
 #  include <gio/gio.h>
-#  include "mozilla/RefPtr.h"
+
 #  include "mozilla/GRefPtr.h"
+#  include "mozilla/RefPtr.h"
 #endif
 #include <glib.h>
+
 #include "nsBaseAppShell.h"
 
+typedef enum {
+  eSessionDefault = 0,
+  eSessionRestoring = 1,
+  eSessionRestoreFinished = 2,
+} SessionRestoreState;
+
 class nsAppShell : public nsBaseAppShell {
+  static nsAppShell* sAppShell;
+
  public:
   nsAppShell() = default;
 
   // nsBaseAppShell overrides:
   nsresult Init();
   NS_IMETHOD Run() override;
+
+  static SessionRestoreState UpdateAndGetSessionState();
+  static bool IsSessionRestoreSupported();
+  static void InitSessionRestore();
 
   void ScheduleNativeEventCallback() override;
   bool ProcessNextNativeEvent(bool mayWait) override;
@@ -50,6 +64,8 @@ class nsAppShell : public nsBaseAppShell {
  private:
   virtual ~nsAppShell();
 
+  NS_IMETHOD Observe(nsISupports* aSubject, const char* aTopic,
+                     const char16_t* aData) override;
   static gboolean EventProcessorCallback(GIOChannel* source,
                                          GIOCondition condition, gpointer data);
   static void TermSignalHandler(int signo);
@@ -58,6 +74,9 @@ class nsAppShell : public nsBaseAppShell {
 
   int mPipeFDs[2] = {0, 0};
   unsigned mTag = 0;
+  bool mInitialized = false;
+
+  SessionRestoreState mSessionRestoreState = eSessionDefault;
 
 #ifdef MOZ_ENABLE_DBUS
   RefPtr<GDBusProxy> mLogin1Proxy;

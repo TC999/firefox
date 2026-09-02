@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -417,10 +415,10 @@ void BackgroundHangThread::ReportHang(TimeDuration aHangTime,
   // Recovered from a hang; called on the monitor thread
   // mManager->mLock IS locked
 
-  HangDetails hangDetails(aHangTime,
-                          nsDependentCString(XRE_GetProcessTypeString()),
-                          NOT_REMOTE_TYPE, mThreadName, mRunnableName,
-                          std::move(mHangStack), std::move(mAnnotations));
+  HangDetails hangDetails(
+      aHangTime, nsDependentCString(XRE_GetProcessTypeString()),
+      dom::RemoteType::NotRemote().Stringify(), mThreadName, mRunnableName,
+      std::move(mHangStack), std::move(mAnnotations));
 
   PersistedToDisk persistedToDisk = aPersistedToDisk;
   if (aPersistedToDisk == PersistedToDisk::Yes && XRE_IsParentProcess() &&
@@ -561,7 +559,7 @@ BackgroundHangThread* BackgroundHangThread::FindThread() {
 bool BackgroundHangMonitor::ShouldDisableOnBeta(const nsCString& clientID) {
   MOZ_ASSERT(clientID.Length() == 36, "clientID is invalid");
   const char* suffix = clientID.get() + clientID.Length() - 4;
-  return strtol(suffix, NULL, 16) % BHR_BETA_MOD;
+  return strtol(suffix, nullptr, 16) % BHR_BETA_MOD;
 }
 
 bool BackgroundHangMonitor::DisableOnBeta() {

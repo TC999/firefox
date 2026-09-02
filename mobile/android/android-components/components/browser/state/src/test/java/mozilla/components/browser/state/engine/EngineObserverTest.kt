@@ -7,11 +7,11 @@ package mozilla.components.browser.state.engine
 import android.content.Intent
 import android.view.WindowManager
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import kotlin.test.assertNotNull
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.test.runTest
 import mozilla.components.browser.state.action.BrowserAction
 import mozilla.components.browser.state.action.ContentAction
-import mozilla.components.browser.state.action.CookieBannerAction
 import mozilla.components.browser.state.action.CrashAction
 import mozilla.components.browser.state.action.ReaderAction
 import mozilla.components.browser.state.action.TabListAction
@@ -26,7 +26,6 @@ import mozilla.components.browser.state.state.content.FindResultState
 import mozilla.components.browser.state.state.createTab
 import mozilla.components.browser.state.store.BrowserStore
 import mozilla.components.concept.engine.EngineSession
-import mozilla.components.concept.engine.EngineSession.CookieBannerHandlingStatus.HANDLED
 import mozilla.components.concept.engine.EngineSessionState
 import mozilla.components.concept.engine.HitResult
 import mozilla.components.concept.engine.Settings
@@ -49,7 +48,6 @@ import mozilla.components.support.test.mock
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -61,79 +59,120 @@ class EngineObserverTest {
     // TO DO: add tests for product URL after a test endpoint is implemented in desktop (Bug 1846341)
     @Test
     fun engineSessionObserver() = runTest {
-        val engineSession = object : EngineSession() {
-            override val settings: Settings = mock()
-            override fun goBack(userInteraction: Boolean) {}
-            override fun goForward(userInteraction: Boolean) {}
-            override fun goToHistoryIndex(index: Int) {}
-            override fun reload(flags: LoadUrlFlags) {}
-            override fun stopLoading() {}
-            override fun restoreState(state: EngineSessionState): Boolean { return false }
-            override fun flushSessionState() {}
-            override fun updateTrackingProtection(policy: TrackingProtectionPolicy) {}
-            override fun toggleDesktopMode(enable: Boolean, reload: Boolean) {
-                notifyObservers { onDesktopModeChange(enable) }
+        val engineSession =
+            object : EngineSession() {
+                override val settings: Settings = mock()
+
+                override fun goBack(userInteraction: Boolean) {}
+
+                override fun goForward(userInteraction: Boolean) {}
+
+                override fun goToHistoryIndex(index: Int) {}
+
+                override fun reload(flags: LoadUrlFlags) {}
+
+                override fun stopLoading() {}
+
+                override fun restoreState(state: EngineSessionState): Boolean {
+                    return false
+                }
+
+                override fun flushSessionState() {}
+
+                override fun updateTrackingProtection(policy: TrackingProtectionPolicy) {}
+
+                override fun toggleDesktopMode(enable: Boolean, reload: Boolean) {
+                    notifyObservers { onDesktopModeChange(enable) }
+                }
+
+                override fun checkForPdfViewer(
+                    onResult: (Boolean) -> Unit,
+                    onException: (Throwable) -> Unit,
+                ) {}
+
+                override fun getBrokenSiteReport(
+                    onResult: (JSONObject) -> Unit,
+                    onException: (Throwable) -> Unit,
+                ) {}
+
+                override fun sendGleanBrokenSiteReport(
+                    details: JSONObject?,
+                    description: String?,
+                    reason: String,
+                    url: String,
+                    sendTabSpecificInfo: Boolean,
+                    sendBlockedUrls: Boolean,
+                    onResult: () -> Unit,
+                    onException: (Throwable) -> Unit,
+                ) {}
+
+                override fun getWebCompatInfo(
+                    onResult: (JSONObject) -> Unit,
+                    onException: (Throwable) -> Unit,
+                ) {}
+
+                override fun sendMoreWebCompatInfo(
+                    info: JSONObject,
+                    onResult: () -> Unit,
+                    onException: (Throwable) -> Unit,
+                ) {}
+
+                override fun requestTranslate(
+                    fromLanguage: String,
+                    toLanguage: String,
+                    options: TranslationOptions?,
+                ) {}
+
+                override fun requestTranslationRestore() {}
+
+                override fun getNeverTranslateSiteSetting(
+                    onResult: (Boolean) -> Unit,
+                    onException: (Throwable) -> Unit,
+                ) {}
+
+                override fun setNeverTranslateSiteSetting(
+                    setting: Boolean,
+                    onResult: () -> Unit,
+                    onException: (Throwable) -> Unit,
+                ) {}
+
+                override fun findAll(text: String) {}
+
+                override fun findNext(forward: Boolean) {}
+
+                override fun clearFindMatches() {}
+
+                override fun exitFullScreenMode() {}
+
+                override fun purgeHistory() {}
+
+                override fun loadData(data: String, mimeType: String, encoding: String) {
+                    notifyObservers { onLocationChange(data, false) }
+                    notifyObservers { onProgress(100) }
+                    notifyObservers { onLoadingStateChange(true) }
+                    notifyObservers { onNavigationStateChange(true, true) }
+                }
+
+                override fun requestPdfToDownload() = Unit
+
+                override fun requestPrintContent() = Unit
+
+                override fun processBackPressed(onResult: (Boolean) -> Unit) {}
+
+                override fun loadUrl(
+                    url: String,
+                    parent: EngineSession?,
+                    flags: LoadUrlFlags,
+                    additionalHeaders: Map<String, String>?,
+                    originalInput: String?,
+                    textDirectiveUserActivation: Boolean,
+                ) {
+                    notifyObservers { onLocationChange(url, false) }
+                    notifyObservers { onProgress(100) }
+                    notifyObservers { onLoadingStateChange(true) }
+                    notifyObservers { onNavigationStateChange(true, true) }
+                }
             }
-            override fun hasCookieBannerRuleForSession(
-                onResult: (Boolean) -> Unit,
-                onException: (Throwable) -> Unit,
-            ) {}
-            override fun checkForPdfViewer(
-                onResult: (Boolean) -> Unit,
-                onException: (Throwable) -> Unit,
-            ) {}
-            override fun getWebCompatInfo(
-                onResult: (JSONObject) -> Unit,
-                onException: (Throwable) -> Unit,
-            ) {}
-            override fun sendMoreWebCompatInfo(
-                info: JSONObject,
-                onResult: () -> Unit,
-                onException: (Throwable) -> Unit,
-            ) {}
-            override fun requestTranslate(
-                fromLanguage: String,
-                toLanguage: String,
-                options: TranslationOptions?,
-            ) {}
-            override fun requestTranslationRestore() {}
-            override fun getNeverTranslateSiteSetting(
-                onResult: (Boolean) -> Unit,
-                onException: (Throwable) -> Unit,
-            ) {}
-            override fun setNeverTranslateSiteSetting(
-                setting: Boolean,
-                onResult: () -> Unit,
-                onException: (Throwable) -> Unit,
-            ) {}
-            override fun findAll(text: String) {}
-            override fun findNext(forward: Boolean) {}
-            override fun clearFindMatches() {}
-            override fun exitFullScreenMode() {}
-            override fun purgeHistory() {}
-            override fun loadData(data: String, mimeType: String, encoding: String) {
-                notifyObservers { onLocationChange(data, false) }
-                notifyObservers { onProgress(100) }
-                notifyObservers { onLoadingStateChange(true) }
-                notifyObservers { onNavigationStateChange(true, true) }
-            }
-            override fun requestPdfToDownload() = Unit
-            override fun requestPrintContent() = Unit
-            override fun processBackPressed(onResult: (Boolean) -> Unit) {}
-            override fun loadUrl(
-                url: String,
-                parent: EngineSession?,
-                flags: LoadUrlFlags,
-                additionalHeaders: Map<String, String>?,
-                originalInput: String?,
-                textDirectiveUserActivation: Boolean,
-            ) {
-                notifyObservers { onLocationChange(url, false) }
-                notifyObservers { onProgress(100) }
-                notifyObservers { onLoadingStateChange(true) }
-                notifyObservers { onNavigationStateChange(true, true) }
-            }
-        }
 
         val store = BrowserStore()
         store.dispatch(TabListAction.AddTabAction(createTab("https://www.mozilla.org", id = "mozilla")))
@@ -148,88 +187,126 @@ class EngineObserverTest {
         assertEquals(true, store.state.selectedTab?.content?.loading)
 
         val tab = store.state.findTab("mozilla")
-        assertNotNull(tab!!)
+        assertNotNull(tab)
         assertTrue(tab.content.canGoForward)
         assertTrue(tab.content.canGoBack)
     }
 
     @Test
     fun engineSessionObserverWithSecurityChanges() = runTest {
-        val engineSession = object : EngineSession() {
-            override val settings: Settings = mock()
-            override fun goBack(userInteraction: Boolean) {}
-            override fun goForward(userInteraction: Boolean) {}
-            override fun goToHistoryIndex(index: Int) {}
-            override fun stopLoading() {}
-            override fun reload(flags: LoadUrlFlags) {}
-            override fun restoreState(state: EngineSessionState): Boolean { return false }
-            override fun flushSessionState() {}
-            override fun updateTrackingProtection(policy: TrackingProtectionPolicy) {}
-            override fun toggleDesktopMode(enable: Boolean, reload: Boolean) {}
-            override fun hasCookieBannerRuleForSession(
-                onResult: (Boolean) -> Unit,
-                onException: (Throwable) -> Unit,
-            ) {}
-            override fun checkForPdfViewer(
-                onResult: (Boolean) -> Unit,
-                onException: (Throwable) -> Unit,
-            ) {}
-            override fun getWebCompatInfo(
-                onResult: (JSONObject) -> Unit,
-                onException: (Throwable) -> Unit,
-            ) {}
-            override fun sendMoreWebCompatInfo(
-                info: JSONObject,
-                onResult: () -> Unit,
-                onException: (Throwable) -> Unit,
-            ) {}
-            override fun requestTranslate(
-                fromLanguage: String,
-                toLanguage: String,
-                options: TranslationOptions?,
-            ) {}
-            override fun requestTranslationRestore() {}
-            override fun getNeverTranslateSiteSetting(
-                onResult: (Boolean) -> Unit,
-                onException: (Throwable) -> Unit,
-            ) {}
-            override fun setNeverTranslateSiteSetting(
-                setting: Boolean,
-                onResult: () -> Unit,
-                onException: (Throwable) -> Unit,
-            ) {}
-            override fun findAll(text: String) {}
-            override fun findNext(forward: Boolean) {}
-            override fun clearFindMatches() {}
-            override fun exitFullScreenMode() {}
-            override fun purgeHistory() {}
-            override fun loadData(data: String, mimeType: String, encoding: String) {}
-            override fun requestPdfToDownload() = Unit
-            override fun requestPrintContent() = Unit
-            override fun processBackPressed(onResult: (Boolean) -> Unit) {}
-            override fun loadUrl(
-                url: String,
-                parent: EngineSession?,
-                flags: LoadUrlFlags,
-                additionalHeaders: Map<String, String>?,
-                originalInput: String?,
-                textDirectiveUserActivation: Boolean,
-            ) {
-                if (url.startsWith("https://")) {
-                    notifyObservers { onSecurityChange(true, "host", "issuer", null) }
-                } else {
-                    notifyObservers { onSecurityChange(false) }
+        val engineSession =
+            object : EngineSession() {
+                override val settings: Settings = mock()
+
+                override fun goBack(userInteraction: Boolean) {}
+
+                override fun goForward(userInteraction: Boolean) {}
+
+                override fun goToHistoryIndex(index: Int) {}
+
+                override fun stopLoading() {}
+
+                override fun reload(flags: LoadUrlFlags) {}
+
+                override fun restoreState(state: EngineSessionState): Boolean {
+                    return false
+                }
+
+                override fun flushSessionState() {}
+
+                override fun updateTrackingProtection(policy: TrackingProtectionPolicy) {}
+
+                override fun toggleDesktopMode(enable: Boolean, reload: Boolean) {}
+
+                override fun checkForPdfViewer(
+                    onResult: (Boolean) -> Unit,
+                    onException: (Throwable) -> Unit,
+                ) {}
+
+                override fun getBrokenSiteReport(
+                    onResult: (JSONObject) -> Unit,
+                    onException: (Throwable) -> Unit,
+                ) {}
+
+                override fun sendGleanBrokenSiteReport(
+                    details: JSONObject?,
+                    description: String?,
+                    reason: String,
+                    url: String,
+                    sendTabSpecificInfo: Boolean,
+                    sendBlockedUrls: Boolean,
+                    onResult: () -> Unit,
+                    onException: (Throwable) -> Unit,
+                ) {}
+
+                override fun getWebCompatInfo(
+                    onResult: (JSONObject) -> Unit,
+                    onException: (Throwable) -> Unit,
+                ) {}
+
+                override fun sendMoreWebCompatInfo(
+                    info: JSONObject,
+                    onResult: () -> Unit,
+                    onException: (Throwable) -> Unit,
+                ) {}
+
+                override fun requestTranslate(
+                    fromLanguage: String,
+                    toLanguage: String,
+                    options: TranslationOptions?,
+                ) {}
+
+                override fun requestTranslationRestore() {}
+
+                override fun getNeverTranslateSiteSetting(
+                    onResult: (Boolean) -> Unit,
+                    onException: (Throwable) -> Unit,
+                ) {}
+
+                override fun setNeverTranslateSiteSetting(
+                    setting: Boolean,
+                    onResult: () -> Unit,
+                    onException: (Throwable) -> Unit,
+                ) {}
+
+                override fun findAll(text: String) {}
+
+                override fun findNext(forward: Boolean) {}
+
+                override fun clearFindMatches() {}
+
+                override fun exitFullScreenMode() {}
+
+                override fun purgeHistory() {}
+
+                override fun loadData(data: String, mimeType: String, encoding: String) {}
+
+                override fun requestPdfToDownload() = Unit
+
+                override fun requestPrintContent() = Unit
+
+                override fun processBackPressed(onResult: (Boolean) -> Unit) {}
+
+                override fun loadUrl(
+                    url: String,
+                    parent: EngineSession?,
+                    flags: LoadUrlFlags,
+                    additionalHeaders: Map<String, String>?,
+                    originalInput: String?,
+                    textDirectiveUserActivation: Boolean,
+                ) {
+                    if (url.startsWith("https://")) {
+                        notifyObservers { onSecurityChange(true, "host", "issuer", null) }
+                    } else {
+                        notifyObservers { onSecurityChange(false) }
+                    }
                 }
             }
-        }
 
-        val store = BrowserStore(
-            initialState = BrowserState(
-                tabs = listOf(
-                    createTab("https://www.mozilla.org", id = "mozilla"),
-                ),
-            ),
-        )
+        val store =
+            BrowserStore(
+                initialState = BrowserState(tabs = listOf(createTab("https://www.mozilla.org", id = "mozilla")))
+            )
 
         engineSession.register(createEngineObserver(store = store, scope = this))
 
@@ -246,74 +323,112 @@ class EngineObserverTest {
 
     @Test
     fun engineSessionObserverWithTrackingProtection() = runTest {
-        val engineSession = object : EngineSession() {
-            override val settings: Settings = mock()
-            override fun goBack(userInteraction: Boolean) {}
-            override fun goForward(userInteraction: Boolean) {}
-            override fun goToHistoryIndex(index: Int) {}
-            override fun stopLoading() {}
-            override fun reload(flags: LoadUrlFlags) {}
-            override fun restoreState(state: EngineSessionState): Boolean { return false }
-            override fun flushSessionState() {}
-            override fun updateTrackingProtection(policy: TrackingProtectionPolicy) {}
-            override fun toggleDesktopMode(enable: Boolean, reload: Boolean) {}
-            override fun hasCookieBannerRuleForSession(
-                onResult: (Boolean) -> Unit,
-                onException: (Throwable) -> Unit,
-            ) {}
-            override fun checkForPdfViewer(
-                onResult: (Boolean) -> Unit,
-                onException: (Throwable) -> Unit,
-            ) {}
-            override fun getWebCompatInfo(
-                onResult: (JSONObject) -> Unit,
-                onException: (Throwable) -> Unit,
-            ) {}
-            override fun sendMoreWebCompatInfo(
-                info: JSONObject,
-                onResult: () -> Unit,
-                onException: (Throwable) -> Unit,
-            ) {}
-            override fun requestTranslate(
-                fromLanguage: String,
-                toLanguage: String,
-                options: TranslationOptions?,
-            ) {}
-            override fun requestTranslationRestore() {}
-            override fun getNeverTranslateSiteSetting(
-                onResult: (Boolean) -> Unit,
-                onException: (Throwable) -> Unit,
-            ) {}
-            override fun setNeverTranslateSiteSetting(
-                setting: Boolean,
-                onResult: () -> Unit,
-                onException: (Throwable) -> Unit,
-            ) {}
-            override fun loadUrl(
-                url: String,
-                parent: EngineSession?,
-                flags: LoadUrlFlags,
-                additionalHeaders: Map<String, String>?,
-                originalInput: String?,
-                textDirectiveUserActivation: Boolean,
-            ) {}
-            override fun loadData(data: String, mimeType: String, encoding: String) {}
-            override fun requestPdfToDownload() = Unit
-            override fun requestPrintContent() = Unit
-            override fun findAll(text: String) {}
-            override fun findNext(forward: Boolean) {}
-            override fun clearFindMatches() {}
-            override fun exitFullScreenMode() {}
-            override fun purgeHistory() {}
-            override fun processBackPressed(onResult: (Boolean) -> Unit) {}
-        }
-        val store = BrowserStore(
-            initialState = BrowserState(
-                tabs = listOf(
-                    createTab("https://www.mozilla.org", id = "mozilla"),
-                ),
-            ),
-        )
+        val engineSession =
+            object : EngineSession() {
+                override val settings: Settings = mock()
+
+                override fun goBack(userInteraction: Boolean) {}
+
+                override fun goForward(userInteraction: Boolean) {}
+
+                override fun goToHistoryIndex(index: Int) {}
+
+                override fun stopLoading() {}
+
+                override fun reload(flags: LoadUrlFlags) {}
+
+                override fun restoreState(state: EngineSessionState): Boolean {
+                    return false
+                }
+
+                override fun flushSessionState() {}
+
+                override fun updateTrackingProtection(policy: TrackingProtectionPolicy) {}
+
+                override fun toggleDesktopMode(enable: Boolean, reload: Boolean) {}
+
+                override fun checkForPdfViewer(
+                    onResult: (Boolean) -> Unit,
+                    onException: (Throwable) -> Unit,
+                ) {}
+
+                override fun getBrokenSiteReport(
+                    onResult: (JSONObject) -> Unit,
+                    onException: (Throwable) -> Unit,
+                ) {}
+
+                override fun sendGleanBrokenSiteReport(
+                    details: JSONObject?,
+                    description: String?,
+                    reason: String,
+                    url: String,
+                    sendTabSpecificInfo: Boolean,
+                    sendBlockedUrls: Boolean,
+                    onResult: () -> Unit,
+                    onException: (Throwable) -> Unit,
+                ) {}
+
+                override fun getWebCompatInfo(
+                    onResult: (JSONObject) -> Unit,
+                    onException: (Throwable) -> Unit,
+                ) {}
+
+                override fun sendMoreWebCompatInfo(
+                    info: JSONObject,
+                    onResult: () -> Unit,
+                    onException: (Throwable) -> Unit,
+                ) {}
+
+                override fun requestTranslate(
+                    fromLanguage: String,
+                    toLanguage: String,
+                    options: TranslationOptions?,
+                ) {}
+
+                override fun requestTranslationRestore() {}
+
+                override fun getNeverTranslateSiteSetting(
+                    onResult: (Boolean) -> Unit,
+                    onException: (Throwable) -> Unit,
+                ) {}
+
+                override fun setNeverTranslateSiteSetting(
+                    setting: Boolean,
+                    onResult: () -> Unit,
+                    onException: (Throwable) -> Unit,
+                ) {}
+
+                override fun loadUrl(
+                    url: String,
+                    parent: EngineSession?,
+                    flags: LoadUrlFlags,
+                    additionalHeaders: Map<String, String>?,
+                    originalInput: String?,
+                    textDirectiveUserActivation: Boolean,
+                ) {}
+
+                override fun loadData(data: String, mimeType: String, encoding: String) {}
+
+                override fun requestPdfToDownload() = Unit
+
+                override fun requestPrintContent() = Unit
+
+                override fun findAll(text: String) {}
+
+                override fun findNext(forward: Boolean) {}
+
+                override fun clearFindMatches() {}
+
+                override fun exitFullScreenMode() {}
+
+                override fun purgeHistory() {}
+
+                override fun processBackPressed(onResult: (Boolean) -> Unit) {}
+            }
+        val store =
+            BrowserStore(
+                initialState = BrowserState(tabs = listOf(createTab("https://www.mozilla.org", id = "mozilla")))
+            )
         val observer = createEngineObserver(store = store, scope = this)
         engineSession.register(observer)
 
@@ -333,77 +448,115 @@ class EngineObserverTest {
 
     @Test
     fun `WHEN the first page load is complete, set the translations initialized`() = runTest {
-        val engineSession = object : EngineSession() {
-            override val settings: Settings = mock()
-            override fun goBack(userInteraction: Boolean) {}
-            override fun goForward(userInteraction: Boolean) {}
-            override fun goToHistoryIndex(index: Int) {}
-            override fun stopLoading() {}
-            override fun reload(flags: LoadUrlFlags) {}
-            override fun restoreState(state: EngineSessionState): Boolean { return false }
-            override fun flushSessionState() {}
-            override fun updateTrackingProtection(policy: TrackingProtectionPolicy) {}
-            override fun toggleDesktopMode(enable: Boolean, reload: Boolean) {}
-            override fun hasCookieBannerRuleForSession(
-                onResult: (Boolean) -> Unit,
-                onException: (Throwable) -> Unit,
-            ) {}
-            override fun checkForPdfViewer(
-                onResult: (Boolean) -> Unit,
-                onException: (Throwable) -> Unit,
-            ) {}
-            override fun getWebCompatInfo(
-                onResult: (JSONObject) -> Unit,
-                onException: (Throwable) -> Unit,
-            ) {}
-            override fun sendMoreWebCompatInfo(
-                info: JSONObject,
-                onResult: () -> Unit,
-                onException: (Throwable) -> Unit,
-            ) {}
-            override fun requestTranslate(
-                fromLanguage: String,
-                toLanguage: String,
-                options: TranslationOptions?,
-            ) {}
-            override fun requestTranslationRestore() {}
-            override fun getNeverTranslateSiteSetting(
-                onResult: (Boolean) -> Unit,
-                onException: (Throwable) -> Unit,
-            ) {}
-            override fun setNeverTranslateSiteSetting(
-                setting: Boolean,
-                onResult: () -> Unit,
-                onException: (Throwable) -> Unit,
-            ) {}
-            override fun findAll(text: String) {}
-            override fun findNext(forward: Boolean) {}
-            override fun clearFindMatches() {}
-            override fun exitFullScreenMode() {}
-            override fun purgeHistory() {}
-            override fun loadData(data: String, mimeType: String, encoding: String) {}
-            override fun requestPdfToDownload() = Unit
-            override fun requestPrintContent() = Unit
-            override fun processBackPressed(onResult: (Boolean) -> Unit) {}
-            override fun loadUrl(
-                url: String,
-                parent: EngineSession?,
-                flags: LoadUrlFlags,
-                additionalHeaders: Map<String, String>?,
-                originalInput: String?,
-                textDirectiveUserActivation: Boolean,
-            ) {
-                notifyObservers { onProgress(100) }
-            }
-        }
+        val engineSession =
+            object : EngineSession() {
+                override val settings: Settings = mock()
 
-        val store = BrowserStore(
-            initialState = BrowserState(
-                tabs = listOf(
-                    createTab("https://www.mozilla.org", id = "mozilla"),
-                ),
-            ),
-        )
+                override fun goBack(userInteraction: Boolean) {}
+
+                override fun goForward(userInteraction: Boolean) {}
+
+                override fun goToHistoryIndex(index: Int) {}
+
+                override fun stopLoading() {}
+
+                override fun reload(flags: LoadUrlFlags) {}
+
+                override fun restoreState(state: EngineSessionState): Boolean {
+                    return false
+                }
+
+                override fun flushSessionState() {}
+
+                override fun updateTrackingProtection(policy: TrackingProtectionPolicy) {}
+
+                override fun toggleDesktopMode(enable: Boolean, reload: Boolean) {}
+
+                override fun checkForPdfViewer(
+                    onResult: (Boolean) -> Unit,
+                    onException: (Throwable) -> Unit,
+                ) {}
+
+                override fun getBrokenSiteReport(
+                    onResult: (JSONObject) -> Unit,
+                    onException: (Throwable) -> Unit,
+                ) {}
+
+                override fun sendGleanBrokenSiteReport(
+                    details: JSONObject?,
+                    description: String?,
+                    reason: String,
+                    url: String,
+                    sendTabSpecificInfo: Boolean,
+                    sendBlockedUrls: Boolean,
+                    onResult: () -> Unit,
+                    onException: (Throwable) -> Unit,
+                ) {}
+
+                override fun getWebCompatInfo(
+                    onResult: (JSONObject) -> Unit,
+                    onException: (Throwable) -> Unit,
+                ) {}
+
+                override fun sendMoreWebCompatInfo(
+                    info: JSONObject,
+                    onResult: () -> Unit,
+                    onException: (Throwable) -> Unit,
+                ) {}
+
+                override fun requestTranslate(
+                    fromLanguage: String,
+                    toLanguage: String,
+                    options: TranslationOptions?,
+                ) {}
+
+                override fun requestTranslationRestore() {}
+
+                override fun getNeverTranslateSiteSetting(
+                    onResult: (Boolean) -> Unit,
+                    onException: (Throwable) -> Unit,
+                ) {}
+
+                override fun setNeverTranslateSiteSetting(
+                    setting: Boolean,
+                    onResult: () -> Unit,
+                    onException: (Throwable) -> Unit,
+                ) {}
+
+                override fun findAll(text: String) {}
+
+                override fun findNext(forward: Boolean) {}
+
+                override fun clearFindMatches() {}
+
+                override fun exitFullScreenMode() {}
+
+                override fun purgeHistory() {}
+
+                override fun loadData(data: String, mimeType: String, encoding: String) {}
+
+                override fun requestPdfToDownload() = Unit
+
+                override fun requestPrintContent() = Unit
+
+                override fun processBackPressed(onResult: (Boolean) -> Unit) {}
+
+                override fun loadUrl(
+                    url: String,
+                    parent: EngineSession?,
+                    flags: LoadUrlFlags,
+                    additionalHeaders: Map<String, String>?,
+                    originalInput: String?,
+                    textDirectiveUserActivation: Boolean,
+                ) {
+                    notifyObservers { onProgress(100) }
+                }
+            }
+
+        val store =
+            BrowserStore(
+                initialState = BrowserState(tabs = listOf(createTab("https://www.mozilla.org", id = "mozilla")))
+            )
 
         assertEquals(false, store.state.translationsInitialized)
 
@@ -418,77 +571,115 @@ class EngineObserverTest {
 
     @Test
     fun `WHEN the first page load is not complete, do not set the translations initialized`() = runTest {
-        val engineSession = object : EngineSession() {
-            override val settings: Settings = mock()
-            override fun goBack(userInteraction: Boolean) {}
-            override fun goForward(userInteraction: Boolean) {}
-            override fun goToHistoryIndex(index: Int) {}
-            override fun stopLoading() {}
-            override fun reload(flags: LoadUrlFlags) {}
-            override fun restoreState(state: EngineSessionState): Boolean { return false }
-            override fun flushSessionState() {}
-            override fun updateTrackingProtection(policy: TrackingProtectionPolicy) {}
-            override fun toggleDesktopMode(enable: Boolean, reload: Boolean) {}
-            override fun hasCookieBannerRuleForSession(
-                onResult: (Boolean) -> Unit,
-                onException: (Throwable) -> Unit,
-            ) {}
-            override fun checkForPdfViewer(
-                onResult: (Boolean) -> Unit,
-                onException: (Throwable) -> Unit,
-            ) {}
-            override fun getWebCompatInfo(
-                onResult: (JSONObject) -> Unit,
-                onException: (Throwable) -> Unit,
-            ) {}
-            override fun sendMoreWebCompatInfo(
-                info: JSONObject,
-                onResult: () -> Unit,
-                onException: (Throwable) -> Unit,
-            ) {}
-            override fun requestTranslate(
-                fromLanguage: String,
-                toLanguage: String,
-                options: TranslationOptions?,
-            ) {}
-            override fun requestTranslationRestore() {}
-            override fun getNeverTranslateSiteSetting(
-                onResult: (Boolean) -> Unit,
-                onException: (Throwable) -> Unit,
-            ) {}
-            override fun setNeverTranslateSiteSetting(
-                setting: Boolean,
-                onResult: () -> Unit,
-                onException: (Throwable) -> Unit,
-            ) {}
-            override fun findAll(text: String) {}
-            override fun findNext(forward: Boolean) {}
-            override fun clearFindMatches() {}
-            override fun exitFullScreenMode() {}
-            override fun purgeHistory() {}
-            override fun loadData(data: String, mimeType: String, encoding: String) {}
-            override fun requestPdfToDownload() = Unit
-            override fun requestPrintContent() = Unit
-            override fun processBackPressed(onResult: (Boolean) -> Unit) {}
-            override fun loadUrl(
-                url: String,
-                parent: EngineSession?,
-                flags: LoadUrlFlags,
-                additionalHeaders: Map<String, String>?,
-                originalInput: String?,
-                textDirectiveUserActivation: Boolean,
-            ) {
-                notifyObservers { onProgress(80) }
-            }
-        }
+        val engineSession =
+            object : EngineSession() {
+                override val settings: Settings = mock()
 
-        val store = BrowserStore(
-            initialState = BrowserState(
-                tabs = listOf(
-                    createTab("https://www.mozilla.org", id = "mozilla"),
-                ),
-            ),
-        )
+                override fun goBack(userInteraction: Boolean) {}
+
+                override fun goForward(userInteraction: Boolean) {}
+
+                override fun goToHistoryIndex(index: Int) {}
+
+                override fun stopLoading() {}
+
+                override fun reload(flags: LoadUrlFlags) {}
+
+                override fun restoreState(state: EngineSessionState): Boolean {
+                    return false
+                }
+
+                override fun flushSessionState() {}
+
+                override fun updateTrackingProtection(policy: TrackingProtectionPolicy) {}
+
+                override fun toggleDesktopMode(enable: Boolean, reload: Boolean) {}
+
+                override fun checkForPdfViewer(
+                    onResult: (Boolean) -> Unit,
+                    onException: (Throwable) -> Unit,
+                ) {}
+
+                override fun getBrokenSiteReport(
+                    onResult: (JSONObject) -> Unit,
+                    onException: (Throwable) -> Unit,
+                ) {}
+
+                override fun sendGleanBrokenSiteReport(
+                    details: JSONObject?,
+                    description: String?,
+                    reason: String,
+                    url: String,
+                    sendTabSpecificInfo: Boolean,
+                    sendBlockedUrls: Boolean,
+                    onResult: () -> Unit,
+                    onException: (Throwable) -> Unit,
+                ) {}
+
+                override fun getWebCompatInfo(
+                    onResult: (JSONObject) -> Unit,
+                    onException: (Throwable) -> Unit,
+                ) {}
+
+                override fun sendMoreWebCompatInfo(
+                    info: JSONObject,
+                    onResult: () -> Unit,
+                    onException: (Throwable) -> Unit,
+                ) {}
+
+                override fun requestTranslate(
+                    fromLanguage: String,
+                    toLanguage: String,
+                    options: TranslationOptions?,
+                ) {}
+
+                override fun requestTranslationRestore() {}
+
+                override fun getNeverTranslateSiteSetting(
+                    onResult: (Boolean) -> Unit,
+                    onException: (Throwable) -> Unit,
+                ) {}
+
+                override fun setNeverTranslateSiteSetting(
+                    setting: Boolean,
+                    onResult: () -> Unit,
+                    onException: (Throwable) -> Unit,
+                ) {}
+
+                override fun findAll(text: String) {}
+
+                override fun findNext(forward: Boolean) {}
+
+                override fun clearFindMatches() {}
+
+                override fun exitFullScreenMode() {}
+
+                override fun purgeHistory() {}
+
+                override fun loadData(data: String, mimeType: String, encoding: String) {}
+
+                override fun requestPdfToDownload() = Unit
+
+                override fun requestPrintContent() = Unit
+
+                override fun processBackPressed(onResult: (Boolean) -> Unit) {}
+
+                override fun loadUrl(
+                    url: String,
+                    parent: EngineSession?,
+                    flags: LoadUrlFlags,
+                    additionalHeaders: Map<String, String>?,
+                    originalInput: String?,
+                    textDirectiveUserActivation: Boolean,
+                ) {
+                    notifyObservers { onProgress(80) }
+                }
+            }
+
+        val store =
+            BrowserStore(
+                initialState = BrowserState(tabs = listOf(createTab("https://www.mozilla.org", id = "mozilla")))
+            )
 
         assertEquals(false, store.state.translationsInitialized)
 
@@ -550,41 +741,29 @@ class EngineObserverTest {
         observer.onExcludedOnTrackingProtectionChange(true)
         testScheduler.advanceUntilIdle()
 
-        captureActionsMiddleware.assertFirstAction(TrackingProtectionAction.ToggleExclusionListAction::class) { action ->
+        captureActionsMiddleware.assertFirstAction(TrackingProtectionAction.ToggleExclusionListAction::class) { action
+            ->
             assertEquals("mozilla", action.tabId)
             assertTrue(action.excluded)
         }
     }
 
     @Test
-    fun `WHEN onCookieBannerChange is called THEN dispatch an CookieBannerAction UpdateStatusAction`() = runTest {
-        val captureActionsMiddleware = CaptureActionsMiddleware<BrowserState, BrowserAction>()
-        val store = BrowserStore(middleware = listOf(captureActionsMiddleware))
-        val observer = createEngineObserver(store = store, scope = this)
+    fun `WHEN onTranslatePageChange is called THEN dispatch a TranslationsAction SetTranslateProcessingAction`() =
+        runTest {
+            val captureActionsMiddleware = CaptureActionsMiddleware<BrowserState, BrowserAction>()
+            val store = BrowserStore(middleware = listOf(captureActionsMiddleware))
+            val observer = createEngineObserver(store = store, scope = this)
 
-        observer.onCookieBannerChange(HANDLED)
-        testScheduler.advanceUntilIdle()
+            observer.onTranslatePageChange()
+            testScheduler.advanceUntilIdle()
 
-        captureActionsMiddleware.assertFirstAction(CookieBannerAction.UpdateStatusAction::class) { action ->
-            assertEquals("mozilla", action.tabId)
-            assertEquals(HANDLED, action.status)
+            captureActionsMiddleware.assertFirstAction(TranslationsAction.SetTranslateProcessingAction::class) { action
+                ->
+                assertEquals("mozilla", action.tabId)
+                assertFalse(action.isProcessing)
+            }
         }
-    }
-
-    @Test
-    fun `WHEN onTranslatePageChange is called THEN dispatch a TranslationsAction SetTranslateProcessingAction`() = runTest {
-        val captureActionsMiddleware = CaptureActionsMiddleware<BrowserState, BrowserAction>()
-        val store = BrowserStore(middleware = listOf(captureActionsMiddleware))
-        val observer = createEngineObserver(store = store, scope = this)
-
-        observer.onTranslatePageChange()
-        testScheduler.advanceUntilIdle()
-
-        captureActionsMiddleware.assertFirstAction(TranslationsAction.SetTranslateProcessingAction::class) { action ->
-            assertEquals("mozilla", action.tabId)
-            assertFalse(action.isProcessing)
-        }
-    }
 
     @Test
     fun `WHEN onTranslateComplete is called THEN dispatch a TranslationsAction TranslateSuccessAction`() = runTest {
@@ -620,17 +799,20 @@ class EngineObserverTest {
 
     @Test
     fun engineObserverClearsWebsiteTitleIfNewPageStartsLoading() = runTest {
-        val store = BrowserStore(
-            initialState = BrowserState(
-                tabs = listOf(
-                    createTab(
-                        url = "https://www.mozilla.org",
-                        id = "mozilla",
-                        title = "Hello World",
-                    ),
-                ),
-            ),
-        )
+        val store =
+            BrowserStore(
+                initialState =
+                    BrowserState(
+                        tabs =
+                            listOf(
+                                createTab(
+                                    url = "https://www.mozilla.org",
+                                    id = "mozilla",
+                                    title = "Hello World",
+                                )
+                            )
+                    )
+            )
 
         val observer = createEngineObserver(store = store, scope = this)
         observer.onTitleChange("Mozilla")
@@ -646,17 +828,20 @@ class EngineObserverTest {
 
     @Test
     fun `EngineObserver does not clear title if the URL did not change`() = runTest {
-        val store = BrowserStore(
-            initialState = BrowserState(
-                tabs = listOf(
-                    createTab(
-                        url = "https://www.mozilla.org",
-                        id = "mozilla",
-                        title = "Hello World",
-                    ),
-                ),
-            ),
-        )
+        val store =
+            BrowserStore(
+                initialState =
+                    BrowserState(
+                        tabs =
+                            listOf(
+                                createTab(
+                                    url = "https://www.mozilla.org",
+                                    id = "mozilla",
+                                    title = "Hello World",
+                                )
+                            )
+                    )
+            )
 
         val observer = createEngineObserver(store = store, scope = this)
 
@@ -673,17 +858,20 @@ class EngineObserverTest {
 
     @Test
     fun `EngineObserver does not clear title if the URL changes hash`() = runTest {
-        val store = BrowserStore(
-            initialState = BrowserState(
-                tabs = listOf(
-                    createTab(
-                        url = "https://www.mozilla.org",
-                        id = "mozilla",
-                        title = "Hello World",
-                    ),
-                ),
-            ),
-        )
+        val store =
+            BrowserStore(
+                initialState =
+                    BrowserState(
+                        tabs =
+                            listOf(
+                                createTab(
+                                    url = "https://www.mozilla.org",
+                                    id = "mozilla",
+                                    title = "Hello World",
+                                )
+                            )
+                    )
+            )
 
         val observer = createEngineObserver(store = store, scope = this)
 
@@ -700,17 +888,20 @@ class EngineObserverTest {
 
     @Test
     fun `EngineObserver clears previewImageUrl if new page starts loading`() = runTest {
-        val store = BrowserStore(
-            initialState = BrowserState(
-                tabs = listOf(
-                    createTab(
-                        url = "https://www.mozilla.org",
-                        id = "mozilla",
-                        title = "Hello World",
-                    ),
-                ),
-            ),
-        )
+        val store =
+            BrowserStore(
+                initialState =
+                    BrowserState(
+                        tabs =
+                            listOf(
+                                createTab(
+                                    url = "https://www.mozilla.org",
+                                    id = "mozilla",
+                                    title = "Hello World",
+                                )
+                            )
+                    )
+            )
         val previewImageUrl = "https://test.com/og-image-url"
 
         val observer = createEngineObserver(store = store, scope = this)
@@ -727,17 +918,20 @@ class EngineObserverTest {
 
     @Test
     fun `EngineObserver does not clear previewImageUrl if the URL did not change`() = runTest {
-        val store = BrowserStore(
-            initialState = BrowserState(
-                tabs = listOf(
-                    createTab(
-                        url = "https://www.mozilla.org",
-                        id = "mozilla",
-                        title = "Hello World",
-                    ),
-                ),
-            ),
-        )
+        val store =
+            BrowserStore(
+                initialState =
+                    BrowserState(
+                        tabs =
+                            listOf(
+                                createTab(
+                                    url = "https://www.mozilla.org",
+                                    id = "mozilla",
+                                    title = "Hello World",
+                                )
+                            )
+                    )
+            )
         val previewImageUrl = "https://test.com/og-image-url"
 
         val observer = createEngineObserver(store = store, scope = this)
@@ -760,16 +954,19 @@ class EngineObserverTest {
 
     @Test
     fun engineObserverClearsBlockedTrackersIfNewPageStartsLoading() = runTest {
-        val store = BrowserStore(
-            initialState = BrowserState(
-                tabs = listOf(
-                    createTab(
-                        url = "https://www.mozilla.org",
-                        id = "mozilla",
-                    ),
-                ),
-            ),
-        )
+        val store =
+            BrowserStore(
+                initialState =
+                    BrowserState(
+                        tabs =
+                            listOf(
+                                createTab(
+                                    url = "https://www.mozilla.org",
+                                    id = "mozilla",
+                                )
+                            )
+                    )
+            )
 
         val observer = createEngineObserver(store = store, scope = this)
 
@@ -790,16 +987,19 @@ class EngineObserverTest {
 
     @Test
     fun engineObserverClearsLoadedTrackersIfNewPageStartsLoading() = runTest {
-        val store = BrowserStore(
-            initialState = BrowserState(
-                tabs = listOf(
-                    createTab(
-                        url = "https://www.mozilla.org",
-                        id = "mozilla",
-                    ),
-                ),
-            ),
-        )
+        val store =
+            BrowserStore(
+                initialState =
+                    BrowserState(
+                        tabs =
+                            listOf(
+                                createTab(
+                                    url = "https://www.mozilla.org",
+                                    id = "mozilla",
+                                )
+                            )
+                    )
+            )
 
         val observer = createEngineObserver(store = store, scope = this)
 
@@ -820,16 +1020,19 @@ class EngineObserverTest {
 
     @Test
     fun engineObserverClearsWebAppManifestIfNewPageStartsLoading() = runTest {
-        val store = BrowserStore(
-            initialState = BrowserState(
-                tabs = listOf(
-                    createTab(
-                        url = "https://www.mozilla.org",
-                        id = "mozilla",
-                    ),
-                ),
-            ),
-        )
+        val store =
+            BrowserStore(
+                initialState =
+                    BrowserState(
+                        tabs =
+                            listOf(
+                                createTab(
+                                    url = "https://www.mozilla.org",
+                                    id = "mozilla",
+                                )
+                            )
+                    )
+            )
 
         val manifest = WebAppManifest(name = "Mozilla", startUrl = "https://mozilla.org")
 
@@ -848,16 +1051,19 @@ class EngineObserverTest {
 
     @Test
     fun engineObserverClearsContentPermissionRequestIfNewPageStartsLoading() = runTest {
-        val store = BrowserStore(
-            initialState = BrowserState(
-                tabs = listOf(
-                    createTab(
-                        url = "https://www.mozilla.org",
-                        id = "mozilla",
-                    ),
-                ),
-            ),
-        )
+        val store =
+            BrowserStore(
+                initialState =
+                    BrowserState(
+                        tabs =
+                            listOf(
+                                createTab(
+                                    url = "https://www.mozilla.org",
+                                    id = "mozilla",
+                                )
+                            )
+                    )
+            )
 
         val observer = createEngineObserver(store = store, scope = this)
 
@@ -876,16 +1082,19 @@ class EngineObserverTest {
 
     @Test
     fun engineObserverDoesNotClearContentPermissionRequestIfSamePageStartsLoading() = runTest {
-        val store = BrowserStore(
-            initialState = BrowserState(
-                tabs = listOf(
-                    createTab(
-                        url = "https://www.mozilla.org",
-                        id = "mozilla",
-                    ),
-                ),
-            ),
-        )
+        val store =
+            BrowserStore(
+                initialState =
+                    BrowserState(
+                        tabs =
+                            listOf(
+                                createTab(
+                                    url = "https://www.mozilla.org",
+                                    id = "mozilla",
+                                )
+                            )
+                    )
+            )
 
         val observer = createEngineObserver(store = store, scope = this)
 
@@ -902,16 +1111,19 @@ class EngineObserverTest {
 
     @Test
     fun engineObserverDoesNotClearWebAppManifestIfNewPageInStartUrlScope() = runTest {
-        val store = BrowserStore(
-            initialState = BrowserState(
-                tabs = listOf(
-                    createTab(
-                        url = "https://www.mozilla.org",
-                        id = "mozilla",
-                    ),
-                ),
-            ),
-        )
+        val store =
+            BrowserStore(
+                initialState =
+                    BrowserState(
+                        tabs =
+                            listOf(
+                                createTab(
+                                    url = "https://www.mozilla.org",
+                                    id = "mozilla",
+                                )
+                            )
+                    )
+            )
 
         val manifest = WebAppManifest(name = "Mozilla", startUrl = "https://www.mozilla.org")
 
@@ -929,22 +1141,26 @@ class EngineObserverTest {
 
     @Test
     fun engineObserverDoesNotClearWebAppManifestIfNewPageInScope() = runTest {
-        val store = BrowserStore(
-            initialState = BrowserState(
-                tabs = listOf(
-                    createTab(
-                        url = "https://www.mozilla.org",
-                        id = "mozilla",
-                    ),
-                ),
-            ),
-        )
+        val store =
+            BrowserStore(
+                initialState =
+                    BrowserState(
+                        tabs =
+                            listOf(
+                                createTab(
+                                    url = "https://www.mozilla.org",
+                                    id = "mozilla",
+                                )
+                            )
+                    )
+            )
 
-        val manifest = WebAppManifest(
-            name = "Mozilla",
-            startUrl = "https://www.mozilla.org",
-            scope = "https://www.mozilla.org/hello/",
-        )
+        val manifest =
+            WebAppManifest(
+                name = "Mozilla",
+                startUrl = "https://www.mozilla.org",
+                scope = "https://www.mozilla.org/hello/",
+            )
 
         val observer = createEngineObserver(store = store, scope = this)
 
@@ -966,16 +1182,19 @@ class EngineObserverTest {
 
     @Test
     fun engineObserverPassingHitResult() = runTest {
-        val store = BrowserStore(
-            initialState = BrowserState(
-                tabs = listOf(
-                    createTab(
-                        url = "https://www.mozilla.org",
-                        id = "mozilla",
-                    ),
-                ),
-            ),
-        )
+        val store =
+            BrowserStore(
+                initialState =
+                    BrowserState(
+                        tabs =
+                            listOf(
+                                createTab(
+                                    url = "https://www.mozilla.org",
+                                    id = "mozilla",
+                                )
+                            )
+                    )
+            )
 
         val observer = createEngineObserver(store = store, scope = this)
 
@@ -990,9 +1209,7 @@ class EngineObserverTest {
     @Test
     fun engineObserverClearsFindResults() = runTest {
         val middleware = CaptureActionsMiddleware<BrowserState, BrowserAction>()
-        val store = BrowserStore(
-            middleware = listOf(middleware),
-        )
+        val store = BrowserStore(middleware = listOf(middleware))
         val observer = createEngineObserver(tabId = "tab", store = store, scope = this)
 
         observer.onFindResult(0, 1, false)
@@ -1012,9 +1229,7 @@ class EngineObserverTest {
     @Test
     fun engineObserverClearsFindResultIfNewPageStartsLoading() = runTest {
         val middleware = CaptureActionsMiddleware<BrowserState, BrowserAction>()
-        val store = BrowserStore(
-            middleware = listOf(middleware),
-        )
+        val store = BrowserStore(middleware = listOf(middleware))
         val observer = createEngineObserver(tabId = "tab-id", store = store, scope = this)
 
         observer.onFindResult(0, 1, false)
@@ -1041,14 +1256,13 @@ class EngineObserverTest {
     @Test
     fun engineObserverClearsRefreshCanceledIfNewPageStartsLoading() = runTest {
         val middleware = CaptureActionsMiddleware<BrowserState, BrowserAction>()
-        val store = BrowserStore(
-            middleware = listOf(middleware),
-        )
-        val observer = EngineObserver(
-            tabId = "tab-id",
-            store = store,
-            scope = this,
-        )
+        val store = BrowserStore(middleware = listOf(middleware))
+        val observer =
+            EngineObserver(
+                tabId = "tab-id",
+                store = store,
+                scope = this,
+            )
 
         observer.onRepostPromptCancelled()
         testScheduler.advanceUntilIdle()
@@ -1069,11 +1283,12 @@ class EngineObserverTest {
     fun engineObserverHandlesOnRepostPromptCancelled() = runTest {
         val captureActionsMiddleware = CaptureActionsMiddleware<BrowserState, BrowserAction>()
         val store = BrowserStore(middleware = listOf(captureActionsMiddleware))
-        val observer = EngineObserver(
-            tabId = "tab-id",
-            store = store,
-            scope = this,
-        )
+        val observer =
+            EngineObserver(
+                tabId = "tab-id",
+                store = store,
+                scope = this,
+            )
 
         observer.onRepostPromptCancelled()
         testScheduler.advanceUntilIdle()
@@ -1088,11 +1303,12 @@ class EngineObserverTest {
     fun engineObserverHandlesOnBeforeUnloadDenied() = runTest {
         val captureActionsMiddleware = CaptureActionsMiddleware<BrowserState, BrowserAction>()
         val store = BrowserStore(middleware = listOf(captureActionsMiddleware))
-        val observer = EngineObserver(
-            tabId = "tab-id",
-            store = store,
-            scope = this,
-        )
+        val observer =
+            EngineObserver(
+                tabId = "tab-id",
+                store = store,
+                scope = this,
+            )
 
         observer.onBeforeUnloadPromptDenied()
         testScheduler.advanceUntilIdle()
@@ -1110,14 +1326,13 @@ class EngineObserverTest {
     @Test
     fun engineObserverNotifiesFullscreenMode() = runTest {
         val middleware = CaptureActionsMiddleware<BrowserState, BrowserAction>()
-        val store = BrowserStore(
-            middleware = listOf(middleware),
-        )
-        val observer = EngineObserver(
-            tabId = "tab-id",
-            store = store,
-            scope = this,
-        )
+        val store = BrowserStore(middleware = listOf(middleware))
+        val observer =
+            EngineObserver(
+                tabId = "tab-id",
+                store = store,
+                scope = this,
+            )
 
         observer.onFullScreenChange(true)
         testScheduler.advanceUntilIdle()
@@ -1137,14 +1352,13 @@ class EngineObserverTest {
     @Test
     fun engineObserverNotifiesDesktopMode() = runTest {
         val middleware = CaptureActionsMiddleware<BrowserState, BrowserAction>()
-        val store = BrowserStore(
-            middleware = listOf(middleware),
-        )
-        val observer = EngineObserver(
-            tabId = "tab-id",
-            store = store,
-            scope = this,
-        )
+        val store = BrowserStore(middleware = listOf(middleware))
+        val observer =
+            EngineObserver(
+                tabId = "tab-id",
+                store = store,
+                scope = this,
+            )
 
         observer.onDesktopModeChange(true)
         testScheduler.advanceUntilIdle()
@@ -1164,14 +1378,13 @@ class EngineObserverTest {
     @Test
     fun engineObserverNotifiesMetaViewportFitChange() = runTest {
         val middleware = CaptureActionsMiddleware<BrowserState, BrowserAction>()
-        val store = BrowserStore(
-            middleware = listOf(middleware),
-        )
-        val observer = EngineObserver(
-            tabId = "tab-id",
-            store = store,
-            scope = this,
-        )
+        val store = BrowserStore(middleware = listOf(middleware))
+        val observer =
+            EngineObserver(
+                tabId = "tab-id",
+                store = store,
+                scope = this,
+            )
 
         observer.onMetaViewportFitChanged(WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT)
         testScheduler.advanceUntilIdle()
@@ -1217,22 +1430,26 @@ class EngineObserverTest {
 
     @Test
     fun engineObserverNotifiesWebAppManifest() = runTest {
-        val store = BrowserStore(
-            initialState = BrowserState(
-                tabs = listOf(
-                    createTab(
-                        url = "https://www.mozilla.org",
-                        id = "mozilla",
-                    ),
-                ),
-            ),
-        )
+        val store =
+            BrowserStore(
+                initialState =
+                    BrowserState(
+                        tabs =
+                            listOf(
+                                createTab(
+                                    url = "https://www.mozilla.org",
+                                    id = "mozilla",
+                                )
+                            )
+                    )
+            )
 
         val observer = createEngineObserver(store = store, scope = this)
-        val manifest = WebAppManifest(
-            name = "Minimal",
-            startUrl = "/",
-        )
+        val manifest =
+            WebAppManifest(
+                name = "Minimal",
+                startUrl = "/",
+            )
 
         observer.onWebAppManifestLoaded(manifest)
         testScheduler.advanceUntilIdle()
@@ -1245,15 +1462,17 @@ class EngineObserverTest {
         val captureActionsMiddleware = CaptureActionsMiddleware<BrowserState, BrowserAction>()
         val permissionRequest: PermissionRequest = mock()
         val store = BrowserStore(middleware = listOf(captureActionsMiddleware))
-        val observer = EngineObserver(
-            tabId = "tab-id",
-            store = store,
-            scope = this,
-        )
-        val action = ContentAction.UpdatePermissionsRequest(
-            "tab-id",
-            permissionRequest,
-        )
+        val observer =
+            EngineObserver(
+                tabId = "tab-id",
+                store = store,
+                scope = this,
+            )
+        val action =
+            ContentAction.UpdatePermissionsRequest(
+                "tab-id",
+                permissionRequest,
+            )
         observer.onContentPermissionRequest(permissionRequest)
         testScheduler.advanceUntilIdle()
 
@@ -1268,15 +1487,17 @@ class EngineObserverTest {
         val captureActionsMiddleware = CaptureActionsMiddleware<BrowserState, BrowserAction>()
         val permissionRequest: PermissionRequest = mock()
         val store = BrowserStore(middleware = listOf(captureActionsMiddleware))
-        val observer = EngineObserver(
-            tabId = "tab-id",
-            store = store,
-            scope = this,
-        )
-        val action = ContentAction.UpdateAppPermissionsRequest(
-            "tab-id",
-            permissionRequest,
-        )
+        val observer =
+            EngineObserver(
+                tabId = "tab-id",
+                store = store,
+                scope = this,
+            )
+        val action =
+            ContentAction.UpdateAppPermissionsRequest(
+                "tab-id",
+                permissionRequest,
+            )
 
         observer.onAppPermissionRequest(permissionRequest)
         testScheduler.advanceUntilIdle()
@@ -1292,11 +1513,12 @@ class EngineObserverTest {
         val captureActionsMiddleware = CaptureActionsMiddleware<BrowserState, BrowserAction>()
         val promptRequest: PromptRequest = mock<PromptRequest.SingleChoice>()
         val store = BrowserStore(middleware = listOf(captureActionsMiddleware))
-        val observer = EngineObserver(
-            tabId = "tab-id",
-            store = store,
-            scope = this,
-        )
+        val observer =
+            EngineObserver(
+                tabId = "tab-id",
+                store = store,
+                scope = this,
+            )
 
         observer.onPromptRequest(promptRequest)
         testScheduler.advanceUntilIdle()
@@ -1312,11 +1534,12 @@ class EngineObserverTest {
         val captureActionsMiddleware = CaptureActionsMiddleware<BrowserState, BrowserAction>()
         val promptRequest: PromptRequest = mock<PromptRequest.SingleChoice>()
         val store = BrowserStore(middleware = listOf(captureActionsMiddleware))
-        val observer = EngineObserver(
-            tabId = "tab-id",
-            store = store,
-            scope = this,
-        )
+        val observer =
+            EngineObserver(
+                tabId = "tab-id",
+                store = store,
+                scope = this,
+            )
         val previousPromptUID = "prompt-uid"
 
         observer.onPromptUpdate(previousPromptUID, promptRequest)
@@ -1335,11 +1558,12 @@ class EngineObserverTest {
         val captureActionsMiddleware = CaptureActionsMiddleware<BrowserState, BrowserAction>()
         val store = BrowserStore(middleware = listOf(captureActionsMiddleware))
 
-        val observer = EngineObserver(
-            tabId = "tab-id",
-            store = store,
-            scope = this,
-        )
+        val observer =
+            EngineObserver(
+                tabId = "tab-id",
+                store = store,
+                scope = this,
+            )
 
         observer.onWindowRequest(windowRequest)
         testScheduler.advanceUntilIdle()
@@ -1354,16 +1578,18 @@ class EngineObserverTest {
     fun engineObserverHandlesFirstContentfulPaint() = runTest {
         val captureActionsMiddleware = CaptureActionsMiddleware<BrowserState, BrowserAction>()
         val store = BrowserStore(middleware = listOf(captureActionsMiddleware))
-        val observer = createEngineObserver(
-            tabId = "tab-id",
-            store = store,
-            scope = this,
-        )
+        val observer =
+            createEngineObserver(
+                tabId = "tab-id",
+                store = store,
+                scope = this,
+            )
 
         observer.onFirstContentfulPaint()
         testScheduler.advanceUntilIdle()
 
-        captureActionsMiddleware.assertFirstAction(ContentAction.UpdateFirstContentfulPaintStateAction::class) { action ->
+        captureActionsMiddleware.assertFirstAction(ContentAction.UpdateFirstContentfulPaintStateAction::class) { action
+            ->
             assertEquals("tab-id", action.sessionId)
             assertTrue(action.firstContentfulPaint)
         }
@@ -1373,16 +1599,18 @@ class EngineObserverTest {
     fun engineObserverHandlesPaintStatusReset() = runTest {
         val captureActionsMiddleware = CaptureActionsMiddleware<BrowserState, BrowserAction>()
         val store = BrowserStore(middleware = listOf(captureActionsMiddleware))
-        val observer = EngineObserver(
-            tabId = "tab-id",
-            store = store,
-            scope = this,
-        )
+        val observer =
+            EngineObserver(
+                tabId = "tab-id",
+                store = store,
+                scope = this,
+            )
 
         observer.onPaintStatusReset()
         testScheduler.advanceUntilIdle()
 
-        captureActionsMiddleware.assertFirstAction(ContentAction.UpdateFirstContentfulPaintStateAction::class) { action ->
+        captureActionsMiddleware.assertFirstAction(ContentAction.UpdateFirstContentfulPaintStateAction::class) { action
+            ->
             assertEquals("tab-id", action.sessionId)
             assertFalse(action.firstContentfulPaint)
         }
@@ -1392,11 +1620,12 @@ class EngineObserverTest {
     fun engineObserverHandlesOnShowDynamicToolbar() = runTest {
         val captureActionsMiddleware = CaptureActionsMiddleware<BrowserState, BrowserAction>()
         val store = BrowserStore(middleware = listOf(captureActionsMiddleware))
-        val observer = EngineObserver(
-            tabId = "tab-id",
-            store = store,
-            scope = this,
-        )
+        val observer =
+            EngineObserver(
+                tabId = "tab-id",
+                store = store,
+                scope = this,
+            )
 
         observer.onShowDynamicToolbar()
         testScheduler.advanceUntilIdle()
@@ -1409,22 +1638,26 @@ class EngineObserverTest {
 
     @Test
     fun `onMediaActivated will update the store`() = runTest {
-        val store = BrowserStore(
-            initialState = BrowserState(
-                tabs = listOf(
-                    createTab(
-                        url = "https://www.mozilla.org",
-                        id = "mozilla",
-                    ),
-                ),
-            ),
-        )
+        val store =
+            BrowserStore(
+                initialState =
+                    BrowserState(
+                        tabs =
+                            listOf(
+                                createTab(
+                                    url = "https://www.mozilla.org",
+                                    id = "mozilla",
+                                )
+                            )
+                    )
+            )
 
-        val observer = createEngineObserver(
-            tabId = "mozilla",
-            store = store,
-            scope = this,
-        )
+        val observer =
+            createEngineObserver(
+                tabId = "mozilla",
+                store = store,
+                scope = this,
+            )
         val mediaSessionController: MediaSession.Controller = mock()
 
         assertNull(store.state.tabs[0].mediaSessionState)
@@ -1434,24 +1667,25 @@ class EngineObserverTest {
 
         val observedMediaSessionState = store.state.tabs[0].mediaSessionState
         assertNotNull(observedMediaSessionState)
-        assertEquals(mediaSessionController, observedMediaSessionState?.controller)
+        assertEquals(mediaSessionController, observedMediaSessionState.controller)
     }
 
     @Test
     fun `onMediaDeactivated will update the store`() = runTest {
-        val store = BrowserStore(
-            initialState = BrowserState(
-                tabs = listOf(
-                    createTab(
-                        url = "https://www.mozilla.org",
-                        id = "mozilla",
-                        mediaSessionState = MediaSessionState(
-                            controller = mock(),
-                        ),
-                    ),
-                ),
-            ),
-        )
+        val store =
+            BrowserStore(
+                initialState =
+                    BrowserState(
+                        tabs =
+                            listOf(
+                                createTab(
+                                    url = "https://www.mozilla.org",
+                                    id = "mozilla",
+                                    mediaSessionState = MediaSessionState(controller = mock()),
+                                )
+                            )
+                    )
+            )
 
         val observer = createEngineObserver(store = store, scope = this)
 
@@ -1466,19 +1700,20 @@ class EngineObserverTest {
 
     @Test
     fun `onMediaMetadataChanged will update the store`() = runTest {
-        val store = BrowserStore(
-            initialState = BrowserState(
-                tabs = listOf(
-                    createTab(
-                        url = "https://www.mozilla.org",
-                        id = "mozilla",
-                        mediaSessionState = MediaSessionState(
-                            controller = mock(),
-                        ),
-                    ),
-                ),
-            ),
-        )
+        val store =
+            BrowserStore(
+                initialState =
+                    BrowserState(
+                        tabs =
+                            listOf(
+                                createTab(
+                                    url = "https://www.mozilla.org",
+                                    id = "mozilla",
+                                    mediaSessionState = MediaSessionState(controller = mock()),
+                                )
+                            )
+                    )
+            )
 
         val observer = createEngineObserver(store = store, scope = this)
         val mediaSessionController: MediaSession.Controller = mock()
@@ -1490,25 +1725,26 @@ class EngineObserverTest {
 
         val observedMediaSessionState = store.state.findTab("mozilla")?.mediaSessionState
         assertNotNull(observedMediaSessionState)
-        assertEquals(mediaSessionController, observedMediaSessionState?.controller)
-        assertEquals(metaData, observedMediaSessionState?.metadata)
+        assertEquals(mediaSessionController, observedMediaSessionState.controller)
+        assertEquals(metaData, observedMediaSessionState.metadata)
     }
 
     @Test
     fun `onMediaPlaybackStateChanged will update the store`() = runTest {
-        val store = BrowserStore(
-            initialState = BrowserState(
-                tabs = listOf(
-                    createTab(
-                        url = "https://www.mozilla.org",
-                        id = "mozilla",
-                        mediaSessionState = MediaSessionState(
-                            controller = mock(),
-                        ),
-                    ),
-                ),
-            ),
-        )
+        val store =
+            BrowserStore(
+                initialState =
+                    BrowserState(
+                        tabs =
+                            listOf(
+                                createTab(
+                                    url = "https://www.mozilla.org",
+                                    id = "mozilla",
+                                    mediaSessionState = MediaSessionState(controller = mock()),
+                                )
+                            )
+                    )
+            )
 
         val observer = createEngineObserver(store = store, scope = this)
         val mediaSessionController: MediaSession.Controller = mock()
@@ -1520,25 +1756,26 @@ class EngineObserverTest {
 
         val observedMediaSessionState = store.state.findTab("mozilla")?.mediaSessionState
         assertNotNull(observedMediaSessionState)
-        assertEquals(mediaSessionController, observedMediaSessionState?.controller)
-        assertEquals(playbackState, observedMediaSessionState?.playbackState)
+        assertEquals(mediaSessionController, observedMediaSessionState.controller)
+        assertEquals(playbackState, observedMediaSessionState.playbackState)
     }
 
     @Test
     fun `onMediaFeatureChanged will update the store`() = runTest {
-        val store = BrowserStore(
-            initialState = BrowserState(
-                tabs = listOf(
-                    createTab(
-                        url = "https://www.mozilla.org",
-                        id = "mozilla",
-                        mediaSessionState = MediaSessionState(
-                            controller = mock(),
-                        ),
-                    ),
-                ),
-            ),
-        )
+        val store =
+            BrowserStore(
+                initialState =
+                    BrowserState(
+                        tabs =
+                            listOf(
+                                createTab(
+                                    url = "https://www.mozilla.org",
+                                    id = "mozilla",
+                                    mediaSessionState = MediaSessionState(controller = mock()),
+                                )
+                            )
+                    )
+            )
 
         val observer = createEngineObserver(store = store, scope = this)
         val mediaSessionController: MediaSession.Controller = mock()
@@ -1550,25 +1787,26 @@ class EngineObserverTest {
 
         val observedMediaSessionState = store.state.findTab("mozilla")?.mediaSessionState
         assertNotNull(observedMediaSessionState)
-        assertEquals(mediaSessionController, observedMediaSessionState?.controller)
-        assertEquals(playFeature, observedMediaSessionState?.features)
+        assertEquals(mediaSessionController, observedMediaSessionState.controller)
+        assertEquals(playFeature, observedMediaSessionState.features)
     }
 
     @Test
     fun `onMediaPositionStateChanged will update the store`() = runTest {
-        val store = BrowserStore(
-            initialState = BrowserState(
-                tabs = listOf(
-                    createTab(
-                        url = "https://www.mozilla.org",
-                        id = "mozilla",
-                        mediaSessionState = MediaSessionState(
-                            controller = mock(),
-                        ),
-                    ),
-                ),
-            ),
-        )
+        val store =
+            BrowserStore(
+                initialState =
+                    BrowserState(
+                        tabs =
+                            listOf(
+                                createTab(
+                                    url = "https://www.mozilla.org",
+                                    id = "mozilla",
+                                    mediaSessionState = MediaSessionState(controller = mock()),
+                                )
+                            )
+                    )
+            )
 
         val observer = createEngineObserver(store = store, scope = this)
         val mediaSessionController: MediaSession.Controller = mock()
@@ -1580,25 +1818,26 @@ class EngineObserverTest {
 
         val observedMediaSessionState = store.state.findTab("mozilla")?.mediaSessionState
         assertNotNull(observedMediaSessionState)
-        assertEquals(mediaSessionController, observedMediaSessionState?.controller)
-        assertEquals(positionState, observedMediaSessionState?.positionState)
+        assertEquals(mediaSessionController, observedMediaSessionState.controller)
+        assertEquals(positionState, observedMediaSessionState.positionState)
     }
 
     @Test
     fun `onMediaMuteChanged will update the store`() = runTest {
-        val store = BrowserStore(
-            initialState = BrowserState(
-                tabs = listOf(
-                    createTab(
-                        url = "https://www.mozilla.org",
-                        id = "mozilla",
-                        mediaSessionState = MediaSessionState(
-                            controller = mock(),
-                        ),
-                    ),
-                ),
-            ),
-        )
+        val store =
+            BrowserStore(
+                initialState =
+                    BrowserState(
+                        tabs =
+                            listOf(
+                                createTab(
+                                    url = "https://www.mozilla.org",
+                                    id = "mozilla",
+                                    mediaSessionState = MediaSessionState(controller = mock()),
+                                )
+                            )
+                    )
+            )
 
         val observer = createEngineObserver(store = store, scope = this)
         val mediaSessionController: MediaSession.Controller = mock()
@@ -1609,25 +1848,26 @@ class EngineObserverTest {
 
         val observedMediaSessionState = store.state.findTab("mozilla")?.mediaSessionState
         assertNotNull(observedMediaSessionState)
-        assertEquals(mediaSessionController, observedMediaSessionState?.controller)
-        assertEquals(true, observedMediaSessionState?.muted)
+        assertEquals(mediaSessionController, observedMediaSessionState.controller)
+        assertEquals(true, observedMediaSessionState.muted)
     }
 
     @Test
     fun `onMediaFullscreenChanged will update the store`() = runTest {
-        val store = BrowserStore(
-            initialState = BrowserState(
-                tabs = listOf(
-                    createTab(
-                        url = "https://www.mozilla.org",
-                        id = "mozilla",
-                        mediaSessionState = MediaSessionState(
-                            controller = mock(),
-                        ),
-                    ),
-                ),
-            ),
-        )
+        val store =
+            BrowserStore(
+                initialState =
+                    BrowserState(
+                        tabs =
+                            listOf(
+                                createTab(
+                                    url = "https://www.mozilla.org",
+                                    id = "mozilla",
+                                    mediaSessionState = MediaSessionState(controller = mock()),
+                                )
+                            )
+                    )
+            )
 
         val observer = createEngineObserver(store = store, scope = this)
         val mediaSessionController: MediaSession.Controller = mock()
@@ -1639,23 +1879,26 @@ class EngineObserverTest {
 
         val observedMediaSessionState = store.state.findTab("mozilla")?.mediaSessionState
         assertNotNull(observedMediaSessionState)
-        assertEquals(mediaSessionController, observedMediaSessionState?.controller)
-        assertEquals(true, observedMediaSessionState?.fullscreen)
-        assertEquals(elementMetadata, observedMediaSessionState?.elementMetadata)
+        assertEquals(mediaSessionController, observedMediaSessionState.controller)
+        assertEquals(true, observedMediaSessionState.fullscreen)
+        assertEquals(elementMetadata, observedMediaSessionState.elementMetadata)
     }
 
     @Test
     fun `updates are ignored when media session is deactivated`() = runTest {
-        val store = BrowserStore(
-            initialState = BrowserState(
-                tabs = listOf(
-                    createTab(
-                        url = "https://www.mozilla.org",
-                        id = "mozilla",
-                    ),
-                ),
-            ),
-        )
+        val store =
+            BrowserStore(
+                initialState =
+                    BrowserState(
+                        tabs =
+                            listOf(
+                                createTab(
+                                    url = "https://www.mozilla.org",
+                                    id = "mozilla",
+                                )
+                            )
+                    )
+            )
 
         val observer = createEngineObserver(store = store, scope = this)
         val elementMetadata: MediaSession.ElementMetadata = MediaSession.ElementMetadata()
@@ -1670,23 +1913,25 @@ class EngineObserverTest {
 
     @Test
     fun `onExternalResource will update the store`() = runTest {
-        val response = mock<Response> {
-            `when`(headers).thenReturn(MutableHeaders(listOf(Header(E_TAG, "12345"))))
-        }
+        val response =
+            mock<Response> {
+                `when`(headers).thenReturn(MutableHeaders(listOf(Header(E_TAG, "12345"))))
+            }
 
-        val store = BrowserStore(
-            initialState = BrowserState(
-                tabs = listOf(
-                    createTab(
-                        url = "https://www.mozilla.org",
-                        id = "mozilla",
-                        mediaSessionState = MediaSessionState(
-                            controller = mock(),
-                        ),
-                    ),
-                ),
-            ),
-        )
+        val store =
+            BrowserStore(
+                initialState =
+                    BrowserState(
+                        tabs =
+                            listOf(
+                                createTab(
+                                    url = "https://www.mozilla.org",
+                                    id = "mozilla",
+                                    mediaSessionState = MediaSessionState(controller = mock()),
+                                )
+                            )
+                    )
+            )
 
         val observer = createEngineObserver(store = store, scope = this)
 
@@ -1715,25 +1960,27 @@ class EngineObserverTest {
 
     @Test
     fun `onExternalResource with negative contentLength`() = runTest {
-        val store = BrowserStore(
-            initialState = BrowserState(
-                tabs = listOf(
-                    createTab(
-                        url = "https://www.mozilla.org",
-                        id = "test-tab",
-                        mediaSessionState = MediaSessionState(
-                            controller = mock(),
-                        ),
-                    ),
-                ),
-            ),
-        )
+        val store =
+            BrowserStore(
+                initialState =
+                    BrowserState(
+                        tabs =
+                            listOf(
+                                createTab(
+                                    url = "https://www.mozilla.org",
+                                    id = "test-tab",
+                                    mediaSessionState = MediaSessionState(controller = mock()),
+                                )
+                            )
+                    )
+            )
 
-        val observer = createEngineObserver(
-            tabId = "test-tab",
-            store = store,
-            scope = this,
-        )
+        val observer =
+            createEngineObserver(
+                tabId = "test-tab",
+                store = store,
+                scope = this,
+            )
 
         observer.onExternalResource(url = "mozilla.org/file.txt", contentLength = -1)
 
@@ -1746,11 +1993,12 @@ class EngineObserverTest {
     fun `onCrashStateChanged will update session and notify observer`() = runTest {
         val captureActionsMiddleware = CaptureActionsMiddleware<BrowserState, BrowserAction>()
         val store = BrowserStore(middleware = listOf(captureActionsMiddleware))
-        val observer = createEngineObserver(
-            tabId = "test-id",
-            store = store,
-            scope = this,
-        )
+        val observer =
+            createEngineObserver(
+                tabId = "test-id",
+                store = store,
+                scope = this,
+            )
 
         observer.onCrash()
         testScheduler.advanceUntilIdle()
@@ -1763,15 +2011,14 @@ class EngineObserverTest {
     @Test
     fun `onLocationChange does not clear search terms`() = runTest {
         val middleware = CaptureActionsMiddleware<BrowserState, BrowserAction>()
-        val store = BrowserStore(
-            middleware = listOf(middleware),
-        )
+        val store = BrowserStore(middleware = listOf(middleware))
 
-        val observer = createEngineObserver(
-            tabId = "test-id",
-            store = store,
-            scope = this,
-        )
+        val observer =
+            createEngineObserver(
+                tabId = "test-id",
+                store = store,
+                scope = this,
+            )
         observer.onLocationChange("https://www.mozilla.org/en-US/", false)
         testScheduler.advanceUntilIdle()
 
@@ -1783,15 +2030,14 @@ class EngineObserverTest {
         val url = "https://www.mozilla.org"
 
         val middleware = CaptureActionsMiddleware<BrowserState, BrowserAction>()
-        val store = BrowserStore(
-            middleware = listOf(middleware),
-        )
+        val store = BrowserStore(middleware = listOf(middleware))
 
-        val observer = createEngineObserver(
-            tabId = "test-id",
-            store = store,
-            scope = this,
-        )
+        val observer =
+            createEngineObserver(
+                tabId = "test-id",
+                store = store,
+                scope = this,
+            )
         observer.onLoadRequest(url = url, triggeredByRedirect = false, triggeredByWebContent = true)
         testScheduler.advanceUntilIdle()
 
@@ -1808,11 +2054,12 @@ class EngineObserverTest {
         val captureActionsMiddleware = CaptureActionsMiddleware<BrowserState, BrowserAction>()
         val store = BrowserStore(middleware = listOf(captureActionsMiddleware))
 
-        val observer = createEngineObserver(
-            tabId = "test-id",
-            store = store,
-            scope = this,
-        )
+        val observer =
+            createEngineObserver(
+                tabId = "test-id",
+                store = store,
+                scope = this,
+            )
         observer.onLoadRequest(url = url, triggeredByRedirect = true, triggeredByWebContent = false)
         testScheduler.advanceUntilIdle()
 
@@ -1825,24 +2072,24 @@ class EngineObserverTest {
     }
 
     @Test
-    fun `onLoadRequest does not clear search terms for requests not triggered by user interacting with web content`() = runTest {
-        val url = "https://www.mozilla.org"
+    fun `onLoadRequest does not clear search terms for requests not triggered by user interacting with web content`() =
+        runTest {
+            val url = "https://www.mozilla.org"
 
-        val middleware = CaptureActionsMiddleware<BrowserState, BrowserAction>()
-        val store = BrowserStore(
-            middleware = listOf(middleware),
-        )
+            val middleware = CaptureActionsMiddleware<BrowserState, BrowserAction>()
+            val store = BrowserStore(middleware = listOf(middleware))
 
-        val observer = createEngineObserver(
-            tabId = "test-id",
-            store = store,
-            scope = this,
-        )
-        observer.onLoadRequest(url = url, triggeredByRedirect = false, triggeredByWebContent = false)
-        testScheduler.advanceUntilIdle()
+            val observer =
+                createEngineObserver(
+                    tabId = "test-id",
+                    store = store,
+                    scope = this,
+                )
+            observer.onLoadRequest(url = url, triggeredByRedirect = false, triggeredByWebContent = false)
+            testScheduler.advanceUntilIdle()
 
-        middleware.assertNotDispatched(ContentAction.UpdateSearchTermsAction::class)
-    }
+            middleware.assertNotDispatched(ContentAction.UpdateSearchTermsAction::class)
+        }
 
     @Test
     fun `onLaunchIntentRequest dispatches UpdateAppIntentAction`() = runTest {
@@ -1850,11 +2097,12 @@ class EngineObserverTest {
         val captureActionsMiddleware = CaptureActionsMiddleware<BrowserState, BrowserAction>()
 
         val store = BrowserStore(middleware = listOf(captureActionsMiddleware))
-        val observer = createEngineObserver(
-            tabId = "test-id",
-            store = store,
-            scope = this,
-        )
+        val observer =
+            createEngineObserver(
+                tabId = "test-id",
+                store = store,
+                scope = this,
+            )
         val intent: Intent = mock()
         observer.onLaunchIntentRequest(url = url, appIntent = intent, fallbackUrl = null, appName = null)
         testScheduler.advanceUntilIdle()
@@ -1871,15 +2119,14 @@ class EngineObserverTest {
     @Test
     fun `onNavigateBack clears search terms when navigating back`() = runTest {
         val middleware = CaptureActionsMiddleware<BrowserState, BrowserAction>()
-        val store = BrowserStore(
-            middleware = listOf(middleware),
-        )
+        val store = BrowserStore(middleware = listOf(middleware))
 
-        val observer = createEngineObserver(
-            tabId = "test-id",
-            store = store,
-            scope = this,
-        )
+        val observer =
+            createEngineObserver(
+                tabId = "test-id",
+                store = store,
+                scope = this,
+            )
         observer.onNavigateBack()
         testScheduler.advanceUntilIdle()
 
@@ -1892,15 +2139,14 @@ class EngineObserverTest {
     @Test
     fun `WHEN navigating forward THEN search terms are cleared`() = runTest {
         val middleware = CaptureActionsMiddleware<BrowserState, BrowserAction>()
-        val store = BrowserStore(
-            middleware = listOf(middleware),
-        )
+        val store = BrowserStore(middleware = listOf(middleware))
 
-        val observer = createEngineObserver(
-            tabId = "test-id",
-            store = store,
-            scope = this,
-        )
+        val observer =
+            createEngineObserver(
+                tabId = "test-id",
+                store = store,
+                scope = this,
+            )
         observer.onNavigateForward()
         testScheduler.advanceUntilIdle()
 
@@ -1913,15 +2159,14 @@ class EngineObserverTest {
     @Test
     fun `WHEN navigating to history index THEN search terms are cleared`() = runTest {
         val middleware = CaptureActionsMiddleware<BrowserState, BrowserAction>()
-        val store = BrowserStore(
-            middleware = listOf(middleware),
-        )
+        val store = BrowserStore(middleware = listOf(middleware))
 
-        val observer = createEngineObserver(
-            tabId = "test-id",
-            store = store,
-            scope = this,
-        )
+        val observer =
+            createEngineObserver(
+                tabId = "test-id",
+                store = store,
+                scope = this,
+            )
         observer.onGotoHistoryIndex()
         testScheduler.advanceUntilIdle()
 
@@ -1934,15 +2179,14 @@ class EngineObserverTest {
     @Test
     fun `WHEN loading data THEN the search terms are cleared`() = runTest {
         val middleware = CaptureActionsMiddleware<BrowserState, BrowserAction>()
-        val store = BrowserStore(
-            middleware = listOf(middleware),
-        )
+        val store = BrowserStore(middleware = listOf(middleware))
 
-        val observer = createEngineObserver(
-            tabId = "test-id",
-            store = store,
-            scope = this,
-        )
+        val observer =
+            createEngineObserver(
+                tabId = "test-id",
+                store = store,
+                scope = this,
+            )
         observer.onLoadData()
         testScheduler.advanceUntilIdle()
 
@@ -1955,22 +2199,20 @@ class EngineObserverTest {
     @Test
     fun `GIVEN a search is not performed WHEN loading the URL THEN the search terms are cleared`() = runTest {
         val middleware = CaptureActionsMiddleware<BrowserState, BrowserAction>()
-        val store = BrowserStore(
-            initialState = BrowserState(
-                tabs = listOf(
-                    createTab("https://www.mozilla.org", id = "mozilla"),
-                ),
-            ),
-            middleware = listOf(middleware),
-        )
+        val store =
+            BrowserStore(
+                initialState = BrowserState(tabs = listOf(createTab("https://www.mozilla.org", id = "mozilla"))),
+                middleware = listOf(middleware),
+            )
 
         store.dispatch(ContentAction.UpdateIsSearchAction("mozilla", false))
 
-        val observer = createEngineObserver(
-            tabId = "test-id",
-            store = store,
-            scope = this,
-        )
+        val observer =
+            createEngineObserver(
+                tabId = "test-id",
+                store = store,
+                scope = this,
+            )
         observer.onLoadUrl()
         testScheduler.advanceUntilIdle()
 
@@ -1983,22 +2225,20 @@ class EngineObserverTest {
     @Test
     fun `GIVEN a search is performed WHEN loading the URL THEN the search terms are cleared`() = runTest {
         val middleware = CaptureActionsMiddleware<BrowserState, BrowserAction>()
-        val store = BrowserStore(
-            initialState = BrowserState(
-                tabs = listOf(
-                    createTab("https://www.mozilla.org", id = "test-id"),
-                ),
-            ),
-            middleware = listOf(middleware),
-        )
+        val store =
+            BrowserStore(
+                initialState = BrowserState(tabs = listOf(createTab("https://www.mozilla.org", id = "test-id"))),
+                middleware = listOf(middleware),
+            )
 
         store.dispatch(ContentAction.UpdateIsSearchAction("test-id", true))
 
-        val observer = createEngineObserver(
-            tabId = "test-id",
-            store = store,
-            scope = this,
-        )
+        val observer =
+            createEngineObserver(
+                tabId = "test-id",
+                store = store,
+                scope = this,
+            )
         observer.onLoadUrl()
         testScheduler.advanceUntilIdle()
 
@@ -2009,39 +2249,39 @@ class EngineObserverTest {
     }
 
     @Test
-    fun `GIVEN a search is performed WHEN the location is changed without user interaction THEN the search terms are not cleared`() = runTest {
-        val middleware = CaptureActionsMiddleware<BrowserState, BrowserAction>()
-        val store = BrowserStore(
-            initialState = BrowserState(
-                tabs = listOf(
-                    createTab("https://www.mozilla.org", id = "test-id"),
-                ),
-            ),
-            middleware = listOf(middleware),
-        )
+    fun `GIVEN a search is performed WHEN the location is changed without user interaction THEN the search terms are not cleared`() =
+        runTest {
+            val middleware = CaptureActionsMiddleware<BrowserState, BrowserAction>()
+            val store =
+                BrowserStore(
+                    initialState = BrowserState(tabs = listOf(createTab("https://www.mozilla.org", id = "test-id"))),
+                    middleware = listOf(middleware),
+                )
 
-        store.dispatch(ContentAction.UpdateIsSearchAction("test-id", true))
+            store.dispatch(ContentAction.UpdateIsSearchAction("test-id", true))
 
-        val observer = createEngineObserver(
-            tabId = "test-id",
-            store = store,
-            scope = this,
-        )
-        observer.onLocationChange("testUrl", false)
-        testScheduler.advanceUntilIdle()
+            val observer =
+                createEngineObserver(
+                    tabId = "test-id",
+                    store = store,
+                    scope = this,
+                )
+            observer.onLocationChange("testUrl", false)
+            testScheduler.advanceUntilIdle()
 
-        middleware.assertNotDispatched(ContentAction.UpdateSearchTermsAction::class)
-    }
+            middleware.assertNotDispatched(ContentAction.UpdateSearchTermsAction::class)
+        }
 
     @Test
     fun `onHistoryStateChanged dispatches UpdateHistoryStateAction`() = runTest {
         val captureActionsMiddleware = CaptureActionsMiddleware<BrowserState, BrowserAction>()
         val store = BrowserStore(middleware = listOf(captureActionsMiddleware))
-        val observer = createEngineObserver(
-            tabId = "test-id",
-            store = store,
-            scope = this,
-        )
+        val observer =
+            createEngineObserver(
+                tabId = "test-id",
+                store = store,
+                scope = this,
+            )
 
         observer.onHistoryStateChanged(emptyList(), 0)
         testScheduler.advanceUntilIdle()
@@ -2078,11 +2318,12 @@ class EngineObserverTest {
     fun `onScrollChange dispatches UpdateReaderScrollYAction`() = runTest {
         val captureActionsMiddleware = CaptureActionsMiddleware<BrowserState, BrowserAction>()
         val store = BrowserStore(middleware = listOf(captureActionsMiddleware))
-        val observer = createEngineObserver(
-            tabId = "tab-id",
-            store = store,
-            scope = this,
-        )
+        val observer =
+            createEngineObserver(
+                tabId = "tab-id",
+                store = store,
+                scope = this,
+            )
 
         observer.onScrollChange(4321, 1234)
         testScheduler.advanceUntilIdle()
@@ -2098,25 +2339,28 @@ class EngineObserverTest {
         val strict = EngineSession.TrackingProtectionPolicy.strict()
         val recommended = EngineSession.TrackingProtectionPolicy.recommended()
         val none = EngineSession.TrackingProtectionPolicy.none()
-        val custom = EngineSession.TrackingProtectionPolicy.select(
-            trackingCategories = emptyArray(),
-            cookiePolicy = EngineSession.TrackingProtectionPolicy.CookiePolicy.ACCEPT_ONLY_FIRST_PARTY,
-            cookiePurging = true,
-            strictSocialTrackingProtection = true,
-        )
-        val custom2 = EngineSession.TrackingProtectionPolicy.select(
-            trackingCategories = emptyArray(),
-            cookiePolicy = EngineSession.TrackingProtectionPolicy.CookiePolicy.ACCEPT_ONLY_FIRST_PARTY,
-            cookiePurging = true,
-            strictSocialTrackingProtection = true,
-        )
+        val custom =
+            EngineSession.TrackingProtectionPolicy.select(
+                trackingCategories = emptyArray(),
+                cookiePolicy = EngineSession.TrackingProtectionPolicy.CookiePolicy.ACCEPT_ONLY_FIRST_PARTY,
+                cookiePurging = true,
+                strictSocialTrackingProtection = true,
+            )
+        val custom2 =
+            EngineSession.TrackingProtectionPolicy.select(
+                trackingCategories = emptyArray(),
+                cookiePolicy = EngineSession.TrackingProtectionPolicy.CookiePolicy.ACCEPT_ONLY_FIRST_PARTY,
+                cookiePurging = true,
+                strictSocialTrackingProtection = true,
+            )
 
-        val customNone = EngineSession.TrackingProtectionPolicy.select(
-            trackingCategories = none.trackingCategories,
-            cookiePolicy = none.cookiePolicy,
-            cookiePurging = none.cookiePurging,
-            strictSocialTrackingProtection = false,
-        )
+        val customNone =
+            EngineSession.TrackingProtectionPolicy.select(
+                trackingCategories = none.trackingCategories,
+                cookiePolicy = none.cookiePolicy,
+                cookiePurging = none.cookiePurging,
+                strictSocialTrackingProtection = false,
+            )
 
         assertTrue(strict == EngineSession.TrackingProtectionPolicy.strict())
         assertTrue(recommended == EngineSession.TrackingProtectionPolicy.recommended())

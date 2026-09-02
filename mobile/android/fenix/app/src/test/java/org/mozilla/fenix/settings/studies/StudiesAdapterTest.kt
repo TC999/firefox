@@ -14,13 +14,14 @@ import io.mockk.impl.annotations.RelaxedMockK
 import io.mockk.just
 import io.mockk.mockk
 import io.mockk.runs
+import io.mockk.slot
 import io.mockk.spyk
 import io.mockk.verify
 import junit.framework.TestCase.assertEquals
 import junit.framework.TestCase.assertFalse
 import junit.framework.TestCase.assertTrue
+import kotlin.test.assertIs
 import mozilla.components.service.nimbus.messaging.MESSAGING_FEATURE_ID
-import mozilla.components.support.test.robolectric.testContext
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -33,8 +34,7 @@ import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
 class StudiesAdapterTest {
-    @RelaxedMockK
-    private lateinit var delegate: StudiesAdapterDelegate
+    @RelaxedMockK private lateinit var delegate: StudiesAdapterDelegate
 
     private lateinit var adapter: StudiesAdapter
     private lateinit var studies: List<EnrolledExperiment>
@@ -68,9 +68,10 @@ class StudiesAdapterTest {
     fun `WHEN bindStudy THEN bind the study information`() {
         val holder = mockk<StudyViewHolder>()
         val study = mockk<EnrolledExperiment>()
-        val titleView = spyk(TextView(testContext))
+        val titleView = mockk<TextView>(relaxed = true)
         val summaryView = mockk<TextView>(relaxed = true)
-        val deleteButton = spyk(MaterialButton(testContext))
+        val deleteButton = mockk<MaterialButton>(relaxed = true)
+        val clickListenerSlot = slot<View.OnClickListener>()
 
         every { study.slug } returns "slug"
         every { study.userFacingName } returns "userFacingName"
@@ -78,6 +79,7 @@ class StudiesAdapterTest {
         every { holder.titleView } returns titleView
         every { holder.summaryView } returns summaryView
         every { holder.deleteButton } returns deleteButton
+        every { deleteButton.setOnClickListener(capture(clickListenerSlot)) } just runs
 
         adapter = spyk(StudiesAdapter(delegate, listOf(study), false))
 
@@ -88,7 +90,7 @@ class StudiesAdapterTest {
             summaryView.text = any()
         }
 
-        deleteButton.performClick()
+        clickListenerSlot.captured.onClick(deleteButton)
 
         verify {
             delegate.onRemoveButtonClicked(any())
@@ -128,8 +130,8 @@ class StudiesAdapterTest {
         val list = adapter.createListWithSections(listOf(study))
 
         assertEquals(2, list.size)
-        assertTrue(list[0] is Section)
-        assertTrue(list[1] is EnrolledExperiment)
+        assertIs<Section>(list[0])
+        assertIs<EnrolledExperiment>(list[1])
     }
 
     @Test
@@ -147,7 +149,7 @@ class StudiesAdapterTest {
         val list = adapter.createListWithSections(listOf(study))
 
         assertEquals(2, list.size)
-        assertTrue(list[0] is Section)
-        assertTrue(list[1] is EnrolledExperiment)
+        assertIs<Section>(list[0])
+        assertIs<EnrolledExperiment>(list[1])
     }
 }

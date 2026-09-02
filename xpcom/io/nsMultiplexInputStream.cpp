@@ -7,24 +7,23 @@
  * stream.
  */
 
+#include "nsMultiplexInputStream.h"
+
+#include "base/basictypes.h"
 #include "mozilla/CheckedInt.h"
 #include "mozilla/MathAlgorithms.h"
 #include "mozilla/Mutex.h"
-
-#include "base/basictypes.h"
-
-#include "nsMultiplexInputStream.h"
+#include "mozilla/ipc/InputStreamUtils.h"
+#include "nsCOMArray.h"
+#include "nsCOMPtr.h"
+#include "nsIAsyncInputStream.h"
 #include "nsIBufferedStreams.h"
+#include "nsIClassInfoImpl.h"
 #include "nsICloneableInputStream.h"
+#include "nsIIPCSerializableInputStream.h"
+#include "nsIInputStreamLength.h"
 #include "nsIMultiplexInputStream.h"
 #include "nsISeekableStream.h"
-#include "nsCOMPtr.h"
-#include "nsCOMArray.h"
-#include "nsIClassInfoImpl.h"
-#include "nsIIPCSerializableInputStream.h"
-#include "mozilla/ipc/InputStreamUtils.h"
-#include "nsIAsyncInputStream.h"
-#include "nsIInputStreamLength.h"
 #include "nsNetUtil.h"
 #include "nsStreamUtils.h"
 
@@ -831,7 +830,7 @@ void nsMultiplexInputStream::AsyncWaitCompleted() {
 nsresult nsMultiplexInputStreamConstructor(REFNSIID aIID, void** aResult) {
   *aResult = nullptr;
 
-  RefPtr<nsMultiplexInputStream> inst = new nsMultiplexInputStream();
+  RefPtr inst = MakeRefPtr<nsMultiplexInputStream>();
 
   return inst->QueryInterface(aIID, aResult);
 }
@@ -1032,7 +1031,7 @@ nsMultiplexInputStream::Clone(nsIInputStream** aClone) {
     return NS_ERROR_FAILURE;
   }
 
-  RefPtr<nsMultiplexInputStream> clone = new nsMultiplexInputStream();
+  RefPtr clone = MakeRefPtr<nsMultiplexInputStream>();
 
   nsresult rv;
   uint32_t len = mStreams.Length();

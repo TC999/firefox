@@ -145,15 +145,13 @@ static bool AsyncFunctionResume(JSContext* cx,
   //           suspended it.
   //
   // Execution context switching is handled in generator.
-  Handle<PropertyName*> funName = kind == ResumeKind::Normal
-                                      ? cx->names().AsyncFunctionNext
-                                      : cx->names().AsyncFunctionThrow;
-  FixedInvokeArgs<1> args(cx);
-  args[0].set(valueOrReason);
+  GeneratorResumeKind resumeKind = kind == ResumeKind::Normal
+                                       ? GeneratorResumeKind::Next
+                                       : GeneratorResumeKind::Throw;
   RootedValue generatorOrValue(cx, ObjectValue(*generator));
   MOZ_RELEASE_ASSERT(cx->realm() == generator->nonCCWRealm());
-  if (!CallSelfHostedFunction(cx, funName, generatorOrValue, args,
-                              &generatorOrValue)) {
+  if (!ResumeGenerator(cx, generator, valueOrReason, resumeKind,
+                       &generatorOrValue)) {
     if (!generator->isClosed()) {
       generator->setClosed(cx);
     }
@@ -244,16 +242,7 @@ const JSClass AsyncFunctionGeneratorObject::class_ = {
 };
 
 const JSClassOps AsyncFunctionGeneratorObject::classOps_ = {
-    nullptr,                                   // addProperty
-    nullptr,                                   // delProperty
-    nullptr,                                   // enumerate
-    nullptr,                                   // newEnumerate
-    nullptr,                                   // resolve
-    nullptr,                                   // mayResolve
-    nullptr,                                   // finalize
-    nullptr,                                   // call
-    nullptr,                                   // construct
-    CallTraceMethod<AbstractGeneratorObject>,  // trace
+    .trace = CallTraceMethod<AbstractGeneratorObject>,
 };
 
 AsyncFunctionGeneratorObject* AsyncFunctionGeneratorObject::create(
@@ -269,7 +258,7 @@ AsyncFunctionGeneratorObject* AsyncFunctionGeneratorObject::create(
   if (!obj) {
     return nullptr;
   }
-  obj->initFixedSlot(PROMISE_SLOT, ObjectValue(*resultPromise));
+  obj->initFixedSlotTyped(PROMISE_SLOT, ObjectValue(*resultPromise));
 
   // Starts in the running state.
   obj->setResumeIndex(AbstractGeneratorObject::RESUME_INDEX_RUNNING);
@@ -338,7 +327,7 @@ AsyncFunctionGeneratorObject* AsyncFunctionGeneratorObject::create(
   if (!obj) {
     return nullptr;
   }
-  obj->initFixedSlot(PROMISE_SLOT, ObjectValue(*resultPromise));
+  obj->initFixedSlotTyped(PROMISE_SLOT, ObjectValue(*resultPromise));
 
   RootedObject onFulfilled(
       cx, NewHandler(cx, AsyncModuleExecutionFulfilledHandler, module));

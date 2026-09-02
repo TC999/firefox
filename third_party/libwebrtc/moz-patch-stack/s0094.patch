@@ -1,26 +1,100 @@
-From: Byron Campen <docfaraday@gmail.com>
-Date: Fri, 26 Jul 2024 09:26:00 -0500
-Subject: Bug 1909234 - (fix-a0d1a51217) Move this errant include where it
- belongs. r?mjf
+From: Michael Froman <mfroman@mozilla.com>
+Date: Thu, 10 Oct 2024 13:42:00 +0000
+Subject: Bug 1921707 - webrtc.gni - filter out '//third_party/abseil-cpp/'
+ deps r=ng,webrtc-reviewers
 
-Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/6baf67202c67b27c6464cb8e4dbb419485aa6c4c
+Differential Revision: https://phabricator.services.mozilla.com/D224079
+Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/45b99d1ba95b46896506de1c7dd92f19e4dc9207
 ---
- api/test/network_emulation/BUILD.gn | 2 +-
- 1 file changed, 1 insertion(+), 1 deletion(-)
+ webrtc.gni | 71 ++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 71 insertions(+)
 
-diff --git a/api/test/network_emulation/BUILD.gn b/api/test/network_emulation/BUILD.gn
-index 9d0ec6da4e..a77051fdc0 100644
---- a/api/test/network_emulation/BUILD.gn
-+++ b/api/test/network_emulation/BUILD.gn
-@@ -6,10 +6,10 @@
- # in the file PATENTS.  All contributing project authors may
- # be found in the AUTHORS file in the root of the source tree.
+diff --git a/webrtc.gni b/webrtc.gni
+index a95f00e6ba..e78b0c355f 100644
+--- a/webrtc.gni
++++ b/webrtc.gni
+@@ -716,6 +716,36 @@ template("rtc_source_set") {
+         deps += [ "//third_party/abseil-cpp:absl" ]
+       }
+     }
++
++    # Rather than widespread changes to most, if not all, BUILD.gn files
++    # we'll do some filtering on dependencies here.
++    if (build_with_mozilla && defined(deps)) {
++      # Now that abseil-cpp is moved to Mozilla's third_party directory
++      # we remove all the abseil-cpp dependency listings so moz.build
++      # generation succeed.
++      filtered_deps = []
++      foreach (dep, deps) {
++        newdep = string_replace(dep, "//third_party/abseil-cpp/", "")
++        if (newdep == dep) {
++          filtered_deps += [ dep ]
++        }
++      }
++      deps = []
++      deps = filtered_deps
++
++      # We don't build any of the test code, but many of the test
++      # targets list gtest/gmock as a dependency.  We can simply
++      # filter them out here.
++      filtered_deps = []
++      foreach (dep, deps) {
++        newdep = string_replace(dep, "//testing/g", "")
++        if (newdep == dep) {
++          filtered_deps += [ dep ]
++        }
++      }
++      deps = []
++      deps = filtered_deps
++    }
+   }
+ }
  
--import("//third_party/protobuf/proto_library.gni")
- import("../../../webrtc.gni")
+@@ -953,6 +983,47 @@ template("rtc_library") {
+         deps += [ "//third_party/abseil-cpp:absl" ]
+       }
+     }
++
++    # Rather than widespread changes to most, if not all, BUILD.gn files
++    # we'll do some filtering on dependencies here.
++    if (build_with_mozilla && defined(deps)) {
++      # Now that abseil-cpp is moved to Mozilla's third_party directory
++      # we remove all the abseil-cpp dependency listings so moz.build
++      # generation succeed.
++      filtered_deps = []
++      foreach (dep, deps) {
++        newdep = string_replace(dep, "//third_party/abseil-cpp/", "")
++        if (newdep == dep) {
++          filtered_deps += [ dep ]
++        }
++      }
++      deps = []
++      deps = filtered_deps
++
++      # We don't build any of the test code, but many of the test
++      # targets list gtest/gmock as a dependency.  We can simply
++      # filter them out here.
++      filtered_deps = []
++      foreach (dep, deps) {
++        newdep = string_replace(dep, "//testing/g", "")
++        if (newdep == dep) {
++          filtered_deps += [ dep ]
++        }
++      }
++      deps = []
++      deps = filtered_deps
++
++      # Moving the google build directory requires looking for libwebrtc's
++      # third_party dependencies under libwebrtc/third_party instead of
++      # simply third_party.
++      modified_deps = []
++      foreach (dep, deps) {
++        newdep = string_replace(dep, "//third_party/", "//libwebrtc/third_party/")
++        modified_deps += [ newdep ]
++      }
++      deps = []
++      deps = modified_deps
++    }
+   }
+ }
  
- if (rtc_enable_protobuf) {
-+  import("//third_party/protobuf/proto_library.gni")
-   proto_library("network_config_schedule_proto") {
-     visibility = [ "*" ]
-     sources = [ "network_config_schedule.proto" ]

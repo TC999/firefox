@@ -59,11 +59,9 @@ IPCResult ClipboardWriteRequestParent::RecvSetData(
     const IPCTransferable& aTransferable) {
   if (!mManager->ValidatePrincipal(
           aTransferable.dataPrincipal(),
-          {dom::ValidatePrincipalOptions::AllowNullPtr,
-           dom::ValidatePrincipalOptions::AllowExpanded,
-           dom::ValidatePrincipalOptions::AllowSystem})) {
-    ContentParent::LogAndAssertFailedPrincipalValidationInfo(
-        aTransferable.dataPrincipal(), __func__);
+          {dom::ValidatePrincipalOptions::AllowNullPtr})) {
+    return ContentParent::PrincipalValidationIpcFail(
+        aTransferable.dataPrincipal(), this, __func__);
   }
 
   if (!mAsyncSetClipboardData) {

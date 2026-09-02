@@ -64,6 +64,10 @@ class GitRepository(Repository):
 
     @property
     def head_ref(self):
+        return self.branch or "HEAD"
+
+    @property
+    def head_rev(self):
         return self._run("rev-parse", "HEAD").strip()
 
     def is_cinnabar_repo(self) -> bool:
@@ -146,7 +150,7 @@ class GitRepository(Repository):
         ).splitlines()
         if refs:
             return refs[-1][1:]  # boundary starts with a prefix `-`
-        return self.head_ref
+        return self.head_rev
 
     def base_ref_as_hg(self):
         base_ref = self.base_ref
@@ -259,9 +263,7 @@ class GitRepository(Repository):
         if force:
             cmd.append("-f")
 
-        cmd.extend(paths)
-
-        self._run(*cmd)
+        self._run_batched(*cmd, paths=paths)
 
     def forget_add_remove_files(self, *paths: Union[str, Path]):
         if not paths:
@@ -269,7 +271,7 @@ class GitRepository(Repository):
 
         paths = [str(path) for path in paths]
 
-        self._run("reset", *paths)
+        self._run_batched("reset", paths=paths)
 
     def get_tracked_files_finder(self, path=None):
         files = [p for p in self._run("ls-files", "-z").split("\0") if p]
@@ -345,13 +347,19 @@ class GitRepository(Repository):
         ref: Optional[str] = None,
         dest_branch: Optional[str] = None,
         force: bool = False,
+        env: Optional[dict] = None,
     ):
         if ref and not remote:
             raise ValueError("Cannot specify ref without specifying remote")
         if dest_branch and not ref:
             raise ValueError("Cannot specify dest_branch without specifying ref")
 
-        args = ["push"]
+        args = []
+        if remote and remote.startswith("hg::"):
+            # Ensure git-cinnabar adds the `extra.git_commit` metadata to the Mercurial
+            # commit.
+            args.extend(["-c", "cinnabar.experiments=git_commit"])
+        args.append("push")
         if force:
             args.append("--force")
         if remote:
@@ -361,14 +369,21 @@ class GitRepository(Repository):
                 args.append(f"{ref}:refs/heads/{dest_branch}")
             else:
                 args.append(ref)
-        self._run(*args)
 
-    def push_to_try(
-        self,
-        message: str,
-        changed_files: dict[str, str] = {},
-        allow_log_capture: bool = False,
-    ):
+        runargs = {
+            "env": env,
+            "stdout": None,  # stream push output
+        }
+        self._run(*args, **runargs)
+
+    def _resolve_try_branch(self):
+        if not self.branch:
+            raise ValueError(
+                "Cannot push to try from a detached HEAD; checkout a branch first."
+            )
+        return self.branch
+
+    def _push_to_hg_try(self, message, changed_files, remote, allow_log_capture):
         if not self.has_git_cinnabar:
             raise MissingVCSExtension("cinnabar")
 
@@ -381,7 +396,7 @@ class GitRepository(Repository):
                 # is, and figures on its own, but that request takes a long time on try.
                 "cinnabar.data=never",
                 "push",
-                "hg::ssh://hg.mozilla.org/try",
+                f"hg::{remote}",
                 f"+{head}:refs/heads/branches/default/tip",
             )
             if allow_log_capture:
@@ -397,6 +412,16 @@ class GitRepository(Repository):
                 )
             else:
                 subprocess.check_call(cmd, cwd=self.path)
+
+    def add_note(
+        self,
+        note: str,
+        content: str,
+        commit: Optional[str] = None,
+    ):
+        if not note.startswith("refs/notes/"):
+            note = f"refs/notes/{note}"
+        self._run("notes", "--ref", note, "add", "-f", "-m", content, commit or "HEAD")
 
     def set_config(self, name, value):
         self._run("config", name, value)
@@ -428,7 +453,15 @@ class GitRepository(Repository):
     def get_commit_patches(self, nodes: list[str]) -> list[bytes]:
         """Return the contents of the patch `node` in the VCS' standard format."""
         return [
-            self._run("format-patch", node, "-1", "--always", "--stdout", encoding=None)
+            self._run(
+                "format-patch",
+                node,
+                "-1",
+                "--always",
+                "--stdout",
+                "--no-base",  # In case the user has format.useAutoBase true
+                encoding=None,
+            )
             for node in nodes
         ]
 
@@ -462,7 +495,7 @@ class GitRepository(Repository):
         This function returns a tuple of the ref of the new head and a function
         that can be called to remove the head from the local repository.
         """
-        current_head = self.head_ref
+        current_head = self.head_rev
 
         def data(content):
             return f"data {len(content)}\n{content}"
@@ -764,7 +797,9 @@ class GitRepository(Repository):
         Retrieve git format-patch style patches of all commits that occurred
         after `base_ref`.
         """
-        return self._run("format-patch", f"{base_ref}..HEAD", "--stdout")
+        return self._run(
+            "format-patch", f"{base_ref}..HEAD", "--stdout", f"--base={base_ref}"
+        )
 
     def get_patch_for_uncommitted_changes(
         self, message: str = "[PATCH] Uncommitted changes", date: datetime = None

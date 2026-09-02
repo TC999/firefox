@@ -4,8 +4,8 @@
 
 #include "GtkCompositorWidget.h"
 
-#include "mozilla/gfx/gfxVars.h"
 #include "mozilla/WidgetUtilsGtk.h"
+#include "mozilla/gfx/gfxVars.h"
 #include "mozilla/widget/PlatformWidgetTypes.h"
 #include "nsWindow.h"
 
@@ -144,18 +144,15 @@ LayoutDeviceIntRegion GtkCompositorWidget::GetTransparentRegion() {
 
 #ifdef MOZ_WAYLAND
 mozilla::layers::NativeLayerRoot* GtkCompositorWidget::GetNativeLayerRoot() {
-  if (gfx::gfxVars::UseWebRenderCompositor()) {
-    if (!mNativeLayerRoot) {
-      LOG("GtkCompositorWidget::GetNativeLayerRoot [%p] create",
-          (void*)mWidget.get());
-      MOZ_ASSERT(mWidget && mWidget->GetMozContainer());
-      mNativeLayerRoot = layers::NativeLayerRootWayland::Create(
-          MOZ_WL_SURFACE(mWidget->GetMozContainer()));
-      mNativeLayerRoot->Init();
-    }
-    return mNativeLayerRoot;
+  if (!mNativeLayerRoot) {
+    LOG("GtkCompositorWidget::GetNativeLayerRoot [%p] create",
+        (void*)mWidget.get());
+    MOZ_ASSERT(mWidget && mWidget->GetMozContainer());
+    mNativeLayerRoot = layers::NativeLayerRootWayland::Create(
+        MOZ_WL_SURFACE(mWidget->GetMozContainer()));
+    mNativeLayerRoot->Init();
   }
-  return nullptr;
+  return mNativeLayerRoot;
 }
 #endif
 

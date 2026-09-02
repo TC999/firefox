@@ -10,13 +10,15 @@
 #include "mozilla/Casting.h"
 #include "mozilla/FlowMarkers.h"
 #include "mozilla/ProfilerState.h"
+#include "mozilla/dom/Document.h"
 #include "mozilla/dom/HTMLMediaElement.h"
 #include "mozilla/dom/HTMLVideoElement.h"
 #include "mozilla/dom/MediaError.h"
 #include "mozilla/dom/TimeRanges.h"
 
 extern mozilla::LazyLogModule gMediaElementEventsLog;
-#define LOG_EVENT(type, msg) MOZ_LOG(gMediaElementEventsLog, type, msg)
+#define LOG_EVENT(type, msg) \
+  MOZ_LOG_FMT(gMediaElementEventsLog, type, MOZ_LOG_EXPAND_ARGS msg)
 
 namespace mozilla::dom {
 
@@ -36,7 +38,7 @@ nsresult nsMediaEventRunner::FireEvent(const nsAString& aName) {
   nsresult rv = NS_OK;
   if (mElement) {
     ReportProfilerMarker();
-    rv = RefPtr { mElement } -> FireEvent(aName);
+    rv = RefPtr{mElement}->FireEvent(aName);
   }
   return rv;
 }
@@ -59,7 +61,6 @@ void nsMediaEventRunner::ReportProfilerMarker() {
       }
     }
   } else if (mEventName.EqualsLiteral("resize")) {
-    MOZ_ASSERT(mElement->HasVideo());
     auto mediaInfo = mElement->GetMediaInfo();
     profiler_add_marker("resize", geckoprofiler::category::MEDIA_PLAYBACK, {},
                         VideoResizeMarker{}, mediaInfo.mVideo.mDisplay.width,
@@ -168,16 +169,16 @@ NS_IMETHODIMP nsSourceErrorEventRunner::Run() {
   if (IsCancelled()) {
     return NS_OK;
   }
-  LOG_EVENT(LogLevel::Debug,
-            ("%p Dispatching simple event source error", mElement.get()));
+  LOG_EVENT(LogLevel::Debug, ("{} Dispatching simple event source error",
+                              fmt::ptr(mElement.get())));
   if (profiler_is_collecting_markers()) {
     profiler_add_marker("sourceerror", geckoprofiler::category::MEDIA_PLAYBACK,
                         {}, ErrorMarker{}, mErrorDetails,
                         Flow::FromPointer(mElement.get()));
   }
-  return nsContentUtils::DispatchTrustedEvent(mElement->OwnerDoc(), mSource,
-                                              u"error"_ns, CanBubble::eNo,
-                                              Cancelable::eNo);
+  const nsCOMPtr<nsIContent> source = mSource;
+  return nsContentUtils::DispatchTrustedEvent(source, u"error"_ns,
+                                              CanBubble::eNo, Cancelable::eNo);
 }
 
 NS_IMPL_CYCLE_COLLECTION_INHERITED(nsSourceErrorEventRunner, nsMediaEventRunner,
@@ -198,7 +199,7 @@ NS_IMETHODIMP nsTimeupdateRunner::Run() {
   nsresult rv = FireEvent(mEventName);
   if (NS_WARN_IF(NS_FAILED(rv))) {
     LOG_EVENT(LogLevel::Debug,
-              ("%p Failed to dispatch 'timeupdate'", mElement.get()));
+              ("{} Failed to dispatch 'timeupdate'", fmt::ptr(mElement.get())));
   } else {
     mElement->UpdateLastTimeupdateDispatchTime();
   }

@@ -4,13 +4,12 @@
 
 #include "IDecodingTask.h"
 
-#include "nsThreadUtils.h"
-#include "mozilla/AppShutdown.h"
-
-#include "Decoder.h"
 #include "DecodePool.h"
+#include "Decoder.h"
 #include "RasterImage.h"
 #include "SurfaceCache.h"
+#include "mozilla/AppShutdown.h"
+#include "nsThreadUtils.h"
 
 namespace mozilla {
 
@@ -96,15 +95,17 @@ void IDecodingTask::NotifyDecodeComplete(NotNull<RasterImage*> aImage,
   // We're forced to notify asynchronously.
   NotNull<RefPtr<RasterImage>> image = aImage;
   nsCOMPtr<nsIEventTarget> eventTarget = GetMainThreadSerialEventTarget();
-  eventTarget->Dispatch(CreateRenderBlockingRunnable(NS_NewRunnableFunction(
-                            "IDecodingTask::NotifyDecodeComplete",
-                            [=]() -> void {
-                              image->NotifyDecodeComplete(
-                                  finalStatus, metadata, telemetry, progress,
-                                  invalidRect, frameCount, decoderFlags,
-                                  surfaceFlags);
-                            })),
-                        NS_DISPATCH_NORMAL);
+  eventTarget->Dispatch(
+      CreateRenderBlockingRunnable(NS_NewRunnableFunction(
+          "IDecodingTask::NotifyDecodeComplete",
+          [image, finalStatus, metadata = std::move(metadata),
+           telemetry = std::move(telemetry), progress, invalidRect, frameCount,
+           decoderFlags, surfaceFlags]() -> void {
+            image->NotifyDecodeComplete(finalStatus, metadata, telemetry,
+                                        progress, invalidRect, frameCount,
+                                        decoderFlags, surfaceFlags);
+          })),
+      NS_DISPATCH_NORMAL);
 }
 
 ///////////////////////////////////////////////////////////////////////////////

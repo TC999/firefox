@@ -75,7 +75,7 @@ var tests = [
       this.oldSelectedTab = gBrowser.selectedTab;
       await BrowserTestUtils.openNewForegroundTab(
         gBrowser,
-        // eslint-disable-next-line @microsoft/sdl/no-insecure-url
+        // eslint-disable-next-line sdl/no-insecure-url
         "http://example.com/"
       );
       this.notifyObj = new BasicNotification(this.id);
@@ -88,19 +88,19 @@ var tests = [
       this.complete = false;
       await BrowserTestUtils.loadURIString({
         browser: gBrowser.selectedTab.linkedBrowser,
-        // eslint-disable-next-line @microsoft/sdl/no-insecure-url
+        // eslint-disable-next-line sdl/no-insecure-url
         uriString: "http://example.org/",
       });
       await BrowserTestUtils.loadURIString({
         browser: gBrowser.selectedTab.linkedBrowser,
-        // eslint-disable-next-line @microsoft/sdl/no-insecure-url
+        // eslint-disable-next-line sdl/no-insecure-url
         uriString: "http://example.com/",
       });
       // Next load will remove the notification
       this.complete = true;
       await BrowserTestUtils.loadURIString({
         browser: gBrowser.selectedTab.linkedBrowser,
-        // eslint-disable-next-line @microsoft/sdl/no-insecure-url
+        // eslint-disable-next-line sdl/no-insecure-url
         uriString: "http://example.org/",
       });
     },
@@ -121,7 +121,7 @@ var tests = [
       this.oldSelectedTab = gBrowser.selectedTab;
       await BrowserTestUtils.openNewForegroundTab(
         gBrowser,
-        // eslint-disable-next-line @microsoft/sdl/no-insecure-url
+        // eslint-disable-next-line sdl/no-insecure-url
         "http://example.com/"
       );
       this.notifyObj = new BasicNotification(this.id);
@@ -135,12 +135,12 @@ var tests = [
       this.complete = false;
       await BrowserTestUtils.loadURIString({
         browser: gBrowser.selectedTab.linkedBrowser,
-        // eslint-disable-next-line @microsoft/sdl/no-insecure-url
+        // eslint-disable-next-line sdl/no-insecure-url
         uriString: "http://example.org/",
       });
       await BrowserTestUtils.loadURIString({
         browser: gBrowser.selectedTab.linkedBrowser,
-        // eslint-disable-next-line @microsoft/sdl/no-insecure-url
+        // eslint-disable-next-line sdl/no-insecure-url
         uriString: "http://example.com/",
       });
       // Next load will hide the notification
@@ -148,7 +148,7 @@ var tests = [
       this.complete = true;
       await BrowserTestUtils.loadURIString({
         browser: gBrowser.selectedTab.linkedBrowser,
-        // eslint-disable-next-line @microsoft/sdl/no-insecure-url
+        // eslint-disable-next-line sdl/no-insecure-url
         uriString: "http://example.org/",
       });
     },
@@ -170,7 +170,7 @@ var tests = [
       this.oldSelectedTab = gBrowser.selectedTab;
       await BrowserTestUtils.openNewForegroundTab(
         gBrowser,
-        // eslint-disable-next-line @microsoft/sdl/no-insecure-url
+        // eslint-disable-next-line sdl/no-insecure-url
         "http://example.com/"
       );
       this.notifyObj = new BasicNotification(this.id);
@@ -184,12 +184,12 @@ var tests = [
 
       await BrowserTestUtils.loadURIString({
         browser: gBrowser.selectedTab.linkedBrowser,
-        // eslint-disable-next-line @microsoft/sdl/no-insecure-url
+        // eslint-disable-next-line sdl/no-insecure-url
         uriString: "http://example.org/",
       });
       await BrowserTestUtils.loadURIString({
         browser: gBrowser.selectedTab.linkedBrowser,
-        // eslint-disable-next-line @microsoft/sdl/no-insecure-url
+        // eslint-disable-next-line sdl/no-insecure-url
         uriString: "http://example.com/",
       });
       // Notification should persist across location changes
@@ -306,33 +306,6 @@ var tests = [
         !this.notifyObj.secondaryActionClicked,
         "secondary action not clicked"
       );
-    },
-  },
-  // Test notification when chrome is hidden
-  {
-    id: "Test#11",
-    run() {
-      window.locationbar.visible = false;
-      this.notifyObj = new BasicNotification(this.id);
-      this.notification = showNotification(this.notifyObj);
-    },
-    onShown(popup) {
-      checkPopup(popup, this.notifyObj);
-      is(
-        popup.anchorNode.className,
-        "tabbrowser-tab",
-        "notification anchored to tab"
-      );
-      dismissNotification(popup);
-    },
-    onHidden() {
-      ok(
-        this.notifyObj.dismissalCallbackTriggered,
-        "dismissal callback triggered"
-      );
-      this.notification.remove();
-      ok(this.notifyObj.removedCallbackTriggered, "removed callback triggered");
-      window.locationbar.visible = true;
     },
   },
 ];

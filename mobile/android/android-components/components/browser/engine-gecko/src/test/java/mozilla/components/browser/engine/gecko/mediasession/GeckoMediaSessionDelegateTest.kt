@@ -5,6 +5,7 @@
 package mozilla.components.browser.engine.gecko.mediasession
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import kotlin.test.assertNotNull
 import mozilla.components.browser.engine.gecko.GeckoEngineSession
 import mozilla.components.concept.engine.EngineSession
 import mozilla.components.concept.engine.mediasession.MediaSession
@@ -12,7 +13,6 @@ import mozilla.components.support.test.mock
 import mozilla.components.support.test.whenever
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -42,13 +42,13 @@ class GeckoMediaSessionDelegateTest {
                 override fun onMediaActivated(mediaSessionController: MediaSession.Controller) {
                     observedController = mediaSessionController
                 }
-            },
+            }
         )
 
         engineSession.geckoSession.mediaSessionDelegate!!.onActivated(mock(), geckoViewMediaSession)
 
         assertNotNull(observedController)
-        observedController!!.play()
+        observedController.play()
         verify(geckoViewMediaSession).play()
     }
 
@@ -64,7 +64,7 @@ class GeckoMediaSessionDelegateTest {
                 override fun onMediaDeactivated() {
                     observedActivated = false
                 }
-            },
+            }
         )
 
         engineSession.geckoSession.mediaSessionDelegate!!.onDeactivated(mock(), geckoViewMediaSession)
@@ -81,22 +81,20 @@ class GeckoMediaSessionDelegateTest {
 
         engineSession.register(
             object : EngineSession.Observer {
-                override fun onMediaMetadataChanged(
-                    metadata: MediaSession.Metadata,
-                ) {
+                override fun onMediaMetadataChanged(metadata: MediaSession.Metadata) {
                     observedMetadata = metadata
                 }
-            },
+            }
         )
 
         val metadata: GeckoViewMediaSession.Metadata = mock()
         engineSession.geckoSession.mediaSessionDelegate!!.onMetadata(mock(), geckoViewMediaSession, metadata)
 
         assertNotNull(observedMetadata)
-        assertEquals(observedMetadata?.title, metadata.title)
-        assertEquals(observedMetadata?.artist, metadata.artist)
-        assertEquals(observedMetadata?.album, metadata.album)
-        assertEquals(observedMetadata?.getArtwork, metadata.artwork)
+        assertEquals(observedMetadata.title, metadata.title)
+        assertEquals(observedMetadata.artist, metadata.artist)
+        assertEquals(observedMetadata.album, metadata.album)
+        assertEquals(observedMetadata.getArtwork, metadata.artwork)
     }
 
     @Test
@@ -108,12 +106,10 @@ class GeckoMediaSessionDelegateTest {
 
         engineSession.register(
             object : EngineSession.Observer {
-                override fun onMediaFeatureChanged(
-                    features: MediaSession.Feature,
-                ) {
+                override fun onMediaFeatureChanged(features: MediaSession.Feature) {
                     observedFeature = features
                 }
-            },
+            }
         )
 
         engineSession.geckoSession.mediaSessionDelegate!!.onFeatures(mock(), geckoViewMediaSession, 123)
@@ -131,12 +127,10 @@ class GeckoMediaSessionDelegateTest {
 
         engineSession.register(
             object : EngineSession.Observer {
-                override fun onMediaPlaybackStateChanged(
-                    playbackState: MediaSession.PlaybackState,
-                ) {
+                override fun onMediaPlaybackStateChanged(playbackState: MediaSession.PlaybackState) {
                     observedPlaybackState = playbackState
                 }
-            },
+            }
         )
 
         engineSession.geckoSession.mediaSessionDelegate!!.onPlay(mock(), geckoViewMediaSession)
@@ -166,21 +160,19 @@ class GeckoMediaSessionDelegateTest {
 
         engineSession.register(
             object : EngineSession.Observer {
-                override fun onMediaPositionStateChanged(
-                    positionState: MediaSession.PositionState,
-                ) {
+                override fun onMediaPositionStateChanged(positionState: MediaSession.PositionState) {
                     observedPositionState = positionState
                 }
-            },
+            }
         )
 
         val positionState: GeckoViewMediaSession.PositionState = mock()
         engineSession.geckoSession.mediaSessionDelegate!!.onPositionState(mock(), geckoViewMediaSession, positionState)
 
         assertNotNull(observedPositionState)
-        assertEquals(observedPositionState?.duration, positionState.duration)
-        assertEquals(observedPositionState?.position, positionState.position)
-        assertEquals(observedPositionState?.playbackRate, positionState.playbackRate)
+        assertEquals(observedPositionState.duration, positionState.duration, 0.0)
+        assertEquals(observedPositionState.position, positionState.position, 0.0)
+        assertEquals(observedPositionState.playbackRate, positionState.playbackRate, 0.0)
     }
 
     @Test
@@ -200,11 +192,16 @@ class GeckoMediaSessionDelegateTest {
                     observedFullscreen = fullscreen
                     observedElementMetadata = elementMetadata
                 }
-            },
+            }
         )
 
         val elementMetadata: GeckoViewMediaSession.ElementMetadata = mock()
-        engineSession.geckoSession.mediaSessionDelegate!!.onFullscreen(mock(), geckoViewMediaSession, true, elementMetadata)
+        engineSession.geckoSession.mediaSessionDelegate!!.onFullscreen(
+            mock(),
+            geckoViewMediaSession,
+            true,
+            elementMetadata,
+        )
 
         assertNotNull(observedFullscreen)
         assertNotNull(observedElementMetadata)

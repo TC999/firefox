@@ -78,6 +78,9 @@ skip-if = [
 ["browser_jsat_serialize.js"]
 
 ["browser_layers_unloaded_while_interruptingJS.js"]
+skip-if = [
+  "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && display == 'x11' && tsan", # Bug 1976484
+]
 
 ["browser_memory_distribution_telemetry.js"]
 skip-if = [

@@ -9,17 +9,16 @@ import android.widget.RadioButton
 import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.SwitchPreferenceCompat
-import io.mockk.Called
 import io.mockk.MockKAnnotations
 import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import io.mockk.mockk
 import io.mockk.verify
+import kotlin.test.assertNotNull
 import mozilla.components.support.ktx.android.view.putCompoundDrawablesRelative
 import mozilla.components.support.test.robolectric.testContext
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -30,8 +29,7 @@ import org.robolectric.RobolectricTestRunner
 @RunWith(RobolectricTestRunner::class)
 class ExtensionsTest {
 
-    @MockK(relaxUnitFun = true)
-    private lateinit var radioButton: RadioButton
+    @MockK(relaxUnitFun = true) private lateinit var radioButton: RadioButton
 
     @MockK private lateinit var fragment: PreferenceFragmentCompat
     private lateinit var preference: Preference
@@ -56,26 +54,30 @@ class ExtensionsTest {
 
         verify {
             radioButton.putCompoundDrawablesRelative(
-                start = withArg {
-                    assertEquals(Rect(0, 0, it.intrinsicWidth, it.intrinsicHeight), it.bounds)
-                },
+                start =
+                    withArg {
+                        assertEquals(Rect(0, 0, it.intrinsicWidth, it.intrinsicHeight), it.bounds)
+                    }
             )
         }
     }
 
     @Test
     fun `set change listener with typed argument`() {
-        val callback = mockk<(Preference, String) -> Unit>(relaxed = true)
+        val callbackCalls = mutableListOf<Pair<Preference, String>>()
+        val callback: (Preference, String) -> Unit = { pref, value ->
+            callbackCalls.add(pref to value)
+        }
         preference.setOnPreferenceChangeListener<String> { pref, value ->
             callback(pref, value)
             true
         }
 
         assertFalse(preference.callChangeListener(10))
-        verify { callback wasNot Called }
+        assertTrue(callbackCalls.isEmpty())
 
         assertTrue(preference.callChangeListener("Hello"))
-        verify { callback(preference, "Hello") }
+        assertEquals(listOf(preference to "Hello"), callbackCalls)
     }
 
     @Test

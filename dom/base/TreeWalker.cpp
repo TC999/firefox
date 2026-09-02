@@ -141,13 +141,32 @@ already_AddRefed<nsINode> TreeWalker::PreviousNode(ErrorResult& aResult) {
   return nullptr;
 }
 
+static already_AddRefed<nsINode> EnsureAddRefed(nsCOMPtr<nsINode>& aNode) {
+  return aNode.forget();
+}
+
+static already_AddRefed<nsINode> EnsureAddRefed(nsINode*& aNode) {
+  return do_AddRef(aNode);
+}
+
 already_AddRefed<nsINode> TreeWalker::NextNode(ErrorResult& aResult) {
+  // With no filter TestNode() cannot run script, and the loop performs no
+  // refcount decrements before its final assignment to mCurrentNode, so
+  // nothing can destroy a node mid-walk.
+  if (!mFilter) {
+    return NextNodeInternal<nsINode*>(aResult);
+  }
+  return NextNodeInternal<nsCOMPtr<nsINode>>(aResult);
+}
+
+template <typename NodePtr>
+already_AddRefed<nsINode> TreeWalker::NextNodeInternal(ErrorResult& aResult) {
   int16_t filtered =
       NodeFilter_Binding::FILTER_ACCEPT;  // pre-init for inner loop
 
-  nsCOMPtr<nsINode> node = mCurrentNode;
+  NodePtr node = mCurrentNode;
 
-  while (1) {
+  while (true) {
     nsINode* firstChild;
     while (filtered != NodeFilter_Binding::FILTER_REJECT &&
            (firstChild = node->GetFirstChild())) {
@@ -161,7 +180,7 @@ already_AddRefed<nsINode> TreeWalker::NextNode(ErrorResult& aResult) {
       if (filtered == NodeFilter_Binding::FILTER_ACCEPT) {
         // Node found
         mCurrentNode = node;
-        return node.forget();
+        return EnsureAddRefed(node);
       }
     }
 
@@ -189,7 +208,7 @@ already_AddRefed<nsINode> TreeWalker::NextNode(ErrorResult& aResult) {
     if (filtered == NodeFilter_Binding::FILTER_ACCEPT) {
       // Node found
       mCurrentNode = node;
-      return node.forget();
+      return EnsureAddRefed(node);
     }
   }
 
@@ -274,7 +293,7 @@ already_AddRefed<nsINode> TreeWalker::NextSiblingInternal(
     return nullptr;
   }
 
-  while (1) {
+  while (true) {
     nsINode* sibling =
         aReversed ? node->GetPreviousSibling() : node->GetNextSibling();
 

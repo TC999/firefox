@@ -4,14 +4,14 @@
 
 package org.mozilla.fenix.ui
 
-import androidx.compose.ui.test.junit4.AndroidComposeTestRule
+import androidx.compose.ui.test.junit4.v2.AndroidComposeTestRule as AndroidComposeTestRuleV2
 import androidx.test.espresso.Espresso.openActionBarOverflowOrOptionsMenu
 import androidx.test.espresso.Espresso.pressBack
 import androidx.test.filters.SdkSuppress
-import org.junit.Ignore
 import org.junit.Rule
 import org.junit.Test
 import org.mozilla.fenix.R
+import org.mozilla.fenix.customannotations.Converted
 import org.mozilla.fenix.customannotations.SkipLeaks
 import org.mozilla.fenix.customannotations.SmokeTest
 import org.mozilla.fenix.helpers.AppAndSystemHelper.registerAndCleanupIdlingResources
@@ -24,7 +24,6 @@ import org.mozilla.fenix.helpers.TestAssetHelper.htmlControlsFormAsset
 import org.mozilla.fenix.helpers.TestHelper.exitMenu
 import org.mozilla.fenix.helpers.TestHelper.longTapSelectItem
 import org.mozilla.fenix.helpers.TestHelper.mDevice
-import org.mozilla.fenix.helpers.TestHelper.verifySnackBarText
 import org.mozilla.fenix.helpers.perf.DetectMemoryLeaksRule
 import org.mozilla.fenix.ui.robots.browserScreen
 import org.mozilla.fenix.ui.robots.historyMenu
@@ -32,42 +31,46 @@ import org.mozilla.fenix.ui.robots.homeScreen
 import org.mozilla.fenix.ui.robots.multipleSelectionToolbar
 import org.mozilla.fenix.ui.robots.navigationToolbar
 
-/**
- *  Tests for verifying basic functionality of history
- *
- */
+/** Tests for verifying basic functionality of history */
 class HistoryTest {
-    @get:Rule(order = 0)
-    val fenixTestRule: FenixTestRule = FenixTestRule()
+    @get:Rule(order = 0) val fenixTestRule: FenixTestRule = FenixTestRule()
 
-    private val mockWebServer get() = fenixTestRule.mockWebServer
+    private val mockWebServer
+        get() = fenixTestRule.mockWebServer
 
-    @get:Rule
+    @get:Rule(order = 1)
     val composeTestRule =
-        AndroidComposeTestRule(
+        AndroidComposeTestRuleV2(
             HomeActivityIntentTestRule(
                 // workaround for toolbar at top position by default
                 // remove with https://bugzilla.mozilla.org/show_bug.cgi?id=1917640
-                shouldUseBottomToolbar = true,
-            ),
-        ) { it.activity }
+                shouldUseBottomToolbar = true
+            )
+        ) {
+            it.activity
+        }
 
-    @get:Rule
-    val memoryLeaksRule = DetectMemoryLeaksRule()
+    @get:Rule(order = 2) val memoryLeaksRule = DetectMemoryLeaksRule(composeTestRule = { composeTestRule })
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/243285
     @Test
     fun verifyEmptyHistoryMenuTest() {
-        homeScreen(composeTestRule) {
-        }.openThreeDotMenu {
-            verifyHistoryButton()
-        }.clickHistoryButton {
-            verifyHistoryMenuView()
-            verifyEmptyHistoryView()
-        }
+        homeScreen(composeTestRule) {}
+            .openThreeDotMenu {
+                verifyHistoryButton()
+            }
+            .clickHistoryButton {
+                verifyHistoryMenuView()
+                verifyEmptyHistoryView()
+            }
     }
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/2302742
+    @Converted(
+        replacedBy = ["org.mozilla.fenix.ui.efficiency.tests.HistoryTest#verifyHistoryMenuWithHistoryItemsTest"],
+        bug = 2039573,
+        since = "2026-05",
+    )
     // Test running on beta/release builds in CI:
     // caution when making changes to it, so they don't block the builds
     @SmokeTest
@@ -75,22 +78,23 @@ class HistoryTest {
     fun verifyHistoryMenuWithHistoryItemsTest() {
         val firstWebPage = mockWebServer.getGenericAsset(1)
 
-        navigationToolbar(composeTestRule) {
-        }.enterURLAndEnterToBrowser(firstWebPage.url) {
-            mDevice.waitForIdle()
-        }.openThreeDotMenu {
-        }.clickHistoryButton {
-            verifyHistoryListExists()
-            registerAndCleanupIdlingResources(
-                RecyclerViewIdlingResource(composeTestRule.activity.findViewById(R.id.history_list), 1),
-            ) {
-                verifyHistoryMenuView()
-                verifyVisitedTimeTitle()
-                verifyFirstTestPageTitle("Test_Page_1")
-                verifyTestPageUrl(firstWebPage.url)
-                verifyDeleteHistoryItemButton("Test_Page_1")
+        navigationToolbar(composeTestRule) {}
+            .enterURLAndEnterToBrowser(firstWebPage.url) {
+                mDevice.waitForIdle()
             }
-        }
+            .openThreeDotMenu {}
+            .clickHistoryButton {
+                verifyHistoryListExists()
+                registerAndCleanupIdlingResources(
+                    RecyclerViewIdlingResource(composeTestRule.activity.findViewById(R.id.history_list), 1)
+                ) {
+                    verifyHistoryMenuView(historyItemExists = true)
+                    verifyVisitedTimeTitle()
+                    verifyFirstTestPageTitle("Test_Page_1")
+                    verifyTestPageUrl(firstWebPage.url)
+                    verifyDeleteHistoryItemButton("Test_Page_1")
+                }
+            }
     }
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/243288
@@ -98,48 +102,52 @@ class HistoryTest {
     fun deleteHistoryItemTest() {
         val firstWebPage = mockWebServer.getGenericAsset(1)
 
-        navigationToolbar(composeTestRule) {
-        }.enterURLAndEnterToBrowser(firstWebPage.url) {
-            mDevice.waitForIdle()
-        }.openThreeDotMenu {
-        }.clickHistoryButton {
-            verifyHistoryListExists()
-            registerAndCleanupIdlingResources(
-                RecyclerViewIdlingResource(
-                    composeTestRule.activity.findViewById(R.id.history_list),
-                    1,
-                ),
-            ) {
-                clickDeleteHistoryButton(firstWebPage.url.toString())
+        navigationToolbar(composeTestRule) {}
+            .enterURLAndEnterToBrowser(firstWebPage.url) {
+                mDevice.waitForIdle()
             }
-            verifySnackBarText(expectedText = "Deleted")
-            verifyEmptyHistoryView()
-        }
+            .openThreeDotMenu {}
+            .clickHistoryButton {
+                verifyHistoryListExists()
+                registerAndCleanupIdlingResources(
+                    RecyclerViewIdlingResource(
+                        composeTestRule.activity.findViewById(R.id.history_list),
+                        1,
+                    )
+                ) {}
+                clickDeleteHistoryButton(firstWebPage.url.toString())
+                verifyEmptyHistoryView()
+            }
     }
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/1848881
+    @Converted(
+        replacedBy = ["org.mozilla.fenix.ui.efficiency.tests.HistoryTest#deleteAllHistoryTest"],
+        bug = 2039573,
+        since = "2026-05",
+    )
     @SmokeTest
     @Test
     fun deleteAllHistoryTest() {
         val firstWebPage = mockWebServer.getGenericAsset(1)
 
-        navigationToolbar(composeTestRule) {
-        }.enterURLAndEnterToBrowser(firstWebPage.url) {
-            mDevice.waitForIdle()
-        }.openThreeDotMenu {
-        }.clickHistoryButton {
-            verifyHistoryListExists()
-            registerAndCleanupIdlingResources(
-                RecyclerViewIdlingResource(composeTestRule.activity.findViewById(R.id.history_list), 1),
-            ) {
-                clickDeleteAllHistoryButton()
+        navigationToolbar(composeTestRule) {}
+            .enterURLAndEnterToBrowser(firstWebPage.url) {
+                mDevice.waitForIdle()
             }
-            verifyDeleteConfirmationMessage()
-            selectEverythingOption()
-            confirmDeleteAllHistory()
-            verifySnackBarText(expectedText = "Browsing data deleted")
-            verifyEmptyHistoryView()
-        }
+            .openThreeDotMenu {}
+            .clickHistoryButton {
+                verifyHistoryListExists()
+                registerAndCleanupIdlingResources(
+                    RecyclerViewIdlingResource(composeTestRule.activity.findViewById(R.id.history_list), 1)
+                ) {
+                    clickDeleteAllHistoryButton()
+                }
+                verifyDeleteConfirmationMessage()
+                selectEverythingOption()
+                confirmDeleteAllHistory()
+                verifyEmptyHistoryView()
+            }
     }
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/339690
@@ -147,26 +155,27 @@ class HistoryTest {
     fun historyMultiSelectionToolbarItemsTest() {
         val firstWebPage = mockWebServer.getGenericAsset(1)
 
-        navigationToolbar(composeTestRule) {
-        }.enterURLAndEnterToBrowser(firstWebPage.url) {
-        }.openThreeDotMenu {
-        }.clickHistoryButton {
-            verifyHistoryListExists()
-            registerAndCleanupIdlingResources(
-                RecyclerViewIdlingResource(composeTestRule.activity.findViewById(R.id.history_list), 1),
-            ) {
-                longTapSelectItem(firstWebPage.url)
+        navigationToolbar(composeTestRule) {}
+            .enterURLAndEnterToBrowser(firstWebPage.url) {}
+            .openThreeDotMenu {}
+            .clickHistoryButton {
+                verifyHistoryListExists()
+                registerAndCleanupIdlingResources(
+                    RecyclerViewIdlingResource(composeTestRule.activity.findViewById(R.id.history_list), 1)
+                ) {
+                    longTapSelectItem(firstWebPage.url)
+                }
             }
-        }
 
         multipleSelectionToolbar(composeTestRule) {
-            verifyMultiSelectionCheckmark()
-            verifyMultiSelectionCounter(1)
-            verifyShareHistoryButton()
-            verifyCloseToolbarButton()
-        }.closeToolbarReturnToHistory {
-            verifyHistoryMenuView()
-        }
+                verifyMultiSelectionCheckmark()
+                verifyMultiSelectionCounter(1)
+                verifyShareHistoryButton()
+                verifyCloseToolbarButton()
+            }
+            .closeToolbarReturnToHistory {
+                verifyHistoryMenuView(historyItemExists = true)
+            }
     }
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/339696
@@ -174,30 +183,31 @@ class HistoryTest {
     fun openMultipleSelectedHistoryItemsInANewTabTest() {
         val firstWebPage = mockWebServer.getGenericAsset(1)
 
-        navigationToolbar(composeTestRule) {
-        }.enterURLAndEnterToBrowser(firstWebPage.url) {
-            mDevice.waitForIdle()
-        }.openTabDrawer(composeTestRule) {
-            closeTab()
-        }
-
-        homeScreen(composeTestRule) {
-        }.openThreeDotMenu {
-        }.clickHistoryButton {
-            verifyHistoryListExists()
-            registerAndCleanupIdlingResources(
-                RecyclerViewIdlingResource(composeTestRule.activity.findViewById(R.id.history_list), 1),
-            ) {
-                longTapSelectItem(firstWebPage.url)
-                openActionBarOverflowOrOptionsMenu(composeTestRule.activity)
+        navigationToolbar(composeTestRule) {}
+            .enterURLAndEnterToBrowser(firstWebPage.url) {
+                mDevice.waitForIdle()
             }
-        }
+            .openTabDrawer(composeTestRule) {
+                closeTab()
+            }
 
-        multipleSelectionToolbar(composeTestRule) {
-        }.clickOpenNewTab {
-            verifyNormalTabsList()
-            verifyNormalBrowsingButtonIsSelected()
-        }
+        homeScreen(composeTestRule) {}
+            .openThreeDotMenu {}
+            .clickHistoryButton {
+                verifyHistoryListExists()
+                registerAndCleanupIdlingResources(
+                    RecyclerViewIdlingResource(composeTestRule.activity.findViewById(R.id.history_list), 1)
+                ) {
+                    longTapSelectItem(firstWebPage.url)
+                    openActionBarOverflowOrOptionsMenu(composeTestRule.activity)
+                }
+            }
+
+        multipleSelectionToolbar(composeTestRule) {}
+            .clickOpenNewTab {
+                verifyNormalTabsList()
+                verifyNormalBrowsingButtonIsSelected()
+            }
     }
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/346098
@@ -206,25 +216,26 @@ class HistoryTest {
     fun openMultipleSelectedHistoryItemsInPrivateTabTest() {
         val firstWebPage = mockWebServer.getGenericAsset(1)
 
-        navigationToolbar(composeTestRule) {
-        }.enterURLAndEnterToBrowser(firstWebPage.url) {
-            mDevice.waitForIdle()
-        }.openThreeDotMenu {
-        }.clickHistoryButton {
-            verifyHistoryListExists()
-            registerAndCleanupIdlingResources(
-                RecyclerViewIdlingResource(composeTestRule.activity.findViewById(R.id.history_list), 1),
-            ) {
-                longTapSelectItem(firstWebPage.url)
-                openActionBarOverflowOrOptionsMenu(composeTestRule.activity)
+        navigationToolbar(composeTestRule) {}
+            .enterURLAndEnterToBrowser(firstWebPage.url) {
+                mDevice.waitForIdle()
             }
-        }
+            .openThreeDotMenu {}
+            .clickHistoryButton {
+                verifyHistoryListExists()
+                registerAndCleanupIdlingResources(
+                    RecyclerViewIdlingResource(composeTestRule.activity.findViewById(R.id.history_list), 1)
+                ) {
+                    longTapSelectItem(firstWebPage.url)
+                    openActionBarOverflowOrOptionsMenu(composeTestRule.activity)
+                }
+            }
 
-        multipleSelectionToolbar(composeTestRule) {
-        }.clickOpenPrivateTab {
-            verifyPrivateTabsList()
-            verifyPrivateBrowsingButtonIsSelected()
-        }
+        multipleSelectionToolbar(composeTestRule) {}
+            .clickOpenPrivateTab {
+                verifyPrivateTabsList()
+                verifyPrivateBrowsingButtonIsSelected()
+            }
     }
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/346099
@@ -236,20 +247,20 @@ class HistoryTest {
         createHistoryItem(firstWebPage.url.toString())
         createHistoryItem(secondWebPage.url.toString())
 
-        homeScreen(composeTestRule) {
-        }.openThreeDotMenu {
-        }.clickHistoryButton {
-            verifyHistoryListExists()
-            registerAndCleanupIdlingResources(
-                RecyclerViewIdlingResource(composeTestRule.activity.findViewById(R.id.history_list), 2),
-            ) {
-                verifyHistoryItemExists(true, firstWebPage.url.toString())
-                verifyHistoryItemExists(true, secondWebPage.url.toString())
-                longTapSelectItem(firstWebPage.url)
-                longTapSelectItem(secondWebPage.url)
-                openActionBarOverflowOrOptionsMenu(composeTestRule.activity)
+        homeScreen(composeTestRule) {}
+            .openThreeDotMenu {}
+            .clickHistoryButton {
+                verifyHistoryListExists()
+                registerAndCleanupIdlingResources(
+                    RecyclerViewIdlingResource(composeTestRule.activity.findViewById(R.id.history_list), 2)
+                ) {
+                    verifyHistoryItemExists(true, firstWebPage.url.toString())
+                    verifyHistoryItemExists(true, secondWebPage.url.toString())
+                    longTapSelectItem(firstWebPage.url)
+                    longTapSelectItem(secondWebPage.url)
+                    openActionBarOverflowOrOptionsMenu(composeTestRule.activity)
+                }
             }
-        }
 
         multipleSelectionToolbar(composeTestRule) {
             clickMultiSelectionDelete()
@@ -265,18 +276,19 @@ class HistoryTest {
     fun shareMultipleSelectedHistoryItemsTest() {
         val firstWebPage = mockWebServer.getGenericAsset(1)
 
-        navigationToolbar(composeTestRule) {
-        }.enterURLAndEnterToBrowser(firstWebPage.url) {
-            mDevice.waitForIdle()
-        }.openThreeDotMenu {
-        }.clickHistoryButton {
-            verifyHistoryListExists()
-            registerAndCleanupIdlingResources(
-                RecyclerViewIdlingResource(composeTestRule.activity.findViewById(R.id.history_list), 1),
-            ) {
-                longTapSelectItem(firstWebPage.url)
+        navigationToolbar(composeTestRule) {}
+            .enterURLAndEnterToBrowser(firstWebPage.url) {
+                mDevice.waitForIdle()
             }
-        }
+            .openThreeDotMenu {}
+            .clickHistoryButton {
+                verifyHistoryListExists()
+                registerAndCleanupIdlingResources(
+                    RecyclerViewIdlingResource(composeTestRule.activity.findViewById(R.id.history_list), 1)
+                ) {
+                    longTapSelectItem(firstWebPage.url)
+                }
+            }
 
         multipleSelectionToolbar(composeTestRule) {
             clickShareHistoryButton()
@@ -292,39 +304,41 @@ class HistoryTest {
     fun verifySearchHistoryViewTest() {
         val defaultWebPage = mockWebServer.getGenericAsset(1)
 
-        navigationToolbar(composeTestRule) {
-        }.enterURLAndEnterToBrowser(defaultWebPage.url) {
-        }.openThreeDotMenu {
-        }.clickHistoryButton {
-        }.clickSearchButton {
-            verifySearchToolbar(true)
-            verifySearchSelectorButton()
-            verifySearchEngineIcon("History")
-            verifySearchBarPlaceholder("Search history")
-            verifySearchBarPosition()
-            tapOutsideToDismissSearchBar(defaultWebPage.url.toString())
-            verifySearchToolbar(false)
-            exitMenu()
-        }
-        homeScreen(composeTestRule) {
-        }.openThreeDotMenu {
-        }.clickSettingsButton {
-        }.openCustomizeSubMenu {
-            clickTopToolbarToggle()
-        }
+        navigationToolbar(composeTestRule) {}
+            .enterURLAndEnterToBrowser(defaultWebPage.url) {}
+            .openThreeDotMenu {}
+            .clickHistoryButton {}
+            .clickSearchButton {
+                verifySearchToolbar(true)
+                verifySearchSelectorButton()
+                verifySearchEngineIcon("History")
+                verifySearchBarPlaceholder("Search history")
+                verifySearchBarPosition()
+                mDevice.pressBack()
+                verifySearchToolbar(false)
+                exitMenu()
+            }
+        homeScreen(composeTestRule) {}
+            .openThreeDotMenu {}
+            .clickSettingsButton {}
+            .openCustomizeSubMenu {
+                clickTopToolbarToggle()
+            }
 
         exitMenu()
 
-        browserScreen(composeTestRule) {
-        }.openThreeDotMenu {
-        }.clickHistoryButton {
-        }.clickSearchButton {
-            verifySearchToolbar(true)
-            verifySearchBarPosition()
-            pressBack()
-        }
+        browserScreen(composeTestRule) {}
+            .openThreeDotMenu {}
+            .clickHistoryButton {}
+            .clickSearchButton {
+                verifySearchToolbar(true)
+                verifySearchBarPosition()
+                mDevice.pressBack()
+                verifySearchToolbar(false)
+            }
+        mDevice.waitForIdle()
         historyMenu(composeTestRule) {
-            verifyHistoryMenuView()
+            verifyHistoryMenuView(historyItemExists = true)
         }
     }
 
@@ -332,14 +346,14 @@ class HistoryTest {
     @SdkSuppress(minSdkVersion = 34)
     @Test
     fun verifyVoiceSearchInHistoryTest() {
-        homeScreen(composeTestRule) {
-        }.openThreeDotMenu {
-        }.clickHistoryButton {
-        }.clickSearchButton {
-            verifySearchToolbar(true)
-            verifySearchEngineIcon("History")
-            startVoiceSearch()
-        }
+        homeScreen(composeTestRule) {}
+            .openThreeDotMenu {}
+            .clickHistoryButton {}
+            .clickSearchButton {
+                verifySearchToolbar(true)
+                verifySearchEngineIcon("History")
+                startVoiceSearch()
+            }
     }
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/1715632
@@ -348,24 +362,22 @@ class HistoryTest {
         val firstWebPage = mockWebServer.getGenericAsset(1)
         val secondWebPage = mockWebServer.htmlControlsFormAsset
 
-        navigationToolbar(composeTestRule) {
-        }.enterURLAndEnterToBrowser(firstWebPage.url) {
-        }
-        navigationToolbar(composeTestRule) {
-        }.enterURLAndEnterToBrowser(secondWebPage.url) {
-        }.openThreeDotMenu {
-        }.clickHistoryButton {
-        }.clickSearchButton {
-            // Search for a valid term
-            typeSearch(firstWebPage.title)
-            verifySearchSuggestionsAreDisplayed(firstWebPage.url.toString())
-            verifySuggestionsAreNotDisplayed(secondWebPage.url.toString())
-            clickClearButton()
-            // Search for invalid term
-            typeSearch("Android")
-            verifySuggestionsAreNotDisplayed(firstWebPage.url.toString())
-            verifySuggestionsAreNotDisplayed(secondWebPage.url.toString())
-        }
+        navigationToolbar(composeTestRule) {}.enterURLAndEnterToBrowser(firstWebPage.url) {}
+        navigationToolbar(composeTestRule) {}
+            .enterURLAndEnterToBrowser(secondWebPage.url) {}
+            .openThreeDotMenu {}
+            .clickHistoryButton {}
+            .clickSearchButton {
+                // Search for a valid term
+                typeSearch(firstWebPage.title)
+                verifySearchSuggestionsAreDisplayed(firstWebPage.url.toString())
+                verifySuggestionsAreNotDisplayed(secondWebPage.url.toString())
+                clickClearButton()
+                // Search for invalid term
+                typeSearch("Android")
+                verifySuggestionsAreNotDisplayed(firstWebPage.url.toString())
+                verifySuggestionsAreNotDisplayed(secondWebPage.url.toString())
+            }
     }
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/1715634
@@ -375,60 +387,69 @@ class HistoryTest {
         val secondWebPage = mockWebServer.getGenericAsset(2)
         val thirdWebPage = mockWebServer.getGenericAsset(3)
 
-        navigationToolbar(composeTestRule) {
-        }.enterURLAndEnterToBrowser(firstWebPage.url) {
-            verifyPageContent(firstWebPage.content)
-        }
-        navigationToolbar(composeTestRule) {
-        }.enterURLAndEnterToBrowser(secondWebPage.url) {
-            verifyPageContent(secondWebPage.content)
-        }
-        navigationToolbar(composeTestRule) {
-        }.enterURLAndEnterToBrowser(thirdWebPage.url) {
-            verifyPageContent(thirdWebPage.content)
-        }.openThreeDotMenu {
-        }.clickHistoryButton {
-            verifyHistoryListExists()
-            clickDeleteHistoryButton(firstWebPage.title)
-            verifyHistoryItemExists(false, firstWebPage.title)
-            clickDeleteHistoryButton(secondWebPage.title)
-            verifyHistoryItemExists(false, secondWebPage.title)
-        }.clickSearchButton {
-            // Search for a valid term
-            typeSearch("generic")
-            verifySuggestionsAreNotDisplayed(firstWebPage.url.toString())
-            verifySuggestionsAreNotDisplayed(secondWebPage.url.toString())
-            verifySponsoredSuggestionsResults(thirdWebPage.url.toString(), searchTerm = "generic")
-            pressBack()
-        }
+        navigationToolbar(composeTestRule) {}
+            .enterURLAndEnterToBrowser(firstWebPage.url) {
+                verifyPageContent(firstWebPage.content)
+            }
+        navigationToolbar(composeTestRule) {}
+            .enterURLAndEnterToBrowser(secondWebPage.url) {
+                verifyPageContent(secondWebPage.content)
+            }
+        navigationToolbar(composeTestRule) {}
+            .enterURLAndEnterToBrowser(thirdWebPage.url) {
+                verifyPageContent(thirdWebPage.content)
+            }
+            .openThreeDotMenu {}
+            .clickHistoryButton {
+                verifyHistoryListExists()
+                clickDeleteHistoryButton(firstWebPage.title)
+                verifyHistoryItemExists(false, firstWebPage.title)
+                clickDeleteHistoryButton(secondWebPage.title)
+                verifyHistoryItemExists(false, secondWebPage.title)
+            }
+            .clickSearchButton {
+                // Search for a valid term
+                typeSearch("generic")
+                verifySuggestionsAreNotDisplayed(firstWebPage.url.toString())
+                verifySuggestionsAreNotDisplayed(secondWebPage.url.toString())
+                verifySponsoredSuggestionsResults(thirdWebPage.url.toString(), searchTerm = "generic")
+                pressBack()
+            }
+        mDevice.waitForIdle()
         historyMenu(composeTestRule) {
-            clickDeleteHistoryButton(thirdWebPage.title)
-            verifyHistoryItemExists(false, firstWebPage.title)
-        }.clickSearchButton {
-            // Search for a valid term
-            typeSearch("generic")
-            verifySuggestionsAreNotDisplayed(thirdWebPage.url.toString())
-        }
+                clickDeleteHistoryButton(thirdWebPage.title)
+                verifyHistoryItemExists(false, firstWebPage.title)
+            }
+            .clickSearchButton {
+                // Search for a valid term
+                typeSearch("generic")
+                verifySuggestionsAreNotDisplayed(thirdWebPage.url.toString())
+            }
     }
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/903590
     // Test running on beta/release builds in CI:
     // caution when making changes to it, so they don't block the builds
+    @Converted(
+        replacedBy = ["org.mozilla.fenix.ui.efficiency.tests.HistoryTest#noHistoryInPrivateBrowsingTest"],
+        bug = 2024690,
+        since = "2026-03",
+    )
     @SmokeTest
     @Test
     fun noHistoryInPrivateBrowsingTest() {
         val website = mockWebServer.getGenericAsset(1)
 
-        homeScreen(composeTestRule) {
-        }.togglePrivateBrowsingMode()
+        homeScreen(composeTestRule) {}.togglePrivateBrowsingMode()
 
-        navigationToolbar(composeTestRule) {
-        }.enterURLAndEnterToBrowser(website.url) {
-            mDevice.waitForIdle()
-        }.openThreeDotMenu {
-        }.clickHistoryButton {
-            verifyEmptyHistoryView()
-        }
+        navigationToolbar(composeTestRule) {}
+            .enterURLAndEnterToBrowser(website.url) {
+                mDevice.waitForIdle()
+            }
+            .openThreeDotMenu {}
+            .clickHistoryButton {
+                verifyEmptyHistoryView()
+            }
     }
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/243287
@@ -436,12 +457,12 @@ class HistoryTest {
     fun openHistoryItemTest() {
         val defaultWebPage = mockWebServer.getGenericAsset(1)
 
-        navigationToolbar(composeTestRule) {
-        }.enterURLAndEnterToBrowser(defaultWebPage.url) {
-        }.openThreeDotMenu {
-        }.clickHistoryButton {
-        }.openWebsite(defaultWebPage.url) {
-            verifyUrl(defaultWebPage.url.toString())
-        }
+        navigationToolbar(composeTestRule) {}
+            .enterURLAndEnterToBrowser(defaultWebPage.url) {}
+            .openThreeDotMenu {}
+            .clickHistoryButton {}
+            .openWebsite(defaultWebPage.url) {
+                verifyUrl(defaultWebPage.url.toString())
+            }
     }
 }

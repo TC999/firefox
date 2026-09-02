@@ -4,13 +4,12 @@
 
 #include "nsArrayEnumerator.h"
 
-#include "nsIArray.h"
-#include "nsSimpleEnumerator.h"
-
-#include "nsCOMArray.h"
-#include "nsCOMPtr.h"
 #include "mozilla/OperatorNewExtensions.h"
 #include "mozilla/RefPtr.h"
+#include "nsCOMArray.h"
+#include "nsCOMPtr.h"
+#include "nsIArray.h"
+#include "nsSimpleEnumerator.h"
 
 class nsSimpleArrayEnumerator final : public nsSimpleEnumerator {
  public:
@@ -34,7 +33,7 @@ class nsSimpleArrayEnumerator final : public nsSimpleEnumerator {
 
 NS_IMETHODIMP
 nsSimpleArrayEnumerator::HasMoreElements(bool* aResult) {
-  MOZ_ASSERT(aResult != 0, "null ptr");
+  MOZ_ASSERT(aResult != nullptr, "null ptr");
   if (!aResult) {
     return NS_ERROR_NULL_POINTER;
   }
@@ -55,7 +54,7 @@ nsSimpleArrayEnumerator::HasMoreElements(bool* aResult) {
 
 NS_IMETHODIMP
 nsSimpleArrayEnumerator::GetNext(nsISupports** aResult) {
-  MOZ_ASSERT(aResult != 0, "null ptr");
+  MOZ_ASSERT(aResult != nullptr, "null ptr");
   if (!aResult) {
     return NS_ERROR_NULL_POINTER;
   }
@@ -80,8 +79,8 @@ nsSimpleArrayEnumerator::GetNext(nsISupports** aResult) {
 
 nsresult NS_NewArrayEnumerator(nsISimpleEnumerator** aResult, nsIArray* aArray,
                                const nsID& aEntryIID) {
-  RefPtr<nsSimpleArrayEnumerator> enumer =
-      new nsSimpleArrayEnumerator(aArray, aEntryIID);
+  RefPtr enumer =
+      mozilla::MakeRefPtr<nsSimpleArrayEnumerator>(aArray, aEntryIID);
   enumer.forget(aResult);
   return NS_OK;
 }
@@ -134,7 +133,7 @@ nsCOMArrayEnumerator::~nsCOMArrayEnumerator() {
 
 NS_IMETHODIMP
 nsCOMArrayEnumerator::HasMoreElements(bool* aResult) {
-  MOZ_ASSERT(aResult != 0, "null ptr");
+  MOZ_ASSERT(aResult != nullptr, "null ptr");
   if (!aResult) {
     return NS_ERROR_NULL_POINTER;
   }
@@ -145,7 +144,7 @@ nsCOMArrayEnumerator::HasMoreElements(bool* aResult) {
 
 NS_IMETHODIMP
 nsCOMArrayEnumerator::GetNext(nsISupports** aResult) {
-  MOZ_ASSERT(aResult != 0, "null ptr");
+  MOZ_ASSERT(aResult != nullptr, "null ptr");
   if (!aResult) {
     return NS_ERROR_NULL_POINTER;
   }

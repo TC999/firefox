@@ -26,7 +26,15 @@ support-files = [
   "FullscreenFrame.sys.mjs",
 ]
 
+["browser_fullscreen_autohide_toolbox_height.js"]
+skip-if = [
+  "os == 'mac'", # Fullscreen autohide is disabled on macOS, bug 1702563
+]
+
 ["browser_fullscreen_context_menu.js"]
+skip-if = [
+  "os == 'mac' && os_version == '15.30' && arch == 'aarch64' && debug", # Bug 2034023, see also bug 1853186
+]
 
 ["browser_fullscreen_cross_origin.js"]
 support-files = [
@@ -49,6 +57,14 @@ skip-if = [
   "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && display == 'x11'", # Bug 1818795
   "os == 'win'", # Bug 1818796
 ]
+
+["browser_fullscreen_keyboard_lock.js"]
+
+["browser_fullscreen_keyboard_lock_ctrltab.js"]
+
+["browser_fullscreen_keyboard_lock_reserved.js"]
+
+["browser_fullscreen_keyboard_lock_warning.js"]
 
 ["browser_fullscreen_keydown_reservation.js"]
 

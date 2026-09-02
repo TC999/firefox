@@ -12,7 +12,6 @@
 #include "js/GCVector.h"
 #include "js/PropertyAndElement.h"  // JS_DefineProperty, JS_GetProperty, JS_SetProperty
 #include "js/RootingAPI.h"
-
 #include "jsapi-tests/tests.h"
 
 using namespace js;
@@ -61,8 +60,8 @@ struct MyContainer {
         obj(rhs.obj),
         str(rhs.str) {}
   void trace(JSTracer* trc) {
-    js::TraceNullableEdge(trc, &obj, "test container obj");
-    js::TraceNullableEdge(trc, &str, "test container str");
+    js::TraceEdge(trc, &obj, "test container obj");
+    js::TraceEdge(trc, &str, "test container str");
   }
 };
 
@@ -87,8 +86,8 @@ struct MyNonCopyableContainer {
   MyNonCopyableContainer& operator=(const MyNonCopyableContainer&) = delete;
 
   void trace(JSTracer* trc) {
-    js::TraceNullableEdge(trc, &obj, "test container obj");
-    js::TraceNullableEdge(trc, &str, "test container str");
+    js::TraceEdge(trc, &obj, "test container obj");
+    js::TraceEdge(trc, &str, "test container str");
   }
 };
 

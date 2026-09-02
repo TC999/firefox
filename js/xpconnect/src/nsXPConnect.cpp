@@ -4,53 +4,51 @@
 
 /* High level class and public functions implementation. */
 
-#include "js/Transcoding.h"
 #include "mozilla/Assertions.h"
 #include "mozilla/Base64.h"
+#include "mozilla/BasePrincipal.h"
+#include "mozilla/dom/BindingUtils.h"
+#include "mozilla/dom/DOMException.h"
+#include "mozilla/dom/Exceptions.h"
+#include "mozilla/dom/Promise.h"
+#include "mozilla/dom/WorkerCommon.h"
+#include "mozilla/glean/bindings/Glean.h"
+#include "mozilla/glean/bindings/GleanPings.h"
 #include "mozilla/Likely.h"
+#include "mozilla/ScriptPreloader.h"
+#include "mozilla/StaticPrefs_javascript.h"
 
-#include "XPCWrapper.h"
+#include "AccessCheck.h"
+#include "GeckoProfiler.h"
 #include "jsfriendapi.h"
+#include "JSServices.h"
+#include "mozJSModuleLoader.h"
+#include "nsContentUtils.h"
+#include "nsCycleCollector.h"
+#include "nsDOMJSUtils.h"
+#include "nsDOMMutationObserver.h"
+#include "nsICycleCollectorListener.h"
+#include "nsIObjectInputStream.h"
+#include "nsIObjectOutputStream.h"
+#include "nsIOService.h"
+#include "nsJSEnvironment.h"
+#include "nsJSUtils.h"
+#include "nsRFPService.h"
+#include "nsScriptError.h"
+#include "nsScriptSecurityManager.h"
+#include "nsThreadUtils.h"
+#include "prsystem.h"
+#include "WrapperFactory.h"
+#include "xpcprivate.h"
+#include "XPCWrapper.h"
+
 #include "js/AllocationLogging.h"  // JS::SetLogCtorDtorFunctions
 #include "js/CompileOptions.h"     // JS::ReadOnlyCompileOptions
 #include "js/Initialization.h"
 #include "js/Object.h"  // JS::GetClass
 #include "js/Prefs.h"
 #include "js/ProfilingStack.h"
-#include "GeckoProfiler.h"
-#include "mozJSModuleLoader.h"
-#include "nsJSEnvironment.h"
-#include "nsThreadUtils.h"
-#include "nsDOMJSUtils.h"
-
-#include "WrapperFactory.h"
-#include "AccessCheck.h"
-#include "JSServices.h"
-
-#include "mozilla/BasePrincipal.h"
-#include "mozilla/dom/BindingUtils.h"
-#include "mozilla/dom/DOMException.h"
-#include "mozilla/dom/Exceptions.h"
-#include "mozilla/dom/Promise.h"
-#include "mozilla/glean/bindings/Glean.h"
-#include "mozilla/glean/bindings/GleanPings.h"
-#include "mozilla/ScriptPreloader.h"
-#include "mozilla/StaticPrefs_javascript.h"
-
-#include "nsDOMMutationObserver.h"
-#include "nsICycleCollectorListener.h"
-#include "nsCycleCollector.h"
-#include "nsIOService.h"
-#include "nsIObjectInputStream.h"
-#include "nsIObjectOutputStream.h"
-#include "nsScriptSecurityManager.h"
-#include "nsContentUtils.h"
-#include "nsScriptError.h"
-#include "nsJSUtils.h"
-#include "nsRFPService.h"
-#include "prsystem.h"
-
-#include "xpcprivate.h"
+#include "js/Transcoding.h"
 
 #ifdef XP_WIN
 #  include "mozilla/WinHeaderOnlyUtils.h"
@@ -76,10 +74,6 @@ bool nsXPConnect::gOnceAliveNowDead = false;
 // nsIScriptSecurityManager) and the system principal.
 nsIScriptSecurityManager* nsXPConnect::gScriptSecurityManager = nullptr;
 nsIPrincipal* nsXPConnect::gSystemPrincipal = nullptr;
-
-const char XPC_EXCEPTION_CONTRACTID[] = "@mozilla.org/js/xpc/Exception;1";
-const char XPC_CONSOLE_CONTRACTID[] = "@mozilla.org/consoleservice;1";
-const char XPC_SCRIPT_ERROR_CONTRACTID[] = "@mozilla.org/scripterror;1";
 
 /***************************************************************************/
 
@@ -1145,6 +1139,17 @@ bool IsNotUAWidget(JSContext* cx, JSObject* /* unused */) {
   JS::Compartment* c = JS::GetCompartmentForRealm(realm);
 
   return !IsUAWidgetCompartment(c);
+}
+
+bool IsChromeOrWorkerDebugger(JSContext* cx, JSObject* /* unused */) {
+  // Replicates ChromeOnly checks
+  if (nsContentUtils::ThreadsafeIsSystemCaller(cx)) {
+    return true;
+  }
+
+  // But also accept WorkerDebugger modules used by DevTools.
+  JS::Rooted<JSObject*> global(cx, JS::CurrentGlobalOrNull(cx));
+  return IsWorkerDebuggerGlobal(global);
 }
 
 extern bool IsCurrentThreadRunningChromeWorker();

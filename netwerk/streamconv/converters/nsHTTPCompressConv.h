@@ -5,14 +5,13 @@
 #if !defined(_nsHTTPCompressConv_h_)
 #  define _nsHTTPCompressConv_h_ 1
 
-#  include "nsIStreamConverter.h"
-#  include "nsICompressConvStats.h"
-#  include "nsIThreadRetargetableStreamListener.h"
-#  include "nsCOMPtr.h"
-#  include "nsString.h"
 #  include "mozilla/Atomics.h"
 #  include "mozilla/Mutex.h"
-
+#  include "nsCOMPtr.h"
+#  include "nsICompressConvStats.h"
+#  include "nsIStreamConverter.h"
+#  include "nsIThreadRetargetableStreamListener.h"
+#  include "nsString.h"
 #  include "zlib.h"
 
 class nsIStringInputStream;
@@ -36,6 +35,18 @@ class nsIStringInputStream;
 #  define HTTP_ZST_TYPE "zst"
 #  define HTTP_BROTLI_DICTIONARY_TYPE "dcb"
 #  define HTTP_ZSTD_DICTIONARY_TYPE "dcz"
+
+#  define GZIP_MAGIC_0 0x1f
+#  define GZIP_MAGIC_1 0x8b
+
+#  define ZSTD_MAGIC_0 0x28
+#  define ZSTD_MAGIC_1 0xb5
+#  define ZSTD_MAGIC_2 0x2f
+#  define ZSTD_MAGIC_3 0xfd
+
+// Not magic bytes, but common brotli first bytes
+#  define BROTLI_BYTE_0 0xce
+#  define BROTLI_BYTE_1 0xb2
 
 namespace mozilla {
 namespace net {
@@ -72,8 +83,8 @@ class nsHTTPCompressConv : public nsIStreamConverter,
  private:
   virtual ~nsHTTPCompressConv();
 
-  nsCOMPtr<nsIStreamListener>
-      mListener;  // this guy gets the converted data via his OnDataAvailable ()
+  nsCOMPtr<nsIStreamListener> mListener
+      MOZ_GUARDED_BY(mMutex);  // gets converted data via OnDataAvailable()
   Atomic<CompressMode, Relaxed> mMode{HTTP_COMPRESS_IDENTITY};
 
   unsigned char* mOutBuffer{nullptr};
@@ -117,7 +128,7 @@ class nsHTTPCompressConv : public nsIStreamConverter,
   Atomic<bool, Relaxed> mIsPrivateBrowsing{false};
   nsCString mSite;
 
-  mutable mozilla::Mutex mMutex MOZ_UNANNOTATED{"nsHTTPCompressConv"};
+  mutable mozilla::Mutex mMutex{"nsHTTPCompressConv"};
 };
 
 }  // namespace net

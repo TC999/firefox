@@ -46,15 +46,15 @@ add_task(async function test_open_multiple_bookmarks() {
     );
 
     // open all bookmarks in this folder (which is two)
-    synthesizeClickOnSelectedTreeCell(tree, { button: 1 });
+    await synthesizeClickOnSelectedTreeCell(tree, { button: 1 });
 
     // expand the "Other bookmarks" folder
-    synthesizeClickOnSelectedTreeCell(tree, { button: 0 });
+    await synthesizeClickOnSelectedTreeCell(tree, { button: 0 });
     tree.selectItems([bookmarks[0].guid]);
 
     is(tree.selectedNode.title, "Mozilla", "The first bookmark is selected");
 
-    synthesizeClickOnSelectedTreeCell(tree, { button: 0 });
+    await synthesizeClickOnSelectedTreeCell(tree, { button: 0 });
 
     TelemetryTestUtils.assertKeyedScalar(
       TelemetryTestUtils.getProcessScalars("parent", true),
@@ -65,15 +65,17 @@ add_task(async function test_open_multiple_bookmarks() {
 
     let newWinOpened = BrowserTestUtils.waitForNewWindow();
     // open a bookmark in new window via context menu
-    synthesizeClickOnSelectedTreeCell(tree, {
-      button: 2,
-      type: "contextmenu",
-    });
+    let popupShown = BrowserTestUtils.waitForPopupEvent(
+      tree.ownerDocument.getElementById("placesContext"),
+      "shown"
+    );
+    synthesizeClickOnSelectedTreeCell(tree, { type: "contextmenu" });
+    await popupShown;
 
-    let openNewWindowOption = document.getElementById(
+    let openNewWindowOption = tree.ownerDocument.getElementById(
       "placesContext_open:newwindow"
     );
-    openNewWindowOption.click();
+    await BrowserTestUtils.activateMenuItem(openNewWindowOption);
 
     let newWin = await newWinOpened;
 
@@ -114,7 +116,7 @@ add_task(async function test_bookmarks_search() {
     // Select the first link and click on it.
     tree.selectNode(tree.view.nodeForTreeIndex(0));
 
-    synthesizeClickOnSelectedTreeCell(tree, { button: 0 });
+    await synthesizeClickOnSelectedTreeCell(tree, { button: 0 });
     info("First link was selected and then clicked on");
 
     TelemetryTestUtils.assertKeyedScalar(

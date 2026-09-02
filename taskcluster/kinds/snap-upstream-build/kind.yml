@@ -22,6 +22,7 @@ task-defaults:
         tier: 2
     worker-type: b-linux-docker-xlarge-amd
     run:
+        clone-with: hg
         checkout: true
     worker:
         artifacts:

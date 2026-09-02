@@ -43,7 +43,10 @@ window.addEventListener("load", function onload() {
     populateActionBox();
     setupEventListeners();
 
-    if (Services.sysinfo.getProperty("isPackagedApp")) {
+    if (
+      AppConstants.MOZ_UPDATER &&
+      Services.sysinfo.getProperty("isPackagedApp")
+    ) {
       $("update-dir-row").hidden = true;
       $("update-history-row").hidden = true;
     }
@@ -1053,7 +1056,7 @@ var snapshotFormatters = {
       if (button) {
         button.addEventListener("click", function () {
           let { KeyValueService } = ChromeUtils.importESModule(
-            "resource://gre/modules/kvstore.sys.mjs"
+            "moz-src:///toolkit/components/kvstore/kvstore.sys.mjs"
           );
           let currProfDir = Services.dirsvc.get("ProfD", Ci.nsIFile);
           currProfDir.append("mediacapabilities");
@@ -1320,10 +1323,14 @@ var snapshotFormatters = {
           "td",
           swEncode ? supportText : unsupportedText
         );
-        // Link to AV1 extension on MS store.
+        // Microsoft Store product page for each codec's extension.
+        const extensionStoreURLs = {
+          AV1: "ms-windows-store://pdp/?ProductId=9MVZQVXJBQ9V",
+          HEVC: "ms-windows-store://pdp/?ProductId=9NMZLZ57R3T7",
+        };
         let hwCell = $.new("td", [
           $.new("a", lackOfExtensionText, null, {
-            href: "ms-windows-store://pdp/?ProductId=9MVZQVXJBQ9V",
+            href: extensionStoreURLs[codec],
           }),
         ]);
         if (swDecode) {
@@ -1461,9 +1468,10 @@ var snapshotFormatters = {
     $("a11y-activated").textContent = data.isActive;
     $("a11y-force-disabled").textContent = data.forceDisabled || 0;
 
-    let a11yInstantiator = $("a11y-instantiator");
-    if (a11yInstantiator) {
-      a11yInstantiator.textContent = data.instantiator;
+    const instantiator = data.instantiator;
+    if (instantiator) {
+      $("a11y-instantiator").hidden = false;
+      $("a11y-instantiator").querySelector("td").textContent = instantiator;
     }
   },
 
@@ -2111,7 +2119,7 @@ function setupEventListeners() {
         Services.prompt.BUTTON_POS_1 * Services.prompt.BUTTON_TITLE_CANCEL +
         Services.prompt.BUTTON_POS_0_DEFAULT;
       const result = Services.prompt.confirmEx(
-        window.docShell.chromeEventHandler.ownerGlobal,
+        window.docShell.chromeEventHandler.documentGlobal,
         promptTitle,
         promptBody,
         buttonFlags,
@@ -2139,7 +2147,7 @@ function setupEventListeners() {
           .hasMoreElements()
       ) {
         Services.obs.notifyObservers(
-          window.docShell.chromeEventHandler.ownerGlobal,
+          window.docShell.chromeEventHandler.documentGlobal,
           "restart-in-safe-mode"
         );
       } else {

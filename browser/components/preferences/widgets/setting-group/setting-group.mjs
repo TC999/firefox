@@ -8,6 +8,7 @@ import {
   spread,
 } from "chrome://browser/content/preferences/widgets/setting-element.mjs";
 import { SettingControl } from "chrome://browser/content/preferences/widgets/setting-control.mjs";
+import { SettingGroupManager } from "chrome://browser/content/preferences/config/SettingGroupManager.mjs";
 
 /**
  * @import { SettingElementConfig } from "chrome://browser/content/preferences/widgets/setting-element.mjs"
@@ -19,7 +20,6 @@ import { SettingControl } from "chrome://browser/content/preferences/widgets/set
 /**
  * @typedef {object} SettingGroupConfigExtensions
  * @property {SettingControlConfig[]} items Array of SettingControlConfigs to render.
- * @property {number} [headingLevel] A heading level to create the legend as (1-6).
  * @property {boolean} [inProgress]
  * Hide this section unless the browser.settings-redesign.enabled or
  * browser.settings-redesign.<groupid>.enabled prefs are true.
@@ -28,6 +28,7 @@ import { SettingControl } from "chrome://browser/content/preferences/widgets/set
  * @property {boolean} [hiddenFromSearch]
  * Whether this group should be hidden from search.
  * @property {boolean} [hidden] Whether this group should be visible.
+ * @property {string} [subcategory] Value for the `data-subcategory` attribute, used as a scroll target.
  */
 /** @typedef {SettingElementConfig & SettingGroupConfigExtensions} SettingGroupConfig */
 
@@ -110,6 +111,31 @@ export class SettingGroup extends SettingElement {
     return this;
   }
 
+  /**
+   * Unsubscribe callback for the late-registration listener. See
+   * connectedCallback for why.
+   *
+   * @type {(() => void) | null}
+   */
+  #unsubscribeGroupRegister = null;
+
+  connectedCallback() {
+    super.connectedCallback();
+    // This element can render before its config is available. Initialize once
+    // the group registers, which can happen later (bug 2051119).
+    this.#unsubscribeGroupRegister = SettingGroupManager.onRegister(id => {
+      if (id === this.groupId && !this.config) {
+        window.initSettingGroup(id);
+      }
+    });
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    this.#unsubscribeGroupRegister?.();
+    this.#unsubscribeGroupRegister = null;
+  }
+
   willUpdate() {
     if (!this.srdEnabled) {
       this.classList.toggle("subcategory", this.config?.headingLevel == 1);
@@ -117,10 +143,17 @@ export class SettingGroup extends SettingElement {
     // Only set/remove attributes when explicitly defined in config
     // This allows handleVisibilityChange to manage visibility independently
     if (this.config?.hiddenFromSearch !== undefined) {
-      this.toggleAttribute(HiddenAttr.Search, !!this.config.hiddenFromSearch);
+      if (this.config.hiddenFromSearch) {
+        this.setAttribute(HiddenAttr.Search, "true");
+      } else {
+        this.removeAttribute(HiddenAttr.Search);
+      }
     }
     if (this.config?.hidden !== undefined) {
       this.toggleAttribute(HiddenAttr.Self, this.config.hidden);
+    }
+    if (this.config?.subcategory) {
+      this.setAttribute("data-subcategory", this.config.subcategory);
     }
   }
 
@@ -249,7 +282,7 @@ export class SettingGroup extends SettingElement {
       (this.srdEnabled || this.inSubPane || this.config.card == "always") &&
       this.config.card != "never"
     ) {
-      return html`<moz-card>${content}</moz-card>`;
+      return html`<moz-card role="presentation">${content}</moz-card>`;
     }
     return content;
   }
@@ -258,16 +291,23 @@ export class SettingGroup extends SettingElement {
     if (!this.config) {
       return "";
     }
+    /**
+     * setting-groups always render a heading, so fall back to h2 (which gets
+     * bumped to h3) when the config doesn't set one.
+     */
+    let config = { ...this.config };
+    if (this.srdEnabled) {
+      config.headingLevel ??= 2;
+    }
     return this.containerTemplate(
       html`<moz-fieldset
-        .headingLevel=${this.srdEnabled ? 2 : this.config.headingLevel}
         @change=${this.onChange}
         @toggle=${this.onChange}
         @click=${this.onClick}
         @message-bar:user-dismissed=${this.onMessageBarDismiss}
         @reorder=${this.onReorder}
         @visibility-change=${this.handleVisibilityChange}
-        ${spread(this.getCommonPropertyMapping(this.config))}
+        ${spread(this.getCommonPropertyMapping(config))}
         >${this.config.items.map(item => this.itemTemplate(item))}</moz-fieldset
       >`
     );

@@ -6,18 +6,18 @@
 #include <CoreFoundation/CoreFoundation.h>
 #include <signal.h>
 
-#include "nsCocoaUtils.h"
-#include "nsComponentManagerUtils.h"
-#include "nsMacDockSupport.h"
-#include "nsObjCExceptions.h"
-#include "nsNativeThemeColors.h"
-#include "nsString.h"
-#include "imgLoader.h"
 #include "MOZIconHelper.h"
+#include "imgLoader.h"
 #include "mozilla/MacStringHelpers.h"
 #include "mozilla/SVGImageContext.h"
-#include "nsISVGPaintContext.h"
+#include "nsCocoaUtils.h"
+#include "nsComponentManagerUtils.h"
 #include "nsIFile.h"
+#include "nsISVGPaintContext.h"
+#include "nsMacDockSupport.h"
+#include "nsNativeThemeColors.h"
+#include "nsObjCExceptions.h"
+#include "nsString.h"
 
 NS_IMPL_ISUPPORTS(nsMacDockSupport, nsIMacDockSupport, nsITaskbarProgress)
 
@@ -334,7 +334,7 @@ NSString* GetPathForApp(NSDictionary* aPersistantApp) {
     return nil;
   }
   NSURL* url = CFBridgingRelease(
-      _CFURLCreateFromPropertyListRepresentation(NULL, fileData));
+      _CFURLCreateFromPropertyListRepresentation(nullptr, fileData));
   if (!url) {
     return nil;
   }

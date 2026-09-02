@@ -35,6 +35,10 @@
     :members:
     :exclude-members: Login
 ```
+```{js:autoclass} RustLogins.sys.LoginCandidate
+    :members:
+    :exclude-members: LoginCandidate
+```
 ```{js:autoclass} RustLogins.sys.LoginEntry
     :members:
     :exclude-members: LoginEntry
@@ -50,6 +54,10 @@
 ```{js:autoclass} RustLogins.sys.LoginsApiError
     :members:
     :exclude-members: LoginsApiError
+```
+```{js:autoclass} RustLogins.sys.LoginsBridgedEngine
+    :members:
+    :exclude-members: LoginsBridgedEngine
 ```
 ```{js:autoclass} RustLogins.sys.LoginsDeletionMetrics
     :members:
@@ -78,10 +86,6 @@
 ```{js:autoclass} RustLogins.sys.PrimaryPasswordAuthenticator
     :members:
     :exclude-members: PrimaryPasswordAuthenticator
-```
-```{js:autoclass} RustLogins.sys.SyncAuthInvalid
-    :members:
-    :exclude-members: SyncAuthInvalid
 ```
 ```{js:autoclass} RustLogins.sys.UnexpectedLoginsApiError
     :members:

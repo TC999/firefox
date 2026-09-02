@@ -38,7 +38,7 @@ class JSWindowActorProtocol final : public JSActorProtocol,
  public:
   NS_DECL_NSIOBSERVER
   NS_DECL_NSIDOMEVENTLISTENER
-  NS_DECL_CYCLE_COLLECTING_ISUPPORTS
+  NS_DECL_CYCLE_COLLECTING_ISUPPORTS_FINAL
   NS_DECL_CYCLE_COLLECTION_CLASS_AMBIGUOUS(JSWindowActorProtocol, nsIObserver)
 
   static already_AddRefed<JSWindowActorProtocol> FromIPC(
@@ -71,7 +71,7 @@ class JSWindowActorProtocol final : public JSActorProtocol,
   void AddObservers();
   void RemoveObservers();
   bool Matches(BrowsingContext* aBrowsingContext, nsIURI* aURI,
-               const nsACString& aRemoteType, ErrorResult& aRv);
+               const RemoteType& aRemoteType, ErrorResult& aRv);
 
  private:
   explicit JSWindowActorProtocol(const nsACString& aName)

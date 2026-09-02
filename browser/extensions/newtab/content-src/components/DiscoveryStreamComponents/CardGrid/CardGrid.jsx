@@ -9,6 +9,7 @@ import { AdBanner } from "../AdBanner/AdBanner.jsx";
 import { FluentOrText } from "../../FluentOrText/FluentOrText.jsx";
 import React, { useEffect, useRef } from "react";
 import { connect } from "react-redux";
+// @nova-cleanup(remove-pref): Delete this const; see the showNovaHeader read below.
 const PREF_NOVA_ENABLED = "nova.enabled";
 const PREF_SECTIONS_CARDS_ENABLED = "discoverystream.sections.cards.enabled";
 const PREF_SECTIONS_ENABLED = "discoverystream.sections.enabled";
@@ -185,7 +186,6 @@ export class _CardGrid extends React.PureComponent {
             bookmarkGuid={rec.bookmarkGuid}
             ctaButtonSponsors={ctaButtonSponsors}
             ctaButtonVariant={ctaButtonVariant}
-            recommendation_id={rec.recommendation_id}
             mayHaveSectionsCards={mayHaveSectionsCards}
             corpus_item_id={rec.corpus_item_id}
             scheduled_corpus_item_id={rec.scheduled_corpus_item_id}
@@ -354,6 +354,9 @@ export class _CardGrid extends React.PureComponent {
     const isEmpty = data.recommendations.length === 0;
 
     const prefs = this.props.Prefs.values;
+    // @nova-cleanup(remove-conditional): Delete novaEnabled and replace
+    // showNovaHeader with `const showHeader = !sectionsEnabled;`, renaming the
+    // two showNovaHeader uses in the JSX below.
     const novaEnabled = prefs[PREF_NOVA_ENABLED];
     const sectionsEnabled = prefs[PREF_SECTIONS_ENABLED];
     const showNovaHeader = novaEnabled && !sectionsEnabled;

@@ -57,6 +57,7 @@ run-if = [
 tags = "os_integration"
 skip-if = [
   "os == 'mac' && os_version == '14.70' && arch == 'x86_64' && xorigin", # Bug 1929419
+  "os == 'mac' && os_version == '15.30' && arch == 'aarch64'", # Bug 2034604
 ]
 
 ["test_mousecapture_area.html"]
@@ -66,8 +67,10 @@ tags = "os_integration"
 
 ["test_panel_list_shadow_node_anchor.html"]
 support-files = [
+  "../../widgets/panel-list/panel-item.tokens.css",
   "../../widgets/panel-list/panel-item.css",
-  "../../widgets/panel-list/panel-list.js",
+  "../../widgets/panel-list/panel-list.tokens.css",
+  "../../widgets/panel-list/panel-list.mjs",
   "../../widgets/panel-list/panel-list.css",
 ]
 
@@ -115,6 +118,8 @@ skip-if = [
 ]
 
 ["test_videocontrols_l10n_trusted_types.html"]
+
+["test_videocontrols_muted_attr.html"]
 
 ["test_videocontrols_scrubber_position.html"]
 

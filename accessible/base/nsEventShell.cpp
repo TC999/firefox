@@ -4,10 +4,9 @@
 
 #include "nsEventShell.h"
 
-#include "nsAccessibilityService.h"
 #include "Logging.h"
-
 #include "mozilla/dom/DOMStringList.h"
+#include "nsAccessibilityService.h"
 
 using namespace mozilla;
 using namespace mozilla::a11y;
@@ -50,8 +49,7 @@ void nsEventShell::FireEvent(uint32_t aEventType, LocalAccessible* aAccessible,
                              EIsFromUserInput aIsFromUserInput) {
   NS_ENSURE_TRUE_VOID(aAccessible);
 
-  RefPtr<AccEvent> event =
-      new AccEvent(aEventType, aAccessible, aIsFromUserInput);
+  auto event = MakeRefPtr<AccEvent>(aEventType, aAccessible, aIsFromUserInput);
 
   FireEvent(event);
 }

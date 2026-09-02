@@ -5,28 +5,27 @@
 #include "mozilla/Logging.h"
 
 #include "gfxContext.h"
-#include "nsArrayUtils.h"
-#include "nsDragService.h"
-#include "nsArrayUtils.h"
-#include "nsObjCExceptions.h"
-#include "nsITransferable.h"
-#include "nsString.h"
-#include "nsClipboard.h"
-#include "nsXPCOM.h"
-#include "nsCOMPtr.h"
-#include "nsPrimitiveHelpers.h"
-#include "nsLinebreakConverter.h"
-#include "nsINode.h"
-#include "nsRect.h"
-#include "nsPoint.h"
+#include "gfxPlatform.h"
 #include "mozilla/PresShell.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/DocumentInlines.h"
-#include "nsIContent.h"
-#include "nsCocoaUtils.h"
 #include "mozilla/gfx/2D.h"
-#include "gfxPlatform.h"
+#include "nsArrayUtils.h"
+#include "nsCOMPtr.h"
+#include "nsClipboard.h"
+#include "nsCocoaUtils.h"
 #include "nsDeviceContext.h"
+#include "nsDragService.h"
+#include "nsIContent.h"
+#include "nsINode.h"
+#include "nsITransferable.h"
+#include "nsLinebreakConverter.h"
+#include "nsObjCExceptions.h"
+#include "nsPoint.h"
+#include "nsPrimitiveHelpers.h"
+#include "nsRect.h"
+#include "nsString.h"
+#include "nsXPCOM.h"
 
 using namespace mozilla;
 using namespace mozilla::gfx;
@@ -43,7 +42,7 @@ extern bool gUserCancelledDrag;
 mozilla::StaticRefPtr<nsIArray> gDraggedTransferables;
 
 already_AddRefed<nsIDragSession> nsDragService::CreateDragSession() {
-  RefPtr<nsIDragSession> sess = new nsDragSession();
+  auto sess = MakeRefPtr<nsDragSession>();
   return sess.forget();
 }
 
@@ -134,7 +133,7 @@ NSImage* nsDragSession::ConstructDragImage(nsINode* aDOMNode,
                DrawOptions(1.0f, CompositionOp::OP_SOURCE));
 
   NSBitmapImageRep* imageRep =
-      [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:NULL
+      [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:nullptr
                                               pixelsWide:width
                                               pixelsHigh:height
                                            bitsPerSample:8
@@ -384,6 +383,18 @@ nsDragSession::IsDataFlavorSupported(const char* aDataFlavor, bool* _retval) {
   if (availableType &&
       nsCocoaUtils::IsValidPasteboardType(availableType, allowFileURL)) {
     *_retval = true;
+  }
+
+  // Also accept files for kURLMime, which we convert to file:// URLs.
+  if (!*_retval && dataFlavor.EqualsLiteral(kURLMime)) {
+    NSString* fileType =
+        [UTIHelper stringFromPboardType:(NSString*)kUTTypeFileURL];
+    NSString* availableFileType =
+        [globalDragPboard availableTypeFromArray:@[ (id)fileType ]];
+    if (availableFileType &&
+        nsCocoaUtils::IsValidPasteboardType(availableFileType, true)) {
+      *_retval = true;
+    }
   }
 
   return NS_OK;

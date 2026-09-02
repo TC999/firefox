@@ -2,42 +2,40 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "HyperTextAccessible-inl.h"
-
-#include "nsAccessibilityService.h"
-#include "nsIAccessibleTypes.h"
 #include "AccAttributes.h"
 #include "HTMLListAccessible.h"
+#include "HyperTextAccessible-inl.h"
 #include "LocalAccessible-inl.h"
 #include "Relation.h"
-#include "mozilla/a11y/Role.h"
 #include "States.h"
 #include "TextAttrs.h"
 #include "TextLeafRange.h"
 #include "TextRange.h"
 #include "TreeWalker.h"
-
-#include "nsCaret.h"
-#include "nsContentUtils.h"
-#include "nsDebug.h"
-#include "nsFocusManager.h"
-#include "nsIEditingSession.h"
-#include "nsContainerFrame.h"
-#include "nsFrameSelection.h"
-#include "nsILineIterator.h"
-#include "nsIMathMLFrame.h"
-#include "nsLayoutUtils.h"
-#include "nsRange.h"
+#include "gfxSkipChars.h"
 #include "mozilla/Assertions.h"
 #include "mozilla/EditorBase.h"
 #include "mozilla/HTMLEditor.h"
 #include "mozilla/PresShell.h"
 #include "mozilla/ScrollContainerFrame.h"
 #include "mozilla/SelectionMovementUtils.h"
+#include "mozilla/a11y/Role.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/HTMLBRElement.h"
 #include "mozilla/dom/Selection.h"
-#include "gfxSkipChars.h"
+#include "nsAccessibilityService.h"
+#include "nsCaret.h"
+#include "nsContainerFrame.h"
+#include "nsContentUtils.h"
+#include "nsDebug.h"
+#include "nsFocusManager.h"
+#include "nsFrameSelection.h"
+#include "nsIAccessibleTypes.h"
+#include "nsIEditingSession.h"
+#include "nsILineIterator.h"
+#include "nsIMathMLFrame.h"
+#include "nsLayoutUtils.h"
+#include "nsRange.h"
 
 using namespace mozilla;
 using namespace mozilla::a11y;
@@ -74,6 +72,10 @@ uint64_t HyperTextAccessible::NativeState() const {
   }
 
   nsIFrame* frame = GetFrame();
+  if (!frame) {
+    frame = FindNearestAccessibleAncestorFrame();
+  }
+
   if ((states & states::EDITABLE) || (frame && frame->IsSelectable())) {
     // If the accessible is editable the layout selectable state only disables
     // mouse selection, but keyboard (shift+arrow) selection is still possible.
@@ -279,7 +281,7 @@ DOMPoint HyperTextAccessible::OffsetToDOMPoint(int32_t aOffset) const {
 }
 
 already_AddRefed<AccAttributes> HyperTextAccessible::DefaultTextAttributes() {
-  RefPtr<AccAttributes> attributes = new AccAttributes();
+  auto attributes = MakeRefPtr<AccAttributes>();
 
   TextAttrsMgr textAttrsMgr(this);
   textAttrsMgr.GetAttributes(attributes);
@@ -600,7 +602,7 @@ int32_t HyperTextAccessible::CaretOffset() const {
 }
 
 std::pair<LayoutDeviceIntRect, nsIWidget*> HyperTextAccessible::GetCaretRect() {
-  RefPtr<nsCaret> caret = mDoc->PresShellPtr()->GetCaret();
+  RefPtr<nsCaret> caret = mDoc->PresShellPtr()->GetOriginalCaret();
   NS_ENSURE_TRUE(caret, {});
 
   bool isVisible = caret->IsVisible();
@@ -725,8 +727,8 @@ void HyperTextAccessible::ScrollSubstringToPoint(int32_t aStartOffset,
 
         nsresult rv = nsCoreUtils::ScrollSubstringTo(
             frame, domRange,
-            ScrollAxis(WhereToScroll(vPercent), WhenToScroll::Always),
-            ScrollAxis(WhereToScroll(hPercent), WhenToScroll::Always));
+            AxisScrollParams(WhereToScroll(vPercent), WhenToScroll::Always),
+            AxisScrollParams(WhereToScroll(hPercent), WhenToScroll::Always));
         if (NS_FAILED(rv)) return;
 
         initialScrolled = true;
@@ -771,16 +773,15 @@ void HyperTextAccessible::ReplaceText(const nsAString& aText) {
     return;
   }
 
+  RefPtr<EditorBase> editorBase = GetEditor();
+
   SetSelectionBoundsAt(TextLeafRange::kRemoveAllExistingSelectedRanges, 0,
                        CharacterCount());
 
-  RefPtr<EditorBase> editorBase = GetEditor();
-  if (!editorBase) {
-    return;
+  if (editorBase) {
+    DebugOnly<nsresult> rv = editorBase->InsertTextAsAction(aText);
+    NS_WARNING_ASSERTION(NS_SUCCEEDED(rv), "Failed to insert the new text");
   }
-
-  DebugOnly<nsresult> rv = editorBase->InsertTextAsAction(aText);
-  NS_WARNING_ASSERTION(NS_SUCCEEDED(rv), "Failed to insert the new text");
 }
 
 void HyperTextAccessible::InsertText(const nsAString& aText,

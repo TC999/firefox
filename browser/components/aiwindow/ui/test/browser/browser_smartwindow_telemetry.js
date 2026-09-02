@@ -9,6 +9,12 @@ const { SmartWindowTelemetry } = ChromeUtils.importESModule(
 const { GetPageContent, RunSearch } = ChromeUtils.importESModule(
   "moz-src:///browser/components/aiwindow/models/Tools.sys.mjs"
 );
+const { buildEngineForFeature } = ChromeUtils.importESModule(
+  "moz-src:///browser/components/aiwindow/models/PromptLoader.sys.mjs"
+);
+const { MODEL_FEATURES } = ChromeUtils.importESModule(
+  "moz-src:///browser/components/aiwindow/models/Utils.sys.mjs"
+);
 
 async function dispatchSmartbarCommit(browser, value, action) {
   await SpecialPowers.spawn(browser, [value, action], async (val, act) => {
@@ -266,6 +272,41 @@ add_task(async function test_followup_displayed_telemetry_sends_count() {
           "2",
           "Follow-up displayed event includes the final prompt count"
         );
+        Assert.equal(
+          followUpEvent.extra.resume_prompts,
+          "0",
+          "Follow-up displayed event has zero resume prompts"
+        );
+
+        // Avoid a dangling request when the mock server stops.
+        const sb = sinon.createSandbox();
+        const fetchWithHistoryStub = sb
+          .stub(Chat, "fetchWithHistory")
+          .resolves();
+        try {
+          const aiWindow = browser.contentDocument.querySelector("ai-window");
+          aiWindow.onQuickPromptClicked("Follow up question 1", false);
+
+          const clickEvent = await TestUtils.waitForCondition(
+            () =>
+              Glean.smartWindow.quickPromptClicked
+                .testGetValue()
+                ?.find(e => e.extra.chat_id === conversationId),
+            "Wait for follow-up clicked event"
+          );
+
+          Assert.equal(
+            clickEvent.extra.starter_type,
+            "followup",
+            "Follow-up clicked event includes the starter type"
+          );
+          await TestUtils.waitForCondition(
+            () => fetchWithHistoryStub.calledOnce,
+            "Follow-up click should submit a new request"
+          );
+        } finally {
+          sb.restore();
+        }
       } finally {
         await BrowserTestUtils.closeWindow(win);
       }
@@ -306,12 +347,107 @@ add_task(async function test_prompt_selected_telemetry() {
       "fullpage",
       "prompt selected event includes the location"
     );
+    Assert.equal(
+      events[0].extra.starter_type,
+      "default",
+      "prompt selected event includes the starter type"
+    );
   } finally {
     await SpecialPowers.popPrefEnv();
     if (win) {
       await BrowserTestUtils.closeWindow(win);
     }
     sb.restore();
+  }
+});
+
+add_task(async function test_resume_prompt_click_starter_type_telemetry() {
+  const sb = sinon.createSandbox();
+  try {
+    Services.fog.testResetFOG();
+    sb.stub(openAIEngine, "build").resolves({});
+    sb.stub(Chat, "fetchWithHistory").resolves();
+
+    await testResumeActivityClick(sb, async ({ buttons }) => {
+      buttons[0].click();
+
+      const events = await TestUtils.waitForCondition(
+        () => Glean.smartWindow.quickPromptClicked.testGetValue(),
+        "Wait for quick prompt clicked event"
+      );
+
+      Assert.equal(events.length, 1, "One prompt clicked event was recorded");
+      Assert.equal(
+        events[0].extra.location,
+        "fullpage",
+        "Resume pill click records location fullpage"
+      );
+      Assert.equal(
+        events[0].extra.starter,
+        "true",
+        "Resume pill click records starter true"
+      );
+      Assert.equal(
+        events[0].extra.starter_type,
+        "resume",
+        "Resume pill click records starter_type resume"
+      );
+    });
+  } finally {
+    sb.restore();
+  }
+});
+
+add_task(async function test_fullpage_resume_starters_displayed_telemetry() {
+  const sb = sinon.createSandbox();
+  let win;
+
+  Services.fog.testResetFOG();
+  await SpecialPowers.pushPrefEnv({
+    set: [
+      ["browser.smartwindow.memories.generateFromConversation", true],
+      ["browser.smartwindow.memories.generateFromHistory", true],
+    ],
+  });
+
+  let resumeActivityStubs;
+  try {
+    resumeActivityStubs = await stubResumeActivityGeneration(sb);
+    win = await openAIWindow();
+    const browser = win.gBrowser.selectedBrowser;
+    await getPromptButtons(browser);
+
+    const aiWindow = browser.contentDocument.querySelector("ai-window");
+    const promptsEl = aiWindow.shadowRoot.querySelector("smartwindow-prompts");
+    const promptCount = promptsEl.prompts.length;
+    const resumeCount = promptsEl.prompts.filter(
+      prompt => prompt.type === "resume"
+    ).length;
+
+    const events = Glean.smartWindow.quickPromptDisplayed.testGetValue();
+    Assert.greater(
+      events?.length,
+      0,
+      "At least one quick prompt displayed event was recorded"
+    );
+    const lastEvent = events.at(-1);
+    Assert.equal(
+      lastEvent.extra.prompts,
+      String(promptCount),
+      "Displayed event includes the total prompt count"
+    );
+    Assert.equal(
+      lastEvent.extra.resume_prompts,
+      String(resumeCount),
+      "Displayed event includes the resume-pill-only count"
+    );
+  } finally {
+    if (win) {
+      await BrowserTestUtils.closeWindow(win);
+    }
+    sb.restore();
+    await resumeActivityStubs?.cleanup();
+    await SpecialPowers.popPrefEnv();
   }
 });
 
@@ -323,6 +459,11 @@ add_task(async function test_chat_storage_metric() {
     "moz-src:///browser/components/aiwindow/ui/modules/ChatStore.sys.mjs"
   );
 
+  // ChatStore is a persistent singleton whose #lastRecordedSize guard survives
+  // testResetFOG(). Prior tests can leave the DB file grown to a size the next
+  // write reuses without changing, which would suppress the chat_storage emit
+  // and hang this test. Start from a clean DB so the write always changes size.
+  await ChatStore.destroyDatabase();
   Services.fog.testResetFOG();
   let conversation;
   try {
@@ -333,8 +474,13 @@ add_task(async function test_chat_storage_metric() {
     await ChatStore.updateConversation(conversation);
     const expectedSize = await ChatStore.getDatabaseSize();
 
-    await TestUtils.waitForCondition(
-      () => Glean.smartWindow.chatStorage.testGetValue() === expectedSize,
+    // Writes only queue a coalesced measurement, so flush it rather than
+    // waiting out DB_SIZE_RECORD_DELAY_MS.
+    await ChatStore.recordDatabaseSizeNow();
+
+    Assert.equal(
+      Glean.smartWindow.chatStorage.testGetValue(),
+      expectedSize,
       "chat storage metric should be recorded"
     );
   } finally {
@@ -361,24 +507,17 @@ add_task(async function test_memories_count_metric() {
     {
       id: "memory-history",
       memory_summary: "User is vegan",
-      category: "preference",
-      intent: "profile",
-      reasoning: "Test memory",
-      score: 0.5,
-      updated_at: Date.now(),
-      is_deleted: false,
-      source: "history",
+      sources: ["history"],
     },
     {
       id: "memory-conversation",
       memory_summary: "User has a cat",
-      category: "personal",
-      intent: "profile",
-      reasoning: "Test memory",
-      score: 0.5,
-      updated_at: Date.now(),
-      is_deleted: false,
-      source: "conversation",
+      sources: ["conversation"],
+    },
+    {
+      id: "memory-session",
+      memory_summary: "User researches firefox privacy",
+      sources: ["session"],
     },
   ];
   for (const memory of memories) {
@@ -388,9 +527,10 @@ add_task(async function test_memories_count_metric() {
   await TestUtils.waitForCondition(() => {
     return (
       Glean.smartWindow.memoriesCount.history.testGetValue() === 1 &&
-      Glean.smartWindow.memoriesCount.conversation.testGetValue() === 1
+      Glean.smartWindow.memoriesCount.conversation.testGetValue() === 1 &&
+      Glean.smartWindow.memoriesCount.session.testGetValue() === 1
     );
-  }, "memories_count should record history and conversation counts");
+  }, "memories_count should record history, conversation and session counts");
 
   for (const memory of memories) {
     await MemoryStore.hardDeleteMemory(memory.id, "other");
@@ -540,6 +680,135 @@ add_task(async function test_search_handoff_telemetry() {
   }
 });
 
+add_task(async function test_run_search_toolcall_telemetry() {
+  const sb = this.sinon.createSandbox();
+  let win;
+
+  try {
+    Services.fog.testResetFOG();
+    const { SearchService } = ChromeUtils.importESModule(
+      "moz-src:///toolkit/components/search/SearchService.sys.mjs"
+    );
+    await SearchService.init();
+    sb.stub(RunSearch, "runSearch").resolves("Mock search results");
+
+    await withServer(
+      {
+        toolCall: {
+          name: "run_search",
+          args: JSON.stringify({ query: "test search query" }),
+        },
+      },
+      async () => {
+        win = await openAIWindow();
+        const browser = win.gBrowser.selectedBrowser;
+
+        const conversationId = await getConversationId(browser);
+        await dispatchSmartbarCommit(
+          browser,
+          "search the web for something",
+          "chat"
+        );
+
+        await TestUtils.waitForCondition(
+          () => Glean.smartWindow.toolCall.testGetValue()?.length,
+          "tool_call telemetry should be recorded"
+        );
+
+        const events = Glean.smartWindow.toolCall.testGetValue();
+        Assert.equal(events?.length, 1, "One tool_call event recorded");
+
+        const aiWindow = browser.contentDocument.querySelector("ai-window");
+        const { engine } = await buildEngineForFeature(MODEL_FEATURES.CHAT);
+
+        Assert.deepEqual(
+          events[0].extra,
+          {
+            tool_name: "run_search",
+            chat_id: conversationId,
+            error: "",
+            location: "fullpage",
+            model: engine.model,
+            prompt_version: aiWindow.conversation.systemPromptVersion,
+            // user message + assistant tool-call + tool-result = 3 at the
+            // time the event was recorded. The conversation may add more
+            // messages afterwards, so this can't be derived live.
+            message_seq: "3",
+          },
+          "tool_call event has the expected extras"
+        );
+      }
+    );
+  } finally {
+    if (win) {
+      await BrowserTestUtils.closeWindow(win);
+    }
+    sb.restore();
+  }
+});
+
+add_task(async function test_run_search_toolcall_failure_telemetry() {
+  const sb = this.sinon.createSandbox();
+  let win;
+
+  try {
+    Services.fog.testResetFOG();
+    const { SearchService } = ChromeUtils.importESModule(
+      "moz-src:///toolkit/components/search/SearchService.sys.mjs"
+    );
+    await SearchService.init();
+    sb.stub(RunSearch, "runSearch").rejects(
+      new Error("simulated tool failure")
+    );
+
+    await withServer(
+      {
+        toolCall: {
+          name: "run_search",
+          args: JSON.stringify({ query: "test search query" }),
+        },
+      },
+      async () => {
+        win = await openAIWindow();
+        const browser = win.gBrowser.selectedBrowser;
+
+        await dispatchSmartbarCommit(
+          browser,
+          "search the web for something",
+          "chat"
+        );
+
+        await TestUtils.waitForCondition(
+          () => Glean.smartWindow.toolCall.testGetValue()?.length,
+          "tool_call telemetry should be recorded on failure"
+        );
+
+        const events = Glean.smartWindow.toolCall.testGetValue();
+        Assert.equal(
+          events?.length,
+          1,
+          "One tool_call event recorded on failure"
+        );
+        Assert.equal(
+          events[0].extra.tool_name,
+          "run_search",
+          "tool_call event names the invoked tool"
+        );
+        Assert.equal(
+          events[0].extra.error,
+          "execution_failed",
+          "tool_call event marks failed execution with error code"
+        );
+      }
+    );
+  } finally {
+    if (win) {
+      await BrowserTestUtils.closeWindow(win);
+    }
+    sb.restore();
+  }
+});
+
 add_task(async function test_chat_retrieved_telemetry() {
   Services.fog.testResetFOG();
 
@@ -627,8 +896,6 @@ add_task(async function test_link_click_telemetry() {
 });
 
 add_task(async function test_memory_removed_panel_telemetry() {
-  Services.fog.testResetFOG();
-
   const win = await openAIWindow();
   let MemoryStore;
   try {
@@ -641,6 +908,7 @@ add_task(async function test_memory_removed_panel_telemetry() {
     for (const memory of preExistingMemories) {
       await MemoryStore.hardDeleteMemory(memory.id, "other");
     }
+    Services.fog.testResetFOG();
     const seededMemories = [
       {
         id: "memory-1",
@@ -712,6 +980,94 @@ add_task(async function test_memory_removed_panel_telemetry() {
       events[0].extra.memories,
       "1",
       "memory removed panel event includes memories count"
+    );
+    Assert.equal(
+      events[0].extra.in_use,
+      "1",
+      "in_use reflects remaining applied memories count for the message"
+    );
+  } finally {
+    if (MemoryStore) {
+      const postTestMemories = await MemoryStore.getMemories({
+        includeSoftDeleted: true,
+      });
+      for (const memory of postTestMemories) {
+        await MemoryStore.hardDeleteMemory(memory.id, "other");
+      }
+    }
+    await BrowserTestUtils.closeWindow(win);
+  }
+});
+
+add_task(async function test_memory_removed_panel_telemetry_last_memory() {
+  const win = await openAIWindow();
+  let MemoryStore;
+  try {
+    ({ MemoryStore } = ChromeUtils.importESModule(
+      "moz-src:///browser/components/aiwindow/services/MemoryStore.sys.mjs"
+    ));
+    const preExistingMemories = await MemoryStore.getMemories({
+      includeSoftDeleted: true,
+    });
+    for (const memory of preExistingMemories) {
+      await MemoryStore.hardDeleteMemory(memory.id, "other");
+    }
+    Services.fog.testResetFOG();
+
+    const seededMemory = {
+      id: "memory-1",
+      memory_summary: "User is vegan",
+      category: "preference",
+      intent: "profile",
+      reasoning: "Test memory",
+      score: 0.5,
+      updated_at: Date.now(),
+      is_deleted: false,
+    };
+    await MemoryStore.addMemory(seededMemory);
+
+    const browser = win.gBrowser.selectedBrowser;
+    const aiWindow = await TestUtils.waitForCondition(
+      () => browser.contentDocument?.querySelector("ai-window"),
+      "Wait for ai-window element"
+    );
+
+    const { AssistantRoleOpts } = ChromeUtils.importESModule(
+      "moz-src:///browser/components/aiwindow/ui/modules/ChatMessage.sys.mjs"
+    );
+
+    const conversation = new ChatConversation({});
+    conversation.addUserMessage("Hello");
+    const memories = [{ id: "memory-1", memory_summary: "User is vegan" }];
+    const assistantOpts = new AssistantRoleOpts(
+      null,
+      null,
+      null,
+      true,
+      null,
+      memories,
+      []
+    );
+    conversation.addAssistantMessage("text", "Hi", assistantOpts);
+    aiWindow.openConversation(conversation);
+    const assistantMessageId = conversation.messages.at(-1).id;
+    aiWindow.handleFooterAction({
+      action: "remove-applied-memory",
+      messageId: assistantMessageId,
+      memory: memories[0],
+    });
+
+    await TestUtils.waitForCondition(
+      () => Glean.smartWindow.memoryRemovedPanel.testGetValue()?.length,
+      "memory removed panel telemetry should be recorded"
+    );
+
+    const events = Glean.smartWindow.memoryRemovedPanel.testGetValue();
+    Assert.equal(events?.length, 1, "One memory removed panel event recorded");
+    Assert.equal(
+      events[0].extra.in_use,
+      "0",
+      "in_use is 0 when the last applied memory for the message is removed"
     );
   } finally {
     if (MemoryStore) {

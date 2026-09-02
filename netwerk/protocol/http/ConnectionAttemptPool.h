@@ -7,9 +7,9 @@
 
 #include "ConnectionAttempt.h"
 #include "DashboardTypes.h"
+#include "PendingTransactionInfo.h"
 #include "nsHashKeys.h"
 #include "nsTHashMap.h"
-#include "PendingTransactionInfo.h"
 
 namespace mozilla {
 namespace net {
@@ -25,13 +25,15 @@ class ConnectionAttemptPool final {
   nsresult StartConnectionEstablishment(
       ConnectionEntry* entry, nsAHttpTransaction* trans, uint32_t caps,
       bool speculative, bool urgentStart, bool allow1918,
-      PendingTransactionInfo* pendingTransInfo);
+      PendingTransactionInfo* pendingTransInfo, bool retryWithoutTRR = false);
   size_t Length() const { return mAttempts.Length(); }
   void RemoveConnectionAttempt(ConnectionAttempt* attempt, bool abandon);
   void CloseAllConnectionAttempts();
   // calculate the number of half open sockets that have not had at least 1
   // connection complete
   uint32_t UnconnectedConnectionAttempts() const;
+
+  void OnConnectionAttemptConnected();
 
   bool FindConnToClaim(PendingTransactionInfo* pendingTransInfo);
 
@@ -50,6 +52,7 @@ class ConnectionAttemptPool final {
 
   WeakPtr<ConnectionEntry> mEntry;
   nsTArray<RefPtr<ConnectionAttempt>> mAttempts;
+  uint32_t mUnconnectedCount{0};
 };
 
 }  // namespace net

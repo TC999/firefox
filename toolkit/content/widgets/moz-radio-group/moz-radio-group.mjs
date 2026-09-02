@@ -16,6 +16,7 @@ import { MozBaseInputElement } from "../lit-utils.mjs";
  * @tagname moz-radio-group
  * @property {boolean} disabled - Whether or not the fieldset is disabled.
  * @property {string} label - Label for the group of moz-radio elements.
+ * @property {string} ariaLabel - Accessible name for the group when no visible label is provided.
  * @property {string} description - Description for the group of moz-radio elements.
  * @property {string} supportPage - Support page for the group of moz-radio elements.
  * @property {number} headingLevel - Render the label in a heading of this level.
@@ -29,11 +30,15 @@ import { MozBaseInputElement } from "../lit-utils.mjs";
  */
 export class MozRadioGroup extends SelectControlBaseElement {
   static childElementName = "moz-radio";
-  static orientation = "vertical";
 
   static properties = {
     parentDisabled: { type: Boolean, state: true },
   };
+
+  constructor() {
+    super();
+    this.orientation = "vertical";
+  }
 }
 customElements.define("moz-radio-group", MozRadioGroup);
 
@@ -53,6 +58,7 @@ customElements.define("moz-radio-group", MozRadioGroup);
  * @property {string} value - Value of the radio input.
  * @property {string} ariaLabel - The aria-label text when there is no visible label.
  * @property {string} ariaDescription - The aria-description text when there is no visible description.
+ * @property {string} title - The title attribute, mapped onto the inner input.
  */
 export class MozRadio extends SelectControlItemMixin(MozBaseInputElement) {
   static activatedProperty = "checked";
@@ -79,6 +85,7 @@ export class MozRadio extends SelectControlItemMixin(MozBaseInputElement) {
       aria-description=${ifDefined(
         this.hasDescription ? undefined : this.ariaDescription
       )}
+      title=${ifDefined(this.title)}
       @click=${this.handleClick}
       @change=${this.handleChange}
     />`;

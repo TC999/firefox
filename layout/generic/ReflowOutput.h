@@ -8,6 +8,7 @@
 #define mozilla_ReflowOutput_h
 
 #include "mozilla/EnumeratedRange.h"
+#include "mozilla/TypedEnumBits.h"
 #include "mozilla/WritingModes.h"
 #include "nsBoundingMetrics.h"
 #include "nsRect.h"
@@ -22,6 +23,20 @@ constexpr auto AllOverflowTypes() {
   return MakeInclusiveEnumeratedRange(OverflowType::Ink,
                                       OverflowType::Scrollable);
 }
+
+// Flags controlling how a child's overflow areas are unioned into a parent's
+// overflow areas.
+enum class OverflowAreaUnionFlags : uint8_t {
+  None = 0,
+  // Treat the frame as if it were a scroll container: bypass the contain:layout
+  // check so the scrollable overflow of children still contributes.
+  AsIfScrolled = 1 << 0,
+  // The child being considered is absolutely positioned. The child's overflow
+  // is unioned via OverflowAreas::UnionWithAbsoluteOverflowAreas (which skips
+  // empty overflow rects).
+  ChildIsAbsPos = 1 << 1,
+};
+MOZ_MAKE_ENUM_CLASS_BITWISE_OPERATORS(OverflowAreaUnionFlags)
 
 struct OverflowAreas {
  public:
@@ -49,8 +64,6 @@ struct OverflowAreas {
     return InkOverflow().IsEqualInterior(aOther.InkOverflow()) &&
            ScrollableOverflow().IsEqualEdges(aOther.ScrollableOverflow());
   }
-
-  bool operator!=(const OverflowAreas&) const = default;
 
   OverflowAreas operator+(const nsPoint& aPoint) const {
     OverflowAreas result(*this);
@@ -120,7 +133,6 @@ struct OverflowAreas {
 class CollapsingMargin final {
  public:
   bool operator==(const CollapsingMargin&) const = default;
-  bool operator!=(const CollapsingMargin&) const = default;
 
   void Include(nscoord aCoord) {
     if (aCoord > mMostPos) {
@@ -228,6 +240,10 @@ class ReflowOutput {
   // Carried out block-end margin values. This is the collapsed
   // (generational) block-end margin value.
   CollapsingMargin mCarriedOutBEndMargin;
+
+  // Set when the frame needs to retry reflow to apply text-box-trim-end
+  // at a fragment boundary.
+  bool mNeedsTextBoxTrimAtFragmentEndRetry = false;
 
   // For frames that have content that overflow their content area
   // (HasOverflowAreas() is true) these rectangles represent the total

@@ -16,6 +16,7 @@ task-defaults:
         fetch:
             - dxc-src
     run:
+        clone-with: hg
         script: build-dxc.sh
         sparse-profile: null
     worker-type: b-linux-docker-amd

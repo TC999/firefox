@@ -683,7 +683,7 @@ export class DevToolsStartup {
         this.hookKeyShortcuts(doc.defaultView);
       },
     };
-    lazy.CustomizableUI.createWidget(item);
+    lazy.CustomizableUI.createWidget(item, lazy.CustomizableUI.SOURCE_BUILTIN);
     lazy.CustomizableWidgets.push(item);
 
     this.developerToggleCreated = true;
@@ -1065,6 +1065,11 @@ export class DevToolsStartup {
     // --jsdebugger $binaryPath is an helper alias to set MOZ_BROWSER_TOOLBOX_BINARY=$binaryPath
     // See comment within BrowserToolboxLauncher.
     // Setting it as an environment variable helps it being reused if we restart the browser via CmdOrCtrl+R
+    if (binaryPath && AppConstants.MOZILLA_OFFICIAL) {
+      throw new Error(
+        "Custom binary path for the browser toolbox passed via --jsdebugger only works for local build without MOZILLA_OFFICIAL build flag\n"
+      );
+    }
     Services.env.set("MOZ_BROWSER_TOOLBOX_BINARY", binaryPath);
 
     const browserToolboxLauncherConfig = {};
@@ -1292,7 +1297,7 @@ export class DevToolsStartup {
     debugService.remoteActivationHandler = async (browser, callback) => {
       try {
         // Force selecting the freezing tab
-        const chromeWindow = browser.ownerGlobal;
+        const chromeWindow = browser.documentGlobal;
         const tab = chromeWindow.gBrowser.getTabForBrowser(browser);
         chromeWindow.gBrowser.selectedTab = tab;
 
@@ -1409,7 +1414,7 @@ const JsonView = {
    */
   onSave(message) {
     const browser = message.target;
-    const chrome = browser.ownerGlobal;
+    const chrome = browser.documentGlobal;
     if (message.data === null) {
       // Save original contents
       chrome.saveBrowser(browser);
@@ -1453,6 +1458,10 @@ const JsonView = {
             ) /* private browsing ? */,
             Services.scriptSecurityManager.getSystemPrincipal()
           );
+          // Close the persist document to tear down the IPC actor
+          // that otherwise prevents the content window from being
+          // destroyed until GC runs.
+          doc.close();
         },
         onError() {
           throw new Error("JSON Viewer's onSave failed in startPersistence");

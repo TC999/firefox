@@ -14,12 +14,15 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <set>
 
 #include "absl/base/nullability.h"
 #include "absl/container/flat_hash_map.h"
+#include "absl/container/flat_hash_set.h"
 #include "absl/functional/any_invocable.h"
 #include "absl/strings/string_view.h"
 #include "api/environment/environment.h"
+#include "api/sequence_checker.h"
 #include "api/task_queue/task_queue_base.h"
 #include "api/units/time_delta.h"
 #include "api/units/timestamp.h"
@@ -30,6 +33,7 @@
 #include "rtc_base/thread_annotations.h"
 #include "test/time_controller/simulated_time_task_queue_controller.h"
 #include "video/timing/simulator/rtp_packet_simulator.h"
+#include "video/timing/simulator/rtt_simulator.h"
 
 namespace webrtc::video_timing_simulator {
 
@@ -46,9 +50,12 @@ namespace webrtc::video_timing_simulator {
 // running on the provided task queue(s).
 //
 // TODO: b/423646186 - Improvements:
+//  * Consider splitting the `RtcEventLogDriver` class into two:
+//    - One for orchestration (queue, event processor,
+//      event handler registration, ...).
+//    - One for media simulation (RTTs, streams, ...). Running on the queue.
 //  * Handle `LogSegment`s.
 //  * Handle stop events.
-//  * Parse RTT updates from RTCPs.
 class RtcEventLogDriver {
  public:
   // Configuration for the `RtcEventLogDriver` itself.
@@ -57,6 +64,10 @@ class RtcEventLogDriver {
     // `LoggedVideoRecvConfig` was logged for the same stream. (This might
     // happen around `SetRemoteDescription`s.)
     bool reuse_streams = false;
+
+    // If non-empty, will only simulate video streams whose main SSRCs is
+    // contained in the set.
+    std::set<uint32_t> ssrc_filter = {};
   };
 
   // A stream that is driven by simulated RTP packets coming from the log.
@@ -66,6 +77,8 @@ class RtcEventLogDriver {
     // Insert `simulated_packet` into the stream.
     virtual void InsertSimulatedPacket(
         const RtpPacketSimulator::SimulatedPacket& simulated_packet) = 0;
+    // Propagate an RTT update to the stream components.
+    virtual void UpdateMaxRtt(TimeDelta max_rtt) = 0;
     // Notify the stream that no more packets will be inserted.
     virtual void Close() = 0;
   };
@@ -97,6 +110,19 @@ class RtcEventLogDriver {
   }
 
  private:
+  class RttCallbackAdapter : public SimulatedRttCallback {
+   public:
+    explicit RttCallbackAdapter(RtcEventLogDriver* absl_nonnull driver)
+        : driver_(*driver) {}
+    ~RttCallbackAdapter() override = default;
+    void OnMaxRttUpdate(TimeDelta max_rtt) override {
+      driver_.UpdateMaxRtt(max_rtt);
+    }
+
+   private:
+    RtcEventLogDriver& driver_;
+  };
+
   // Simulation.
   // Sets the `time_controller_` simulated time to `log_timestamp`, thus
   // executing all relevant tasks on the `simulator_queue_`.
@@ -110,6 +136,21 @@ class RtcEventLogDriver {
   // RtcEventProcessor callbacks (running on main thread).
   void OnLoggedVideoRecvConfig(const LoggedVideoRecvConfig& config);
   void OnLoggedRtpPacketIncoming(const LoggedRtpPacketIncoming& packet);
+  void OnLoggedRtcpPacketSenderReportOutgoing(
+      const LoggedRtcpPacketSenderReport& packet);
+  void OnLoggedRtcpPacketExtendedReportsOutgoing(
+      const LoggedRtcpPacketExtendedReports& packet);
+  void OnLoggedRtcpPacketSenderReportIncoming(
+      const LoggedRtcpPacketSenderReport& packet);
+  void OnLoggedRtcpPacketReceiverReportIncoming(
+      const LoggedRtcpPacketReceiverReport& packet);
+  void OnLoggedRtcpPacketExtendedReportsIncoming(
+      const LoggedRtcpPacketExtendedReports& packet);
+
+  void UpdateMaxRtt(TimeDelta max_rtt);
+
+  // Destroy owned objects on `simulator_queue_`.
+  void TeardownOnQueue() RTC_RUN_ON(simulator_queue_);
 
   // Environment.
   const Config config_;
@@ -125,11 +166,16 @@ class RtcEventLogDriver {
   std::optional<Timestamp> prev_log_timestamp_;
   std::unique_ptr<TaskQueueBase, TaskQueueDeleter> simulator_queue_;
   RtpPacketSimulator packet_simulator_ RTC_GUARDED_BY(simulator_queue_);
+  RttCallbackAdapter rtt_callback_adapter_ RTC_GUARDED_BY(simulator_queue_);
+  std::unique_ptr<RttSimulator> rtt_simulator_ RTC_GUARDED_BY(simulator_queue_);
   // Owned streams. Keyed by `ssrc`, so that they can be replaced if needed.
   absl::flat_hash_map<uint32_t, std::unique_ptr<StreamInterface>> streams_
       RTC_GUARDED_BY(simulator_queue_);
   // Streams for reception. Keyed by both `ssrc` and `rtx_ssrc`.
   absl::flat_hash_map<uint32_t, StreamInterface*> receiving_streams_
+      RTC_GUARDED_BY(simulator_queue_);
+  // Keep track of all logged `ssrc`s for text logging purposes.
+  absl::flat_hash_set<uint32_t> all_known_ssrcs_
       RTC_GUARDED_BY(simulator_queue_);
 };
 

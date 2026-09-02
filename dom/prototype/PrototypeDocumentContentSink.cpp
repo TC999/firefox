@@ -335,7 +335,7 @@ nsresult PrototypeDocumentContentSink::PrepareToWalk() {
   mDocument->UpdateDocumentStates(DocumentState::RTL_LOCALE, true);
 
   nsContentUtils::AddScriptRunner(
-      new nsDocElementCreatedNotificationRunner(mDocument));
+      MakeAndAddRef<nsDocElementCreatedNotificationRunner>(mDocument));
 
   // There'd better not be anything on the context stack at this
   // point! This is the basis case for our "induction" in
@@ -649,20 +649,20 @@ nsresult PrototypeDocumentContentSink::DoneWalking() {
   MOZ_ASSERT(!mStillWalking, "walk not done");
   MOZ_ASSERT(!mDocument->HasPendingInitialTranslation(), "translation pending");
 
-  if (mDocument) {
-    MOZ_ASSERT(mDocument->GetReadyStateEnum() == Document::READYSTATE_LOADING,
+  if (const RefPtr<Document> doc = mDocument) {
+    MOZ_ASSERT(doc->GetReadyStateEnum() == Document::READYSTATE_LOADING,
                "Bad readyState");
-    mDocument->SetReadyStateInternal(Document::READYSTATE_INTERACTIVE);
-    mDocument->NotifyPossibleTitleChange(false);
+    doc->SetReadyStateInternal(Document::READYSTATE_INTERACTIVE);
+    doc->NotifyPossibleTitleChange(false);
 
-    nsContentUtils::DispatchEventOnlyToChrome(mDocument, mDocument,
+    nsContentUtils::DispatchEventOnlyToChrome(doc, doc,
                                               u"MozBeforeInitialXULLayout"_ns,
                                               CanBubble::eYes, Cancelable::eNo);
   }
 
-  if (mScriptLoader) {
-    mScriptLoader->ParsingComplete(false);
-    mScriptLoader->DeferCheckpointReached();
+  if (const RefPtr<ScriptLoader> scriptLoader = mScriptLoader) {
+    scriptLoader->ParsingComplete(false);
+    scriptLoader->DeferCheckpointReached();
   }
 
   StartLayout();

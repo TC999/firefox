@@ -138,11 +138,15 @@ class MediaFoundationInitializer final {
   // WMF from threads with the same COM compartment model.
   HRESULT MFShutdown();
 
-  constinit static inline UniquePtr<MediaFoundationInitializer> sInitializer;
+  constinit static UniquePtr<MediaFoundationInitializer> sInitializer;
   static inline StaticMutex sCreateMutex;
   static inline Atomic<bool> sIsShutdown{false};
   const bool mHasInitialized;
 };
+
+// Used to serialize wmf::MFTEnumEx with MFShutdown to prevent the
+// RTWorkQ/MFTEnumCache lock-order inversion deadlock (bug 1972278).
+inline StaticMutex sMFTEnumShutdownMutex MOZ_UNANNOTATED;
 
 // All functions below are wrappers around the corresponding WMF function,
 // and automatically locate and call the corresponding function in the WMF DLLs.

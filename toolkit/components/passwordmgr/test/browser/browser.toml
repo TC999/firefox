@@ -57,6 +57,7 @@ skip-if = [
   "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && display == 'x11' && debug", # Bug 1775902
   "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && verify-standalone",
   "os == 'mac' && os_version == '10.15' && arch == 'x86_64'", # Bug 1775902
+  "os == 'win' && debug && artifact", # bug 1775902
   "os == 'win' && os_version == '10.2009' && arch == 'x86_64' && opt", # Bug 1775902
 ]
 
@@ -111,6 +112,11 @@ skip-if = [
   "os == 'android'",
 ]
 
+["browser_doorhanger_autocomplete_color_scheme.js"]
+fail-if = [
+  "a11y_checks", # Bug 1854452 clicked password-notification-username-dropmaker may not be focusable and/or labeled
+]
+
 ["browser_doorhanger_autocomplete_values.js"]
 fail-if = [
   "a11y_checks", # Bug 1854452 clicked password-notification-username-dropmaker may not be focusable and/or labeled
@@ -140,6 +146,7 @@ skip-if = [
   "os == 'mac' && os_version == '10.15' && arch == 'x86_64' && debug", # Bug 1729196
   "os == 'mac' && os_version == '15.30' && arch == 'aarch64' && opt", # Bug 1729196
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64'", # Bug 1729196
+  "os == 'win' && os_version == '11.26200' && arch == 'x86' && opt", # Bug 1729196
   "os == 'win' && os_version == '11.26200' && arch == 'x86_64'", # Bug 1729196
 ]
 
@@ -147,6 +154,11 @@ skip-if = [
 support-files = [
   "subtst_notifications_1.html",
   "subtst_notifications_8.html",
+]
+
+["browser_doorhanger_keyboard.js"]
+skip-if = [
+  "a11y_checks", # Bugs 1858041, 1854454 and 1824058 for causing intermittent crashes
 ]
 
 ["browser_doorhanger_multipage_form.js"]
@@ -183,6 +195,8 @@ skip-if = [
 
 ["browser_doorhanger_target_blank.js"]
 support-files = ["subtst_notifications_12_target_blank.html"]
+
+["browser_doorhanger_urlbar_focus.js"]
 
 ["browser_doorhanger_username_edits.js"]
 
@@ -239,6 +253,11 @@ skip-if = [
   "os == 'mac' && os_version == '10.15' && arch == 'x86_64'", # Bug 1683848
 ]
 
+["browser_login_storage_migrator.js"]
+skip-if = [
+  "os == 'android'", # The migrator only runs on desktop
+]
+
 ["browser_message_onFormSubmit.js"]
 
 ["browser_openPasswordManager.js"]
@@ -280,12 +299,6 @@ support-files = ["browser_relay_utils.js"]
 
 ["browser_relay_use.js"]
 support-files = ["browser_relay_utils.js"]
-
-["browser_rust_mirror.js"]
-skip-if = [
-  "os == 'android'",
-  "release_or_beta", # Bug 1993218
-]
 
 ["browser_telemetry_SignUpFormRuleset.js"]
 

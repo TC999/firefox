@@ -1,53 +1,7 @@
 /* import-globals-from storageAccessAPIHelpers.js */
 
 PartitionedStorageHelper.runTest(
-  "ServiceWorkers - disable partitioning",
-  async (win3rdParty, win1stParty, allowed) => {
-    // Partitioned serviceWorkers are disabled in third-party context.
-    await win3rdParty.navigator.serviceWorker.register("empty.js").then(
-      _ => {
-        ok(
-          allowed,
-          "Success: ServiceWorker cannot be used unless storage access is granted"
-        );
-      },
-      _ => {
-        ok(
-          !allowed,
-          "Failed: ServiceWorker cannot be used unless storage access is granted"
-        );
-      }
-    );
-
-    await win1stParty.navigator.serviceWorker.register("empty.js").then(
-      _ => {
-        ok(true, "Success: ServiceWorker should be available!");
-      },
-      _ => {
-        ok(false, "Failed: ServiceWorker should be available!");
-      }
-    );
-  },
-
-  async _ => {
-    await new Promise(resolve => {
-      Services.clearData.deleteData(Ci.nsIClearDataService.CLEAR_ALL, () =>
-        resolve()
-      );
-    });
-  },
-
-  [
-    ["dom.serviceWorkers.exemptFromPerDomainMax", true],
-    ["dom.ipc.processCount", 1],
-    ["dom.serviceWorkers.enabled", true],
-    ["dom.serviceWorkers.testing.enabled", true],
-    ["privacy.partition.serviceWorkers", false],
-  ]
-);
-
-PartitionedStorageHelper.runTest(
-  "ServiceWorkers - enable partitioning",
+  "ServiceWorkers - partitioning",
   async (win3rdParty, win1stParty) => {
     // Partitioned serviceWorkers are enabled in third-party context.
     await win3rdParty.navigator.serviceWorker.register("empty.js").then(
@@ -75,20 +29,14 @@ PartitionedStorageHelper.runTest(
     );
   },
 
-  async _ => {
-    await new Promise(resolve => {
-      Services.clearData.deleteData(Ci.nsIClearDataService.CLEAR_ALL, () =>
-        resolve()
-      );
-    });
-  },
+  // Cleanup callback
+  clearSiteTestData,
 
   [
     ["dom.serviceWorkers.exemptFromPerDomainMax", true],
     ["dom.ipc.processCount", 1],
     ["dom.serviceWorkers.enabled", true],
     ["dom.serviceWorkers.testing.enabled", true],
-    ["privacy.partition.serviceWorkers", true],
   ]
 );
 
@@ -117,13 +65,8 @@ PartitionedStorageHelper.runTestInNormalAndPrivateMode(
     );
   },
 
-  async _ => {
-    await new Promise(resolve => {
-      Services.clearData.deleteData(Ci.nsIClearDataService.CLEAR_ALL, () =>
-        resolve()
-      );
-    });
-  },
+  // Cleanup callback
+  clearSiteTestData,
 
   [
     ["dom.serviceWorkers.privateBrowsing.enabled", true],
@@ -132,7 +75,6 @@ PartitionedStorageHelper.runTestInNormalAndPrivateMode(
     ["dom.ipc.processCount", 1],
     ["dom.serviceWorkers.enabled", true],
     ["dom.serviceWorkers.testing.enabled", true],
-    ["privacy.partition.serviceWorkers", true],
   ]
 );
 
@@ -203,13 +145,8 @@ PartitionedStorageHelper.runTestInNormalAndPrivateMode(
     );
   },
 
-  async _ => {
-    await new Promise(resolve => {
-      Services.clearData.deleteData(Ci.nsIClearDataService.CLEAR_ALL, () =>
-        resolve()
-      );
-    });
-  },
+  // Cleanup callback
+  clearSiteTestData,
 
   [
     ["dom.serviceWorkers.privateBrowsing.enabled", true],
@@ -218,7 +155,6 @@ PartitionedStorageHelper.runTestInNormalAndPrivateMode(
     ["dom.ipc.processCount", 1],
     ["dom.serviceWorkers.enabled", true],
     ["dom.serviceWorkers.testing.enabled", true],
-    ["privacy.partition.serviceWorkers", true],
   ]
 );
 
@@ -307,13 +243,8 @@ PartitionedStorageHelper.runTestInNormalAndPrivateMode(
     );
   },
 
-  async _ => {
-    await new Promise(resolve => {
-      Services.clearData.deleteData(Ci.nsIClearDataService.CLEAR_ALL, () =>
-        resolve()
-      );
-    });
-  },
+  // Cleanup callback
+  clearSiteTestData,
 
   [
     ["dom.serviceWorkers.privateBrowsing.enabled", true],
@@ -322,7 +253,6 @@ PartitionedStorageHelper.runTestInNormalAndPrivateMode(
     ["dom.ipc.processCount", 1],
     ["dom.serviceWorkers.enabled", true],
     ["dom.serviceWorkers.testing.enabled", true],
-    ["privacy.partition.serviceWorkers", true],
   ]
 );
 
@@ -393,13 +323,8 @@ PartitionedStorageHelper.runTestInNormalAndPrivateMode(
     );
   },
 
-  async _ => {
-    await new Promise(resolve => {
-      Services.clearData.deleteData(Ci.nsIClearDataService.CLEAR_ALL, () =>
-        resolve()
-      );
-    });
-  },
+  // Cleanup callback
+  clearSiteTestData,
 
   [
     ["dom.serviceWorkers.privateBrowsing.enabled", true],
@@ -408,7 +333,6 @@ PartitionedStorageHelper.runTestInNormalAndPrivateMode(
     ["dom.ipc.processCount", 1],
     ["dom.serviceWorkers.enabled", true],
     ["dom.serviceWorkers.testing.enabled", true],
-    ["privacy.partition.serviceWorkers", true],
   ]
 );
 
@@ -482,13 +406,8 @@ PartitionedStorageHelper.runTestInNormalAndPrivateMode(
     );
   },
 
-  async _ => {
-    await new Promise(resolve => {
-      Services.clearData.deleteData(Ci.nsIClearDataService.CLEAR_ALL, () =>
-        resolve()
-      );
-    });
-  },
+  // Cleanup callback
+  clearSiteTestData,
 
   [
     ["dom.serviceWorkers.privateBrowsing.enabled", true],
@@ -497,7 +416,6 @@ PartitionedStorageHelper.runTestInNormalAndPrivateMode(
     ["dom.ipc.processCount", 1],
     ["dom.serviceWorkers.enabled", true],
     ["dom.serviceWorkers.testing.enabled", true],
-    ["privacy.partition.serviceWorkers", true],
   ]
 );
 
@@ -561,13 +479,8 @@ PartitionedStorageHelper.runTestInNormalAndPrivateMode(
     thirdPartyWorker.terminate();
   },
 
-  async _ => {
-    await new Promise(resolve => {
-      Services.clearData.deleteData(Ci.nsIClearDataService.CLEAR_ALL, () =>
-        resolve()
-      );
-    });
-  },
+  // Cleanup callback
+  clearSiteTestData,
 
   [
     ["dom.serviceWorkers.privateBrowsing.enabled", true],
@@ -576,7 +489,6 @@ PartitionedStorageHelper.runTestInNormalAndPrivateMode(
     ["dom.ipc.processCount", 1],
     ["dom.serviceWorkers.enabled", true],
     ["dom.serviceWorkers.testing.enabled", true],
-    ["privacy.partition.serviceWorkers", true],
   ]
 );
 
@@ -625,13 +537,8 @@ PartitionedStorageHelper.runTestInNormalAndPrivateMode(
     thirdPartyWorker.port.postMessage("close");
   },
 
-  async _ => {
-    await new Promise(resolve => {
-      Services.clearData.deleteData(Ci.nsIClearDataService.CLEAR_ALL, () =>
-        resolve()
-      );
-    });
-  },
+  // Cleanup callback
+  clearSiteTestData,
 
   [
     ["dom.serviceWorkers.privateBrowsing.enabled", true],
@@ -640,99 +547,11 @@ PartitionedStorageHelper.runTestInNormalAndPrivateMode(
     ["dom.ipc.processCount", 1],
     ["dom.serviceWorkers.enabled", true],
     ["dom.serviceWorkers.testing.enabled", true],
-    ["privacy.partition.serviceWorkers", true],
   ]
 );
 
 PartitionedStorageHelper.runTest(
-  "ServiceWorkers - Private Browsing with partitioning disabled with SW PBM disabled",
-  async (win3rdParty, win1stParty) => {
-    ok(
-      !win3rdParty.navigator.serviceWorker,
-      "ServiceWorker should not be available in PBM with SW PBM pref set to false"
-    );
-    ok(
-      !win1stParty.navigator.serviceWorker,
-      "ServiceWorker should not be available in PBM with SW PBM pref set to false"
-    );
-  },
-
-  async _ => {
-    await new Promise(resolve => {
-      Services.clearData.deleteData(Ci.nsIClearDataService.CLEAR_ALL, () =>
-        resolve()
-      );
-    });
-  },
-
-  [
-    ["dom.serviceWorkers.privateBrowsing.enabled", false],
-    ["dom.serviceWorkers.exemptFromPerDomainMax", true],
-    ["dom.ipc.processCount", 1],
-    ["dom.serviceWorkers.enabled", true],
-    ["dom.serviceWorkers.testing.enabled", true],
-    ["privacy.partition.serviceWorkers", false],
-  ],
-
-  {
-    runInPrivateWindow: true,
-  }
-);
-
-PartitionedStorageHelper.runTest(
-  "ServiceWorkers - Private Browsing with partitioning disabled with SW PBM enabled",
-  async (win3rdParty, win1stParty, allowed) => {
-    // Partitioned serviceWorkers are disabled in third-party context.
-    await win3rdParty.navigator.serviceWorker.register("empty.js").then(
-      _ => {
-        ok(
-          allowed,
-          `Success: ServiceWorker cannot be used unless storage access is granted (allowed: ${allowed})`
-        );
-      },
-      _ => {
-        ok(
-          !allowed,
-          `Success: ServiceWorker cannot be used unless storage access is granted (allowed: ${allowed})`
-        );
-      }
-    );
-
-    await win1stParty.navigator.serviceWorker.register("empty.js").then(
-      _ => {
-        ok(true, "Success: ServiceWorker should be available!");
-      },
-      _ => {
-        ok(false, "Failed: ServiceWorker should be available!");
-      }
-    );
-  },
-
-  async _ => {
-    await new Promise(resolve => {
-      Services.clearData.deleteData(Ci.nsIClearDataService.CLEAR_ALL, () =>
-        resolve()
-      );
-    });
-  },
-
-  [
-    ["dom.serviceWorkers.privateBrowsing.enabled", true],
-    ["dom.cache.privateBrowsing.enabled", true],
-    ["dom.serviceWorkers.exemptFromPerDomainMax", true],
-    ["dom.ipc.processCount", 1],
-    ["dom.serviceWorkers.enabled", true],
-    ["dom.serviceWorkers.testing.enabled", true],
-    ["privacy.partition.serviceWorkers", false],
-  ],
-
-  {
-    runInPrivateWindow: true,
-  }
-);
-
-PartitionedStorageHelper.runTest(
-  "ServiceWorkers - Private Browsing with partitioning enabled with SW PBM disabled",
+  "ServiceWorkers - Private Browsing with SW PBM disabled",
   async (win3rdParty, win1stParty) => {
     ok(
       !win3rdParty.navigator.serviceWorker,
@@ -744,13 +563,8 @@ PartitionedStorageHelper.runTest(
     );
   },
 
-  async _ => {
-    await new Promise(resolve => {
-      Services.clearData.deleteData(Ci.nsIClearDataService.CLEAR_ALL, () =>
-        resolve()
-      );
-    });
-  },
+  // Cleanup callback
+  clearSiteTestData,
 
   [
     ["dom.serviceWorkers.privateBrowsing.enabled", false],
@@ -758,7 +572,6 @@ PartitionedStorageHelper.runTest(
     ["dom.ipc.processCount", 1],
     ["dom.serviceWorkers.enabled", true],
     ["dom.serviceWorkers.testing.enabled", true],
-    ["privacy.partition.serviceWorkers", true],
   ],
 
   {
@@ -767,7 +580,7 @@ PartitionedStorageHelper.runTest(
 );
 
 PartitionedStorageHelper.runTest(
-  "ServiceWorkers - Private Browsing with partitioning enabled with SW PBM enabled",
+  "ServiceWorkers - Private Browsing with SW PBM enabled",
   async (win3rdParty, win1stParty) => {
     // Partitioned serviceWorkers are enabled in third-party context.
     await win3rdParty.navigator.serviceWorker.register("empty.js").then(
@@ -795,13 +608,8 @@ PartitionedStorageHelper.runTest(
     );
   },
 
-  async _ => {
-    await new Promise(resolve => {
-      Services.clearData.deleteData(Ci.nsIClearDataService.CLEAR_ALL, () =>
-        resolve()
-      );
-    });
-  },
+  // Cleanup callback
+  clearSiteTestData,
 
   [
     ["dom.serviceWorkers.privateBrowsing.enabled", true],
@@ -810,7 +618,6 @@ PartitionedStorageHelper.runTest(
     ["dom.ipc.processCount", 1],
     ["dom.serviceWorkers.enabled", true],
     ["dom.serviceWorkers.testing.enabled", true],
-    ["privacy.partition.serviceWorkers", true],
   ],
 
   {

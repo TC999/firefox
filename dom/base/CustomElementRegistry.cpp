@@ -18,6 +18,8 @@
 #include "mozilla/dom/CustomElementRegistryBinding.h"
 #include "mozilla/dom/CustomEvent.h"
 #include "mozilla/dom/DocGroup.h"
+#include "mozilla/dom/Document.h"
+#include "mozilla/dom/DocumentOrShadowRoot.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/ElementBinding.h"
 #include "mozilla/dom/HTMLElement.h"
@@ -34,6 +36,7 @@
 #include "nsInterfaceHashtable.h"
 #include "nsNameSpaceManager.h"
 #include "nsPIDOMWindow.h"
+#include "nsPIDOMWindowInlines.h"
 #include "xpcprivate.h"
 
 namespace mozilla::dom {
@@ -70,9 +73,9 @@ class CustomElementUpgradeReaction final : public CustomElementReaction {
 };
 
 //-----------------------------------------------------
-// CustomElementCallbackReaction
+// CustomElementCallback
 
-class CustomElementCallback {
+class CustomElementCallback final : public CustomElementReaction {
  public:
   CustomElementCallback(Element* aThisObject, ElementCallbackType aCallbackType,
                         CallbackFunction* aCallback,
@@ -81,15 +84,16 @@ class CustomElementCallback {
   // disconnected/connected callbacks.
   void SetSecondaryCallback(ElementCallbackType aType,
                             CallbackFunction* aCallback);
-  void Traverse(nsCycleCollectionTraversalCallback& aCb) const;
-  size_t SizeOfIncludingThis(MallocSizeOf aMallocSizeOf) const;
-  void Call();
+  void Traverse(nsCycleCollectionTraversalCallback& aCb) const override;
+  size_t SizeOfIncludingThis(MallocSizeOf aMallocSizeOf) const override;
 
   static UniquePtr<CustomElementCallback> Create(
       ElementCallbackType aType, Element* aCustomElement,
       const LifecycleCallbackArgs& aArgs, CustomElementDefinition* aDefinition);
 
  private:
+  MOZ_CAN_RUN_SCRIPT
+  void Invoke(Element* aElement, ErrorResult& aRv) override;
   void Call(ElementCallbackType aType, RefPtr<CallbackFunction>& aCallback);
   // The this value to use for invocation of the callback.
   RefPtr<Element> mThisObject;
@@ -101,36 +105,6 @@ class CustomElementCallback {
   // Arguments to be passed to the callback,
   LifecycleCallbackArgs mArgs;
 };
-
-class CustomElementCallbackReaction final : public CustomElementReaction {
- public:
-  explicit CustomElementCallbackReaction(
-      UniquePtr<CustomElementCallback> aCustomElementCallback)
-      : mCustomElementCallback(std::move(aCustomElementCallback)) {}
-
-  virtual void Traverse(
-      nsCycleCollectionTraversalCallback& aCb) const override {
-    mCustomElementCallback->Traverse(aCb);
-  }
-
-  size_t SizeOfIncludingThis(MallocSizeOf aMallocSizeOf) const override {
-    size_t n = aMallocSizeOf(this);
-
-    n += mCustomElementCallback->SizeOfIncludingThis(aMallocSizeOf);
-
-    return n;
-  }
-
- private:
-  virtual void Invoke(Element* aElement, ErrorResult& aRv) override {
-    mCustomElementCallback->Call();
-  }
-
-  UniquePtr<CustomElementCallback> mCustomElementCallback;
-};
-
-//-----------------------------------------------------
-// CustomElementCallback
 
 size_t LifecycleCallbackArgs::SizeOfExcludingThis(
     MallocSizeOf aMallocSizeOf) const {
@@ -242,7 +216,7 @@ UniquePtr<CustomElementCallback> CustomElementCallback::Create(
   return MakeUnique<CustomElementCallback>(aCustomElement, aType, func, aArgs);
 }
 
-void CustomElementCallback::Call() {
+void CustomElementCallback::Invoke(Element* aElement, ErrorResult& aRv) {
   if (mCallback) {
     Call(mType, mCallback);
   }
@@ -302,8 +276,7 @@ void CustomElementCallback::Call(ElementCallbackType aType,
       } else if (owningValue.IsFile()) {
         value.SetValue().SetAsFile() = owningValue.GetAsFile();
       } else {
-        value.SetValue().SetAsUSVString().ShareOrDependUpon(
-            owningValue.GetAsUSVString());
+        value.SetValue().SetAsUSVString() = owningValue.GetAsUSVString();
       }
       static_cast<LifecycleFormStateRestoreCallback*>(aCallback.get())
           ->Call(mThisObject, value, mArgs.mReason);
@@ -714,14 +687,14 @@ void CustomElementRegistry::EnqueueLifecycleCallback(
   }
 
   // 5. If callbackName is "attributeChangedCallback":
-  if (aType == ElementCallbackType::eAttributeChanged) {
-    // 5.1. Let attributeName be the first element of args.
-    // 5.2. If definition's observed attributes does not contain attributeName,
-    //      then return.
-    if (!definition->mObservedAttributes.Contains(aArgs.mName)) {
-      return;
-    }
-  }
+  //    5.1. Let attributeName be the first element of args.
+  //    5.2. If definition's observed attributes does not contain attributeName,
+  //         then return.
+  // Callers must perform this check themselves before calling.
+  MOZ_ASSERT(aType != ElementCallbackType::eAttributeChanged ||
+                 definition->IsInObservedAttributeList(aArgs.mName),
+             "Caller must check IsInObservedAttributeList for "
+             "eAttributeChanged");
 
   // 6. Add a new callback reaction to element's custom element reaction queue,
   //    with callback function callback and arguments args.
@@ -733,13 +706,13 @@ void CustomElementRegistry::EnqueueLifecycleCallback(
 }
 
 using ScopedRegistryMap =
-    nsRefPtrHashtable<nsPtrHashKey<nsINode>, CustomElementRegistry>;
+    nsRefPtrHashtable<nsPtrHashKey<const nsINode>, CustomElementRegistry>;
 
 static StaticAutoPtr<ScopedRegistryMap> gScopedRegistryMap;
 
 /* static */
 already_AddRefed<CustomElementRegistry>
-CustomElementRegistry::GetScopedRegistry(nsINode& aNode) {
+CustomElementRegistry::GetScopedRegistry(const nsINode& aNode) {
   if (!gScopedRegistryMap) {
     return nullptr;
   }
@@ -768,23 +741,43 @@ void CustomElementRegistry::RemoveScopedRegistry(nsINode& aNode) {
   }
 }
 
+/* static */
+bool CustomElementRegistry::IsInScopedRegistryMap(nsINode& aNode) {
+  return gScopedRegistryMap && gScopedRegistryMap->Contains(&aNode);
+}
+
+/* https://html.spec.whatwg.org/#scoped-document-set */
+void CustomElementRegistry::AddToScopedDocumentSet(Document* aDoc) {
+  MOZ_ASSERT(mIsScoped);
+  MOZ_ASSERT(aDoc);
+  nsWeakPtr weak = do_GetWeakReference(aDoc);
+  if (!weak) {
+    return;
+  }
+  // Ordered set: only append if not already present.
+  for (const auto& entry : mScopedDocumentSet) {
+    if (entry.get() == weak.get()) {
+      return;
+    }
+  }
+  mScopedDocumentSet.AppendElement(std::move(weak));
+}
+
 namespace {
 
 class CandidateFinder {
  public:
-  CandidateFinder(nsTHashSet<RefPtr<nsIWeakReference>>& aCandidates,
-                  Document* aDoc);
-  nsTArray<nsCOMPtr<Element>> OrderedCandidates();
+  explicit CandidateFinder(nsTHashSet<RefPtr<nsIWeakReference>>& aCandidates);
+  void CollectCandidatesFromDocument(Document* aDoc,
+                                     nsTArray<nsCOMPtr<Element>>& aResult);
 
  private:
-  nsCOMPtr<Document> mDoc;
   nsInterfaceHashtable<nsPtrHashKey<Element>, Element> mCandidates;
 };
 
 CandidateFinder::CandidateFinder(
-    nsTHashSet<RefPtr<nsIWeakReference>>& aCandidates, Document* aDoc)
-    : mDoc(aDoc), mCandidates(aCandidates.Count()) {
-  MOZ_ASSERT(mDoc);
+    nsTHashSet<RefPtr<nsIWeakReference>>& aCandidates)
+    : mCandidates(aCandidates.Count()) {
   for (const auto& candidate : aCandidates) {
     nsCOMPtr<Element> elem = do_QueryReferent(candidate);
     if (!elem) {
@@ -796,17 +789,18 @@ CandidateFinder::CandidateFinder(
   }
 }
 
-nsTArray<nsCOMPtr<Element>> CandidateFinder::OrderedCandidates() {
+void CandidateFinder::CollectCandidatesFromDocument(
+    Document* aDoc, nsTArray<nsCOMPtr<Element>>& aResult) {
+  MOZ_ASSERT(aDoc);
   if (mCandidates.Count() == 1) {
-    // Fast path for one candidate.
     auto iter = mCandidates.Iter();
-    nsTArray<nsCOMPtr<Element>> rval({std::move(iter.Data())});
-    iter.Remove();
-    return rval;
+    if (iter.Data()->GetComposedDoc() == aDoc) {
+      aResult.AppendElement(std::move(iter.Data()));
+      iter.Remove();
+    }
+    return;
   }
-
-  nsTArray<nsCOMPtr<Element>> orderedElements(mCandidates.Count());
-  for (nsINode* node : ShadowIncludingTreeIterator(*mDoc)) {
+  for (nsINode* node : ShadowIncludingTreeIterator(*aDoc)) {
     Element* element = Element::FromNode(node);
     if (!element) {
       continue;
@@ -814,19 +808,18 @@ nsTArray<nsCOMPtr<Element>> CandidateFinder::OrderedCandidates() {
 
     nsCOMPtr<Element> elem;
     if (mCandidates.Remove(element, getter_AddRefs(elem))) {
-      orderedElements.AppendElement(std::move(elem));
+      aResult.AppendElement(std::move(elem));
       if (mCandidates.Count() == 0) {
         break;
       }
     }
   }
-
-  return orderedElements;
 }
 
 }  // namespace
 
-// https://html.spec.whatwg.org/#upgrade-particular-elements-within-a-document
+/* https://html.spec.whatwg.org/#upgrade-particular-elements-within-a-document
+ */
 void CustomElementRegistry::UpgradeCandidates(
     nsAtom* aKey, CustomElementDefinition* aDefinition, ErrorResult& aRv) {
   DocGroup* docGroup = mWindow->GetDocGroup();
@@ -840,19 +833,35 @@ void CustomElementRegistry::UpgradeCandidates(
   //    whose namespace is the HTML namespace, and whose local name is
   //    localName, in shadow-including tree order. Additionally, if name is not
   //    localName, only include elements whose is value is equal to name.
-  // TODO(keithamus): The "whose custom element registry is registry" filter is
-  // not yet implemented (scoped registries).
   mozilla::UniquePtr<nsTHashSet<RefPtr<nsIWeakReference>>> candidates;
   if (mCandidatesMap.Remove(aKey, &candidates)) {
     MOZ_ASSERT(candidates);
     CustomElementReactionsStack* reactionsStack =
         docGroup->CustomElementReactionsStack();
 
-    CandidateFinder finder(*candidates, mWindow->GetExtantDoc());
-    // 2. For each element element of upgradeCandidates: enqueue a custom
-    //    element upgrade reaction given element and definition.
-    for (auto& elem : finder.OrderedCandidates()) {
-      reactionsStack->EnqueueUpgradeReaction(elem, aDefinition);
+    CandidateFinder finder(*candidates);
+
+    auto enqueue = [&](nsTArray<nsCOMPtr<Element>>& aElements) {
+      for (auto& elem : aElements) {
+        reactionsStack->EnqueueUpgradeReaction(elem, aDefinition);
+      }
+    };
+    if (mIsScoped && !mScopedDocumentSet.IsEmpty()) {
+      for (const auto& weakDoc : mScopedDocumentSet) {
+        nsCOMPtr<Document> doc = do_QueryReferent(weakDoc);
+        if (!doc) {
+          continue;
+        }
+        nsTArray<nsCOMPtr<Element>> ordered;
+        finder.CollectCandidatesFromDocument(doc, ordered);
+        // 2. For each element element of upgradeCandidates: enqueue a custom
+        //    element upgrade reaction given element and definition.
+        enqueue(ordered);
+      }
+    } else {
+      nsTArray<nsCOMPtr<Element>> ordered;
+      finder.CollectCandidatesFromDocument(mWindow->GetExtantDoc(), ordered);
+      enqueue(ordered);
     }
   }
 }
@@ -1312,7 +1321,7 @@ void CustomElementRegistry::SetElementCreationCallback(
   }
 }
 
-// https://html.spec.whatwg.org/#dom-customelementregistry-upgrade
+/* https://html.spec.whatwg.org/#dom-customelementregistry-upgrade */
 void CustomElementRegistry::Upgrade(nsINode& aRoot) {
   // 1. For each shadow-including inclusive descendant candidate of root, in
   //    shadow-including tree order:
@@ -1323,22 +1332,87 @@ void CustomElementRegistry::Upgrade(nsINode& aRoot) {
       continue;
     }
 
-    // TODO(keithamus): 1.2. If candidate's custom element registry is not this,
-    // then continue. Not yet implemented -- we don't check the element's
-    // registry against |this|. We always look up via the document's registry
-    // (scoped registries).
+    // 1.2. If candidate's custom element registry is not this, then continue.
+    if (StaticPrefs::dom_scoped_custom_element_registries_enabled()) {
+      if (element->GetCustomElementRegistry() != this) {
+        continue;
+      }
+    }
+
     CustomElementData* ceData = element->GetCustomElementData();
     if (ceData) {
       // 1.3. Try to upgrade candidate.
-      NodeInfo* nodeInfo = element->NodeInfo();
-      nsAtom* typeAtom = ceData->GetCustomElementType();
-      CustomElementDefinition* definition =
-          nsContentUtils::LookupCustomElementDefinition(
-              nodeInfo->GetDocument(), nodeInfo->NameAtom(),
-              nodeInfo->NamespaceID(), typeAtom);
-      if (definition) {
-        nsContentUtils::EnqueueUpgradeReaction(element, definition);
-      }
+      nsContentUtils::TryToUpgradeElement(element);
+    }
+  }
+}
+
+/* https://html.spec.whatwg.org/#dom-customelementregistry-initialize */
+void CustomElementRegistry::Initialize(nsINode& aRoot, ErrorResult& aRv) {
+  MOZ_ASSERT(StaticPrefs::dom_scoped_custom_element_registries_enabled());
+
+  // Step 1: If this's is scoped is false and either root is a Document node or
+  // root's node document's custom element registry is not this, then throw a
+  // "NotSupportedError" DOMException.
+  if (!mIsScoped) {
+    if (aRoot.IsDocument()) {
+      aRv.ThrowNotSupportedError(
+          "Global registry cannot initialize a Document");
+      return;
+    }
+    CustomElementRegistry* docRegistry =
+        aRoot.OwnerDoc()->GetCustomElementRegistry();
+    if (docRegistry != this) {
+      aRv.ThrowNotSupportedError(
+          "Global registry can only initialize nodes whose owning document "
+          "uses this registry");
+      return;
+    }
+  }
+
+  // Step 2: If root is a Document node whose custom element registry is null,
+  // then set root's custom element registry to this.
+  // Step 3: Otherwise, if root is a ShadowRoot node whose custom element
+  // registry is null, then set root's custom element registry to this.
+  if (aRoot.IsDocument()) {
+    Document* doc = aRoot.AsDocument();
+    if (!doc->GetCustomElementRegistry()) {
+      doc->SetHasScopedCustomElementRegistry(true);
+      CustomElementRegistry::SetScopedRegistry(*doc, *this);
+    }
+  } else if (ShadowRoot* shadowRoot = ShadowRoot::FromNode(aRoot)) {
+    if (!shadowRoot->GetCustomElementRegistry()) {
+      shadowRoot->SetCustomElementRegistry(this);
+    }
+  }
+
+  // Step 4: For each inclusive descendant inclusiveDescendant of root, in tree
+  // order:
+  const nsINode* root = &aRoot;
+  for (nsINode* node = &aRoot; node; node = node->GetNextNode(root)) {
+    // Step 4.1: If inclusiveDescendant is not an Element node, then continue.
+    if (!node->IsElement()) {
+      continue;
+    }
+    Element* element = node->AsElement();
+    CustomElementRegistry* registry = element->GetCustomElementRegistry();
+    // Step 4.2: If inclusiveDescendant's custom element registry is null:
+    if (!registry) {
+      // Step 4.2.1: Set inclusiveDescendant's custom element registry to this.
+      // Step 4.2.2: If this's is scoped is true, then append
+      //             inclusiveDescendant's node document to this's scoped
+      //             document set.
+      element->SetCustomElementRegistry(this);
+    } else if (registry != this) {
+      // Step 4.3: If inclusiveDescendant's custom element registry is not this,
+      //           then continue.
+      continue;
+    }
+    // Step 4.4: Try to upgrade inclusiveDescendant.
+    // Only try to upgrade if element has custom element data (is an upgrade
+    // candidate).
+    if (element->GetCustomElementData()) {
+      nsContentUtils::TryToUpgradeElement(element);
     }
   }
 }
@@ -1488,6 +1562,11 @@ void CustomElementRegistry::Upgrade(Element* aElement,
   CustomElementData* data = aElement->GetCustomElementData();
   MOZ_ASSERT(data, "CustomElementData should exist");
 
+  DocGroup* docGroup = aElement->OwnerDoc()->GetDocGroup();
+  if (!docGroup) {
+    return;
+  }
+
   // 1. If element's custom element state is not "undefined" or "uncustomized",
   //    then return.
   if (data->mState != CustomElementData::State::eUndefined) {
@@ -1521,9 +1600,9 @@ void CustomElementRegistry::Upgrade(Element* aElement,
         LifecycleCallbackArgs args;
         args.mName = attrName;
         args.mOldValue = VoidString();
-        args.mNewValue = attrValue;
+        args.mNewValue = std::move(attrValue);
         args.mNamespaceURI =
-            (namespaceURI.IsEmpty() ? VoidString() : namespaceURI);
+            (namespaceURI.IsEmpty() ? VoidString() : std::move(namespaceURI));
 
         nsContentUtils::EnqueueLifecycleCallback(
             ElementCallbackType::eAttributeChanged, aElement, args,
@@ -1542,14 +1621,34 @@ void CustomElementRegistry::Upgrade(Element* aElement,
   // 6. Add element to the end of definition's construction stack.
   AutoConstructionStackEntry acs(aDefinition->mConstructionStack, aElement);
 
-  // XXX: Steps 7-9 performed by DoUpgrade:
   // 7. Let C be definition's constructor.
-  // TODO(keithamus): 8. Set the active custom element constructor map[C] to
-  // element's custom element registry. Not yet using element's registry (scoped
-  // registries).
-  // 9. Run the following steps while catching any exceptions:
-  DoUpgrade(aElement, aDefinition, MOZ_KnownLive(aDefinition->mConstructor),
-            aRv);
+
+  // 8. Let previousRegistry be the surrounding agent's active custom element
+  //    constructor map[C] with default null.
+  // 9. Set the surrounding agent's active custom element constructor map[C] to
+  //    element's custom element registry.
+  {
+    Maybe<DocGroup::AutoActiveConstructorRegistry> activeRegistry;
+    if (StaticPrefs::dom_scoped_custom_element_registries_enabled()) {
+      activeRegistry.emplace(docGroup, aDefinition->mConstructor,
+                             aElement->GetCustomElementRegistry());
+    }
+
+    // 10. Run the following steps while catching any exceptions:
+    DoUpgrade(aElement, aDefinition, MOZ_KnownLive(aDefinition->mConstructor),
+              aRv);
+
+    // 9.x. Then, perform the following steps, regardless of whether the above
+    //      steps threw an exception or not:
+    //
+    // 9.x.1. If previousRegistry is null, then remove the surrounding agent's
+    //        active custom element constructor map[C].
+    // 9.x.2. Otherwise, set the surrounding agent 's active custom element
+    //        constructor map[C] to previousRegistry.
+    // (Handled by `activeRegistry`'s destructor during scope exit).
+  }
+
+  // 9.x. Finally, if the above steps threw an exception:
   if (aRv.Failed()) {
     MOZ_ASSERT(data->mState == CustomElementData::State::eFailed ||
                data->mState == CustomElementData::State::ePrecustomized);
@@ -1564,6 +1663,10 @@ void CustomElementRegistry::Upgrade(Element* aElement,
     return;
   }
 
+  // 11. Set element's custom element state to "custom".
+  data->mState = CustomElementData::State::eCustom;
+  aElement->SetDefined(true);
+
   // 10. If element is a form-associated custom element, then:
   if (data->IsFormAssociated()) {
     // 10.1. Reset the form owner of element.
@@ -1575,10 +1678,6 @@ void CustomElementRegistry::Upgrade(Element* aElement,
 
     internals->UpdateFormOwner();
   }
-
-  // 11. Set element's custom element state to "custom".
-  data->mState = CustomElementData::State::eCustom;
-  aElement->SetDefined(true);
 }
 
 already_AddRefed<nsISupports> CustomElementRegistry::CallGetCustomInterface(
@@ -1648,8 +1747,14 @@ void CustomElementReactionsStack::CreateAndPushElementQueue() {
   MOZ_ASSERT(mRecursionDepth);
   MOZ_ASSERT(!mIsElementQueuePushedForCurrentRecursionDepth);
 
-  // Push a new element queue onto the custom element reactions stack.
-  mReactionsStack.AppendElement(MakeUnique<ElementQueue>());
+  // Push an element queue onto the custom element reactions stack, reusing
+  // the cached one if available to avoid a heap allocation.
+  if (mCachedElementQueue) {
+    MOZ_ASSERT(mCachedElementQueue->IsEmpty());
+    mReactionsStack.AppendElement(std::move(mCachedElementQueue));
+  } else {
+    mReactionsStack.AppendElement(MakeUnique<ElementQueue>());
+  }
   mIsElementQueuePushedForCurrentRecursionDepth = true;
 }
 
@@ -1683,7 +1788,14 @@ void CustomElementReactionsStack::PopAndInvokeElementQueue() {
       lastIndex == mReactionsStack.Length() - 1,
       "reactions created by InvokeReactions() should be consumed and removed");
 
+  UniquePtr<ElementQueue> popped = std::move(mReactionsStack.LastElement());
   mReactionsStack.RemoveLastElement();
+  // Cache the popped queue for reuse, but only if it still uses inline
+  // storage so we don't hold on to a grown heap buffer.
+  if (!mCachedElementQueue && popped->Capacity() == kElementQueueInlineSize) {
+    popped->ClearAndRetainStorage();
+    mCachedElementQueue = std::move(popped);
+  }
   mIsElementQueuePushedForCurrentRecursionDepth = false;
 }
 
@@ -1695,8 +1807,7 @@ void CustomElementReactionsStack::EnqueueUpgradeReaction(
 void CustomElementReactionsStack::EnqueueCallbackReaction(
     Element* aElement,
     UniquePtr<CustomElementCallback> aCustomElementCallback) {
-  Enqueue(aElement,
-          new CustomElementCallbackReaction(std::move(aCustomElementCallback)));
+  Enqueue(aElement, aCustomElementCallback.release());
 }
 
 void CustomElementReactionsStack::Enqueue(Element* aElement,
@@ -1764,7 +1875,7 @@ void CustomElementReactionsStack::InvokeReactions(ElementQueue* aElementQueue,
     MOZ_ASSERT(element);
 
     CustomElementData* elementData = element->GetCustomElementData();
-    if (!elementData || !element->GetOwnerGlobal()) {
+    if (!elementData || !element->GetRelevantGlobal()) {
       // This happens when the document is destroyed and the element is already
       // unlinked, no need to fire the callbacks in this case.
       continue;
@@ -1777,7 +1888,7 @@ void CustomElementReactionsStack::InvokeReactions(ElementQueue* aElementQueue,
       auto reaction(std::move(reactions.ElementAt(j)));
       if (reaction) {
         if (!aGlobal && reaction->IsUpgradeReaction()) {
-          nsIGlobalObject* global = element->GetOwnerGlobal();
+          nsIGlobalObject* global = element->GetRelevantGlobal();
           MOZ_ASSERT(!aes);
           aes.emplace(global, "custom elements reaction invocation");
         }

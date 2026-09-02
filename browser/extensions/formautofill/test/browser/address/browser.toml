@@ -1,7 +1,6 @@
 [DEFAULT]
 prefs = [
   "extensions.formautofill.addresses.enabled=true",
-  "toolkit.telemetry.ipcBatchTimeout=0", # lower the interval for event telemetry in the content process to update the parent process
 ]
 support-files = [
   "../head.js",
@@ -11,7 +10,7 @@ support-files = [
   "head_address.js",
 ]
 
-["browser_address_autofill_nimbus.js"]
+["browser_address_capture_before_fields_identified.js"]
 
 ["browser_address_capture_form_removal.js"]
 

@@ -12,6 +12,7 @@ import android.graphics.Bitmap
 import android.view.textclassifier.TextClassifier
 import androidx.core.graphics.createBitmap
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import kotlin.test.assertNotNull
 import kotlinx.coroutines.test.runTest
 import mozilla.components.concept.awesomebar.AwesomeBar
 import mozilla.components.concept.engine.Engine
@@ -21,7 +22,6 @@ import mozilla.components.support.test.eq
 import mozilla.components.support.test.mock
 import mozilla.components.support.test.robolectric.testContext
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -58,7 +58,7 @@ class ClipboardSuggestionProviderTest {
                 "Label",
                 "Hello mozilla.org",
                 "<b>This is HTML on mozilla.org</b>",
-            ),
+            )
         )
 
         assertNull(getSuggestion())
@@ -120,7 +120,7 @@ class ClipboardSuggestionProviderTest {
         assertEquals(1, suggestions.size)
 
         val suggestion = suggestions.firstOrNull()
-        assertNotNull(suggestion!!)
+        assertNotNull(suggestion)
 
         assertEquals("https://www.mozilla.org", suggestion.description)
     }
@@ -136,13 +136,14 @@ class ClipboardSuggestionProviderTest {
     fun `provider should allow customization of title and icon on suggestion`() = runTest {
         getSuggestionWithClipboard("https://www.mozilla.org")
         val bitmap = createBitmap(2, 2, Bitmap.Config.ARGB_8888)
-        val provider = ClipboardSuggestionProvider(
-            testContext,
-            mock(),
-            title = "My test title",
-            icon = bitmap,
-            requireEmptyText = false,
-        )
+        val provider =
+            ClipboardSuggestionProvider(
+                testContext,
+                mock(),
+                title = "My test title",
+                icon = bitmap,
+                requireEmptyText = false,
+            )
 
         val suggestion = run {
             provider.onInputStarted()
@@ -183,7 +184,7 @@ class ClipboardSuggestionProviderTest {
             ClipData.newPlainText(
                 "Label",
                 "Hello Mozilla, https://www.mozilla.org",
-            ),
+            )
         )
 
         val provider = ClipboardSuggestionProvider(testContext, mock(), requireEmptyText = true)
@@ -205,7 +206,7 @@ class ClipboardSuggestionProviderTest {
         verify(engine, times(1)).speculativeConnect(eq("https://www.mozilla.org"))
 
         val suggestion = suggestions.firstOrNull()
-        assertNotNull(suggestion!!)
+        assertNotNull(suggestion)
         assertEquals("https://www.mozilla.org", suggestion.description)
     }
 
@@ -214,7 +215,7 @@ class ClipboardSuggestionProviderTest {
 
         assertNotNull(suggestion)
 
-        assertEquals(url, suggestion!!.description)
+        assertEquals(url, suggestion.description)
     }
 
     private suspend fun assertClipboardYieldsNothing(text: String) {

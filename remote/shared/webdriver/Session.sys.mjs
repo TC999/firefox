@@ -37,16 +37,6 @@ ChromeUtils.defineESModuleGetters(lazy, {
 
 ChromeUtils.defineLazyGetter(lazy, "logger", () => lazy.Log.get());
 
-// Bug 1999693: This preference is a temporary workaround until clients can use
-// the unhandledPromptBehavior capability to decide if file pickers should be
-// dismissed or not.
-XPCOMUtils.defineLazyPreferenceGetter(
-  lazy,
-  "dismissFilePickersEnabled",
-  "remote.bidi.dismiss_file_pickers.enabled",
-  false
-);
-
 XPCOMUtils.defineLazyServiceGetter(
   lazy,
   "aomStartup",
@@ -56,6 +46,9 @@ XPCOMUtils.defineLazyServiceGetter(
 
 // Global singleton that holds active WebDriver sessions
 const webDriverSessions = new Map();
+
+// Notification emitted when a session is created or destroyed.
+const NOTIFY_WEBDRIVER_SESSION_CHANGED = "webdriver-session-changed";
 
 /**
  * @typedef {Set} SessionConfigurationFlags
@@ -298,7 +291,13 @@ export class WebDriverSession {
     lazy.NavigableManager.startTracking();
     lazy.windowManager.startTracking();
 
+    if (this.#shouldDismissFileDialog()) {
+      lazy.FilePickerHandler.dismissFilePickers(this);
+    }
+
     webDriverSessions.set(this.#id, this);
+
+    Services.obs.notifyObservers(null, NOTIFY_WEBDRIVER_SESSION_CHANGED);
   }
 
   destroy() {
@@ -313,7 +312,9 @@ export class WebDriverSession {
 
     this.#navigableSeenNodes = null;
 
-    lazy.Certificates.enableSecurityChecks();
+    if (this.acceptInsecureCerts) {
+      lazy.Certificates.enableSecurityChecks();
+    }
 
     // Close all open connections which unregister themselves.
     this.#connections.forEach(connection => connection.close());
@@ -335,16 +336,18 @@ export class WebDriverSession {
       );
       this.#messageHandler.destroy();
 
-      // Note: do not check lazy.dismissFilePickersEnabled, the preference might
-      // have been updated at runtime. allowFilePickers(this) is safe to call,
-      // if there was no corresponding dismissFilePickers(this), it will be a
-      // no-op.
+      // allowFilePickers(this) is safe to call. If there was no call to
+      // dismissFilePickers(this), it will be a no-op.
+      // Only needed if BiDi was enabled (and therefore a messageHandler
+      // instance was created).
       lazy.FilePickerHandler.allowFilePickers(this);
     }
 
     for (const id of this.#chromeProtocolHandles.keys()) {
       this.unregisterChromeHandler(id);
     }
+
+    Services.obs.notifyObservers(null, NOTIFY_WEBDRIVER_SESSION_CHANGED);
   }
 
   get a11yChecks() {
@@ -361,6 +364,9 @@ export class WebDriverSession {
 
   set bidi(value) {
     this.#bidi = value;
+    if (this.#shouldDismissFileDialog()) {
+      lazy.FilePickerHandler.dismissFilePickers(this);
+    }
   }
 
   get capabilities() {
@@ -385,15 +391,6 @@ export class WebDriverSession {
         "message-handler-protocol-event",
         this._onMessageHandlerProtocolEvent
       );
-
-      // Bug 2005673: Only enable dismissing file pickers lazily if the session
-      // explicitly starts handling BiDi commands.
-      if (lazy.dismissFilePickersEnabled) {
-        // Temporarily dismiss all file pickers.
-        // Bug 1999693: File pickers should only be dismissed when the unhandled
-        // prompt behaviour for type "file" is not set to "ignore".
-        lazy.FilePickerHandler.dismissFilePickers(this);
-      }
     }
 
     return this.#messageHandler;
@@ -434,6 +431,28 @@ export class WebDriverSession {
   get webSocketUrl() {
     return this.#capabilities.get("webSocketUrl");
   }
+
+  /**
+   * Implements the last steps of https://w3c.github.io/webdriver-bidi/#webdriver-bidi-file-dialog-opened
+   *
+   * Compared to the spec, this is only invoked to setup the FilePickerHandler and
+   * not on each file dialog opened event. This allows to keep the FilePickerHandler
+   * simple and simply cancel the picker.
+   */
+  #shouldDismissFileDialog = () => {
+    // Only relevant for active BiDi sessions.
+    if (!this.bidi) {
+      return false;
+    }
+
+    // Unlike other prompt handlers, the default behavior is to allow the file
+    // dialog to be opened. Only dismiss if the capability was explicitly set.
+    if (this.userPromptHandler.activePromptHandlers === null) {
+      return false;
+    }
+
+    return this.userPromptHandler.getPromptHandler("file").handler !== "ignore";
+  };
 
   async execute(module, command, params) {
     // XXX: At the moment, commands do not describe consistently their destination,
@@ -602,4 +621,15 @@ export function getSeenNodesForBrowsingContext(sessionId, browsingContext) {
  */
 export function getWebDriverSessionById(sessionId) {
   return webDriverSessions.get(sessionId);
+}
+
+/**
+ * Check if at least one WebDriver session is currently active, which means that
+ * a remote application is connected to this browser instance.
+ *
+ * @returns {boolean}
+ *     True if a WebDriver session is active, false otherwise.
+ */
+export function hasActiveWebDriverSession() {
+  return webDriverSessions.size > 0;
 }

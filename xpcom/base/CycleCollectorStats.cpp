@@ -2,18 +2,19 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include "CycleCollectorStats.h"
+
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "nsCycleCollector.h"
-#include "nsDebug.h"
-#include "CycleCollectorStats.h"
 #include "MainThreadUtils.h"
 #include "mozilla/BaseProfilerMarkersPrerequisites.h"
 #include "mozilla/ProfilerMarkers.h"
-#include "mozilla/glean/XpcomMetrics.h"
 #include "mozilla/TimeStamp.h"
+#include "mozilla/glean/XpcomMetrics.h"
+#include "nsCycleCollector.h"
+#include "nsDebug.h"
 
 using namespace mozilla;
 
@@ -179,14 +180,17 @@ void mozilla::CycleCollectorStats::SendTelemetry(TimeDuration aCCNowDuration,
       .EnumGet(static_cast<glean::cycle_collector::SyncSkippableLabel>(
           mRanSyncForgetSkippable))
       .Add();
-  glean::cycle_collector::full.AccumulateRawDuration(aCCNowDuration);
-  glean::cycle_collector::max_pause.AccumulateRawDuration(mMaxSliceTime);
+  glean::cycle_collector::full.ProcessGet().AccumulateRawDuration(
+      aCCNowDuration);
+  glean::cycle_collector::max_pause.ProcessGet().AccumulateRawDuration(
+      mMaxSliceTime);
 
   if (!aPrevCCEnd.IsNull()) {
     TimeDuration timeBetween = TimeBetween(aPrevCCEnd, mBeginTime);
-    glean::cycle_collector::time_between.AccumulateRawDuration(timeBetween);
+    glean::cycle_collector::time_between.ProcessGet().AccumulateRawDuration(
+        timeBetween);
   }
 
-  glean::cycle_collector::forget_skippable_max.AccumulateRawDuration(
-      mMaxForgetSkippableTime);
+  glean::cycle_collector::forget_skippable_max.ProcessGet()
+      .AccumulateRawDuration(mMaxForgetSkippableTime);
 }

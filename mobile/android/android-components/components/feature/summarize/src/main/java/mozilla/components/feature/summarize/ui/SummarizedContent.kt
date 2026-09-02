@@ -9,16 +9,16 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import mozilla.components.compose.base.button.IconButton
 import mozilla.components.feature.summarize.R
-import mozilla.components.ui.richtext.RichText
 import mozilla.components.ui.icons.R as iconsR
+import mozilla.components.ui.richtext.RichText
 
 @Composable
 internal fun SummarizedContent(
@@ -30,13 +30,12 @@ internal fun SummarizedContent(
         Box(modifier = Modifier.fillMaxWidth()) {
             IconButton(
                 onClick = onSettingsClicked,
+                contentDescription = stringResource(id = R.string.mozac_summarize_settings_button_content_description),
                 modifier = Modifier.align(Alignment.TopEnd),
             ) {
                 Icon(
                     painter = painterResource(id = iconsR.drawable.mozac_ic_settings_24),
-                    contentDescription = stringResource(
-                        id = R.string.mozac_summarize_settings_button_content_description,
-                    ),
+                    contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }

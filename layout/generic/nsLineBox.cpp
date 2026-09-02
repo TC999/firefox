@@ -96,8 +96,8 @@ void nsLineBox::StealHashTableFrom(nsLineBox* aFromLine,
   MOZ_ASSERT(!mFlags.mHasHashedFrames);
   MOZ_ASSERT(GetChildCount() >= int32_t(aFromLineNewCount));
   mFrames = aFromLine->mFrames;
-  mFlags.mHasHashedFrames = 1;
-  aFromLine->mFlags.mHasHashedFrames = 0;
+  mFlags.mHasHashedFrames = true;
+  aFromLine->mFlags.mHasHashedFrames = false;
   aFromLine->mChildCount = aFromLineNewCount;
   // remove aFromLine's frames that aren't on this line
   nsIFrame* f = aFromLine->mFirstChild;
@@ -121,7 +121,7 @@ void nsLineBox::NoteFramesMovedFrom(nsLineBox* aFromLine) {
       StealHashTableFrom(aFromLine, fromNewCount);
     } else {
       delete aFromLine->mFrames;
-      aFromLine->mFlags.mHasHashedFrames = 0;
+      aFromLine->mFlags.mHasHashedFrames = false;
       aFromLine->mChildCount = fromNewCount;
     }
   } else {
@@ -213,13 +213,15 @@ void nsLineBox::List(FILE* out, const char* aPrefix,
   str += "line";
   nsIFrame::ListPtr(str, aFlags, this, "@");
   str += nsPrintfCString(
-      " count=%d state=%s,%s,%s,%s,%s,%s,clear-before:%s,clear-after:%s ",
+      " count=%d state=%s,%s,%s,%s,%s,%s,%s,%s,clear-before:%s,clear-after:%s ",
       GetChildCount(), IsBlock() ? "block" : "inline",
       IsDirty() ? "dirty" : "clean",
       IsPreviousMarginDirty() ? "prevmargindirty" : "prevmarginclean",
       IsImpactedByFloat() ? "impacted" : "not-impacted",
       IsLineWrapped() ? "wrapped" : "not-wrapped",
       HasForcedLineBreakAfter() ? "forced-break-after" : "no-break",
+      TextBoxTrimStartApplied() ? "trim-start" : "no-trim-start",
+      TextBoxTrimEndApplied() ? "trim-end" : "no-trim-end",
       UsedClearToString(FloatClearTypeBefore()),
       UsedClearToString(FloatClearTypeAfter()));
 
@@ -254,13 +256,10 @@ void nsLineBox::List(FILE* out, const char* aPrefix,
   }
   fprintf_stderr(out, "%s<\n", str.get());
 
-  nsIFrame* frame = mFirstChild;
-  int32_t n = GetChildCount();
   nsCString pfx(aPrefix);
   pfx += "  ";
-  while (--n >= 0) {
+  for (nsIFrame* frame : ChildFrames()) {
     frame->List(out, pfx.get(), aFlags);
-    frame = frame->GetNextSibling();
   }
 
   if (HasFloats()) {
@@ -327,8 +326,7 @@ bool nsLineBox::IsEmpty() const {
     return mFirstChild->IsEmpty();
   }
 
-  nsIFrame* kid = mFirstChild;
-  for (int32_t n = GetChildCount(); n > 0; --n, kid = kid->GetNextSibling()) {
+  for (nsIFrame* kid : ChildFrames()) {
     if (!kid->IsEmpty()) {
       return false;
     }
@@ -352,9 +350,8 @@ bool nsLineBox::CachedIsEmpty() {
   if (IsBlock()) {
     result = mFirstChild->CachedIsEmpty();
   } else {
-    nsIFrame* kid = mFirstChild;
     result = true;
-    for (int32_t n = GetChildCount(); n > 0; --n, kid = kid->GetNextSibling()) {
+    for (nsIFrame* kid : ChildFrames()) {
       if (!kid->CachedIsEmpty()) {
         result = false;
         break;
@@ -664,14 +661,11 @@ nsLineIterator::FindFrameAt(int32_t aLineNumber, nsPoint aPos,
 
   LineFrameFinder finder(aPos, line->mContainerSize, line->mWritingMode,
                          mRightToLeft);
-  int32_t n = line->GetChildCount();
-  nsIFrame* frame = line->mFirstChild;
-  while (n--) {
+  for (nsIFrame* frame : line->ChildFrames()) {
     finder.Scan(frame);
     if (finder.IsDone()) {
       break;
     }
-    frame = frame->GetNextSibling();
   }
   finder.Finish(aFrameFound, aPosIsBeforeFirstFrame, aPosIsAfterLastFrame);
   return NS_OK;

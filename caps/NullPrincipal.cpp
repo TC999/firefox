@@ -8,23 +8,23 @@
  * same-origin with anything but themselves.
  */
 
-#include "mozilla/dom/BlobURLProtocolHandler.h"
-#include "mozilla/StaticPrefs_network.h"
-#include "nsDocShell.h"
 #include "NullPrincipal.h"
+
+#include "ContentPrincipal.h"
 #include "DefaultURI.h"
-#include "nsSimpleURI.h"
-#include "nsIClassInfoImpl.h"
-#include "nsNetCID.h"
+#include "NullPrincipalJSONHandler.h"
+#include "js/JSON.h"
+#include "mozilla/StaticPrefs_network.h"
+#include "mozilla/dom/BlobURLProtocolHandler.h"
+#include "nsDocShell.h"
 #include "nsError.h"
 #include "nsEscape.h"
-#include "ContentPrincipal.h"
-#include "nsScriptSecurityManager.h"
-#include "pratom.h"
+#include "nsIClassInfoImpl.h"
 #include "nsIObjectInputStream.h"
-
-#include "js/JSON.h"
-#include "NullPrincipalJSONHandler.h"
+#include "nsNetCID.h"
+#include "nsScriptSecurityManager.h"
+#include "nsSimpleURI.h"
+#include "pratom.h"
 
 using namespace mozilla;
 
@@ -183,7 +183,7 @@ bool NullPrincipal::MayLoadInternal(nsIURI* aURI) {
   // Also allow the load if we are the principal of the URI being checked.
   nsCOMPtr<nsIPrincipal> blobPrincipal;
   if (dom::BlobURLProtocolHandler::GetBlobURLPrincipal(
-          aURI, getter_AddRefs(blobPrincipal))) {
+          aURI, OriginAttributesRef(), getter_AddRefs(blobPrincipal))) {
     MOZ_ASSERT(blobPrincipal);
     return SubsumesInternal(blobPrincipal,
                             BasePrincipal::ConsiderDocumentDomain);

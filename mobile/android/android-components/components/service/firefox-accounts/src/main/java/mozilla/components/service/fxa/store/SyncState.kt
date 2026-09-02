@@ -6,7 +6,6 @@ package mozilla.components.service.fxa.store
 
 import mozilla.components.concept.sync.Avatar
 import mozilla.components.concept.sync.ConstellationState
-import mozilla.components.concept.sync.OAuthAccount
 import mozilla.components.concept.sync.Profile
 import mozilla.components.lib.state.State
 import mozilla.components.service.fxa.manager.AccountState
@@ -23,18 +22,15 @@ import mozilla.components.service.fxa.sync.WorkManagerSyncManager
 data class SyncState(
     val status: SyncStatus = SyncStatus.NotInitialized,
     val account: Account? = null,
-    val accountState: AccountState = AccountState.NotAuthenticated,
+    val accountState: AccountState = AccountState.Unknown,
     val constellationState: ConstellationState? = null,
 ) : State
 
 /**
  * Various statuses described the [SyncState].
  *
- * Starts as [NotInitialized].
- * Becomes [Started] during the length of a Sync.
- * Becomes [Idle] when a Sync is completed.
- * Becomes [Error] when a Sync encounters an error.
- * Becomes [LoggedOut] when Sync is logged out.
+ * Starts as [NotInitialized]. Becomes [Started] during the length of a Sync. Becomes [Idle] when a Sync is completed.
+ * Becomes [Error] when a Sync encounters an error. Becomes [LoggedOut] when Sync is logged out.
  *
  * See [WorkManagerSyncManager] for implementation details.
  */
@@ -53,8 +49,6 @@ enum class SyncStatus {
  * @property email See [Profile.email].
  * @property avatar See [Profile.avatar].
  * @property displayName See [Profile.displayName].
- * @property currentDeviceId See [OAuthAccount.getCurrentDeviceId].
- * @property sessionToken See [OAuthAccount.getSessionToken].
  */
 data class Account(
     val uid: String?,

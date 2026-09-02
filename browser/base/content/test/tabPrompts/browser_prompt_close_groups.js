@@ -8,7 +8,7 @@ const { PromptTestUtils } = ChromeUtils.importESModule(
 );
 
 const { TabStateFlusher } = ChromeUtils.importESModule(
-  "resource:///modules/sessionstore/TabStateFlusher.sys.mjs"
+  "moz-src:///browser/components/sessionstore/TabStateFlusher.sys.mjs"
 );
 
 const TEST_ROOT = getRootDirectory(gTestPath).replace(
@@ -187,7 +187,7 @@ add_task(async function test_closeMultipleTabsAndRejectFromGroup() {
   await Promise.allSettled([firstPromptHandled, secondPromptHandled]);
 
   // initial tab and 1 tab group should remain open
-  await BrowserTestUtils.waitForCondition(
+  await TestUtils.waitForCondition(
     () => gBrowser.tabs.length == 3,
     "3 tabs remain open"
   );

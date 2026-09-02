@@ -44,16 +44,7 @@ static bool Declare(JSContext* cx, unsigned argc, Value* vp);
 *******************************************************************************/
 
 static const JSClassOps sLibraryClassOps = {
-    nullptr,            // addProperty
-    nullptr,            // delProperty
-    nullptr,            // enumerate
-    nullptr,            // newEnumerate
-    nullptr,            // resolve
-    nullptr,            // mayResolve
-    Library::Finalize,  // finalize
-    nullptr,            // call
-    nullptr,            // construct
-    nullptr,            // trace
+    .finalize = Library::Finalize,
 };
 
 static const JSClass sLibraryClass = {
@@ -204,7 +195,9 @@ JSObject* Library::Create(JSContext* cx, HandleValue path,
   return libraryObj;
 }
 
-bool Library::IsLibrary(JSObject* obj) { return obj->hasClass(&sLibraryClass); }
+bool Library::IsLibrary(const JSObject* obj) {
+  return obj->hasClass(&sLibraryClass);
+}
 
 PRLibrary* Library::GetLibrary(JSObject* obj) {
   MOZ_ASSERT(IsLibrary(obj));

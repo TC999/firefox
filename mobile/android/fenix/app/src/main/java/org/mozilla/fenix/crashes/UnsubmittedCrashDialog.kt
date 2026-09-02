@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -43,35 +42,28 @@ import androidx.compose.ui.tooling.preview.PreviewParameter
 import androidx.compose.ui.tooling.preview.PreviewParameterProvider
 import androidx.compose.ui.unit.dp
 import androidx.fragment.app.DialogFragment
+import mozilla.components.compose.base.LinkText
+import mozilla.components.compose.base.LinkTextState
 import mozilla.components.compose.base.button.TextButton
 import mozilla.components.lib.crash.store.CrashAction
 import org.mozilla.fenix.R
-import org.mozilla.fenix.compose.LinkText
-import org.mozilla.fenix.compose.LinkTextState
 import org.mozilla.fenix.settings.SupportUtils
 import org.mozilla.fenix.theme.FirefoxTheme
 
-/**
- * Callback for dispatching [CrashAction]s from the [UnsubmittedCrashDialog].
- */
+/** Callback for dispatching [CrashAction]s from the [UnsubmittedCrashDialog]. */
 fun interface CrashActionDispatcher {
 
-    /**
-     * Dispatches the received [CrashAction]
-     */
+    /** Dispatches the received [CrashAction] */
     fun dispatchCrashAction(action: CrashAction)
 }
 
-/**
- * Dialog to request whether a user wants to submit crashes that have not been reported.
- */
+/** Dialog to request whether a user wants to submit crashes that have not been reported. */
 class UnsubmittedCrashDialog : DialogFragment() {
 
     private val crashIDs: List<String>
         get() = arguments?.getStringArrayList(BUNDLE_ARG_CRASH_IDS) ?: emptyList()
 
-    @VisibleForTesting
-    internal var dispatcher: CrashActionDispatcher? = null
+    @VisibleForTesting internal var dispatcher: CrashActionDispatcher? = null
 
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
         return activity?.let { activity ->
@@ -118,14 +110,13 @@ class UnsubmittedCrashDialog : DialogFragment() {
 
         const val TAG = "unsubmitted crash dialog tag"
 
-        /**
-         * Creates an instance of [UnsubmittedCrashDialog] with a list of [crashIDs]
-         */
+        /** Creates an instance of [UnsubmittedCrashDialog] with a list of [crashIDs] */
         fun create(crashIDs: List<String>? = null): UnsubmittedCrashDialog {
             return UnsubmittedCrashDialog().apply {
-                arguments = Bundle().apply {
-                    putStringArrayList(BUNDLE_ARG_CRASH_IDS, ArrayList(crashIDs ?: emptyList()))
-                }
+                arguments =
+                    Bundle().apply {
+                        putStringArrayList(BUNDLE_ARG_CRASH_IDS, ArrayList(crashIDs ?: emptyList()))
+                    }
             }
         }
     }
@@ -140,29 +131,28 @@ private fun CrashCard(
     dispatcher(CrashAction.PromptShown)
 
     val requestedByDevs = !crashIDs.isNullOrEmpty()
-    val msg = if (requestedByDevs) {
-        if (crashIDs.size == 1) {
-            stringResource(
-                R.string.unsubmitted_crash_requested_by_devs_dialog_title,
-                stringResource(R.string.app_name),
-            )
+    val msg =
+        if (requestedByDevs) {
+            if (crashIDs.size == 1) {
+                stringResource(
+                    R.string.unsubmitted_crash_requested_by_devs_dialog_title,
+                    stringResource(R.string.app_name),
+                )
+            } else {
+                stringResource(
+                    R.string.unsubmitted_crashes_requested_by_devs_dialog_title,
+                    crashIDs.size,
+                    stringResource(R.string.app_name),
+                )
+            }
         } else {
             stringResource(
-                R.string.unsubmitted_crashes_requested_by_devs_dialog_title,
-                crashIDs.size,
+                R.string.unsubmitted_crash_dialog_title_2,
                 stringResource(R.string.app_name),
             )
         }
-    } else {
-        stringResource(
-            R.string.unsubmitted_crash_dialog_title_2,
-            stringResource(R.string.app_name),
-        )
-    }
 
-    Surface(
-        shape = RoundedCornerShape(8.dp),
-    ) {
+    Surface(shape = MaterialTheme.shapes.small) {
         if (!requestedByDevs) {
             CrashDialog(
                 msg = msg,
@@ -189,16 +179,13 @@ private fun CrashDialog(
     var checkboxChecked by remember { mutableStateOf(false) }
 
     Column(
-        modifier = Modifier
-            .width(280.dp)
-            .padding(top = 16.dp, start = 16.dp, end = 16.dp, bottom = 0.dp),
+        modifier = Modifier.width(280.dp).padding(top = 16.dp, start = 16.dp, end = 16.dp, bottom = 0.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text(
             text = msg,
             style = FirefoxTheme.typography.headline7,
-            modifier = Modifier
-                .semantics { heading() },
+            modifier = Modifier.semantics { heading() },
         )
 
         AnnotatedStringBody()
@@ -220,10 +207,11 @@ private fun CrashDialog(
         }
 
         Row(
-            horizontalArrangement = Arrangement.spacedBy(
-                space = 8.dp,
-                alignment = Alignment.End,
-            ),
+            horizontalArrangement =
+                Arrangement.spacedBy(
+                    space = 8.dp,
+                    alignment = Alignment.End,
+                ),
             modifier = Modifier.fillMaxWidth(),
         ) {
             TextButton(
@@ -241,7 +229,7 @@ private fun CrashDialog(
                         CrashAction.ReportTapped(
                             checkboxChecked,
                             listOf(),
-                        ),
+                        )
                     )
                     dismiss()
                 },
@@ -254,19 +242,21 @@ private fun CrashDialog(
 private fun AnnotatedStringBody() {
     val context = LocalContext.current
     val learnMoreText = stringResource(R.string.unsubmitted_crash_dialog_learn_more)
-    val linkStateLearnMore = LinkTextState(
-        text = learnMoreText,
-        url = "",
-        onClick = {
-            SupportUtils.launchSandboxCustomTab(
-                context = context,
-                url = SupportUtils.getSumoURLForTopic(
+    val linkStateLearnMore =
+        LinkTextState(
+            text = learnMoreText,
+            url = "",
+            onClick = {
+                SupportUtils.launchSandboxCustomTab(
                     context = context,
-                    topic = SupportUtils.SumoTopic.CRASH_REPORTS,
-                ),
-            )
-        },
-    )
+                    url =
+                        SupportUtils.getSumoURLForTopic(
+                            context = context,
+                            topic = SupportUtils.SumoTopic.CRASH_REPORTS,
+                        ),
+                )
+            },
+        )
     LinkText(
         text =
             stringResource(
@@ -292,8 +282,7 @@ private fun CrashPullDialog(
     Column(modifier = Modifier.padding(16.dp)) {
         Text(
             text = msg,
-            modifier = Modifier
-                .semantics { heading() },
+            modifier = Modifier.semantics { heading() },
             style = FirefoxTheme.typography.headline5,
         )
 
@@ -307,24 +296,27 @@ private fun CrashPullDialog(
             Text(
                 text = stringResource(R.string.unsubmitted_crash_requested_by_devs_learn_more).uppercase(),
                 color = MaterialTheme.colorScheme.tertiary,
-                modifier = Modifier.clickable {
-                    SupportUtils.launchSandboxCustomTab(
-                        context = context,
-                        url = SupportUtils.getSumoURLForTopic(
+                modifier =
+                    Modifier.clickable {
+                        SupportUtils.launchSandboxCustomTab(
                             context = context,
-                            topic = SupportUtils.SumoTopic.REQUESTED_CRASH_MINIDUMP,
-                        ),
-                    )
-                },
+                            url =
+                                SupportUtils.getSumoURLForTopic(
+                                    context = context,
+                                    topic = SupportUtils.SumoTopic.REQUESTED_CRASH_MINIDUMP,
+                                ),
+                        )
+                    },
             )
 
             Text(
                 text = stringResource(R.string.unsubmitted_crash_requested_by_devs_dialog_never_button).uppercase(),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.clickable {
-                    dispatcher(CrashAction.CancelForEverTapped)
-                    dismiss()
-                },
+                modifier =
+                    Modifier.clickable {
+                        dispatcher(CrashAction.CancelForEverTapped)
+                        dismiss()
+                    },
             )
         }
 
@@ -337,45 +329,46 @@ private fun CrashPullDialog(
             Text(
                 text = stringResource(R.string.unsubmitted_crash_dialog_negative_button).uppercase(),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.clickable {
-                    dispatcher(CrashAction.CancelTapped)
-                    dismiss()
-                },
+                modifier =
+                    Modifier.clickable {
+                        dispatcher(CrashAction.CancelTapped)
+                        dismiss()
+                    },
             )
 
             Text(
                 text = stringResource(R.string.unsubmitted_crash_dialog_positive_button).uppercase(),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.clickable {
-                    dispatcher(
-                        CrashAction.ReportTapped(
-                            automaticallySendChecked = false,
-                            crashIDs = crashIDs,
-                        ),
-                    )
-                    dismiss()
-                },
+                modifier =
+                    Modifier.clickable {
+                        dispatcher(
+                            CrashAction.ReportTapped(
+                                automaticallySendChecked = false,
+                                crashIDs = crashIDs,
+                            )
+                        )
+                        dismiss()
+                    },
             )
         }
     }
 }
 
-private data class CrashDialogState(
-    val crashIDs: List<String>?,
-)
+private data class CrashDialogState(val crashIDs: List<String>?)
 
 private class CrashDialogPreviewProvider : PreviewParameterProvider<CrashDialogState> {
-    override val values = sequenceOf(
-        CrashDialogState(crashIDs = null),
-        CrashDialogState(crashIDs = listOf("12345")),
-        CrashDialogState(crashIDs = listOf("12345", "67890")),
-    )
+    override val values =
+        sequenceOf(
+            CrashDialogState(crashIDs = null),
+            CrashDialogState(crashIDs = listOf("12345")),
+            CrashDialogState(crashIDs = listOf("12345", "67890")),
+        )
 }
 
 @PreviewLightDark
 @Composable
 private fun UnsubmittedCrashDialogPreview(
-    @PreviewParameter(CrashDialogPreviewProvider::class) state: CrashDialogState,
+    @PreviewParameter(CrashDialogPreviewProvider::class) state: CrashDialogState
 ) {
     FirefoxTheme {
         Column(modifier = Modifier.padding(all = 16.dp)) {

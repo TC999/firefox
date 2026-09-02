@@ -60,6 +60,25 @@ bool wasm::ToAddressType(JSContext* cx, HandleValue value,
   return true;
 }
 
+bool wasm::ToPageSize(JSContext* cx, HandleValue value, PageSize* pageSize) {
+  if (!value.isInt32()) {
+    JS_ReportErrorASCII(cx, "page size must be an integer");
+    return false;
+  }
+  uint32_t pageSizeBytes = uint32_t(value.toInt32());
+  if (pageSizeBytes == PageSizeInBytes(PageSize::Standard)) {
+    *pageSize = PageSize::Standard;
+#ifdef ENABLE_WASM_CUSTOM_PAGE_SIZES
+  } else if (pageSizeBytes == PageSizeInBytes(PageSize::Tiny)) {
+    *pageSize = PageSize::Tiny;
+#endif
+  } else {
+    JS_ReportErrorASCII(cx, "bad page size");
+    return false;
+  }
+  return true;
+}
+
 /*
  * [SMDOC] Linear memory addresses and bounds checking
  *
@@ -223,9 +242,6 @@ bool wasm::ToAddressType(JSContext* cx, HandleValue value,
  * boundsCheckLimit can be treated as a 32-bit quantity; otherwise it must be
  * treated as a 64-bit quantity.
  *
- * Asm.js memories are limited to 2GB even on 64-bit platforms, and we can
- * therefore always assume a 32-bit bounds check limit for asm.js.
- *
  *
  * ## Constant pointers
  *
@@ -271,15 +287,13 @@ static_assert(HugeOffsetGuardLimit < UINT32_MAX,
 
 // We have only tested huge memory on x64, arm64 and riscv64.
 #  if !(defined(JS_CODEGEN_X64) || defined(JS_CODEGEN_ARM64) || \
-        defined(JS_CODEGEN_RISCV64))
+        defined(JS_CODEGEN_RISCV64) || defined(JS_CODEGEN_LOONG64))
 #    error "Not an expected configuration"
 #  endif
 
 #endif
 
 // On !WASM_SUPPORTS_HUGE_MEMORY platforms:
-//  - To avoid OOM in ArrayBuffer::prepareForAsmJS, asm.js continues to use the
-//    original ArrayBuffer allocation which has no guard region at all.
 //  - For WebAssembly memories, an additional GuardSize is mapped after the
 //    accessible region of the memory to catch folded (base+offset) accesses
 //    where `offset < OffsetGuardLimit` as well as the overflow from unaligned

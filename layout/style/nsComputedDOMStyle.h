@@ -107,6 +107,12 @@ class nsComputedDOMStyle final : public nsDOMCSSDeclaration,
 
   float UsedFontSize() final;
 
+  // Note that some non-custom properties don't appear in the computed style,
+  // if they're internal properties or so.
+  static uint32_t NonCustomPropertyCount();
+  static NonCustomCSSPropertyId NonCustomPropertyAt(uint32_t);
+  static bool HasNonCustomProperty(NonCustomCSSPropertyId);
+
   void GetCSSImageURLs(const nsACString& aPropertyName,
                        nsTArray<nsCString>& aImageURLs,
                        mozilla::ErrorResult& aRv) final;
@@ -114,9 +120,9 @@ class nsComputedDOMStyle final : public nsDOMCSSDeclaration,
   // nsDOMCSSDeclaration abstract methods which should never be called
   // on a nsComputedDOMStyle object, but must be defined to avoid
   // compile errors.
-  mozilla::DeclarationBlock* GetOrCreateCSSDeclaration(
-      Operation aOperation, mozilla::DeclarationBlock** aCreated) final;
-  virtual nsresult SetCSSDeclaration(mozilla::DeclarationBlock*,
+  Block* GetOrCreateCSSDeclaration(Operation aOperation,
+                                   Block** aCreated) final;
+  virtual nsresult SetCSSDeclaration(Block*,
                                      mozilla::MutationClosureData*) override;
   virtual mozilla::dom::Document* DocToUpdate() final;
 
@@ -382,6 +388,8 @@ class nsComputedDOMStyle final : public nsDOMCSSDeclaration,
   friend struct ComputedStyleMap;
   friend AnchorPosResolutionParams AnchorPosResolutionParams::From(
       const nsComputedDOMStyle*);
+
+  bool HasLonghandProperty(const nsACString& aMaybeCustomPropertyName) final;
 };
 
 already_AddRefed<nsComputedDOMStyle> NS_NewComputedDOMStyle(

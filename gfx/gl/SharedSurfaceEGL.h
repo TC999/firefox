@@ -5,10 +5,10 @@
 #ifndef SHARED_SURFACE_EGL_H_
 #define SHARED_SURFACE_EGL_H_
 
-#include "mozilla/Attributes.h"
-#include "mozilla/Mutex.h"
 #include "CompositorTypes.h"
 #include "SharedSurface.h"
+#include "mozilla/Attributes.h"
+#include "mozilla/Mutex.h"
 
 #ifdef MOZ_WIDGET_ANDROID
 #  include "AndroidNativeWindow.h"
@@ -26,7 +26,7 @@ class GLLibraryEGL;
 
 class SharedSurface_EGLImage final : public SharedSurface {
   mutable Mutex mMutex MOZ_UNANNOTATED;
-  EGLSync mSync = 0;
+  EGLSync mSync = nullptr;
   const std::weak_ptr<EglDisplay> mEglDisplay;
 
  public:

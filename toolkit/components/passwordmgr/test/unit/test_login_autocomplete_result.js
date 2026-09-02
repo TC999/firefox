@@ -160,7 +160,11 @@ add_task(async function test_all_patterns() {
           label:
             "This connection is not secure. Logins entered here could be compromised. Learn More",
           style: "insecureWarning",
-          comment: "",
+          comment: {
+            fillMessageName:
+              "PasswordManager:OpenInsecureFieldWarningLearnMore",
+            icon: "chrome://global/skin/icons/security-broken.svg",
+          },
         },
         {
           value: "",
@@ -183,7 +187,11 @@ add_task(async function test_all_patterns() {
           label:
             "This connection is not secure. Logins entered here could be compromised. Learn More",
           style: "insecureWarning",
-          comment: "",
+          comment: {
+            fillMessageName:
+              "PasswordManager:OpenInsecureFieldWarningLearnMore",
+            icon: "chrome://global/skin/icons/security-broken.svg",
+          },
         },
         {
           value: "",
@@ -288,7 +296,11 @@ add_task(async function test_all_patterns() {
           label:
             "This connection is not secure. Logins entered here could be compromised. Learn More",
           style: "insecureWarning",
-          comment: "",
+          comment: {
+            fillMessageName:
+              "PasswordManager:OpenInsecureFieldWarningLearnMore",
+            icon: "chrome://global/skin/icons/security-broken.svg",
+          },
         },
         {
           value: "emptypass1",
@@ -394,7 +406,11 @@ add_task(async function test_all_patterns() {
           label:
             "This connection is not secure. Logins entered here could be compromised. Learn More",
           style: "insecureWarning",
-          comment: "",
+          comment: {
+            fillMessageName:
+              "PasswordManager:OpenInsecureFieldWarningLearnMore",
+            icon: "chrome://global/skin/icons/security-broken.svg",
+          },
         },
         {
           value: "",
@@ -727,4 +743,70 @@ add_task(async function test_all_patterns() {
       );
     }
   });
+});
+
+add_task(function test_external_autocomplete_items() {
+  const genericItem = {
+    image: "generic.svg",
+    label: "Generic entry",
+    secondary: "Secondary text",
+    fillMessageName: "PasswordManager:Test",
+    fillMessageData: { value: "generic" },
+  };
+  const smartFormFillComment = {
+    type: "smartFormFill",
+    sources: [
+      { label: "Source tab", favicon: "page-icon:https://example.com" },
+    ],
+    sourcesLabel: "Sources:",
+    ariaLabel: "Smart Form Fill",
+    loading: false,
+    loadingLabel: "Loading...",
+    emptySourcesLabel: null,
+    fillMessageName: "SmartFormFill:Start",
+    fillMessageData: {},
+  };
+  const smartFormFillItem = {
+    style: "smartFormFill",
+    value: "",
+    image: "smart-form-fill.svg",
+    label: "Smart Form Fill",
+    comment: JSON.stringify(smartFormFillComment),
+  };
+
+  const result = new LoginAutoCompleteResult(
+    "",
+    [],
+    [genericItem, smartFormFillItem],
+    "https://mochi.test:8888",
+    {
+      hostname: "mochi.test",
+      isSecure: true,
+      hasBeenTypePassword: false,
+      telemetryEventData: {},
+    }
+  );
+
+  equal(result.matchCount, 3, "External entries and the footer are present");
+  equal(result.getStyleAt(0), "generic", "Generic entries are adapted");
+  Assert.deepEqual(JSON.parse(result.getCommentAt(0)), {
+    secondary: genericItem.secondary,
+    fillMessageName: genericItem.fillMessageName,
+    fillMessageData: genericItem.fillMessageData,
+  });
+  equal(
+    result.getStyleAt(1),
+    "smartFormFill",
+    "Smart Form Fill retains its specialized style"
+  );
+  Assert.deepEqual(
+    JSON.parse(result.getCommentAt(1)),
+    smartFormFillComment,
+    "Smart Form Fill retains its specialized metadata"
+  );
+  equal(
+    result.getStyleAt(2),
+    "loginsFooter",
+    "External entries appear before the LoginManager footer"
+  );
 });

@@ -64,6 +64,8 @@ class nsSpeechTask : public nsISpeechTask,
 
   bool IsSpeaking() const { return mState == STATE_SPEAKING; }
 
+  bool IsPaused() const;
+
   bool IsPending() const { return mState == STATE_PENDING; }
 
  protected:
@@ -87,6 +89,11 @@ class nsSpeechTask : public nsISpeechTask,
 
   virtual nsresult DispatchMarkImpl(const nsAString& aName, float aElapsedTime,
                                     uint32_t aCharIndex);
+
+  // Let a subclass start and stop media control for as long as this task is
+  // speaking. No-ops in the base.
+  virtual void StartMediaControl() {}
+  virtual void StopMediaControl() {}
 
   RefPtr<SpeechSynthesisUtterance> mUtterance;
 

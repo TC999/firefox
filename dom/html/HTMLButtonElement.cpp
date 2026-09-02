@@ -75,8 +75,7 @@ static constexpr const nsAttrValue::EnumTableEntry* kButtonSubmitType =
 
 // Construction, destruction
 HTMLButtonElement::HTMLButtonElement(
-    already_AddRefed<mozilla::dom::NodeInfo>&& aNodeInfo,
-    FromParser aFromParser)
+    already_AddRefed<mozilla::dom::NodeInfo> aNodeInfo, FromParser aFromParser)
     : nsGenericHTMLFormControlElementWithState(
           std::move(aNodeInfo), aFromParser,
           FormControlType(kButtonSubmitType->value)),
@@ -138,13 +137,17 @@ bool HTMLButtonElement::InAutoState() const {
 }
 
 // https://html.spec.whatwg.org/multipage/#the-button-element%3Aconcept-submit-button
-const nsAttrValue::EnumTableEntry* HTMLButtonElement::ResolveAutoState() const {
+const nsAttrValue::EnumTableEntry* HTMLButtonElement::ResolveAutoState(
+    const nsINode* aParent) const {
   // A button element is said to be a submit button if any of the following are
-  // true: the type attribute is in the Auto state and both the command and
-  // commandfor content attributes are not present; or
-  // the type attribute is in the Submit Button state.
-  if (StaticPrefs::dom_element_commandfor_enabled() &&
-      (HasAttr(nsGkAtoms::commandfor) || HasAttr(nsGkAtoms::command))) {
+  // true: the type attribute is in the Auto state, both the command and
+  // commandfor content attributes are not present, and the parent node is not a
+  // select element; or the type attribute is in the Submit Button state.
+  if (HasAttr(nsGkAtoms::commandfor) || HasAttr(nsGkAtoms::command)) {
+    return kButtonButtonType;
+  }
+  const nsINode* parent = aParent ? aParent : GetParentNode();
+  if (parent && parent->IsHTMLElement(nsGkAtoms::select)) {
     return kButtonButtonType;
   }
   return kButtonSubmitType;
@@ -184,15 +187,12 @@ bool HTMLButtonElement::ParseAttribute(int32_t aNamespaceID, nsAtom* aAttribute,
     if (aAttribute == nsGkAtoms::formenctype) {
       return aResult.ParseEnumValue(aValue, kFormEnctypeTable, false);
     }
-
-    if (StaticPrefs::dom_element_commandfor_enabled()) {
-      if (aAttribute == nsGkAtoms::command) {
-        return aResult.ParseEnumValue(aValue, kButtonCommandTable, false);
-      }
-      if (aAttribute == nsGkAtoms::commandfor) {
-        aResult.ParseAtom(aValue);
-        return true;
-      }
+    if (aAttribute == nsGkAtoms::command) {
+      return aResult.ParseEnumValue(aValue, kButtonCommandTable, false);
+    }
+    if (aAttribute == nsGkAtoms::commandfor) {
+      aResult.ParseAtom(aValue);
+      return true;
     }
   }
 
@@ -290,7 +290,7 @@ nsresult HTMLButtonElement::PostHandleEvent(EventChainPostVisitor& aVisitor) {
   return rv;
 }
 
-void EndSubmitClick(EventChainVisitor& aVisitor) {
+MOZ_CAN_RUN_SCRIPT void EndSubmitClick(EventChainVisitor& aVisitor) {
   if ((aVisitor.mItemFlags & NS_IN_SUBMIT_CLICK)) {
     nsCOMPtr<nsIContent> content(do_QueryInterface(aVisitor.mItemData));
     RefPtr<HTMLFormElement> form = HTMLFormElement::FromNodeOrNull(content);
@@ -311,12 +311,12 @@ void EndSubmitClick(EventChainVisitor& aVisitor) {
 
 // https://html.spec.whatwg.org/multipage/form-elements.html#the-button-element:activation-behaviour
 void HTMLButtonElement::ActivationBehavior(EventChainPostVisitor& aVisitor) {
+  auto endSubmit = MakeScopeExit(
+      [&]() MOZ_CAN_RUN_SCRIPT_BOUNDARY { EndSubmitClick(aVisitor); });
+
   if (!aVisitor.mPresContext) {
-    // Should check whether EndSubmitClick is needed here.
     return;
   }
-
-  auto endSubmit = MakeScopeExit([&] { EndSubmitClick(aVisitor); });
 
   // 1. If element is disabled, then return.
   if (IsDisabled()) {
@@ -420,6 +420,12 @@ void HTMLButtonElement::LegacyCanceledActivationBehavior(
 
 nsresult HTMLButtonElement::BindToTree(BindContext& aContext,
                                        nsINode& aParent) {
+  // Whether this button is a submit button depends on whether its parent is a
+  // select element, so recompute the resolved type before form association.
+  // Use aParent because the parser can bind before the parent link is set.
+  if (InAutoState()) {
+    mType = FormControlType(ResolveAutoState(&aParent)->value);
+  }
   nsresult rv =
       nsGenericHTMLFormControlElementWithState::BindToTree(aContext, aParent);
   NS_ENSURE_SUCCESS(rv, rv);
@@ -432,6 +438,11 @@ nsresult HTMLButtonElement::BindToTree(BindContext& aContext,
 
 void HTMLButtonElement::UnbindFromTree(UnbindContext& aContext) {
   nsGenericHTMLFormControlElementWithState::UnbindFromTree(aContext);
+
+  // The parent may no longer be a select, so recompute the resolved type.
+  if (InAutoState()) {
+    mType = FormControlType(ResolveAutoState()->value);
+  }
 
   UpdateBarredFromConstraintValidation();
   UpdateValidityElementStates(false);
@@ -504,8 +515,7 @@ void HTMLButtonElement::AfterSetAttr(int32_t aNameSpaceID, nsAtom* aName,
 
     // If the command/commandfor attributes are added and Type is auto, it may
     // need to be recalculated:
-    if (StaticPrefs::dom_element_commandfor_enabled() &&
-        (aName == nsGkAtoms::command || aName == nsGkAtoms::commandfor)) {
+    if (aName == nsGkAtoms::command || aName == nsGkAtoms::commandfor) {
       if (InAutoState()) {
         mType = FormControlType(ResolveAutoState()->value);
       }
@@ -610,17 +620,11 @@ Element::Command HTMLButtonElement::GetCommand() const {
 }
 
 Element* HTMLButtonElement::GetCommandForElementForBindings() const {
-  if (StaticPrefs::dom_element_commandfor_enabled()) {
-    return GetAttrAssociatedElementForBindings(nsGkAtoms::commandfor);
-  }
-  return nullptr;
+  return GetAttrAssociatedElementForBindings(nsGkAtoms::commandfor);
 }
 
 Element* HTMLButtonElement::GetCommandForElementInternal() const {
-  if (StaticPrefs::dom_element_commandfor_enabled()) {
-    return GetAttrAssociatedElementInternal(nsGkAtoms::commandfor);
-  }
-  return nullptr;
+  return GetAttrAssociatedElementInternal(nsGkAtoms::commandfor);
 }
 
 void HTMLButtonElement::SetCommandForElementForBindings(Element* aElement) {

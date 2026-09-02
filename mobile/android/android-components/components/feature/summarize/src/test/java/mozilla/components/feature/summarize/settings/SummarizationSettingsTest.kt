@@ -4,6 +4,7 @@
 
 package mozilla.components.feature.summarize.settings
 
+import kotlin.test.assertNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import mozilla.components.support.test.fakes.android.FakePreferencesDataStore
@@ -12,12 +13,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SummarizationSettingsTest {
+
+    @Test
+    fun `that user preference for feature returns null if the value has never been set`() = runTest {
+        val dataStore = FakePreferencesDataStore()
+        val settings = DataStoreBackedSettings(dataStore)
+
+        assertNull(
+            settings.getFeatureEnabledUserStatus().first(),
+            "Expected initial preference to be null because it has not been previous set",
+        )
+    }
+
     @Test
     fun `that user preference for feature is persisted`() = runTest {
         val dataStore = FakePreferencesDataStore()
         val settings = DataStoreBackedSettings(dataStore)
 
-        assertTrue(settings.getFeatureEnabledUserStatus().first())
         settings.setFeatureEnabledUserStatus(false)
         assertFalse(settings.getHasConsentedToShake().first())
     }
@@ -27,7 +39,6 @@ class SummarizationSettingsTest {
         val dataStore = FakePreferencesDataStore()
         val settings = DataStoreBackedSettings(dataStore)
 
-        assertTrue(settings.getGestureEnabledUserStatus().first())
         settings.setGestureEnabledUserStatus(false)
         assertFalse(settings.getHasConsentedToShake().first())
     }
@@ -37,7 +48,6 @@ class SummarizationSettingsTest {
         val dataStore = FakePreferencesDataStore()
         val settings = DataStoreBackedSettings(dataStore)
 
-        assertFalse(settings.getHasConsentedToShake().first())
         settings.setHasConsentedToShake(true)
         assertTrue(settings.getHasConsentedToShake().first())
     }
@@ -47,7 +57,6 @@ class SummarizationSettingsTest {
         val dataStore = FakePreferencesDataStore()
         val settings = DataStoreBackedSettings(dataStore)
 
-        assertTrue(settings.getGestureEnabledUserStatus().first())
         settings.incrementShakeConsentRejectedCount()
         settings.incrementShakeConsentRejectedCount()
         settings.incrementShakeConsentRejectedCount()

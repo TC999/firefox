@@ -1,5 +1,3 @@
-/* -*- Mode: indent-tabs-mode: nil; js-indent-level: 2 -*- */
-/* vim: set sts=2 sw=2 et tw=80: */
 "use strict";
 
 async function runWithDisabledPrivateBrowsing(callback) {
@@ -79,7 +77,7 @@ add_task(async function test_urlbar_focus() {
 
   info(`After opening an empty tab, gURLBar.focused: ${gURLBar.focused}`);
 
-  is(active.tagName, "html:input", "Input element focused");
+  is(active.localName, "input", "Input element focused");
   ok(active.classList.contains("urlbar-input"), "Urlbar focused");
 
   extension.sendMessage("remove", tab2.id);

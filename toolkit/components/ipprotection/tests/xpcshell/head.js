@@ -7,14 +7,17 @@
 const { IPProtectionService, IPProtectionStates } = ChromeUtils.importESModule(
   "moz-src:///toolkit/components/ipprotection/IPProtectionService.sys.mjs"
 );
-const { IPPProxyManager, IPPProxyStates } = ChromeUtils.importESModule(
+const { ERRORS, IPPProxyManager, IPPProxyStates } = ChromeUtils.importESModule(
   "moz-src:///toolkit/components/ipprotection/IPPProxyManager.sys.mjs"
 );
-const { IPPSignInWatcher } = ChromeUtils.importESModule(
-  "moz-src:///toolkit/components/ipprotection/fxa/IPPSignInWatcher.sys.mjs"
+const { AUTH_ERRORS } = ChromeUtils.importESModule(
+  "moz-src:///toolkit/components/ipprotection/IPPAuthProvider.sys.mjs"
+);
+const { IPPExceptionsManager, IPPPrincipalRules } = ChromeUtils.importESModule(
+  "moz-src:///toolkit/components/ipprotection/IPPExceptionsManager.sys.mjs"
 );
 const { ProxyPass, ProxyUsage, Entitlement } = ChromeUtils.importESModule(
-  "moz-src:///toolkit/components/ipprotection/GuardianClient.sys.mjs"
+  "moz-src:///toolkit/components/ipprotection/GuardianTypes.sys.mjs"
 );
 const { RemoteSettings } = ChromeUtils.importESModule(
   "resource://services-settings/remote-settings.sys.mjs"
@@ -22,16 +25,11 @@ const { RemoteSettings } = ChromeUtils.importESModule(
 const { IPProtectionActivator } = ChromeUtils.importESModule(
   "moz-src:///toolkit/components/ipprotection/IPProtectionActivator.sys.mjs"
 );
-const { IPPFxaAuthProvider } = ChromeUtils.importESModule(
-  "moz-src:///toolkit/components/ipprotection/fxa/IPPFxaAuthProvider.sys.mjs"
+const { IPPDummyAuthProvider } = ChromeUtils.importESModule(
+  "resource://testing-common/ipprotection/IPPDummyAuthProvider.sys.mjs"
 );
-const { IPPEnrollAndEntitleManager } = ChromeUtils.importESModule(
-  "moz-src:///toolkit/components/ipprotection/fxa/IPPEnrollAndEntitleManager.sys.mjs"
-);
-
-IPProtectionActivator.addHelpers(IPPFxaAuthProvider.helpers);
+IPProtectionActivator.setAuthProvider(IPPDummyAuthProvider);
 IPProtectionActivator.setupHelpers();
-IPProtectionActivator.setAuthProvider(IPPFxaAuthProvider);
 
 const { sinon } = ChromeUtils.importESModule(
   "resource://testing-common/Sinon.sys.mjs"
@@ -48,6 +46,34 @@ function waitForEvent(target, eventName, callback = () => true) {
     target.addEventListener(eventName, listener);
   });
 }
+
+/**
+ * Initializes IPProtectionService and resolves once it reaches READY.
+ */
+async function initServiceToReady() {
+  const readyEvent = waitForEvent(
+    IPProtectionService,
+    "IPProtectionService:StateChanged",
+    () => IPProtectionService.state === IPProtectionStates.READY
+  );
+  IPProtectionService.init();
+  await readyEvent;
+}
+/* exported initServiceToReady */
+
+/**
+ * Resolves once IPPProxyManager reaches the given state.
+ *
+ * @param {string} state - One of IPPProxyStates.
+ */
+function waitForProxyState(state) {
+  return waitForEvent(
+    IPPProxyManager,
+    "IPPProxyManager:StateChanged",
+    () => IPPProxyManager.state === state
+  );
+}
+/* exported waitForProxyState */
 
 async function putServerInRemoteSettings(
   server = {
@@ -78,7 +104,6 @@ async function putServerInRemoteSettings(
 
 const defaultStubOptions = {
   signedIn: true,
-  isLinkedToGuardian: true,
   validProxyPass: true,
   entitlement: createTestEntitlement(),
   proxyUsage: new ProxyUsage(
@@ -89,26 +114,21 @@ const defaultStubOptions = {
 };
 Object.freeze(defaultStubOptions);
 
-function setupStubs(
-  sandbox,
-  aOptions = {
-    ...defaultStubOptions,
-  }
-) {
+/**
+ * @param {object} [aOptions] - Overrides for defaultStubOptions.
+ */
+function setupStubs(aOptions = {}) {
   const options = { ...defaultStubOptions, ...aOptions };
-  sandbox.stub(IPPSignInWatcher, "isSignedIn").get(() => options.signedIn);
-  sandbox
-    .stub(IPPEnrollAndEntitleManager, "isLinkedToGuardian")
-    .resolves(options.isLinkedToGuardian);
-  sandbox.stub(IPProtectionService.guardian, "fetchUserInfo").resolves({
-    status: 200,
-    error: null,
+  IPPDummyAuthProvider.simulateSignIn(options.signedIn);
+  IPPDummyAuthProvider.setEntitlement(options.entitlement, { silent: true });
+  IPPDummyAuthProvider.setGetEntitlementResponse({
     entitlement: options.entitlement,
   });
-  sandbox.stub(IPProtectionService.guardian, "enrollWithFxa").resolves({
-    ok: true,
+  IPPDummyAuthProvider.setEnrollResponse({
+    isEnrolledAndEntitled: true,
+    entitlement: options.entitlement,
   });
-  sandbox.stub(IPProtectionService.guardian, "fetchProxyPass").resolves({
+  IPPDummyAuthProvider.setProxyPass({
     status: 200,
     error: undefined,
     pass: new ProxyPass(
@@ -118,9 +138,10 @@ function setupStubs(
     ),
     usage: options.proxyUsage,
   });
-  sandbox
-    .stub(IPProtectionService.guardian, "fetchProxyUsage")
-    .resolves(options.proxyUsage);
+  IPPDummyAuthProvider.setProxyUsage(options.proxyUsage);
+  IPPDummyAuthProvider.setProxyPassError(null);
+  IPPDummyAuthProvider.setProxyPassHang(false);
+  IPPDummyAuthProvider.setProxyPassResolveOnAbort(null);
 }
 
 /**
@@ -150,7 +171,7 @@ function createProxyPassToken(
   const encode = obj => btoa(JSON.stringify(obj));
   return [encode(header), encode(body), "signature"].join(".");
 }
-/* exported createExpiredProxyPassToken */
+/* exported createProxyPassToken */
 function createExpiredProxyPassToken() {
   return createProxyPassToken(
     Temporal.Now.instant().subtract({ hours: 2 }),

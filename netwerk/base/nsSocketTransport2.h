@@ -11,22 +11,21 @@
 
 #include <functional>
 
+#include "mozilla/Atomics.h"
 #include "mozilla/Mutex.h"
-#include "nsSocketTransportService2.h"
-#include "nsString.h"
-#include "nsCOMPtr.h"
-
-#include "nsIInterfaceRequestor.h"
-#include "nsISocketTransport.h"
-#include "nsIAsyncInputStream.h"
-#include "nsIAsyncOutputStream.h"
-#include "nsIDNSListener.h"
-#include "nsIDNSRecord.h"
-#include "nsIClassInfo.h"
 #include "mozilla/glean/NetwerkMetrics.h"
 #include "mozilla/net/DNS.h"
 #include "nsASocketHandler.h"
-
+#include "nsCOMPtr.h"
+#include "nsIAsyncInputStream.h"
+#include "nsIAsyncOutputStream.h"
+#include "nsIClassInfo.h"
+#include "nsIDNSListener.h"
+#include "nsIDNSRecord.h"
+#include "nsIInterfaceRequestor.h"
+#include "nsISocketTransport.h"
+#include "nsSocketTransportService2.h"
+#include "nsString.h"
 #include "prerror.h"
 #include "ssl.h"
 
@@ -224,19 +223,12 @@ class nsSocketTransport final : public nsASocketHandler,
   bool mProxyTransparent{false};
   bool mProxyTransparentResolvesHost{false};
   bool mHttpsProxy{false};
-  uint32_t mConnectionFlags{0};
+  Atomic<uint32_t, Relaxed> mConnectionFlags{0};
   // When we fail to connect using a prefered IP family, we tell the consumer to
   // reset the IP family preference on the connection entry.
   bool mResetFamilyPreference{false};
   uint32_t mTlsFlags{0};
   bool mReuseAddrPort{false};
-
-  // The origin attributes are used to create sockets.  The first party domain
-  // will eventually be used to isolate OCSP cache and is only non-empty when
-  // "privacy.firstparty.isolate" is enabled.  Setting this is the only way to
-  // carry origin attributes down to NSPR layers which are final consumers.
-  // It must be set before the socket transport is built.
-  OriginAttributes mOriginAttributes;
 
   uint16_t SocketPort() {
     return (!mProxyHost.IsEmpty() && !mProxyTransparent) ? mProxyPort : mPort;
@@ -266,9 +258,11 @@ class nsSocketTransport final : public nsASocketHandler,
 
   nsCString mEchConfig MOZ_GUARDED_BY(mLock);
   Atomic<bool, Relaxed> mEchConfigUsed{false};
-  bool mResolvedByTRR{false};
-  nsIRequest::TRRMode mEffectiveTRRMode{nsIRequest::TRR_DEFAULT_MODE};
-  nsITRRSkipReason::value mTRRSkipReason{nsITRRSkipReason::TRR_UNSET};
+  Atomic<bool, Relaxed> mResolvedByTRR{false};
+  Atomic<nsIRequest::TRRMode, Relaxed> mEffectiveTRRMode{
+      nsIRequest::TRR_DEFAULT_MODE};
+  Atomic<nsITRRSkipReason::value, Relaxed> mTRRSkipReason{
+      nsITRRSkipReason::TRR_UNSET};
 
   nsCOMPtr<nsISupports> mInputCopyContext;
   nsCOMPtr<nsISupports> mOutputCopyContext;

@@ -11,15 +11,14 @@
 
 #include "fmt/format.h"
 #include "fmt/xchar.h"
-
 #include "mozilla/Char16.h"
 #include "mozilla/CheckedInt.h"
-#include "mozilla/fallible.h"
 #include "mozilla/StringBuffer.h"
+#include "mozilla/fallible.h"
+#include "nsCharTraits.h"
 #include "nsStringFlags.h"
 #include "nsStringFwd.h"
 #include "nsStringIterator.h"
-#include "nsCharTraits.h"
 
 template <typename T>
 class nsTSubstringTuple;
@@ -50,12 +49,10 @@ namespace mozilla {
 // will get a semi-decent compiler error if you use `T` directly.
 
 template <typename CharType>
-using CharOnlyT =
-    typename std::enable_if<std::is_same<char, CharType>::value>::type;
+using CharOnlyT = std::enable_if_t<std::is_same_v<char, CharType>>;
 
 template <typename CharType>
-using Char16OnlyT =
-    typename std::enable_if<std::is_same<char16_t, CharType>::value>::type;
+using Char16OnlyT = std::enable_if_t<std::is_same_v<char16_t, CharType>>;
 
 namespace detail {
 
@@ -144,6 +141,8 @@ class nsTStringRepr {
   typedef StringClassFlags ClassFlags;
   typedef nsTStringLengthStorage<T> LengthStorage;
 
+  nsTStringRepr() = delete;  // Never instantiate directly
+
   // Reading iterators.
   // You must not assume the returned value is null-terminated.
   // If you need a null terminated string, use nsTString::get().
@@ -223,7 +222,7 @@ class nsTStringRepr {
   }
 
   constexpr char_type CharAt(index_type aIndex) const {
-    NS_ASSERTION(aIndex < Length(), "index exceeds allowable range");
+    MOZ_ASSERT(aIndex < Length(), "index exceeds allowable range");
     return mData[aIndex];
   }
 
@@ -353,6 +352,10 @@ class nsTStringRepr {
                 reinterpret_cast<uintptr_t>(mData));
   }
 
+  bool Contains(const string_view& aString) const {
+    return Find(aString) != kNotFound;
+  }
+
   /**
    * Search for the given substring within this string.
    *
@@ -467,8 +470,6 @@ class nsTStringRepr {
   float ToFloatAllowTrailingChars(nsresult* aErrorCode) const;
 
  protected:
-  nsTStringRepr() = delete;  // Never instantiate directly
-
   constexpr nsTStringRepr(char_type* aData, size_type aLength,
                           DataFlags aDataFlags, ClassFlags aClassFlags)
       : mData(aData),
@@ -525,18 +526,6 @@ inline constexpr bool operator!=(const mozilla::detail::nsTStringRepr<T>& aLhs,
 }
 
 template <typename T>
-inline bool operator<(const mozilla::detail::nsTStringRepr<T>& aLhs,
-                      const mozilla::detail::nsTStringRepr<T>& aRhs) {
-  return Compare(aLhs, aRhs) < 0;
-}
-
-template <typename T>
-inline bool operator<=(const mozilla::detail::nsTStringRepr<T>& aLhs,
-                       const mozilla::detail::nsTStringRepr<T>& aRhs) {
-  return Compare(aLhs, aRhs) <= 0;
-}
-
-template <typename T>
 inline bool operator==(const mozilla::detail::nsTStringRepr<T>& aLhs,
                        const mozilla::detail::nsTStringRepr<T>& aRhs) {
   return aLhs.Equals(aRhs);
@@ -549,15 +538,10 @@ inline bool operator==(const mozilla::detail::nsTStringRepr<T>& aLhs,
 }
 
 template <typename T>
-inline bool operator>=(const mozilla::detail::nsTStringRepr<T>& aLhs,
-                       const mozilla::detail::nsTStringRepr<T>& aRhs) {
-  return Compare(aLhs, aRhs) >= 0;
-}
-
-template <typename T>
-inline bool operator>(const mozilla::detail::nsTStringRepr<T>& aLhs,
-                      const mozilla::detail::nsTStringRepr<T>& aRhs) {
-  return Compare(aLhs, aRhs) > 0;
+inline std::strong_ordering operator<=>(
+    const mozilla::detail::nsTStringRepr<T>& aLhs,
+    const mozilla::detail::nsTStringRepr<T>& aRhs) {
+  return Compare(aLhs, aRhs) <=> 0;
 }
 
 template <typename Char>

@@ -7,13 +7,10 @@ package mozilla.components.service.pocket
 import android.content.Context
 import androidx.annotation.VisibleForTesting
 import mozilla.components.service.pocket.PocketStory.ContentRecommendation
-import mozilla.components.service.pocket.PocketStory.PocketRecommendedStory
 import mozilla.components.service.pocket.PocketStory.SponsoredContent
 import mozilla.components.service.pocket.mars.SponsoredContentsUseCases
 import mozilla.components.service.pocket.recommendations.ContentRecommendationsUseCases
-import mozilla.components.service.pocket.stories.PocketStoriesUseCases
 import mozilla.components.service.pocket.update.ContentRecommendationsRefreshScheduler
-import mozilla.components.service.pocket.update.PocketStoriesRefreshScheduler
 import mozilla.components.service.pocket.update.SponsoredContentsRefreshScheduler
 
 /**
@@ -27,110 +24,48 @@ class PocketStoriesService(
     private val pocketStoriesConfig: PocketStoriesConfig,
 ) {
     @VisibleForTesting
-    internal var storiesRefreshScheduler = PocketStoriesRefreshScheduler(pocketStoriesConfig)
+    internal var contentRecommendationsRefreshScheduler = ContentRecommendationsRefreshScheduler(pocketStoriesConfig)
 
     @VisibleForTesting
-    internal var contentRecommendationsRefreshScheduler =
-        ContentRecommendationsRefreshScheduler(pocketStoriesConfig)
+    internal var sponsoredContentsRefreshScheduler = SponsoredContentsRefreshScheduler(pocketStoriesConfig)
 
     @VisibleForTesting
-    internal var sponsoredContentsRefreshScheduler =
-        SponsoredContentsRefreshScheduler(pocketStoriesConfig)
+    internal var contentRecommendationsUseCases =
+        ContentRecommendationsUseCases(
+            appContext = context,
+            client = pocketStoriesConfig.client,
+            config = pocketStoriesConfig.contentRecommendationsParams,
+        )
 
     @VisibleForTesting
-    internal var storiesUseCases = PocketStoriesUseCases(
-        appContext = context,
-        fetchClient = pocketStoriesConfig.client,
-    )
-
-    @VisibleForTesting
-    internal var contentRecommendationsUseCases = ContentRecommendationsUseCases(
-        appContext = context,
-        client = pocketStoriesConfig.client,
-        config = pocketStoriesConfig.contentRecommendationsParams,
-    )
-
-    @VisibleForTesting
-    internal var sponsoredContentsUseCases = SponsoredContentsUseCases(
-        appContext = context,
-        client = pocketStoriesConfig.client,
-        config = pocketStoriesConfig.marsSponsoredContentsParams,
-    )
+    internal var sponsoredContentsUseCases =
+        SponsoredContentsUseCases(
+            appContext = context,
+            client = pocketStoriesConfig.client,
+            config = pocketStoriesConfig.marsSponsoredContentsParams,
+        )
 
     /**
-     * Entry point to start fetching Pocket stories in the background.
+     * Starts a work request in the background to periodically update the list of content recommendations.
      *
-     * Use this at an as high as possible level in your application.
-     * Must be paired in a similar way with the [stopPeriodicStoriesRefresh] method.
+     * Use this at an as high as possible level in your application. Must be paired in a similar way with the
+     * [stopPeriodicContentRecommendationsRefresh] method.
      *
-     * This starts the process of downloading and caching Pocket stories in the background,
-     * making them available for the [getStories] method.
-     */
-    fun startPeriodicStoriesRefresh() {
-        GlobalDependencyProvider.RecommendedStories.initialize(storiesUseCases)
-        storiesRefreshScheduler.schedulePeriodicRefreshes(context)
-    }
-
-    /**
-     * Single stopping point for the "get Pocket stories" functionality.
-     *
-     * Use this at an as high as possible level in your application.
-     * Must be paired in a similar way with the [startPeriodicStoriesRefresh] method.
-     *
-     * This stops the process of downloading and caching Pocket stories in the background.
-     */
-    fun stopPeriodicStoriesRefresh() {
-        storiesRefreshScheduler.stopPeriodicRefreshes(context)
-        GlobalDependencyProvider.RecommendedStories.reset()
-    }
-
-    /**
-     * Get a list of Pocket recommended stories based on the initial configuration.
-     *
-     * To be called after [startPeriodicStoriesRefresh] to ensure the recommendations are up-to-date.
-     * Might return an empty list or a list of older than expected stories if
-     * [startPeriodicStoriesRefresh] hasn't yet completed.
-     */
-    suspend fun getStories(): List<PocketRecommendedStory> {
-        return storiesUseCases.getStories()
-    }
-
-    /**
-     * Update how many times certain stories were shown to the user.
-     *
-     * Safe to call from any background thread.
-     * Automatically synchronized with the other [PocketStoriesService] methods.
-     */
-    suspend fun updateStoriesTimesShown(updatedStories: List<PocketRecommendedStory>) {
-        storiesUseCases.updateTimesShown(updatedStories)
-    }
-
-    /**
-     * Starts a work request in the background to periodically update the list of content
-     * recommendations.
-     *
-     * Use this at an as high as possible level in your application. Must be paired in a similar
-     * way with the [stopPeriodicContentRecommendationsRefresh] method.
-     *
-     * This starts the process of downloading and caching content recommendations in the background
-     * and making them available when the [getContentRecommendations] method is called.
+     * This starts the process of downloading and caching content recommendations in the background and making them
+     * available when the [getContentRecommendations] method is called.
      */
     fun startPeriodicContentRecommendationsRefresh() {
         GlobalDependencyProvider.ContentRecommendations.initialize(contentRecommendationsUseCases)
         contentRecommendationsRefreshScheduler.startPeriodicWork(context)
     }
 
-    /**
-     * Stops the work request to periodically update the list of content recommendations.
-     */
+    /** Stops the work request to periodically update the list of content recommendations. */
     fun stopPeriodicContentRecommendationsRefresh() {
         contentRecommendationsRefreshScheduler.stopPeriodicWork(context)
         GlobalDependencyProvider.ContentRecommendations.reset()
     }
 
-    /**
-     * Returns a list of [ContentRecommendation] based on the initial [pocketStoriesConfig].
-     */
+    /** Returns a list of [ContentRecommendation] based on the initial [pocketStoriesConfig]. */
     suspend fun getContentRecommendations(): List<ContentRecommendation> {
         return contentRecommendationsUseCases.getContentRecommendations()
     }
@@ -138,46 +73,39 @@ class PocketStoriesService(
     /**
      * Updates the number of impressions (times shown) for a list of [ContentRecommendation]s.
      *
-     * @param recommendationsShown The list of [ContentRecommendation]s with updated impressions
-     * to persist in storage.
+     * @param recommendationsShown The list of [ContentRecommendation]s with updated impressions to persist in storage.
      */
     suspend fun updateRecommendationsImpressions(recommendationsShown: List<ContentRecommendation>) {
         contentRecommendationsUseCases.updateRecommendationsImpressions(recommendationsShown)
     }
 
     /**
-     * Starts a work request in the background to periodically refresh the list of sponsored
-     * contents.
+     * Starts a work request in the background to periodically refresh the list of sponsored contents.
      *
-     * Use this at an as high as possible level in your application. Must be paired in a similar
-     * way with the [stopPeriodicSponsoredContentsRefresh] method.
+     * Use this at an as high as possible level in your application. Must be paired in a similar way with the
+     * [stopPeriodicSponsoredContentsRefresh] method.
      *
-     * This starts the process of downloading and caching sponsored contents in the background
-     * and making them available when the [getSponsoredContents] method is called.
+     * This starts the process of downloading and caching sponsored contents in the background and making them available
+     * when the [getSponsoredContents] method is called.
      */
     fun startPeriodicSponsoredContentsRefresh() {
         GlobalDependencyProvider.SponsoredContents.initialize(sponsoredContentsUseCases)
         sponsoredContentsRefreshScheduler.startPeriodicRefreshes(context)
     }
 
-    /**
-     * Stops the work request to periodically refresh the list of sponsored contents.
-     */
+    /** Stops the work request to periodically refresh the list of sponsored contents. */
     fun stopPeriodicSponsoredContentsRefresh() {
         sponsoredContentsRefreshScheduler.stopPeriodicRefreshes(context)
         GlobalDependencyProvider.SponsoredContents.reset()
     }
 
-    /**
-     * Returns a list of [SponsoredContent] based on the initial [pocketStoriesConfig].
-     */
+    /** Returns a list of [SponsoredContent] based on the initial [pocketStoriesConfig]. */
     suspend fun getSponsoredContents(): List<SponsoredContent> {
         return sponsoredContentsUseCases.getSponsoredContents()
     }
 
     /**
-     * Records the sponsored content impressions from the provided list of sponsored content
-     * URLs.
+     * Records the sponsored content impressions from the provided list of sponsored content URLs.
      *
      * @param impressions A list of sponsored content URLs that have been viewed.
      */
@@ -186,8 +114,8 @@ class PocketStoriesService(
     }
 
     /**
-     * Deletes all data persisted for sponsored content.
-     * This returns immediately but will handle the profile deletion in background.
+     * Deletes all data persisted for sponsored content. This returns immediately but will handle the profile deletion
+     * in background.
      */
     fun deleteUser() {
         GlobalDependencyProvider.SponsoredContents.initialize(sponsoredContentsUseCases)

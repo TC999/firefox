@@ -144,7 +144,7 @@ class AudioContext final : public DOMEventTargetHelper,
   NS_DECL_CYCLE_COLLECTION_CLASS_INHERITED(AudioContext, DOMEventTargetHelper)
   MOZ_DEFINE_MALLOC_SIZE_OF(MallocSizeOf)
 
-  nsIGlobalObject* GetParentObject() const { return GetOwnerGlobal(); }
+  nsIGlobalObject* GetParentObject() const { return GetRelevantGlobal(); }
 
   nsISerialEventTarget* GetMainThread() const;
 
@@ -226,6 +226,14 @@ class AudioContext final : public DOMEventTargetHelper,
   // calling from inner window, so we won't need to return promise for caller.
   void SuspendFromChrome();
   void ResumeFromChrome();
+
+  // Suspend from media-control infrastructure (e.g. audio focus loss). Fires
+  // a statechange event so the page can observe and call resume().
+  void SuspendFromMediaControl();
+  // Resume a media-control suspend (e.g. audio focus restored). Mirrors
+  // SuspendFromMediaControl by clearing the same suspended-by-content
+  // bookkeeping and firing a statechange event.
+  void ResumeFromMediaControl();
   // Called on completion of offline rendering:
   void OfflineClose();
 
@@ -345,7 +353,7 @@ class AudioContext final : public DOMEventTargetHelper,
     return mWorkletParamDescriptors.Lookup(aName).DataPtrOrNull();
   }
 
-  void Dispatch(already_AddRefed<nsIRunnable>&& aRunnable);
+  void Dispatch(already_AddRefed<nsIRunnable> aRunnable);
 
  private:
   void DisconnectFromWindow();
@@ -432,6 +440,11 @@ class AudioContext final : public DOMEventTargetHelper,
   // Whether this AudioContext is suspended because the Window is suspended.
   // Unused if offline.
   bool mSuspendedByChrome;
+  // Whether the current suspend was started by an audio-focus interruption and
+  // the page has not since taken over with its own suspend()/resume(). Only
+  // such a suspend is auto-resumed when the interruption ends. Unused if
+  // offline.
+  bool mSuspendedByMediaControl;
 
   // Whether we have set the page awake reqeust when non-offline audio context
   // is running. That will keep the audio context being able to continue running

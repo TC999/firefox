@@ -49,9 +49,9 @@ EXPORTS += [
     "nsCaseTreatment.h",
     "nsChildContentList.h",
     "nsContentCreatorFunctions.h",
-    "nsContentList.h",
     "nsContentListDeclarations.h",
     "nsContentPermissionHelper.h",
+    "nsContentPolicyType.h",
     "nsContentPolicyUtils.h",
     "nsContentSink.h",
     "nsContentTypeParser.h",
@@ -81,7 +81,6 @@ EXPORTS += [
     "nsImageLoadingContent.h",
     "nsIMutationObserver.h",
     "nsINode.h",
-    "nsINodeList.h",
     "nsIScriptContext.h",
     "nsIScriptGlobalObject.h",
     "nsIScriptObjectPrincipal.h",
@@ -109,6 +108,7 @@ EXPORTS += [
     "nsWindowSizes.h",
     "nsWrapperCache.h",
     "nsWrapperCacheInlines.h",
+    "SharedLcpMarkerState.h",
     "XPathGenerator.h",
 ]
 
@@ -117,6 +117,7 @@ EXPORTS.mozilla += [
     "ConnectedAncestorTracker.h",
     "ContentIterator.h",
     "CORSMode.h",
+    "Directionality.h",
     "FlushType.h",
     "FocusModel.h",
     "FullscreenChange.h",
@@ -141,6 +142,7 @@ EXPORTS.mozilla.dom += [
     "AncestorIterator.h",
     "AnimationFrameProvider.h",
     "AnonymousContent.h",
+    "AtomAttributes.h",
     "Attr.h",
     "AutoPrintEventDispatcher.h",
     "AutoSuppressEventHandlingAndSuspend.h",
@@ -161,6 +163,7 @@ EXPORTS.mozilla.dom += [
     "ChromeUtils.h",
     "Comment.h",
     "ContentFrameMessageManager.h",
+    "ContentList.h",
     "ContentProcessMessageManager.h",
     "CrossShadowBoundaryRange.h",
     "CustomElementRegistry.h",
@@ -223,6 +226,7 @@ EXPORTS.mozilla.dom += [
     "NodeInfo.h",
     "NodeInfoInlines.h",
     "NodeIterator.h",
+    "NodeList.h",
     "ParentProcessMessageManager.h",
     "PlacesBookmark.h",
     "PlacesBookmarkAddition.h",
@@ -250,7 +254,9 @@ EXPORTS.mozilla.dom += [
     "PopupBlocker.h",
     "Pose.h",
     "PostMessageEvent.h",
+    "PrefetchCandidates.h",
     "ProcessMessageManager.h",
+    "ProfilerCounter.h",
     "RadioGroupContainer.h",
     "RequestCallbackManager.h",
     "ResizeObserver.h",
@@ -262,6 +268,9 @@ EXPORTS.mozilla.dom += [
     "SerializedStackHolder.h",
     "ShadowIncludingTreeIterator.h",
     "ShadowRoot.h",
+    "SpeculationRules.h",
+    "SpeculationRuleSet.h",
+    "SpeculationRulesManager.h",
     "StaticAtomSet.h",
     "StaticRange.h",
     "StructuredCloneBlob.h",
@@ -311,12 +320,18 @@ if CONFIG["COMPILE_ENVIRONMENT"]:
     EXPORTS.mozilla.dom += [
         "!fragmentdirectives_ffi_generated.h",
         "!GeneratedElementDocumentState.h",
+        "!speculationrules_ffi_generated.h",
         "RustTypes.h",
     ]
 
     CbindgenHeader(
         "GeneratedElementDocumentState.h",
         inputs=["rust"],
+    )
+
+    CbindgenHeader(
+        "speculationrules_ffi_generated.h",
+        inputs=["speculationrules"],
     )
 
     CbindgenHeader(
@@ -347,6 +362,7 @@ UNIFIED_SOURCES += [
     "Comment.cpp",
     "ContentFrameMessageManager.cpp",
     "ContentIterator.cpp",
+    "ContentList.cpp",
     "ContentProcessMessageManager.cpp",
     "CrossShadowBoundaryRange.cpp",
     "Crypto.cpp",
@@ -403,7 +419,6 @@ UNIFIED_SOURCES += [
     "nsAttrValueOrString.cpp",
     "nsCCUncollectableMarker.cpp",
     "nsContentAreaDragDrop.cpp",
-    "nsContentList.cpp",
     "nsContentPermissionHelper.cpp",
     "nsContentPolicy.cpp",
     "nsContentSink.cpp",
@@ -453,7 +468,9 @@ UNIFIED_SOURCES += [
     "PopupBlocker.cpp",
     "Pose.cpp",
     "PostMessageEvent.cpp",
+    "PrefetchCandidates.cpp",
     "ProcessMessageManager.cpp",
+    "ProfilerCounter.cpp",
     "RadioGroupContainer.cpp",
     "RangeUtils.cpp",
     "RemoteOuterWindowProxy.cpp",
@@ -469,6 +486,9 @@ UNIFIED_SOURCES += [
     "SerializedStackHolder.cpp",
     "ShadowRoot.cpp",
     "SourceLocation.cpp",
+    "SpeculationRules.cpp",
+    "SpeculationRuleSet.cpp",
+    "SpeculationRulesManager.cpp",
     "StaticRange.cpp",
     "StorageAccessPermissionRequest.cpp",
     "StructuredCloneBlob.cpp",

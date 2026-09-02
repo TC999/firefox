@@ -3,15 +3,15 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 // HttpLog.h should generally be included first
-#include "HttpLog.h"
-
 #include "Http3ConnectUDPStream.h"
-#include "HttpConnectionUDP.h"
+
 #include "Http3Session.h"
+#include "HttpConnectionUDP.h"
+#include "HttpLog.h"
 #include "mozilla/net/UriTemplate.h"
-#include "nsIPipe.h"
-#include "nsIOService.h"
 #include "nsHttpHandler.h"
+#include "nsIOService.h"
+#include "nsIPipe.h"
 #include "nsNetAddr.h"
 #include "nsProxyInfo.h"
 
@@ -335,6 +335,11 @@ void Http3ConnectUDPStream::MarkAsTRRServiceChannel() {
 
 bool Http3ConnectUDPStream::IsTRRServiceChannel() {
   return mIsTRRServiceChannel;
+}
+
+void Http3ConnectUDPStream::SetOriginAttributes(
+    const mozilla::OriginAttributes& aOriginAttributes) {
+  mOriginAttributes = aOriginAttributes;
 }
 
 }  // namespace mozilla::net

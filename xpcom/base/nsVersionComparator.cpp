@@ -4,18 +4,20 @@
 
 #include "nsVersionComparator.h"
 
+#include <errno.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdint.h>
-#include <errno.h>
+
 #include "mozilla/CheckedInt.h"
 #if defined(XP_WIN)
 #  if !defined(UPDATER_NO_STRING_GLUE_STL)
 #    include <wchar.h>
+
 #    include "nsString.h"
 #  endif
-#  include "nsAlgorithm.h"
 #  include "mozilla/Char16.h"
+#  include "nsAlgorithm.h"
 #endif
 
 struct VersionPart {
@@ -224,7 +226,7 @@ static wchar_t* ParseVP(wchar_t* aPart, VersionPartW& aResult) {
 static int32_t ns_strcmp(const char* aStr1, const char* aStr2) {
   // any string is *before* no string
   if (!aStr1) {
-    return aStr2 != 0;
+    return aStr2 != nullptr;
   }
 
   if (!aStr2) {
@@ -239,7 +241,7 @@ static int32_t ns_strnncmp(const char* aStr1, uint32_t aLen1, const char* aStr2,
                            uint32_t aLen2) {
   // any string is *before* no string
   if (!aStr1) {
-    return aStr2 != 0;
+    return aStr2 != nullptr;
   }
 
   if (!aStr2) {
@@ -315,7 +317,7 @@ static int32_t CompareVP(VersionPartW& aVer1, VersionPartW& aVer2) {
   }
 
   if (!aVer1.extraD) {
-    return aVer2.extraD != 0;
+    return aVer2.extraD != nullptr;
   }
 
   if (!aVer2.extraD) {

@@ -18,6 +18,7 @@
 #define wasm_type_decls_h
 
 #include "NamespaceImports.h"
+
 #include "gc/Barrier.h"
 #include "js/GCVector.h"
 #include "js/HashTable.h"
@@ -46,8 +47,6 @@ using WasmGlobalObjectVector =
     GCVector<WasmGlobalObject*, 0, SystemAllocPolicy>;
 using WasmTagObjectVector = GCVector<WasmTagObject*, 0, SystemAllocPolicy>;
 
-struct CodeMetadataForAsmJS;
-
 namespace wasm {
 
 struct ModuleMetadata;
@@ -57,7 +56,14 @@ class CodeBlock;
 class Decoder;
 class GeneratedSourceMap;
 class Instance;
+#ifdef ENABLE_WASM_COMPONENTS
+class Component;
+class ComponentInstance;
+#endif
+
 class Module;
+using MutableModule = RefPtr<Module>;
+using SharedModule = RefPtr<const Module>;
 
 class Code;
 using SharedCode = RefPtr<const Code>;
@@ -88,7 +94,8 @@ using Uint32Vector = Vector<uint32_t, 8, SystemAllocPolicy>;
 
 using Bytes = Vector<uint8_t, 0, SystemAllocPolicy>;
 using UTF8Bytes = Vector<char, 0, SystemAllocPolicy>;
-using InstanceVector = Vector<Instance*, 0, SystemAllocPolicy>;
+using InstanceSet =
+    HashSet<Instance*, DefaultHasher<Instance*>, SystemAllocPolicy>;
 using UniqueCharsVector = Vector<UniqueChars, 0, SystemAllocPolicy>;
 
 class RecGroup;

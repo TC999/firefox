@@ -15,7 +15,6 @@ interfaces = [
     "storage",
     "geolocation",
     "notification",
-    "push",
     "payments",
 ]
 
@@ -77,7 +76,6 @@ DIRS += [
     "audiochannel",
     "broadcastchannel",
     "messagechannel",
-    "privateattribution",
     "promise",
     "smil",
     "streams",
@@ -85,6 +83,7 @@ DIRS += [
     "urlpattern",
     "webauthn",
     "webidl",
+    "webserial",
     "webshare",
     "webtransport",
     "xml",

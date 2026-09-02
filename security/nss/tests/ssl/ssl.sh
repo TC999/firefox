@@ -83,6 +83,16 @@ ssl_init()
     padd=$(echo $cwd | cut -d "/" -f4 | sed 's/[^0-9]//g')
     PORT=$(($PORT + $padd))
   fi
+
+  # Check if the port is already in use before starting tests.
+  if command -v ss > /dev/null 2>&1; then
+    if ss -tln 2>/dev/null | grep -q ":${PORT} "; then
+      echo "$SCRIPTNAME: ERROR: Port ${PORT} is already in use." >&2
+      echo "  Set a different port with: PORT=9443 ./all.sh" >&2
+      Exit 10 "Port ${PORT} is already in use"
+    fi
+  fi
+
   NSS_SSL_TESTS=${NSS_SSL_TESTS:-normal_normal}
   nss_ssl_run="stapling signed_cert_timestamps cov auth dtls scheme exporter"
   NSS_SSL_RUN=${NSS_SSL_RUN:-$nss_ssl_run}
@@ -236,9 +246,14 @@ start_selfserv()
       echo "$SCRIPTNAME: $testname ----"
   fi
   if [ -z "$NO_ECC_CERTS" -o "$NO_ECC_CERTS" != "1" ] ; then
-      ECC_OPTIONS="-e ${HOSTADDR}-ecmixed -e ${HOSTADDR}-ec"
+      ECC_OPTIONS="-e ${HOSTADDR}-ecmixed -e ${HOSTADDR}-ec "
   else
       ECC_OPTIONS=""
+  fi
+  if [ -z "$NO_ML_DSA_CERTS" -o "$NO_ML_DSA_CERTS" != "1" ] ; then
+      ML_DSA_OPTIONS="-e ${HOSTADDR}-ml-dsa-44 -e ${HOSTADDR}-ml-dsa-65 -e ${HOSTADDR}-ml-dsa-87 "
+  else
+      ML_DSA_OPTIONS=""
   fi
   if [ -z "$RSA_PSS_CERT" -o "$RSA_PSS_CERT" != "1" ] ; then
       RSA_OPTIONS="-n ${HOSTADDR}"
@@ -246,7 +261,7 @@ start_selfserv()
       RSA_OPTIONS="-n ${HOSTADDR}-rsa-pss"
   fi
   if [ -z "$NSS_DISABLE_DSA" ]; then
-      DSA_OPTIONS="-S ${HOSTADDR}-dsa"
+      DSA_OPTIONS="-S ${HOSTADDR}-dsa "
   else
       DSA_OPTIONS=""
   fi
@@ -255,16 +270,16 @@ start_selfserv()
   SERVER_VMAX=${SERVER_VMAX-tls1.2}
   echo "selfserv starting at `date`"
   echo "selfserv -D -p ${PORT} -d ${P_R_SERVERDIR} ${RSA_OPTIONS} ${SERVER_OPTIONS} \\"
-  echo "         ${ECC_OPTIONS} ${DSA_OPTIONS} -w nss "$@" -i ${R_SERVERPID}\\"
+  echo "         ${ECC_OPTIONS}${DSA_OPTIONS}${ML_DSA_OPTIONS}-w nss "$@" -i ${R_SERVERPID}\\"
   echo "         -V ${SERVER_VMIN}:${SERVER_VMAX} $verbose -H 1 &"
   if [ ${fileout} -eq 1 ]; then
       ${PROFTOOL} ${BINDIR}/selfserv -D -p ${PORT} -d ${P_R_SERVERDIR} ${RSA_OPTIONS} ${SERVER_OPTIONS} \
-               ${ECC_OPTIONS} ${DSA_OPTIONS} -w nss "$@" -i ${R_SERVERPID} -V ${SERVER_VMIN}:${SERVER_VMAX} $verbose -H 1 \
+               ${ECC_OPTIONS}${DSA_OPTIONS}${ML_DSA_OPTIONS}-w nss "$@" -i ${R_SERVERPID} -V ${SERVER_VMIN}:${SERVER_VMAX} $verbose -H 1 \
                > ${SERVEROUTFILE} 2>&1 &
       RET=$?
   else
       ${PROFTOOL} ${BINDIR}/selfserv -D -p ${PORT} -d ${P_R_SERVERDIR} ${RSA_OPTIONS} ${SERVER_OPTIONS} \
-               ${ECC_OPTIONS} ${DSA_OPTIONS} -w nss "$@" -i ${R_SERVERPID} -V ${SERVER_VMIN}:${SERVER_VMAX} $verbose -H 1 &
+               ${ECC_OPTIONS}${DSA_OPTIONS}${ML_DSA_OPTIONS}-w nss "$@" -i ${R_SERVERPID} -V ${SERVER_VMIN}:${SERVER_VMAX} $verbose -H 1 &
       RET=$?
   fi
 
@@ -319,10 +334,19 @@ ssl_cov()
   ignore_blank_lines ${SSLCOV} > ${SSL_COV_TMP}
   while read ectype testmax param sig testname
   do
-      # RSA-PSS tests are handled in a separate function
+      # Select the TLS SIG SCHEME if necessary 
+      TLS_SIG_SCHEMES=""
       if [ "$sig" = "RSA-PSS" ]; then
+          # RSA-PSS tests are currently handled in a separate function
           continue
+      elif [ "$sig" = "ML-DSA-44" ]; then
+          TLS_SIG_SCHEMES="-J mldsa44 "
+      elif [ "$sig" = "ML-DSA-65" ]; then
+          TLS_SIG_SCHEMES="-J mldsa65 "
+      elif [ "$sig" = "ML-DSA-87" ]; then
+          TLS_SIG_SCHEMES="-J mldsa87 "
       fi
+
 
       # skip DSA tests if they are disabled
       if [ -n "$NSS_DISABLE_DSA" -a "$sig" = "DSA" ]; then
@@ -375,11 +399,11 @@ ssl_cov()
           TLS_GROUPS="secp384r1mlkem1024"
       fi
 
-      echo "tstclnt -4 -p ${PORT} -h ${HOSTADDR} -c ${param} -I \"${TLS_GROUPS}\" -V ${VMIN}:${VMAX} ${CLIENT_OPTIONS} \\"
+      echo "tstclnt -4 -p ${PORT} -h ${HOSTADDR} -c ${param} -I \"${TLS_GROUPS}\" ${TLS_SIG_SCHEMES}-V ${VMIN}:${VMAX} ${CLIENT_OPTIONS} \\"
       echo "        -f -d ${P_R_CLIENTDIR} $verbose -w nss < ${REQUEST_FILE}"
 
       rm ${TMP}/$HOST.tmp.$$ 2>/dev/null
-      ${PROFTOOL} ${BINDIR}/tstclnt -4 -p ${PORT} -h ${HOSTADDR} -c ${param} -I "${TLS_GROUPS}" -V ${VMIN}:${VMAX} ${CLIENT_OPTIONS} -f \
+      ${PROFTOOL} ${BINDIR}/tstclnt -4 -p ${PORT} -h ${HOSTADDR} -c ${param} -I "${TLS_GROUPS}" ${TLS_SIG_SCHEMES}-V ${VMIN}:${VMAX} ${CLIENT_OPTIONS} -f \
               -d ${P_R_CLIENTDIR} $verbose -w nss < ${REQUEST_FILE} \
               >${TMP}/$HOST.tmp.$$  2>&1
       ret=$?

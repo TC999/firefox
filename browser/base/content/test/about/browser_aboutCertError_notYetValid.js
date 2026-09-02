@@ -32,7 +32,7 @@ add_task(async function testNotYetValidCert() {
   await SpecialPowers.spawn(browser, [certBase64], async cert => {
     const mockErrorInfo = {
       errorCodeString: "MOZILLA_PKIX_ERROR_NOT_YET_VALID_CERTIFICATE",
-      errorIsOverridable: false,
+      errorIsOverridable: true,
       channelStatus: 0,
       overridableErrorCategory: "expired-or-not-yet-valid",
       validNotBefore: Date.now() + 1000 * 1000,
@@ -52,7 +52,10 @@ add_task(async function testNotYetValidCert() {
       content.document.querySelector("net-error-card").wrappedJSObject;
     const info = Cu.cloneInto(mockErrorInfo, netErrorCard);
     netErrorCard.errorInfo = info;
+    netErrorCard.resolvedErrorId =
+      "MOZILLA_PKIX_ERROR_NOT_YET_VALID_CERTIFICATE";
     netErrorCard.errorConfig = netErrorCard.getErrorConfig();
+    netErrorCard.hideExceptionButton = netErrorCard.shouldHideExceptionButton();
     await netErrorCard.getUpdateComplete();
 
     netErrorCard.advancedButton.scrollIntoView();

@@ -6,6 +6,7 @@
 import json
 import os
 
+from mozilla_taskgraph.util.attributes import release_level
 from taskcluster.exceptions import TaskclusterRestFailure
 from taskgraph.parameters import Parameters
 from taskgraph.taskgraph import TaskGraph
@@ -13,7 +14,7 @@ from taskgraph.util.taskcluster import get_artifact, list_task_group_incomplete_
 
 from gecko_taskgraph.actions.registry import register_callback_action
 from gecko_taskgraph.decision import taskgraph_decision
-from gecko_taskgraph.util.attributes import RELEASE_PROMOTION_PROJECTS, release_level
+from gecko_taskgraph.util.attributes import RELEASE_PROMOTION_PROJECTS
 from gecko_taskgraph.util.partials import populate_release_history
 from gecko_taskgraph.util.partners import (
     fix_partner_config,
@@ -26,8 +27,6 @@ from gecko_taskgraph.util.taskgraph import (
     find_existing_tasks_from_previous_kinds,
 )
 
-RELEASE_PROMOTION_SIGNOFFS = ("mar-signing",)
-
 
 def is_release_promotion_available(parameters):
     return parameters["project"] in RELEASE_PROMOTION_PROJECTS
@@ -39,27 +38,6 @@ def get_partner_config(partner_url_config, github_token):
         if url:
             partner_config[kind] = get_partner_config_by_url(url, kind, github_token)
     return partner_config
-
-
-def get_signoff_properties():
-    props = {}
-    for signoff in RELEASE_PROMOTION_SIGNOFFS:
-        props[signoff] = {
-            "type": "string",
-        }
-    return props
-
-
-def get_required_signoffs(input, parameters):
-    input_signoffs = set(input.get("required_signoffs", []))
-    params_signoffs = set(parameters["required_signoffs"] or [])
-    return sorted(list(input_signoffs | params_signoffs))
-
-
-def get_signoff_urls(input, parameters):
-    signoff_urls = parameters["signoff_urls"]
-    signoff_urls.update(input.get("signoff_urls", {}))
-    return signoff_urls
 
 
 def get_flavors(graph_config, param):
@@ -247,19 +225,6 @@ def get_flavors(graph_config, param):
                 "default": False,
                 "description": "Toggle for creating EME-free repacks",
             },
-            "required_signoffs": {
-                "type": "array",
-                "description": ("The flavor of release promotion to perform."),
-                "items": {
-                    "enum": RELEASE_PROMOTION_SIGNOFFS,
-                },
-            },
-            "signoff_urls": {
-                "type": "object",
-                "default": {},
-                "additionalProperties": False,
-                "properties": get_signoff_properties(),
-            },
         },
         "required": ["release_promotion_flavor", "build_number"],
     },
@@ -285,7 +250,11 @@ def release_promotion_action(
 
     if promotion_config.get("partial-updates", False):
         partial_updates = input.get("partial_updates", {})
-        if not partial_updates and release_level(push_parameters) == "production":
+        if (
+            not partial_updates
+            and release_level(graph_config["release-branches"], push_parameters)
+            == "production"
+        ):
             raise Exception(
                 f"`partial_updates` property needs to be provided for `{release_promotion_flavor}`"
                 "target."
@@ -419,9 +388,7 @@ def release_promotion_action(
     if input["version"]:
         parameters["version"] = input["version"]
 
-    parameters["required_signoffs"] = get_required_signoffs(input, parameters)
-    parameters["signoff_urls"] = get_signoff_urls(input, parameters)
-
+    parameters["dontbuild"] = False
     # make parameters read-only
     parameters = Parameters(**parameters)
 

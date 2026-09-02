@@ -13,6 +13,7 @@ task-defaults:
     run-on-projects: ['trunk']
     run-on-repo-type: [hg]
     run:
+        clone-with: hg
         using: mozharness
         actions: [get-secrets, build]
         secrets: true
@@ -78,6 +79,7 @@ ios-non-unified/plain:
     treeherder:
         platform: ios/plain
         symbol: Bp-nu
+    worker-type: b-linux-docker-large-amd
     worker:
         env:
             PERFHERDER_EXTRA_OPTIONS: non-unified

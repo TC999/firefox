@@ -3,6 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "mozilla/OriginAttributes.h"
+
 #include "mozilla/Assertions.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/dom/BlobURLProtocolHandler.h"
@@ -78,6 +79,16 @@ static void PopulateTopLevelInfoFromURI(const bool aIsTopLevelDocument,
   } while (nestedURI && !scheme.EqualsLiteral("about") &&
            NS_SUCCEEDED(nestedURI->GetInnerURI(getter_AddRefs(uri))));
 
+  // Use the creator origin's URI if we're passed a blob URI.
+  if (scheme.EqualsLiteral("blob")) {
+    nsCOMPtr<nsIPrincipal> blobPrincipal;
+    NS_ENSURE_TRUE_VOID(dom::BlobURLProtocolHandler::GetBlobURLPrincipal(
+        uri, aOriginAttributes, getter_AddRefs(blobPrincipal)));
+    uri = blobPrincipal->GetURI();
+    NS_ENSURE_TRUE_VOID(uri);
+    NS_ENSURE_SUCCESS_VOID(uri->GetScheme(scheme));
+  }
+
   if (scheme.EqualsLiteral("about")) {
     MakeTopLevelInfo(scheme, nsLiteralCString(ABOUT_URI_FIRST_PARTY_DOMAIN),
                      aForeignByAncestorContext, aUseSite, topLevelInfo);
@@ -103,14 +114,6 @@ static void PopulateTopLevelInfoFromURI(const bool aIsTopLevelDocument,
   // attributes in order to guarantee their storage integrity when switching
   // FPI on and off.
   if (scheme.EqualsLiteral("moz-extension")) {
-    return;
-  }
-
-  nsCOMPtr<nsIPrincipal> blobPrincipal;
-  if (dom::BlobURLProtocolHandler::GetBlobURLPrincipal(
-          uri, getter_AddRefs(blobPrincipal))) {
-    MOZ_ASSERT(blobPrincipal);
-    topLevelInfo = blobPrincipal->OriginAttributesRef().*aTarget;
     return;
   }
 
@@ -261,6 +264,14 @@ void OriginAttributes::CreateSuffix(nsACString& aStr) const {
   aStr.Truncate();
 
   params.Serialize(value, true);
+  // URLParams percent-encodes every character that isn't in its unreserved set.
+  // The asterisk is in the unreserved set and is serialized verbatim.
+  // Since a hostname may now contain an asterisk (bug 1815926) and the
+  // asterisk is illegal in file names on
+  // Windows, percent-encode it explicitly. URLParams::Parse decodes it back in
+  // PopulateFromSuffix.
+  value.ReplaceSubstring("*"_ns, "%2A"_ns);
+
   if (!value.IsEmpty()) {
     aStr.AppendLiteral("^");
     aStr.Append(value);
@@ -391,7 +402,7 @@ bool OriginAttributes::PopulateFromOrigin(const nsACString& aOrigin,
   int32_t pos = origin.RFindChar('^');
 
   if (pos == kNotFound) {
-    aOriginNoSuffix = origin;
+    aOriginNoSuffix = std::move(origin);
     return true;
   }
 

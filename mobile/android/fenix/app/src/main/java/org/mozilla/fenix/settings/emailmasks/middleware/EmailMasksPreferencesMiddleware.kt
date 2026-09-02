@@ -14,11 +14,10 @@ import org.mozilla.fenix.settings.emailmasks.EmailMasksUserAction
 /**
  * Middleware for handling persistence-related side effects for Email Masks settings screen.
  *
- * @param persistSuggestToggle Function for persisting the suggestion toggle value.
+ * @param repository The [EmailMasksRepository] used to persist preferences.
  */
-class EmailMasksPreferencesMiddleware(
-    private val persistSuggestToggle: (Boolean) -> Unit,
-) : Middleware<EmailMasksState, EmailMasksAction> {
+class EmailMasksPreferencesMiddleware(private val repository: EmailMasksRepository) :
+    Middleware<EmailMasksState, EmailMasksAction> {
     /**
      * Refactor EmailMasksPreferencesMiddleware to use a repository instead of passing in a lambda.
      * https://bugzilla.mozilla.org/show_bug.cgi?id=2008596
@@ -31,14 +30,13 @@ class EmailMasksPreferencesMiddleware(
         next(action)
 
         when (action) {
-            is EmailMasksUserAction.SuggestEmailMasksEnabled -> persistSuggestToggle(true)
-            is EmailMasksUserAction.SuggestEmailMasksDisabled -> persistSuggestToggle(false)
+            is EmailMasksUserAction.SuggestEmailMasksEnabled -> repository.setSuggestionEnabled(true)
+            is EmailMasksUserAction.SuggestEmailMasksDisabled -> repository.setSuggestionEnabled(false)
 
             is EmailMasksSystemAction.LearnMoreTabOpened,
             is EmailMasksSystemAction.ManageTabOpened,
             is EmailMasksUserAction.LearnMoreClicked,
-            is EmailMasksUserAction.ManageClicked,
-                -> {
+            is EmailMasksUserAction.ManageClicked -> {
                 // no-op
             }
         }

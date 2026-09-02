@@ -264,7 +264,9 @@
  *
  * This file implements the following hierarchy of classes:
  *
- * BarrieredBase             base class of all barriers
+ * BarrieredBase             provides storage, unbarriered and atomic operations
+ *  |  |  |
+ *  |  | GCData              for non-pointer data; provides no barriers
  *  |  |
  *  | BarrieredPtrImpl       template class conditionally implementing barriers
  *  |  |  |  |  |
@@ -369,6 +371,30 @@ struct InternalBarrierMethods<T*> {
 #endif
 };
 
+template <typename T>
+struct AtomicMethods {};
+
+template <typename T>
+struct AtomicMethods<T*> {
+  static T* atomicGet(T* const* vp) {
+    return __atomic_load_n(vp, __ATOMIC_RELAXED);
+  }
+  static void atomicSet(T** vp, T* v) {
+    __atomic_store_n(vp, v, __ATOMIC_RELAXED);
+  }
+};
+
+template <typename T>
+  requires std::integral<T> && (!std::same_as<T, bool>)
+struct AtomicMethods<T> {
+  static T atomicGet(T const* vp) {
+    return __atomic_load_n(vp, __ATOMIC_RELAXED);
+  }
+  static void atomicSet(T* vp, T v) {
+    __atomic_store_n(vp, v, __ATOMIC_RELAXED);
+  }
+};
+
 namespace gc {
 
 MOZ_ALWAYS_INLINE void ValuePostWriteBarrier(Value* vp, const Value& prev,
@@ -426,6 +452,14 @@ struct InternalBarrierMethods<Value> {
 };
 
 template <>
+struct AtomicMethods<Value> {
+#if JS_BITS_PER_WORD == 64
+  static Value atomicGet(Value const* vp) { return vp->atomicGet(); }
+  static void atomicSet(Value* vp, const Value& v) { vp->atomicSet(v); }
+#endif
+};
+
+template <>
 struct InternalBarrierMethods<jsid> {
   static bool isMarkable(jsid id) { return id.isGCThing(); }
   static void preBarrier(jsid id) {
@@ -434,9 +468,16 @@ struct InternalBarrierMethods<jsid> {
     }
   }
   static void postBarrier(jsid* idp, jsid prev, jsid next) {}
+
 #ifdef DEBUG
   static void assertThingIsNotGray(jsid id) { JS::AssertIdIsNotGray(id); }
 #endif
+};
+
+template <>
+struct AtomicMethods<jsid> {
+  static jsid atomicGet(jsid const* idp) { return idp->atomicGet(); }
+  static void atomicSet(jsid* idp, const jsid& id) { idp->atomicSet(id); }
 };
 
 // Specialization for JS::ArrayBufferOrView subclasses.
@@ -485,22 +526,96 @@ class MOZ_NON_MEMMOVABLE BarrieredBase {
 
  protected:
   // BarrieredBase is not directly instantiable.
-  explicit BarrieredBase(const T& v) : value(v) {}
-  BarrieredBase(const BarrieredBase<T>& other) = default;
+  explicit constexpr BarrieredBase(const T& v) : value(v) {}
+  constexpr BarrieredBase(const BarrieredBase<T>& other) = default;
 
   // Accessors without barriers, protected by default. Subclasses implement
   // public accessors in terms of these.
-  const T& unbarrieredGet() const { return value; }
+  constexpr const T& unbarrieredGet() const { return value; }
   void unbarrieredSet(const T& newValue) { value = newValue; }
+
+#if JS_BITS_PER_WORD == 64
+  T unbarrieredAtomicGet() const { return AtomicMethods<T>::atomicGet(&value); }
+  void unbarrieredAtomicSet(const T& newValue) {
+    AtomicMethods<T>::atomicSet(&value, newValue);
+  }
+#endif
 
  public:
   using ElementType = T;
+
+  // Getter used for tracing: no barriers and atomic when concurrent marking is
+  // used.
+#ifdef JS_GC_CONCURRENT_MARKING
+  T getForTracing() const { return unbarrieredAtomicGet(); }
+#else
+  T getForTracing() const { return unbarrieredGet(); }
+#endif
 
   // Note: this is public because C++ cannot friend to a specific template
   // instantiation. Friending to the generic template leads to a number of
   // unintended consequences, including template resolution ambiguity and a
   // circular dependency with Tracing.h.
   T* unbarrieredAddress() const { return const_cast<T*>(&value); }
+};
+
+// Wrapper class for fields accessed by the GC that are not GC edges (as opposed
+// to GCPtr, used for fields that are). Has no barriers but supports atomic
+// operations.
+template <typename T>
+class GCData : public BarrieredBase<T> {
+  using Base = BarrieredBase<T>;
+  using Self = GCData<T>;
+
+ public:
+  constexpr GCData() : Base(defaultValue()) {}
+
+  explicit constexpr GCData(const T& value) : Base(value) {}
+  Self& operator=(const T& newValue) {
+    set(newValue);
+    return *this;
+  }
+
+  void set(const T& newValue) {
+#ifdef JS_GC_CONCURRENT_MARKING
+    this->unbarrieredAtomicSet(newValue);
+#else
+    this->unbarrieredSet(newValue);
+#endif
+  }
+
+  constexpr T get() const { return this->unbarrieredGet(); }
+
+#if JS_BITS_PER_WORD == 64
+  void atomicSet(const T& newValue) { this->unbarrieredAtomicSet(newValue); }
+  T atomicGet() const { return this->unbarrieredAtomicGet(); }
+#endif
+
+  constexpr operator T() const { return get(); }
+  constexpr T operator->() const { return get(); }
+
+  template <typename U>
+  Self& operator+=(const U& rhs) {
+    set(get() + rhs);
+    return *this;
+  }
+  template <typename U>
+  Self& operator-=(const U& rhs) {
+    set(get() - rhs);
+    return *this;
+  }
+  template <typename U>
+  Self& operator&=(const U& rhs) {
+    set(get() & rhs);
+    return *this;
+  }
+  template <typename U>
+  Self& operator|=(const U& rhs) {
+    set(get() | rhs);
+    return *this;
+  }
+
+  static T defaultValue() { return JS::SafelyInitialized<T>::create(); }
 };
 
 namespace gc {
@@ -523,6 +638,9 @@ enum BarrierOption : uint32_t {
   // The wrapper has GC lifetime. Since it will only be destroyed by the GC no
   // pre-write barrier is necessary on destruction.
   BarrierOption_HasGCLifetime = Bit(3),
+
+  // Writes to the value are performed as relaxed atomic stores.
+  BarrierOption_AtomicWrites = Bit(4),
 };
 
 // Template class implementing the barriers specified in |barrierOptions| on a
@@ -537,7 +655,7 @@ class BarrieredPtrImpl
  public:
   BarrieredPtrImpl() : Base(defaultValue()) {}
 
-  MOZ_IMPLICIT BarrieredPtrImpl(const T& value) : Base(value) {
+  explicit BarrieredPtrImpl(const T& value) : Base(value) {
     maybePostWriteBarrier(defaultValue(), value);
   }
   Self& operator=(const T& newValue) {
@@ -611,7 +729,13 @@ class BarrieredPtrImpl
 
  public:
   // Public for hash table rekey operations.
-  using Base::unbarrieredSet;
+  void unbarrieredSet(const T& newValue) {
+    if constexpr (hasOption(BarrierOption_AtomicWrites)) {
+      this->unbarrieredAtomicSet(newValue);
+    } else {
+      Base::unbarrieredSet(newValue);
+    }
+  }
 
   const T& get() const {
     this->maybeReadBarrier();
@@ -623,6 +747,10 @@ class BarrieredPtrImpl
   }
 
   using Base::unbarrieredGet;
+
+#if JS_BITS_PER_WORD == 64
+  using Base::unbarrieredAtomicGet;
+#endif
 
   T release() {
     // Release skips any read or prebarrier.
@@ -712,6 +840,9 @@ DEFINE_BARRIERED_PTR(PreBarriered, gc::BarrierOption_PreWriteBarrier);
  */
 DEFINE_BARRIERED_PTR(GCPtr, gc::BarrierOption_PreWriteBarrier |
                                 gc::BarrierOption_PostWriteBarrier |
+#ifdef JS_GC_CONCURRENT_MARKING
+                                gc::BarrierOption_AtomicWrites |
+#endif
                                 gc::BarrierOption_HasGCLifetime);
 
 /*
@@ -753,13 +884,9 @@ DEFINE_BARRIERED_PTR(HeapPtr, gc::BarrierOption_PreWriteBarrier |
 template <class T>
 class GCStructPtr : public BarrieredBase<T> {
  public:
-  // This is sometimes used to hold tagged pointers.
-  static constexpr uintptr_t MaxTaggedPointer = 0x5;
-
   GCStructPtr() : BarrieredBase<T>(JS::SafelyInitialized<T>::create()) {}
 
-  // Implicitly adding barriers is a reasonable default.
-  MOZ_IMPLICIT GCStructPtr(const T& v) : BarrieredBase<T>(v) {}
+  explicit GCStructPtr(const T& v) : BarrieredBase<T>(v) {}
 
   GCStructPtr(const GCStructPtr<T>& other) : BarrieredBase<T>(other) {}
 
@@ -780,9 +907,27 @@ class GCStructPtr : public BarrieredBase<T> {
     this->unbarrieredSet(v);
   }
 
+#ifdef JS_GC_CONCURRENT_MARKING
+  void unbarrieredSet(T ptr) { this->unbarrieredAtomicSet(ptr); }
+#else
+  using BarrieredBase<T>::unbarrieredSet;
+#endif
+
   T get() const { return this->unbarrieredGet(); }
   operator T() const { return get(); }
   T operator->() const { return get(); }
+
+#if JS_BITS_PER_WORD == 64
+  T atomicGet() const { return this->unbarrieredAtomicGet(); }
+#endif
+
+  // Getter used for tracing: no barriers and atomic when concurrent marking is
+  // used.
+#ifdef JS_GC_CONCURRENT_MARKING
+  T getForTracing() const { return atomicGet(); }
+#else
+  T getForTracing() const { return get(); }
+#endif
 
  protected:
   bool isTraceable() const { return uintptr_t(get()) > MaxTaggedPointer; }
@@ -790,6 +935,67 @@ class GCStructPtr : public BarrieredBase<T> {
   void pre(JS::Zone* zone) {
     if (isTraceable()) {
       PreWriteBarrier(zone, get());
+    }
+  }
+};
+
+// Like GCStructPtr but for memory allocated with the buffer allocator.
+template <class T>
+class GCBuffer : public BarrieredBase<T> {
+  static_assert(std::is_pointer_v<T>);
+
+  using Base = BarrieredBase<T>;
+
+ public:
+  GCBuffer() : Base(nullptr) {}
+
+  explicit GCBuffer(T ptr) : Base(ptr) {}
+
+  GCBuffer(const GCBuffer<T>& other) : Base(other) {}
+
+  ~GCBuffer() {
+    // No barriers are necessary as this only happens when the GC is sweeping.
+    MOZ_ASSERT_IF(isTraceable(),
+                  CurrentThreadIsGCSweeping() || CurrentThreadIsGCFinalizing());
+  }
+
+  void init(T ptr) {
+    MOZ_ASSERT(this->get() == JS::SafelyInitialized<T>());
+    AssertTargetIsNotGray(ptr);
+    this->unbarrieredSet(ptr);
+  }
+
+  void set(JS::Zone* zone, T ptr) {
+    pre(zone);
+    this->unbarrieredSet(ptr);
+  }
+
+#ifdef JS_GC_CONCURRENT_MARKING
+  void unbarrieredSet(T ptr) { this->unbarrieredAtomicSet(ptr); }
+#else
+  using Base::unbarrieredSet;
+#endif
+
+  T get() const { return this->unbarrieredGet(); }
+  operator T() const { return get(); }
+  T operator->() const { return get(); }
+
+#if JS_BITS_PER_WORD == 64
+  T atomicGet() const { return this->unbarrieredAtomicGet(); }
+#endif
+
+ protected:
+  bool isTraceable() const { return uintptr_t(get()) > MaxTaggedPointer; }
+
+  void pre(JS::Zone* zone) {
+    if (isTraceable()) {
+      auto* shadowZone = JS::shadow::Zone::from(zone);
+      if (!shadowZone->needsMarkingBarrier()) {
+        return;
+      }
+
+      JSTracer* trc = shadowZone->barrierTracer();
+      TraceEdgeAndBuffer(trc, this, "GCBuffer::pre");
     }
   }
 };
@@ -816,13 +1022,24 @@ DEFINE_BARRIERED_PTR(UnsafeBarePtr, gc::BarrierOption_None);
 // memory, but with substantially less overhead than a HeapPtr.
 class HeapSlot : public BarrieredBase<Value>,
                  public WrappedPtrOperations<Value, HeapSlot> {
+  using Base = BarrieredBase<Value>;
+
  public:
   enum Kind { Slot = 0, Element = 1 };
 
+  template <bool MayBeGCThing = true>
   void init(NativeObject* owner, Kind kind, uint32_t slot, const Value& v) {
+    MOZ_ASSERT_IF(!MayBeGCThing, !v.isGCThing());
+
     this->unbarrieredSet(v);
-    post(owner, kind, slot, v);
+    if constexpr (MayBeGCThing) {
+      post(owner, kind, slot, v);
+    }
   }
+
+  // Initialization (so no pre-barrier) but where the barriers will be applied
+  // later (e.g. in bulk)
+  void unbarrieredInit(const Value& v) { this->unbarrieredSet(v); }
 
   void initAsUndefined() { this->unbarrieredSet(UndefinedValue()); }
 
@@ -831,9 +1048,27 @@ class HeapSlot : public BarrieredBase<Value>,
   // Use this if the automatic coercion to T isn't working.
   const Value& get() const { return this->unbarrieredGet(); }
 
+#if JS_BITS_PER_WORD == 64
+  using Base::unbarrieredAtomicGet;
+#endif
+
+  // Getter used for tracing: no barriers and atomic when concurrent marking is
+  // used.
+#ifdef JS_GC_CONCURRENT_MARKING
+  Value getForTracing() const { return unbarrieredAtomicGet(); }
+#else
+  Value getForTracing() const { return unbarrieredGet(); }
+#endif
+
   // Use this if you want to change the value without invoking barriers.
   // Obviously this is dangerous unless you know the barrier is not needed.
-  using BarrieredBase<Value>::unbarrieredSet;
+#ifdef JS_GC_CONCURRENT_MARKING
+  void unbarrieredSet(const Value& newValue) {
+    this->unbarrieredAtomicSet(newValue);
+  }
+#else
+  using Base::unbarrieredSet;
+#endif
 
   // For users who need to manually barrier the raw types.
   static void preWriteBarrier(const Value& v) {
@@ -854,12 +1089,20 @@ class HeapSlot : public BarrieredBase<Value>,
                                              const Value& target) const;
 #endif
 
+  template <bool MayBeGCThing = true>
   MOZ_ALWAYS_INLINE void set(NativeObject* owner, Kind kind, uint32_t slot,
                              const Value& v) {
     MOZ_ASSERT(preconditionForSet(owner, kind, slot));
-    pre();
+    MOZ_ASSERT_IF(!MayBeGCThing, !this->unbarrieredGet().isGCThing());
+    MOZ_ASSERT_IF(!MayBeGCThing, !v.isGCThing());
+
+    if constexpr (MayBeGCThing) {
+      pre();
+    }
     this->unbarrieredSet(v);
-    post(owner, kind, slot, v);
+    if constexpr (MayBeGCThing) {
+      post(owner, kind, slot, v);
+    }
   }
 
  private:
@@ -1152,9 +1395,7 @@ DEFINE_STABLE_CELL_HASHER(WeakHeapPtr);
     static bool match(const Key& k, Lookup l) {                            \
       return k.unbarrieredGet() == l;                                      \
     }                                                                      \
-    static void rekey(Key& k, const Key& newKey) {                         \
-      k.unbarrieredSet(newKey.unbarrieredGet());                           \
-    }                                                                      \
+    static void rekey(Key& k, T newKey) { k.unbarrieredSet(newKey); }      \
   }
 
 DEFINE_BARRIERED_PTR_HASHER(PreBarrieredHasher, PreBarriered);

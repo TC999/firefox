@@ -11,6 +11,14 @@ var { AppConstants } = ChromeUtils.importESModule(
   "resource://gre/modules/AppConstants.sys.mjs"
 );
 
+var {
+  uploadProfileArtifact,
+  installProfilerDumpAndQuit,
+  shouldSaveFailureProfile,
+} = ChromeUtils.importESModule(
+  "resource://testing-common/TestProfilerArtifact.sys.mjs"
+);
+
 ChromeUtils.defineESModuleGetters(this, {
   AddonManager: "resource://gre/modules/AddonManager.sys.mjs",
 });
@@ -224,10 +232,90 @@ function isGenerator(value) {
   return value && typeof value === "object" && typeof value.next === "function";
 }
 
+/**
+ * Returns a description of an element that is precise enough to find it in the
+ * tree without having to reproduce the failure.
+ *
+ * To be shared with ClickChecks.js and the assertion functions, see bug 2063601.
+ */
+function describeElement(elt) {
+  let desc = elt.localName;
+  if (elt.id) {
+    desc += "#" + elt.id;
+  } else {
+    // Elements without an id are usually generated ones (bookmark folders,
+    // extension menus...), so name whatever else can be used to find them.
+    if (elt.classList.length) {
+      desc += "." + [...elt.classList].join(".");
+    }
+    let label = elt.getAttribute("label") || elt.getAttribute("aria-label");
+    if (label) {
+      desc += `[label="${label}"]`;
+    }
+    let container = elt.parentElement.closest("[id]");
+    if (container) {
+      desc += " inside #" + container.id;
+    }
+  }
+
+  // A panel hosting notifications or several views is only an anchor shared by
+  // unrelated features, so what it currently shows is what identifies it.
+  let contents = [
+    ...elt.querySelectorAll(
+      "popupnotification:not([hidden]), panelview[visible]"
+    ),
+  ];
+  if (contents.length) {
+    desc += " showing " + contents.map(n => describeElement(n)).join(", ");
+  }
+
+  return desc;
+}
+
 function Tester(aTests, structuredLogger, aCallback) {
   this.structuredLogger = structuredLogger;
   this.tests = aTests;
   this.callback = aCallback;
+
+  // When Gecko hits a fatal test-only condition during a profiled run, report
+  // it as a failure of the current test and save a profile before exiting,
+  // instead of crashing and losing the profile.
+  installProfilerDumpAndQuit(reason => {
+    // this.tests is nulled once the run finishes, so reading this.currentTest
+    // (which indexes into it) would throw during shutdown; index defensively.
+    let test = this.tests?.[this.currentTestIndex];
+    if (test) {
+      this.structuredLogger.testStatus(
+        test.path,
+        "fatal condition",
+        "FAIL",
+        "PASS",
+        reason
+      );
+      return {
+        testName: test.path,
+        logger: this.structuredLogger,
+        // Deferred until after the profile is saved and its location logged, so
+        // the upload message precedes test_end and dashboards find the profile.
+        endTest: () =>
+          this.structuredLogger.testEnd(test.path, "FAIL", "PASS", reason),
+      };
+    }
+
+    // No test is running: the run finished and we are shutting down. Report a
+    // top-level error (there is no test to tie a status to), and name the
+    // profile after the last manifest run rather than browser-test.js.
+    this.structuredLogger.error(`browser-test.js | ${reason}`);
+    let profileName = this._lastTestManifest
+      ? `${this._lastTestManifest.replace(/\.\w+$/, "").replace(/[:/]/g, "_")}_shutdown`
+      : "shutdown";
+    return {
+      testName: "browser-test.js",
+      profileName,
+      logger: this.structuredLogger,
+      testRunning: false,
+    };
+  });
 
   this._scriptLoader = Services.scriptloader;
   this.EventUtils = {};
@@ -259,6 +347,15 @@ function Tester(aTests, structuredLogger, aCallback) {
   window.SpecialPowers.SimpleTest = this.SimpleTest;
   window.SpecialPowers.setAsDefaultAssertHandler();
 
+  // In the EventUtils scope, as EventUtils reaches for this.ClickChecks to
+  // suppress the checks for synthesized clicks, and AccessibilityUtils reads
+  // its popup helpers at load time.
+  this._scriptLoader.loadSubScript(
+    "chrome://mochikit/content/tests/SimpleTest/ClickChecks.js",
+    this.EventUtils
+  );
+  this.ClickChecks = this.EventUtils.ClickChecks;
+
   this._scriptLoader.loadSubScript(
     "chrome://mochikit/content/tests/SimpleTest/AccessibilityUtils.js",
     // AccessibilityUtils are integrated with EventUtils to perform additional
@@ -268,6 +365,10 @@ function Tester(aTests, structuredLogger, aCallback) {
   );
   this.AccessibilityUtils = this.EventUtils.AccessibilityUtils;
 
+  // Before AccessibilityUtils, so that its check runs, and reports, first: the
+  // accessibility checks force refresh driver ticks, which can let a popup
+  // finish opening before we look at its state.
+  this.ClickChecks.init(this.SimpleTest);
   this.AccessibilityUtils.init(this.SimpleTest);
 
   var extensionUtilsScope = {
@@ -355,6 +456,7 @@ function Tester(aTests, structuredLogger, aCallback) {
 Tester.prototype = {
   EventUtils: {},
   AccessibilityUtils: {},
+  ClickChecks: {},
   SimpleTest: {},
   ContentTask: null,
   ExtensionTestUtils: null,
@@ -482,6 +584,70 @@ Tester.prototype = {
     }
     // graphics test window is already gone, just call callback immediately
     aCallback();
+  },
+
+  // Tests shouldn't leave panels or menupopups open: the next test file would
+  // then start with an unexpected popup covering the browser, and get blamed for
+  // the failures it causes. Called before the vsync check so that it waits for
+  // the closing animation of the popups we hide here.
+  async checkForOpenPopups() {
+    if (AppConstants.MOZ_APP_NAME == "thunderbird") {
+      return;
+    }
+
+    this.currentTest.addResult(new testMessage("checking for open popups"));
+
+    // Popups that open on hover close on a timer once the mouse has moved off
+    // them. 'mousecancel' synthesizes the pointer vanishing from the top level
+    // window, which ends the hover without starting a new one anywhere; the
+    // coordinates are unused for this event type.
+    this.EventUtils.synthesizeMouseAtPoint(
+      0,
+      0,
+      { type: "mousecancel" },
+      window
+    );
+
+    // Sticky hover panels stay in the 'open' state for a few ms after the
+    // mousecancel above, so wait rather than fail on a popup that isn't closed.
+    let openPopups = [];
+    try {
+      await this.TestUtils.waitForCondition(() => {
+        openPopups = [...document.querySelectorAll("menupopup,panel")].filter(
+          popup => popup.state != "closed"
+        );
+        return !openPopups.length;
+      }, "waiting for popups to close");
+    } catch (e) {
+      if (!openPopups.length) {
+        // waitForCondition also rejects when the condition function throws, in
+        // which case openPopups is empty and nothing else would be reported.
+        console.error(e);
+        this.currentTest.addResult(
+          new testResult({
+            name: "Failed to check for open popups: " + e,
+            allowFailure: this.currentTest.allowFailure,
+          })
+        );
+      }
+
+      // A popup the test actually leaked has nothing pending to close it, so it
+      // is still in the list the condition built on its last run. Reporting that
+      // list rather than querying again avoids missing a popup that closed
+      // between then and the timeout.
+      let msg = this.currentTest.timedOut
+        ? "Found a popup after previous test timed out"
+        : "Found an unexpected popup at the end of test run";
+      for (let popup of openPopups) {
+        this.currentTest.addResult(
+          new testResult({
+            name: msg + ": " + describeElement(popup),
+            allowFailure: this.currentTest.allowFailure,
+          })
+        );
+        popup.hidePopup();
+      }
+    }
   },
 
   checkWindowsState: function Tester_checkWindowsState() {
@@ -651,6 +817,7 @@ Tester.prototype = {
     DOMWindowTracker.destroy();
     Services.console.unregisterListener(this);
 
+    this.ClickChecks.uninit();
     this.AccessibilityUtils.uninit();
 
     // It's important to terminate the module to avoid crashes on shutdown.
@@ -679,6 +846,9 @@ Tester.prototype = {
     // Tests complete, notify the callback and return
     this.callback(this.tests);
     this.callback = null;
+    // Remember the last manifest before dropping the test list, so a fatal
+    // condition hit while shutting down can name its profile after it.
+    this._lastTestManifest = this.tests.at(-1)?.manifest;
     this.tests = null;
   },
 
@@ -716,12 +886,6 @@ Tester.prototype = {
   },
 
   async ensureVsyncDisabled() {
-    // The WebExtension process keeps vsync enabled forever in headless mode.
-    // See bug 1782541.
-    if (Services.env.get("MOZ_HEADLESS")) {
-      return;
-    }
-
     try {
       await this.TestUtils.waitForCondition(
         () => !ChromeUtils.vsyncEnabled(),
@@ -850,9 +1014,13 @@ Tester.prototype = {
     }
     let changedPrefs = [];
     for (let p of failures) {
-      this.structuredLogger.error(
-        // We only report unexpected failures when --compare-preferences is set.
-        `TEST-${gConfig.comparePrefs ? "UN" : ""}EXPECTED-FAIL | ${testPath} | changed preference: ${p}`
+      this.currentTest.addResult(
+        new testResult({
+          name: `changed preference: ${p}`,
+          pass: !gConfig.comparePrefs,
+          todo: !gConfig.comparePrefs,
+          allowFailure: this.currentTest.allowFailure,
+        })
       );
       changedPrefs.push(p);
     }
@@ -914,42 +1082,11 @@ Tester.prototype = {
   },
 
   async notifyProfilerOfTestEnd() {
-    // See if we should upload a profile of a failing test.
-    if (this.currentTest.failCount) {
-      // If MOZ_PROFILER_SHUTDOWN is set, the profiler got started from --profiler
-      // and a profile will be shown even if there's no test failure.
-      if (
-        Services.env.exists("MOZ_UPLOAD_DIR") &&
-        !Services.env.exists("MOZ_PROFILER_SHUTDOWN") &&
-        Services.profiler.IsActive()
-      ) {
-        let name = this.currentTest.path;
-        name = name.slice(name.lastIndexOf("/") + 1);
-        let filename = `profile_${name}.json`;
-        let path = Services.env.get("MOZ_UPLOAD_DIR");
-        let profilePath = PathUtils.join(path, filename);
-        try {
-          const { profile } =
-            await Services.profiler.getProfileDataAsGzippedArrayBuffer();
-          await IOUtils.write(profilePath, new Uint8Array(profile));
-          this.currentTest.addResult(
-            new testResult({
-              name:
-                "Found unexpected failures during the test; profile uploaded in " +
-                filename,
-            })
-          );
-        } catch (e) {
-          // If the profile is large, we may encounter out of memory errors.
-          this.currentTest.addResult(
-            new testResult({
-              name:
-                "Found unexpected failures during the test; failed to upload profile: " +
-                e,
-            })
-          );
-        }
-      }
+    // Upload a profile of a failing test, when one should be saved (e.g. not
+    // when --profiler already saves a shutdown profile; see
+    // shouldSaveFailureProfile).
+    if (this.currentTest.failCount && shouldSaveFailureProfile()) {
+      await uploadProfileArtifact(this.currentTest.path, this.structuredLogger);
     }
   },
 
@@ -980,6 +1117,9 @@ Tester.prototype = {
           );
         }
       }
+
+      // After the cleanup functions, which can still click things.
+      this.ClickChecks.forgetMouseDownState();
 
       // Ensure any sinon stubs and spies have been cleaned up before the next test.
       if (Cu.isESModuleLoaded("resource://testing-common/Sinon.sys.mjs")) {
@@ -1040,6 +1180,8 @@ Tester.prototype = {
       this.PromiseTestUtils.ensureDOMPromiseRejectionsProcessed();
       this.PromiseTestUtils.assertNoUncaughtRejections();
       this.PromiseTestUtils.assertNoMoreExpectedRejections();
+      await this.checkForOpenPopups();
+
       await this.ensureVsyncDisabled();
 
       Object.keys(window).forEach(function (prop) {
@@ -1206,13 +1348,19 @@ Tester.prototype = {
         );
       }
 
+      // Last check for uncaught rejections followed by the cleanup of allowed
+      // rejections.
       this.PromiseTestUtils.assertNoUncaughtRejections();
-
-      await this.notifyProfilerOfTestEnd();
+      this.PromiseTestUtils.clearAllowedUncaughtRejections();
 
       // Check the window state before logging testEnd so that any cleanup
       // assertions are included in the test result, not logged after test_end.
+      // This has to happen before notifyProfilerOfTestEnd, which only saves a
+      // profile for a failing test: a test whose only failure is a stale tab or
+      // a leaked window would otherwise not have failed yet.
       this.checkWindowsState();
+
+      await this.notifyProfilerOfTestEnd();
 
       let time = Date.now() - this.lastStartTime;
 
@@ -1279,9 +1427,8 @@ Tester.prototype = {
             // a document.
             let sidebar = document.getElementById("sidebar");
             if (sidebar) {
-              sidebar.setAttribute("src", "data:text/html;charset=utf-8,");
-              sidebar.docShell.createAboutBlankDocumentViewer(null, null);
               sidebar.setAttribute("src", "about:blank");
+              sidebar.docShell?.createAboutBlankDocumentViewer(null, null);
             }
           }
 
@@ -1319,14 +1466,6 @@ Tester.prototype = {
         );
 
         barrier.wait().then(() => {
-          // Simulate memory pressure so that we're forced to free more resources
-          // and thus get rid of more false leaks like already terminated workers.
-          Services.obs.notifyObservers(
-            null,
-            "memory-pressure",
-            "heap-minimize"
-          );
-
           Services.ppmm.broadcastAsyncMessage("browser-test:collect-request");
 
           this._shutdownCleanup(() => {
@@ -1341,6 +1480,17 @@ Tester.prototype = {
 
         return;
       }
+
+      // In normal Firefox use, a shrinking GC is scheduled automatically
+      // after the user has been inactive for some time. This never happens
+      // when running tests sequentially quickly, so force one here. Without
+      // it, JIT/IC stubs installed on hot shared chrome scripts keep shapes
+      // from already-destroyed realms alive, pinning closed chrome windows
+      // until shutdown. Force a CC afterward so the chrome-window cycles
+      // that the shrinking GC just unanchored actually get collected
+      // before the next test starts. See bug 2041420.
+      Cu.forceShrinkingGC();
+      Cu.forceCC();
 
       if (this.repeat > 0) {
         --this.repeat;
@@ -1477,6 +1627,7 @@ Tester.prototype = {
 
     this.SimpleTest.reset();
     // Reset accessibility environment.
+    this.ClickChecks.reset();
     this.AccessibilityUtils.reset(this.a11y_checks, this.currentTest.path);
 
     // Load the tests into a testscope
@@ -1521,6 +1672,7 @@ Tester.prototype = {
             ? {
                 name: err.message,
                 stack: err.stack,
+                time: err.time,
                 allowFailure: currentTest.allowFailure,
               }
             : {
@@ -1710,12 +1862,17 @@ Tester.prototype = {
               self.nextTest();
             } else {
               await self.notifyProfilerOfTestEnd();
+              // failCount > 1 (not > 0) because the "Test timed out"
+              // result above already incremented failCount by one.
               self.structuredLogger.testEnd(
                 self.currentTest.path,
-                "TIMEOUT",
+                self.currentTest.failCount > 1 ? "FAIL" : "TIMEOUT",
                 "PASS",
                 "Test timed out"
               );
+              // nextTest, which normally does this, doesn't run for a test that
+              // timed out.
+              self.ClickChecks.forgetMouseDownState();
               self._shutdownCleanup(async () => {
                 await self._checkForLeakedWindows(true);
                 self.finish();
@@ -1771,10 +1928,13 @@ function isErrorOrException(err) {
  *     false    false    todoCount    TEST-KNOWN-FAIL         FAIL     FAIL
  *     false    true     todoCount    TEST-KNOWN-FAIL         FAIL     FAIL
  */
-function testResult({ name, pass, todo, ex, stack, allowFailure }) {
+function testResult({ name, pass, todo, ex, stack, allowFailure, time }) {
   this.info = false;
   this.name = name;
   this.msg = "";
+  if (time) {
+    this.time = time;
+  }
 
   if (allowFailure && !pass) {
     this.allowedFailure = true;

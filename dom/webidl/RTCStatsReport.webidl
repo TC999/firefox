@@ -3,8 +3,6 @@
  * You can obtain one at http://mozilla.org/MPL/2.0/.
  *
  * The origin of this IDL file is
- * http://dev.w3.org/2011/webrtc/editor/webrtc.html#rtcstatsreport-object
- * http://www.w3.org/2011/04/webrtc/wiki/Stats
  * https://www.w3.org/TR/webrtc-stats/
  */
 
@@ -23,7 +21,8 @@ enum RTCStatsType {
   "transport",
   "candidate-pair",
   "local-candidate",
-  "remote-candidate"
+  "remote-candidate",
+  "certificate"
 };
 
 dictionary RTCStats {
@@ -107,6 +106,9 @@ dictionary RTCInboundRtpStreamStats : RTCReceivedRtpStreamStats {
   unsigned long framesReceived;
   unsigned long framesAssembledFromMultiplePackets;
   double totalAssemblyTime;
+  unsigned long long retransmittedPacketsReceived;
+  unsigned long long retransmittedBytesReceived;
+  unsigned long rtxSsrc;
 };
 
 dictionary RTCRemoteInboundRtpStreamStats : RTCReceivedRtpStreamStats {
@@ -126,21 +128,23 @@ dictionary RTCOutboundRtpStreamStats : RTCSentRtpStreamStats {
   DOMString mid;
   DOMString remoteId;
   DOMString rid;
-  unsigned long framesEncoded;
-  unsigned long long qpSum;
-  unsigned long nackCount;
-  unsigned long firCount;
-  unsigned long pliCount;
   unsigned long long headerBytesSent;
   unsigned long long retransmittedPacketsSent;
   unsigned long long retransmittedBytesSent;
+  unsigned long rtxSsrc;
   unsigned long long totalEncodedBytesTarget;
   unsigned long frameWidth;
   unsigned long frameHeight;
   double framesPerSecond;
   unsigned long framesSent;
   unsigned long hugeFramesSent;
+  unsigned long framesEncoded;
+  unsigned long keyFramesEncoded;
+  unsigned long long qpSum;
   double totalEncodeTime;
+  unsigned long nackCount;
+  unsigned long firCount;
+  unsigned long pliCount;
 };
 
 dictionary RTCRemoteOutboundRtpStreamStats : RTCSentRtpStreamStats {
@@ -174,8 +178,6 @@ dictionary RTCDataChannelStats : RTCStats {
   DOMString           label;
   DOMString           protocol;
   long                dataChannelIdentifier;
-  // RTCTransportId is not yet implemented - Bug 1225723
-  // DOMString transportId;
   RTCDataChannelState state;
   unsigned long       messagesSent;
   unsigned long long  bytesSent;
@@ -193,19 +195,21 @@ enum RTCStatsIceCandidatePairState {
 };
 
 dictionary RTCIceCandidatePairStats : RTCStats {
-  DOMString transportId;
+  required DOMString transportId;
   DOMString localCandidateId;
   DOMString remoteCandidateId;
   RTCStatsIceCandidatePairState state;
   unsigned long long priority;
   boolean nominated;
-  boolean writable;
-  boolean readable;
+  boolean writable; // removed from standard
+  boolean readable; // removed from standard
+  unsigned long long packetsSent;
+  unsigned long long packetsReceived;
   unsigned long long bytesSent;
   unsigned long long bytesReceived;
   DOMHighResTimeStamp lastPacketSentTimestamp;
   DOMHighResTimeStamp lastPacketReceivedTimestamp;
-  boolean selected;
+  boolean selected; // removed from standard
   double totalRoundTripTime;
   double currentRoundTripTime;
   unsigned long long responsesReceived;
@@ -214,18 +218,52 @@ dictionary RTCIceCandidatePairStats : RTCStats {
 };
 
 dictionary RTCIceCandidateStats : RTCStats {
+  required DOMString transportId;
   DOMString address;
   long port;
   DOMString protocol;
   RTCIceCandidateType candidateType;
   long priority;
   DOMString relayProtocol;
-  // Because we use this internally but don't support RTCIceCandidateStats,
-  // we need to keep the field as ChromeOnly. Bug 1225723
-  [ChromeOnly]
-  DOMString transportId;
+  DOMString foundation;
+  DOMString usernameFragment;
+  RTCIceTcpCandidateType tcpType;
   [ChromeOnly]
   DOMString proxied;
+};
+
+enum RTCDtlsRole {
+  "client",
+  "server",
+  "unknown"
+};
+
+dictionary RTCTransportStats : RTCStats {
+  unsigned long long packetsSent;
+  unsigned long long packetsReceived;
+  unsigned long long bytesSent;
+  unsigned long long bytesReceived;
+  RTCIceRole iceRole;
+  DOMString iceLocalUsernameFragment;
+  required RTCDtlsTransportState dtlsState;
+  RTCIceTransportState iceState;
+  DOMString selectedCandidatePairId;
+  DOMString localCertificateId;
+  DOMString remoteCertificateId;
+  DOMString tlsVersion;
+  DOMString dtlsCipher;
+  RTCDtlsRole dtlsRole;
+  DOMString srtpCipher;
+  unsigned long selectedCandidatePairChanges;
+};
+
+dictionary RTCCertificateStats : RTCStats {
+  required DOMString fingerprint;
+  required DOMString fingerprintAlgorithm;
+  required DOMString base64Certificate;
+  // The id of the issuer certificate's stat in this report, not the
+  // certificate's X.509 issuer field.
+  DOMString issuerCertificateId;
 };
 
 // This is for tracking the frame rate in about:webrtc
@@ -288,6 +326,8 @@ dictionary RTCStatsCollection {
   sequence<RTCIceCandidateStats>            trickledIceCandidateStats = [];
   sequence<RTCDataChannelStats>             dataChannelStats = [];
   sequence<RTCCodecStats>                   codecStats = [];
+  sequence<RTCTransportStats>               transportStats = [];
+  sequence<RTCCertificateStats>             certificateStats = [];
 
   // For internal use only
   sequence<DOMString>                       rawLocalCandidates = [];
@@ -312,6 +352,7 @@ dictionary RTCConfigurationInternal {
   RTCIceTransportPolicy          iceTransportPolicy;
   required boolean               peerIdentityProvided;
   DOMString                      sdpSemantics;
+  boolean alwaysNegotiateDataChannels = false;
 };
 
 dictionary RTCSdpHistoryInternal {

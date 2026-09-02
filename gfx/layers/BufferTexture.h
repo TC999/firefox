@@ -31,7 +31,8 @@ class BufferTextureData : public TextureData {
       StereoMode aStereoMode, gfx::ColorDepth aColorDepth,
       gfx::YUVColorSpace aYUVColorSpace, gfx::ColorRange aColorRange,
       gfx::TransferFunction aTransferFunction,
-      gfx::ChromaSubsampling aSubsampling, TextureFlags aTextureFlags);
+      gfx::ChromaSubsampling aSubsampling, TextureFlags aTextureFlags,
+      const Maybe<gfx::HDRMetadata>& aHDRMetadata = Nothing());
 
   bool Lock(OpenMode aMode) override { return true; }
 
@@ -78,13 +79,15 @@ class BufferTextureData : public TextureData {
 
   virtual size_t GetBufferSize() = 0;
 
+  virtual void OnBorrowDrawTarget(gfx::DrawTarget* aDrawTarget) {}
+
  protected:
   static BufferTextureData* Create(
       gfx::IntSize aSize, gfx::SurfaceFormat aFormat,
       gfx::ColorSpace2 aColorSpace, gfx::TransferFunction aTransferFunction,
       gfx::BackendType aMoz2DBackend, LayersBackend aLayersBackend,
       TextureFlags aFlags, TextureAllocationFlags aAllocFlags,
-      mozilla::ipc::IShmemAllocator* aAllocator, bool aIsSameProcess);
+      LayersIPCChannel* aAllocator, bool aIsSameProcess);
 
   static BufferTextureData* CreateInternal(LayersIPCChannel* aAllocator,
                                            const BufferDescriptor& aDesc,

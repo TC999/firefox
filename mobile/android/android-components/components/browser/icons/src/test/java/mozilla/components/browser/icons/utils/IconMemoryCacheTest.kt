@@ -5,6 +5,7 @@
 package mozilla.components.browser.icons.utils
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import kotlin.test.assertIs
 import mozilla.components.browser.icons.Icon
 import mozilla.components.browser.icons.IconRequest
 import mozilla.components.browser.icons.loader.IconLoader
@@ -30,10 +31,11 @@ class IconMemoryCacheTest {
         val processor = MemoryIconProcessor(cache)
 
         val icon = Icon(bitmap = mock(), source = Icon.Source.DOWNLOAD)
-        val resource = IconRequest.Resource(
-            url = "https://www.mozilla.org/favicon64.ico",
-            type = IconRequest.Resource.Type.FAVICON,
-        )
+        val resource =
+            IconRequest.Resource(
+                url = "https://www.mozilla.org/favicon64.ico",
+                type = IconRequest.Resource.Type.FAVICON,
+            )
         val request = IconRequest("https://www.mozilla.org", resources = listOf(resource))
 
         assertEquals(IconLoader.Result.NoResult, loader.load(mock(), request, resource))
@@ -43,8 +45,8 @@ class IconMemoryCacheTest {
 
         // Then load the same icon from the loader
         val result = loader.load(mock(), request, resource)
-        assertTrue(result is IconLoader.Result.BitmapResult)
-        assertSame(icon.bitmap, (result as IconLoader.Result.BitmapResult).bitmap)
+        assertIs<IconLoader.Result.BitmapResult>(result)
+        assertSame(icon.bitmap, result.bitmap)
         assertEquals(Icon.Source.MEMORY, result.source)
 
         // Prepare a new request with the same URL
@@ -55,8 +57,8 @@ class IconMemoryCacheTest {
 
         // Load prepared request
         val preparedResult = loader.load(mock(), preparedRequest, preparedRequest.resources[0])
-        assertTrue(preparedResult is IconLoader.Result.BitmapResult)
-        assertSame(icon.bitmap, (preparedResult as IconLoader.Result.BitmapResult).bitmap)
+        assertIs<IconLoader.Result.BitmapResult>(preparedResult)
+        assertSame(icon.bitmap, preparedResult.bitmap)
         assertEquals(Icon.Source.MEMORY, preparedResult.source)
     }
 }

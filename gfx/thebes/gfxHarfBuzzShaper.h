@@ -6,12 +6,10 @@
 #define GFX_HARFBUZZSHAPER_H
 
 #include "gfxFont.h"
-
 #include "harfbuzz/hb.h"
-#include "nsUnicodeProperties.h"
-#include "mozilla/gfx/2D.h"
 #include "mozilla/MruCache.h"
 #include "mozilla/RecursiveMutex.h"
+#include "nsUnicodeProperties.h"
 
 class gfxHarfBuzzShaper : public gfxFontShaper {
   // private static methods for HarfBuzz callbacks:
@@ -53,6 +51,8 @@ class gfxHarfBuzzShaper : public gfxFontShaper {
                                      hb_codepoint_t first_glyph,
                                      hb_codepoint_t second_glyph,
                                      void* user_data);
+  static hb_bool_t HBGetHExtents(hb_font_t* font, void* font_data,
+                                 hb_font_extents_t* extents, void* user_data);
 
  public:
   explicit gfxHarfBuzzShaper(gfxFont* aFont);
@@ -61,10 +61,9 @@ class gfxHarfBuzzShaper : public gfxFontShaper {
   // Returns whether the shaper has been successfully initialized.
   bool IsInitialized() const { return mHBFont != nullptr; }
 
-  bool ShapeText(DrawTarget* aDrawTarget, const char16_t* aText,
-                 uint32_t aOffset, uint32_t aLength, Script aScript,
-                 nsAtom* aLanguage, bool aVertical, RoundingFlags aRounding,
-                 gfxShapedText* aShapedText) override;
+  bool ShapeText(const char16_t* aText, uint32_t aOffset, uint32_t aLength,
+                 Script aScript, nsAtom* aLanguage, bool aVertical,
+                 RoundingFlags aRounding, gfxShapedText* aShapedText) override;
 
   // map unicode character to glyph ID
   hb_codepoint_t GetNominalGlyph(hb_codepoint_t unicode) const;
@@ -151,7 +150,7 @@ class gfxHarfBuzzShaper : public gfxFontShaper {
   nscoord GetGlyphPositions(gfxContext* aContext, nsTArray<nsPoint>& aPositions,
                             uint32_t aAppUnitsPerDevUnit);
 
-  void InitializeVertical();
+  void InitializeVertical() MOZ_REQUIRES(mMutex);
   bool LoadHmtxTable();
 
   struct Glyf {  // we only need the bounding-box at the beginning
@@ -187,7 +186,10 @@ class gfxHarfBuzzShaper : public gfxFontShaper {
   };
 
   struct CmapCache
-      : public mozilla::MruCache<uint32_t, CmapCacheData, CmapCache, 251> {
+      : public mozilla::MruCache<uint32_t, CmapCacheData, CmapCache, 256> {
+    static bool IsEmpty(const CmapCacheData& aData) {
+      return !aData.mCodepoint && !aData.mGlyphId;
+    }
     static mozilla::HashNumber Hash(const uint32_t& aKey) { return aKey; }
     static bool Match(const uint32_t& aKey, const CmapCacheData& aData) {
       return aKey == aData.mCodepoint;
@@ -202,7 +204,10 @@ class gfxHarfBuzzShaper : public gfxFontShaper {
   };
 
   struct WidthCache
-      : public mozilla::MruCache<uint32_t, WidthCacheData, WidthCache, 251> {
+      : public mozilla::MruCache<uint32_t, WidthCacheData, WidthCache, 256> {
+    static bool IsEmpty(const WidthCacheData& aData) {
+      return !aData.mGlyphId && !aData.mAdvance;
+    }
     static mozilla::HashNumber Hash(const hb_codepoint_t& aKey) { return aKey; }
     static bool Match(const uint32_t& aKey, const WidthCacheData& aData) {
       return aKey == aData.mGlyphId;

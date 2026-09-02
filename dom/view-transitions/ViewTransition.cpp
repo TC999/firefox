@@ -32,6 +32,7 @@
 #include "nsLayoutUtils.h"
 #include "nsPresContext.h"
 #include "nsString.h"
+#include "nsStyleUtil.h"
 
 namespace mozilla::dom {
 
@@ -71,7 +72,7 @@ static CSSToCSSMatrix4x4Flagged EffectiveTransform(nsIFrame* aFrame) {
       nsLayoutUtils::GetTransformToAncestor(
           RelativeTo{aFrame},
           RelativeTo{nsLayoutUtils::GetContainingBlockForClientRect(aFrame)},
-          nsIFrame::IN_CSS_UNITS, nullptr));
+          TransformMatrixFlag::InCSSUnits, nullptr));
 
   // Compensate for the default transform-origin of 50% 50% using border box
   // dimensions.
@@ -110,7 +111,7 @@ static StyleViewTransitionClass DocumentScopedClassListFor(
   const auto& classInfo = aFrame->StyleUIReset()->mViewTransitionClass;
   nsIContent* content = aFrame->GetContent();
   if (!content || AnchorPositioningUtils::GetShadowRootForTreeScope(
-                      *content, classInfo.scope)) {
+                      *content->AsElement(), classInfo.scope)) {
     return StyleViewTransitionClass();
   }
 
@@ -531,19 +532,26 @@ void ViewTransition::CallUpdateCallback(ErrorResult& aRv) {
           // undefined.
           ucd->MaybeResolveWithUndefined();
         }
-        // Unlike other timings, this is not guaranteed to happen with clean
-        // layout, and Activate() needs to look at the frame tree to capture the
-        // new state, so we need to flush frames. Do it here so that we deal
-        // with other potential script execution skipping the transition or
-        // what not in a consistent way.
-        aVt->mDocument->FlushPendingNotifications(FlushType::Layout);
+
         if (aVt->mPhase == Phase::Done) {
           // "Skip a transition" step 8. We need to resolve "finished" after
           // update-callback-done.
           if (Promise* finished = aVt->GetFinished(aRv)) {
             finished->MaybeResolveWithUndefined();
           }
+          // Activate() is a no-op when done. So just skip the flush.
+          return;
         }
+
+        // Unlike other timings, this is not guaranteed to happen with clean
+        // layout, and Activate() needs to look at the frame tree to capture the
+        // new state, so we need to flush frames. Do it here so that we deal
+        // with other potential script execution skipping the transition or
+        // what not in a consistent way.
+        //
+        // Activate() is a no-op once we're done, and PerformPendingOperations()
+        // flushes after draining the queue.
+        aVt->mDocument->FlushPendingNotifications(FlushType::Layout);
         aVt->Activate();
       },
       [](JSContext*, JS::Handle<JS::Value> aReason, ErrorResult& aRv,
@@ -704,7 +712,7 @@ static nsTArray<Keyframe> BuildGroupKeyframes(
     Document* aDoc, const CSSToCSSMatrix4x4Flagged& aTransform,
     const nsSize& aSize, const StyleOwnedSlice<StyleFilter>& aBackdropFilters) {
   Keyframe firstKeyframe;
-  firstKeyframe.mOffset = Some(0.0);
+  firstKeyframe.mOffset = Some(Keyframe::OffsetType::PercentageOffset(0.0));
   PropertyValuePair transform{
       CSSPropertyId(eCSSProperty_transform),
       Servo_DeclarationBlock_CreateEmpty().Consume(),
@@ -736,7 +744,7 @@ static nsTArray<Keyframe> BuildGroupKeyframes(
   firstKeyframe.mPropertyValues.AppendElement(std::move(backdropFilters));
 
   Keyframe lastKeyframe;
-  lastKeyframe.mOffset = Some(1.0);
+  lastKeyframe.mOffset = Some(Keyframe::OffsetType::PercentageOffset(1.0));
   lastKeyframe.mPropertyValues.AppendElement(
       PropertyValuePair{CSSPropertyId(eCSSProperty_transform)});
   lastKeyframe.mPropertyValues.AppendElement(
@@ -1133,7 +1141,11 @@ void ViewTransition::PerformPendingOperations() {
   // transitions are done before the old state for this transition is captured.
   // https://github.com/w3c/csswg-drafts/issues/11943
   RefPtr doc = mDocument;
-  doc->FlushViewTransitionUpdateCallbackQueue();
+  if (doc->FlushViewTransitionUpdateCallbackQueue()) {
+    // The update callbacks above run script, and both Setup() and HandleFrame()
+    // read the frame tree.
+    doc->FlushPendingNotifications(FlushType::Layout);
+  }
 
   switch (mPhase) {
     case Phase::PendingCapture:
@@ -1364,6 +1376,10 @@ Maybe<SkipTransitionReason> ViewTransition::CaptureOldState() {
       // If transitionName is none, or element is not rendered, then continue.
       return true;
     }
+    if (aFrame->IsHiddenByContentVisibilityOnAnyAncestor()) {
+      // See https://github.com/w3c/csswg-drafts/issues/13831
+      return true;
+    }
     if (aFrame->GetPrevContinuation() || aFrame->GetNextContinuation()) {
       // If element has more than one box fragment, then continue.
       return true;
@@ -1416,8 +1432,8 @@ Maybe<SkipTransitionReason> ViewTransition::CaptureOldState() {
       // capturing of old content.
       if (RefPtr widget = ps->GetRootWidget()) {
         VT_LOG("ViewTransitions::CaptureOldState(), requesting composite");
-        ps->PaintAndRequestComposite(ps->GetRootFrame(),
-                                     widget->GetWindowRenderer(),
+        RefPtr<WindowRenderer> renderer = widget->GetWindowRenderer();
+        ps->PaintAndRequestComposite(ps->GetRootFrame(), renderer,
                                      PaintFlags::PaintCompositeOffscreen);
         VT_LOG("ViewTransitions::CaptureOldState(), requesting composite end");
       }
@@ -1438,6 +1454,10 @@ Maybe<SkipTransitionReason> ViewTransition::CaptureNewState() {
     // As a fast path we check for v-t-n first.
     RefPtr<nsAtom> name = DocumentScopedTransitionNameFor(aFrame);
     if (!name) {
+      return true;
+    }
+    if (aFrame->IsHiddenByContentVisibilityOnAnyAncestor()) {
+      // See https://github.com/w3c/csswg-drafts/issues/13831
       return true;
     }
     if (aFrame->GetPrevContinuation() || aFrame->GetNextContinuation()) {
@@ -1899,7 +1919,7 @@ already_AddRefed<nsAtom> ViewTransition::DocumentScopedTransitionNameFor(
   // https://drafts.csswg.org/css-view-transitions-1/#document-scoped-view-transition-name
   nsIContent* content = aFrame->GetContent();
   if (MOZ_UNLIKELY(!content) ||
-      AnchorPositioningUtils::GetShadowRootForTreeScope(*content,
+      AnchorPositioningUtils::GetShadowRootForTreeScope(*content->AsElement(),
                                                         computed.scope)) {
     return nullptr;
   }

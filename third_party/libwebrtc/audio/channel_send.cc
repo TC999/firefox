@@ -16,13 +16,14 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "absl/functional/any_invocable.h"
 #include "absl/strings/string_view.h"
-#include "api/array_view.h"
 #include "api/audio_codecs/audio_encoder.h"
 #include "api/audio_codecs/audio_format.h"
 #include "api/call/bitrate_allocation.h"
@@ -34,7 +35,9 @@
 #include "api/function_view.h"
 #include "api/make_ref_counted.h"
 #include "api/media_types.h"
+#include "api/rtp_header_extension_id.h"
 #include "api/rtp_headers.h"
+#include "api/rtp_parameters.h"
 #include "api/scoped_refptr.h"
 #include "api/sequence_checker.h"
 #include "api/task_queue/pending_task_safety_flag.h"
@@ -191,7 +194,7 @@ class ChannelSend : public ChannelSendInterface,
   void SetInputMute(bool enable) override;
 
   // CSRCs.
-  void SetCsrcs(ArrayView<const uint32_t> csrcs) override;
+  void SetCsrcs(std::span<const uint32_t> csrcs) override;
 
   // Stats.
   ANAStats GetANAStatistics() const override;
@@ -207,7 +210,7 @@ class ChannelSend : public ChannelSendInterface,
                                         int payload_frequency) override;
 
   // RTP+RTCP
-  void SetSendAudioLevelIndicationStatus(bool enable, int id) override;
+  void SetSendAudioLevelIndicationStatus(RtpHeaderExtensionId id) override;
 
   void RegisterSenderCongestionControlObjects(
       RtpTransportControllerSendInterface* transport) override;
@@ -269,9 +272,9 @@ class ChannelSend : public ChannelSendInterface,
   int32_t SendRtpAudio(AudioFrameType frameType,
                        uint8_t payloadType,
                        uint32_t rtp_timestamp_without_offset,
-                       ArrayView<const uint8_t> payload,
+                       std::span<const uint8_t> payload,
                        int64_t absolute_capture_timestamp_ms,
-                       ArrayView<const uint32_t> csrcs,
+                       std::span<const uint32_t> csrcs,
                        std::optional<uint8_t> audio_level_dbov)
       RTC_RUN_ON(worker_thread_);
 
@@ -419,8 +422,7 @@ int32_t ChannelSend::SendData(AudioFrameType frameType,
   if (frame_transformer_delegate_) {
     // Asynchronously transform the payload before sending it. After the payload
     // is transformed, the delegate will call SendRtpAudio to send it.
-    char buf[1024];
-    SimpleStringBuilder mime_type(buf);
+    StringBuilder mime_type;
     mime_type << MediaTypeToString(MediaType::AUDIO) << "/"
               << encoder_format_.name;
     frame_transformer_delegate_->Transform(
@@ -446,9 +448,9 @@ int32_t ChannelSend::SendData(AudioFrameType frameType,
 int32_t ChannelSend::SendRtpAudio(AudioFrameType frameType,
                                   uint8_t payloadType,
                                   uint32_t rtp_timestamp_without_offset,
-                                  ArrayView<const uint8_t> payload,
+                                  std::span<const uint8_t> payload,
                                   int64_t absolute_capture_timestamp_ms,
-                                  ArrayView<const uint32_t> csrcs,
+                                  std::span<const uint32_t> csrcs,
                                   std::optional<uint8_t> audio_level_dbov) {
   // E2EE Custom Audio Frame Encryption (This is optional).
   // Keep this buffer around for the lifetime of the send call.
@@ -469,7 +471,7 @@ int32_t ChannelSend::SendRtpAudio(AudioFrameType frameType,
       size_t bytes_written = 0;
       int encrypt_status =
           frame_encryptor_->Encrypt(MediaType::AUDIO, rtp_rtcp_->SSRC(),
-                                    /*additional_data=*/nullptr, payload,
+                                    /*additional_data=*/{}, payload,
                                     encrypted_audio_payload, &bytes_written);
       if (encrypt_status != 0) {
         RTC_DLOG(LS_ERROR)
@@ -573,15 +575,13 @@ ChannelSend::ChannelSend(
   configuration.rtcp_report_interval_ms = rtcp_report_interval_ms;
   configuration.rtcp_packet_type_counter_observer = this;
   configuration.local_media_ssrc = ssrc;
+  configuration.rtcp_mode = RtcpMode::kCompound;
 
   rtp_rtcp_ = ModuleRtpRtcpImpl2::CreateSendModule(env_, configuration);
   rtp_rtcp_->SetSendingMediaStatus(false);
 
   rtp_sender_audio_ =
       std::make_unique<RTPSenderAudio>(&env_.clock(), rtp_rtcp_->RtpSender());
-
-  // Ensure that RTCP is enabled by default for the created channel.
-  rtp_rtcp_->SetRTCPStatus(RtcpMode::kCompound);
 
   int error = audio_coding_->RegisterTransportCallback(this);
   RTC_DCHECK_EQ(0, error);
@@ -724,7 +724,7 @@ void ChannelSend::ReceivedRTCPPacket(const uint8_t* data, size_t length) {
   RTC_DCHECK_RUN_ON(worker_thread_);
 
   // Deliver RTCP packet to RTP/RTCP module for parsing
-  rtp_rtcp_->IncomingRtcpPacket(MakeArrayView(data, length));
+  rtp_rtcp_->IncomingRtcpPacket(std::span(data, length));
 
   std::optional<TimeDelta> rtt = rtp_rtcp_->LastRtt();
   if (!rtt.has_value()) {
@@ -750,7 +750,7 @@ bool ChannelSend::InputMute() const {
   return input_mute_;
 }
 
-void ChannelSend::SetCsrcs(ArrayView<const uint32_t> csrcs) {
+void ChannelSend::SetCsrcs(std::span<const uint32_t> csrcs) {
   RTC_DCHECK_RUN_ON(worker_thread_);
   std::vector<uint32_t> csrcs_copy(
       csrcs.begin(),
@@ -795,10 +795,10 @@ void ChannelSend::SetSendTelephoneEventPayloadType(int payload_type,
                                           payload_frequency, 0, 0);
 }
 
-void ChannelSend::SetSendAudioLevelIndicationStatus(bool enable, int id) {
+void ChannelSend::SetSendAudioLevelIndicationStatus(RtpHeaderExtensionId id) {
   RTC_DCHECK_RUN_ON(worker_thread_);
-  include_audio_level_indication_.store(enable);
-  if (enable) {
+  include_audio_level_indication_.store(id.IsSet());
+  if (id.IsSet()) {
     rtp_rtcp_->RegisterRtpHeaderExtension(AudioLevelExtension::Uri(), id);
   } else {
     rtp_rtcp_->DeregisterSendRtpHeaderExtension(AudioLevelExtension::Uri());
@@ -949,7 +949,7 @@ void ChannelSend::ProcessAndEncodeAudio(
             rms_level_.AnalyzeMuted(length);
           } else {
             rms_level_.Analyze(
-                ArrayView<const int16_t>(audio_frame->data(), length));
+                std::span<const int16_t>(audio_frame->data(), length));
           }
         }
         previous_frame_muted_ = is_muted;
@@ -1007,22 +1007,34 @@ void ChannelSend::InitFrameTransformerDelegate(
     scoped_refptr<FrameTransformerInterface> frame_transformer) {
   RTC_DCHECK_RUN_ON(&encoder_queue_checker_);
   RTC_DCHECK(frame_transformer);
-  RTC_DCHECK(!frame_transformer_delegate_);
+  if (frame_transformer_delegate_) {
+    frame_transformer_delegate_->Reset();
+    frame_transformer_delegate_ = nullptr;
+  }
 
   // Pass a callback to ChannelSend::SendRtpAudio, to be called by the delegate
   // to send the transformed audio.
   ChannelSendFrameTransformerDelegate::SendFrameCallback send_audio_callback =
       [this](AudioFrameType frameType, uint8_t payloadType,
-             uint32_t rtp_timestamp_with_offset,
-             ArrayView<const uint8_t> payload,
+             RtpTimestampInfo rtp_timestamp_info,
+             std::span<const uint8_t> payload,
              int64_t absolute_capture_timestamp_ms,
-             ArrayView<const uint32_t> csrcs,
+             std::span<const uint32_t> csrcs,
              std::optional<uint8_t> audio_level_dbov) {
         RTC_DCHECK_RUN_ON(worker_thread_);
-        return SendRtpAudio(
-            frameType, payloadType,
-            rtp_timestamp_with_offset - rtp_rtcp_->StartTimestamp(), payload,
-            absolute_capture_timestamp_ms, csrcs, audio_level_dbov);
+        uint32_t timestamp_without_offset;
+        if (std::holds_alternative<RtpTimestampWithoutOffset>(
+                rtp_timestamp_info)) {
+          timestamp_without_offset =
+              std::get<RtpTimestampWithoutOffset>(rtp_timestamp_info);
+        } else {
+          timestamp_without_offset =
+              std::get<RtpTimestampWithOffset>(rtp_timestamp_info) -
+              rtp_rtcp_->StartTimestamp();
+        }
+        return SendRtpAudio(frameType, payloadType, timestamp_without_offset,
+                            payload, absolute_capture_timestamp_ms, csrcs,
+                            audio_level_dbov);
       };
   frame_transformer_delegate_ =
       make_ref_counted<ChannelSendFrameTransformerDelegate>(

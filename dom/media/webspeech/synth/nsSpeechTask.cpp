@@ -9,12 +9,14 @@
 #include "SharedBuffer.h"
 #include "SpeechSynthesis.h"
 #include "nsGlobalWindowInner.h"
+#include "nsPIDOMWindowInlines.h"
 #include "nsSynthVoiceRegistry.h"
 #include "nsXULAppAPI.h"
 
 #undef LOG
 extern mozilla::LogModule* GetSpeechSynthLog();
-#define LOG(type, msg) MOZ_LOG(GetSpeechSynthLog(), type, msg)
+#define LOG(type, msg) \
+  MOZ_LOG_FMT(GetSpeechSynthLog(), type, MOZ_LOG_EXPAND_ARGS msg)
 
 #define AUDIO_TRACK 1
 
@@ -23,7 +25,7 @@ namespace mozilla::dom {
 // nsSpeechTask
 
 NS_IMPL_CYCLE_COLLECTION_WEAK(nsSpeechTask, mSpeechSynthesis, mUtterance,
-                              mCallback)
+                              mCallback, mAudioChannelAgent)
 
 NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(nsSpeechTask)
   NS_INTERFACE_MAP_ENTRY(nsISpeechTask)
@@ -99,6 +101,8 @@ nsresult nsSpeechTask::DispatchStartImpl(const nsAString& aUri) {
 
   CreateAudioChannelAgent();
 
+  StartMediaControl();
+
   mState = STATE_SPEAKING;
   mUtterance->mChosenVoiceURI = aUri;
   mUtterance->DispatchSpeechSynthesisEvent(u"start"_ns, 0, nullptr, 0, u""_ns);
@@ -123,6 +127,8 @@ nsresult nsSpeechTask::DispatchEndImpl(float aElapsedTime,
   LOG(LogLevel::Debug, ("nsSpeechTask::DispatchEndImpl"));
 
   DestroyAudioChannelAgent();
+
+  StopMediaControl();
 
   MOZ_ASSERT(mUtterance);
   if (NS_WARN_IF(mState == STATE_ENDED)) {
@@ -211,6 +217,8 @@ nsresult nsSpeechTask::DispatchErrorImpl(float aElapsedTime,
 
   DestroyAudioChannelAgent();
 
+  StopMediaControl();
+
   MOZ_ASSERT(mUtterance);
   if (NS_WARN_IF(mState == STATE_ENDED)) {
     return NS_ERROR_NOT_AVAILABLE;
@@ -267,6 +275,10 @@ nsresult nsSpeechTask::DispatchMarkImpl(const nsAString& aName,
   mUtterance->DispatchSpeechSynthesisEvent(u"mark"_ns, aCharIndex, nullptr,
                                            aElapsedTime, aName);
   return NS_OK;
+}
+
+bool nsSpeechTask::IsPaused() const {
+  return mUtterance && mUtterance->IsPaused();
 }
 
 void nsSpeechTask::Pause() {

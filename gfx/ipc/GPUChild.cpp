@@ -6,17 +6,18 @@
 #include "GPUProcessHost.h"
 #include "GPUProcessManager.h"
 #include "GfxInfoBase.h"
+#include "ProfilerParent.h"
 #include "TelemetryProbesReporter.h"
-#include "VideoUtils.h"
 #include "VRProcessManager.h"
+#include "VideoUtils.h"
 #include "gfxConfig.h"
 #include "gfxPlatform.h"
 #include "mozilla/Components.h"
 #include "mozilla/FOGIPC.h"
+#include "mozilla/HangDetails.h"
+#include "mozilla/RemoteMediaManagerChild.h"  // For RemoteMediaIn
 #include "mozilla/StaticPrefs_dom.h"
 #include "mozilla/StaticPrefs_media.h"
-#include "mozilla/glean/GfxMetrics.h"
-#include "mozilla/glean/IpcMetrics.h"
 #include "mozilla/Telemetry.h"
 #include "mozilla/TelemetryIPC.h"
 #include "mozilla/dom/CheckerboardReportService.h"
@@ -24,8 +25,8 @@
 #include "mozilla/dom/MemoryReportRequest.h"
 #include "mozilla/gfx/Logging.h"
 #include "mozilla/gfx/gfxVars.h"
-#include "mozilla/HangDetails.h"
-#include "mozilla/RemoteMediaManagerChild.h"  // For RemoteMediaIn
+#include "mozilla/glean/GfxMetrics.h"
+#include "mozilla/glean/IpcMetrics.h"
 #include "mozilla/ipc/Endpoint.h"
 #include "mozilla/layers/APZInputBridgeChild.h"
 #include "mozilla/layers/LayerTreeOwnerTracker.h"
@@ -33,7 +34,6 @@
 #include "nsIGfxInfo.h"
 #include "nsIObserverService.h"
 #include "nsIPropertyBag2.h"
-#include "ProfilerParent.h"
 
 namespace mozilla {
 namespace gfx {
@@ -292,25 +292,27 @@ bool GPUChild::SendRequestMemoryReport(const uint32_t& aGeneration,
                                        const Maybe<FileDescriptor>& aDMDFile) {
   mMemoryReportRequest = MakeUnique<MemoryReportRequestHost>(aGeneration);
 
-  PGPUChild::SendRequestMemoryReport(
-      aGeneration, aAnonymize, aMinimizeMemoryUsage, aDMDFile,
-      [&](const uint32_t& aGeneration2) {
-        if (GPUProcessManager* gpm = GPUProcessManager::Get()) {
-          if (GPUChild* child = gpm->GetGPUChild()) {
-            if (child->mMemoryReportRequest) {
-              child->mMemoryReportRequest->Finish(aGeneration2);
-              child->mMemoryReportRequest = nullptr;
+  PGPUChild::SendRequestMemoryReport(aGeneration, aAnonymize,
+                                     aMinimizeMemoryUsage, aDMDFile)
+      ->Then(
+          GetCurrentSerialEventTarget(), __func__,
+          [](uint32_t aGeneration2) {
+            if (GPUProcessManager* gpm = GPUProcessManager::Get()) {
+              if (GPUChild* child = gpm->GetGPUChild()) {
+                if (child->mMemoryReportRequest) {
+                  child->mMemoryReportRequest->Finish(aGeneration2);
+                  child->mMemoryReportRequest = nullptr;
+                }
+              }
             }
-          }
-        }
-      },
-      [&](mozilla::ipc::ResponseRejectReason) {
-        if (GPUProcessManager* gpm = GPUProcessManager::Get()) {
-          if (GPUChild* child = gpm->GetGPUChild()) {
-            child->mMemoryReportRequest = nullptr;
-          }
-        }
-      });
+          },
+          [](mozilla::ipc::ResponseRejectReason) {
+            if (GPUProcessManager* gpm = GPUProcessManager::Get()) {
+              if (GPUChild* child = gpm->GetGPUChild()) {
+                child->mMemoryReportRequest = nullptr;
+              }
+            }
+          });
 
   return true;
 }

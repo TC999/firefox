@@ -11,21 +11,28 @@ import android.view.View.VISIBLE
 import android.widget.ImageView
 import androidx.preference.PreferenceViewHolder
 import org.mozilla.fenix.R
-import org.mozilla.fenix.ext.settings
+import org.mozilla.fenix.ext.components
+import org.mozilla.fenix.nimbus.FxNimbus
 
 const val EXPANDED_TOOLBAR_TYPE = "expanded"
 
-internal class ToolbarExpandedShortcutPreference @JvmOverloads constructor(
+internal class ToolbarExpandedShortcutPreference
+@JvmOverloads
+constructor(
     context: Context,
     attrs: AttributeSet? = null,
 ) : ToolbarShortcutPreference(context, attrs) {
+    var isTranslationsFeatureEnabled: Boolean = false
 
-    override val options: List<ShortcutOption> = expandedShortcutOptions
+    override val options: List<ShortcutOption>
+        get() = expandedShortcutOptions.filterNot {
+            it.key == ShortcutType.TRANSLATE && !isTranslationsFeatureAvailable
+        }
 
-    override fun readSelectedKey(): String = context.settings().toolbarExpandedShortcutKey
+    override fun readSelectedKey(): String = context.components.settings.toolbarExpandedShortcutKey
 
     override fun writeSelectedKey(key: String) {
-        context.settings().toolbarExpandedShortcutKey = key
+        context.components.settings.toolbarExpandedShortcutKey = key
     }
 
     override fun getToolbarType(): String = EXPANDED_TOOLBAR_TYPE
@@ -41,4 +48,14 @@ internal class ToolbarExpandedShortcutPreference @JvmOverloads constructor(
 
         return expandedPreview.findViewById(R.id.selected_expanded_shortcut_icon)
     }
+
+    private val isTranslationsFeatureAvailable: Boolean
+        get() {
+            val browserStore = this.context.components.core.store
+            val isTranslationEngineSupported = browserStore.state.translationEngine.isEngineSupported ?: false
+
+            return isTranslationEngineSupported &&
+                isTranslationsFeatureEnabled &&
+                FxNimbus.features.translations.value().mainFlowToolbarEnabled
+        }
 }

@@ -6,17 +6,17 @@
 
 #include "DisplayItemClipChain.h"
 #include "FrameMetrics.h"
+#include "UnitTransforms.h"
 #include "mozilla/ScrollContainerFrame.h"
+#include "mozilla/StaticPrefs_apz.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/layers/StackingContextHelper.h"
 #include "mozilla/layers/WebRenderLayerManager.h"
-#include "mozilla/StaticPrefs_apz.h"
 #include "mozilla/webrender/WebRenderAPI.h"
 #include "nsDisplayList.h"
 #include "nsLayoutUtils.h"
 #include "nsRefreshDriver.h"
 #include "nsStyleStructInlines.h"
-#include "UnitTransforms.h"
 
 static mozilla::LazyLogModule sClipLog("wr.clip");
 #define CLIP_LOG(...) MOZ_LOG(sClipLog, LogLevel::Debug, (__VA_ARGS__))
@@ -280,23 +280,17 @@ wr::WrSpaceAndClipChain ClipManager::SwitchItem(nsDisplayListBuilder* aBuilder,
 
 wr::WrSpatialId ClipManager::GetSpatialId(const ActiveScrolledRoot* aASR) {
   for (const ActiveScrolledRoot* asr = aASR; asr; asr = asr->mParent) {
-    Maybe<wr::WrSpatialId> space = Nothing();
-    if (asr->mKind == ActiveScrolledRoot::ASRKind::Sticky) {
-      space = mBuilder->GetSpatialIdForDefinedStickyLayer(asr);
-    } else {
-      space = mBuilder->GetScrollIdForDefinedScrollLayer(asr->GetViewId());
-    }
+    // The map handles both sticky and scroll ASRs
+    Maybe<wr::WrSpatialId> space = mBuilder->GetSpatialIdForDefinedLayer(asr);
+
     if (space) {
       return *space;
     }
-
-    // If this ASR doesn't have a scroll ID, then we should check its ancestor.
-    // There may not be one defined because the ASR may not be scrollable or we
-    // failed to get the scroll metadata.
   }
+  // If this ASR doesn't have a spatial ID, then we should check its ancestor.
+  // This can happen if e.g. we failed to get scroll metadata for a scroll ASR.
 
-  Maybe<wr::WrSpatialId> space = mBuilder->GetScrollIdForDefinedScrollLayer(
-      ScrollableLayerGuid::NULL_SCROLL_ID);
+  Maybe<wr::WrSpatialId> space = mBuilder->GetSpatialIdForDefinedLayer(nullptr);
   MOZ_ASSERT(space.isSome());
   return *space;
 }
@@ -371,11 +365,6 @@ Maybe<wr::WrSpatialId> ClipManager::DefineStickyNode(
     nsDisplayListBuilder* aBuilder, Maybe<wr::WrSpatialId> aParentSpatialId,
     const ActiveScrolledRoot* aASR, nsDisplayItem* aItem) {
   nsIFrame* stickyFrame = aASR->mFrame;
-
-  if (Maybe<wr::WrSpatialId> space =
-          mBuilder->GetSpatialIdForDefinedStickyLayer(aASR)) {
-    return space;
-  }
 
   StickyScrollContainer* stickyScrollContainer = GetStickyScrollContainer(aASR);
   if (!stickyScrollContainer) {
@@ -532,11 +521,9 @@ Maybe<wr::WrSpatialId> ClipManager::DefineStickyNode(
   bool needsProp =
       nsDisplayStickyPosition::ShouldGetStickyAnimationId(stickyFrame);
   Maybe<wr::WrAnimationProperty> prop;
-  auto displayItemKey = nsDisplayItem::GetPerFrameKey(
-      0, 0, DisplayItemType::TYPE_STICKY_POSITION);
-  auto spatialKey = wr::SpatialKey(uint64_t(stickyFrame), displayItemKey,
-                                   wr::SpatialKeyKind::Sticky);
   if (needsProp) {
+    auto displayItemKey = nsDisplayItem::GetPerFrameKey(
+        0, 0, DisplayItemType::TYPE_STICKY_POSITION);
     RefPtr<WebRenderAPZAnimationData> animationData =
         mManager->CommandBuilder()
             .CreateOrRecycleWebRenderUserData<WebRenderAPZAnimationData>(
@@ -545,14 +532,13 @@ Maybe<wr::WrSpatialId> ClipManager::DefineStickyNode(
 
     prop.emplace();
     prop->id = animationId;
-    prop->key = spatialKey;
     prop->effect_type = wr::WrAnimationType::Transform;
   }
   wr::WrSpatialId spatialId = mBuilder->DefineStickyFrame(
       aASR, aParentSpatialId, wr::ToLayoutRect(bounds),
       topMargin.ptrOr(nullptr), rightMargin.ptrOr(nullptr),
       bottomMargin.ptrOr(nullptr), leftMargin.ptrOr(nullptr), vBounds, hBounds,
-      applied, spatialKey, prop.ptrOr(nullptr));
+      applied, prop.ptrOr(nullptr));
 
   return Some(spatialId);
 }
@@ -565,26 +551,27 @@ Maybe<wr::WrSpatialId> ClipManager::DefineSpatialNodes(
     return Nothing();
   }
 
-  ScrollableLayerGuid::ViewID viewId = ScrollableLayerGuid::NULL_SCROLL_ID;
-  if (aASR->mKind == ActiveScrolledRoot::ASRKind::Scroll) {
-    viewId = aASR->GetViewId();
-    Maybe<wr::WrSpatialId> space =
-        mBuilder->GetScrollIdForDefinedScrollLayer(viewId);
-    if (space) {
-      // If we've already defined this scroll layer before, we can early-exit
-      return space;
-    }
+  Maybe<wr::WrSpatialId> space = mBuilder->GetSpatialIdForDefinedLayer(aASR);
+  if (space) {
+    // If we've already defined this layer before, we can early-exit
+    return space;
   }
 
   // Recurse to define the ancestors
   Maybe<wr::WrSpatialId> ancestorSpace =
       DefineSpatialNodes(aBuilder, aASR->mParent, aItem);
 
+  Maybe<wr::WrSpatialId> parent = ancestorSpace;
+  if (parent) {
+    *parent = SpatialIdAfterOverride(*parent);
+  }
+
   if (aASR->mKind == ActiveScrolledRoot::ASRKind::Sticky) {
-    Maybe<wr::WrSpatialId> parent = ancestorSpace.map(
-        [this](wr::WrSpatialId& aId) { return SpatialIdAfterOverride(aId); });
     return ClipManager::DefineStickyNode(aBuilder, parent, aASR, aItem);
   }
+
+  MOZ_ASSERT(aASR->mKind == ActiveScrolledRoot::ASRKind::Scroll);
+  ScrollableLayerGuid::ViewID viewId = aASR->GetViewId();
 
   MOZ_ASSERT(viewId != ScrollableLayerGuid::NULL_SCROLL_ID);
 
@@ -622,24 +609,14 @@ Maybe<wr::WrSpatialId> ClipManager::DefineSpatialNodes(
       metrics.GetExpandedScrollableRect() * metrics.GetDevPixelsPerCSSPixel();
   contentRect.MoveTo(clipBounds.TopLeft());
 
-  Maybe<wr::WrSpatialId> parent = ancestorSpace;
-  if (parent) {
-    *parent = SpatialIdAfterOverride(*parent);
-  }
   // The external scroll offset is accumulated into the local space positions of
   // display items inside WR, so that the elements hash (intern) to the same
-  // content ID for quick comparisons. To avoid invalidations when the
-  // auPerDevPixel is not a round value, round here directly from app units.
-  // This guarantees we won't introduce any inaccuracy in the external scroll
-  // offset passed to WR.
-  const bool useRoundedOffset =
-      StaticPrefs::apz_rounded_external_scroll_offset();
-  LayoutDevicePoint scrollOffset =
-      useRoundedOffset
-          ? LayoutDevicePoint::FromAppUnitsRounded(
-                scrollContainerFrame->GetScrollPosition(), auPerDevPixel)
-          : LayoutDevicePoint::FromAppUnits(
-                scrollContainerFrame->GetScrollPosition(), auPerDevPixel);
+  // content ID for quick comparisons. WR does that accumulation in whole app
+  // units, which is exact, so the offset must be passed through unrounded:
+  // rounding it here desynchronises it from the position the items were painted
+  // at, turning sub-pixel drift into real motion (bug 2059570).
+  LayoutDevicePoint scrollOffset = LayoutDevicePoint::FromAppUnits(
+      scrollContainerFrame->GetScrollPosition(), auPerDevPixel);
 
   // Currently we track scroll-linked effects at the granularity of documents,
   // not scroll frames, so we consider a scroll frame to have a scroll-linked
@@ -650,13 +627,11 @@ Maybe<wr::WrSpatialId> ClipManager::DefineSpatialNodes(
       presContext->Document()->HasScrollLinkedEffect();
 
   return Some(mBuilder->DefineScrollLayer(
-      viewId, parent, wr::ToLayoutRect(contentRect),
+      aASR, viewId, parent, wr::ToLayoutRect(contentRect),
       wr::ToLayoutRect(clipBounds), wr::ToLayoutVector2D(scrollOffset),
       wr::ToWrAPZScrollGeneration(
           scrollContainerFrame->ScrollGenerationOnApz()),
-      wr::ToWrHasScrollLinkedEffect(hasScrollLinkedEffect),
-      wr::SpatialKey(uint64_t(scrollContainerFrame), 0,
-                     wr::SpatialKeyKind::Scroll)));
+      wr::ToWrHasScrollLinkedEffect(hasScrollLinkedEffect)));
 }
 
 Maybe<wr::WrClipChainId> ClipManager::DefineClipChain(

@@ -10,7 +10,6 @@
 #include <stdio.h>  // for FILE definition
 
 #include "DepthOrderedFrameList.h"
-#include "FrameMetrics.h"
 #include "LayoutConstants.h"
 #include "TouchManager.h"
 #include "Units.h"
@@ -97,6 +96,7 @@ class ProfileChunkedBuffer;
 class ScopedNameRef;
 class ScrollContainerFrame;
 class StyleSheet;
+struct StyleAtom;
 
 struct AutoConnectedAncestorTracker;
 struct PointerInfo;
@@ -123,6 +123,8 @@ class SourceSurface;
 namespace layers {
 class LayerManager;
 struct LayersId;
+struct KeyboardScrollAction;
+enum class ScrollOffsetUpdateType : uint8_t;
 }  // namespace layers
 
 namespace layout {
@@ -159,6 +161,7 @@ class PresShell final : public nsStubDocumentObserver,
   typedef gfx::SourceSurface SourceSurface;
   typedef layers::FocusTarget FocusTarget;
   typedef layers::FrameMetrics FrameMetrics;
+  typedef layers::ScrollOffsetUpdateType ScrollOffsetUpdateType;
   typedef layers::LayerManager LayerManager;
 
   // A set type for tracking visible frames, for use by the visibility code in
@@ -407,8 +410,8 @@ class PresShell final : public nsStubDocumentObserver,
   void ScrollFrameIntoVisualViewport(Maybe<nsPoint>& aDestination,
                                      const nsRect& aPositionFixedRect,
                                      const nsIFrame* aPositionFixedFrame,
-                                     ScrollAxis aVertical,
-                                     ScrollAxis aHorizontal,
+                                     AxisScrollParams aVertical,
+                                     AxisScrollParams aHorizontal,
                                      ScrollFlags aScrollFlags);
 
  public:
@@ -507,6 +510,39 @@ class PresShell final : public nsStubDocumentObserver,
    */
   ScrollContainerFrame* GetScrollContainerFrameToScroll(
       layers::ScrollDirections aDirections);
+
+  /**
+   * Perform a main-thread keyboard scroll for aAction, searching for the scroll
+   * container to scroll starting from the current focused content or DOM
+   * selection.
+   */
+  void ScrollByKeyboard(const layers::KeyboardScrollAction& aAction);
+
+  /**
+   * Perform a main-thread keyboard scroll for aAction, searching for the scroll
+   * container to scroll starting from aStartFrame and walking outward toward
+   * aAction's direction. Used by the cross-process keyboard scroll handoff,
+   * which seeds the search from this document's frame for the embedded
+   * subframe.
+   */
+  void ScrollByKeyboard(const layers::KeyboardScrollAction& aAction,
+                        nsIFrame* aStartFrame);
+
+  /**
+   * Like GetScrollContainerFrameToScroll, but for keyboard scrolling. It
+   * returns the nearest scroll container from the current focused content or
+   * DOM selection that can still scroll toward aAction's direction.
+   * If none can in this process and we are a subframe embedded in another
+   * process, keyboard scrolling is handed off to the embedder document and
+   * nullptr is returned.
+   *
+   * @return the scroll container frame to scroll, or nullptr if there is
+   *         nothing to scroll locally (scrolling may have been handed off to
+   *         the embedder process).
+   *
+   */
+  ScrollContainerFrame* FindScrollContainerFrameForKeyboardScrollOrHandoff(
+      nsIFrame* aStartFrame, const layers::KeyboardScrollAction& aAction);
 
   /**
    * Returns the page sequence frame associated with the frame hierarchy.
@@ -620,8 +656,8 @@ class PresShell final : public nsStubDocumentObserver,
    * @param aRect Relative to aTargetFrame. If none, the bounding box of
    * aTargetFrame will be used. The rect edges will be respected even if the
    * rect is empty.
-   * @param aVertical see ScrollContentIntoView and ScrollAxis
-   * @param aHorizontal see ScrollContentIntoView and ScrollAxis
+   * @param aVertical see ScrollContentIntoView and AxisScrollParams
+   * @param aHorizontal see ScrollContentIntoView and AxisScrollParams
    * @param aScrollFlags if ScrollFirstAncestorOnly is set, only the
    * nearest scrollable ancestor is scrolled, otherwise all
    * scrollable ancestors may be scrolled if necessary
@@ -640,7 +676,8 @@ class PresShell final : public nsStubDocumentObserver,
   MOZ_CAN_RUN_SCRIPT
   bool ScrollFrameIntoView(nsIFrame* aTargetFrame,
                            const Maybe<nsRect>& aKnownRectRelativeToTarget,
-                           ScrollAxis aVertical, ScrollAxis aHorizontal,
+                           AxisScrollParams aVertical,
+                           AxisScrollParams aHorizontal,
                            ScrollFlags aScrollFlags);
 
   /**
@@ -655,20 +692,27 @@ class PresShell final : public nsStubDocumentObserver,
   already_AddRefed<AccessibleCaretEventHub> GetAccessibleCaretEventHub() const;
 
   /**
-   * Get the caret, if it exists. AddRefs it.
+   * Get the active caret, if it exists. This will return the
+   * drag & drop caret if a D&D operation is ongoing. AddRefs it.
    */
-  already_AddRefed<nsCaret> GetCaret() const;
+  already_AddRefed<nsCaret> GetActiveCaret() const;
 
   /**
-   * Set the current caret to a new caret. To undo this, call RestoreCaret.
+   * Get the original caret this PresShell was created with.
    */
-  void SetCaret(nsCaret* aNewCaret);
+  already_AddRefed<nsCaret> GetOriginalCaret() const;
+
+  /**
+   * Set the active caret to a new caret. To undo this, call
+   * RestoreOriginalCaret.
+   */
+  void SetActiveCaret(nsCaret* aNewCaret);
 
   /**
    * Restore the caret to the original caret that this pres shell was created
    * with.
    */
-  void RestoreCaret();
+  void RestoreOriginalCaret();
 
   dom::Selection* GetCurrentSelection(SelectionType aSelectionType);
 
@@ -726,9 +770,16 @@ class PresShell final : public nsStubDocumentObserver,
   nsIFrame* GetCurrentEventFrame();
 
   /**
-   * Gets the current target event frame from the PresShell
+   * Gets the explicit event target content of the current event target frame
    */
-  already_AddRefed<nsIContent> GetEventTargetContent(WidgetEvent* aEvent);
+  nsIContent* GetExplicitEventTargetContent(const WidgetEvent* = nullptr);
+
+  /**
+   * Gets the event target content from the current event target frame. If the
+   * event target should be an element node, this returns an inclusive ancestor
+   * element of the explicit event target content.
+   */
+  nsIContent* GetEventTargetContent(const WidgetEvent* = nullptr);
 
   /**
    * Get and set the history state for the current document
@@ -766,8 +817,8 @@ class PresShell final : public nsStubDocumentObserver,
                                const nsIFrame* aPositionedFrame) const;
   void CollectAnchorNames(const nsIFrame* aPositionedFrame,
                           nsTArray<nsString>& aResult);
-  void AddAnchorPosAnchor(const nsAtom* aName, nsIFrame* aFrame);
-  void RemoveAnchorPosAnchor(const nsAtom* aName, nsIFrame* aFrame);
+  void AddAnchorPosAnchor(Span<const StyleAtom> aNames, nsIFrame* aFrame);
+  void RemoveAnchorPosAnchor(Span<const StyleAtom> aNames, nsIFrame* aFrame);
   enum class AnchorPosUpdateResult {
     NotApplicable,
     Flushed,
@@ -1244,7 +1295,7 @@ class PresShell final : public nsStubDocumentObserver,
   // updates.
   struct VisualScrollUpdate {
     nsPoint mVisualScrollOffset;
-    FrameMetrics::ScrollOffsetUpdateType mUpdateType;
+    ScrollOffsetUpdateType mUpdateType;
     bool mAcknowledged = false;
   };
 
@@ -1266,8 +1317,7 @@ class PresShell final : public nsStubDocumentObserver,
   //     need to be used.
   // Please request APZ review if adding a new call site.
   void ScrollToVisual(const nsPoint& aVisualViewportOffset,
-                      FrameMetrics::ScrollOffsetUpdateType aUpdateType,
-                      ScrollMode aMode);
+                      ScrollOffsetUpdateType aUpdateType, ScrollMode aMode);
   void AcknowledgePendingVisualScrollUpdate();
   void ClearPendingVisualScrollUpdate();
   const Maybe<VisualScrollUpdate>& GetPendingVisualScrollUpdate() const {
@@ -1438,6 +1488,8 @@ class PresShell final : public nsStubDocumentObserver,
   MOZ_CAN_RUN_SCRIPT NS_IMETHOD LineMove(bool aForward, bool aExtend) override;
   MOZ_CAN_RUN_SCRIPT NS_IMETHOD IntraLineMove(bool aForward,
                                               bool aExtend) override;
+  MOZ_CAN_RUN_SCRIPT NS_IMETHOD ParagraphMove(bool aForward,
+                                              bool aExtend) override;
   MOZ_CAN_RUN_SCRIPT NS_IMETHOD PageMove(bool aForward, bool aExtend) override;
   NS_IMETHOD ScrollPage(bool aForward) override;
   NS_IMETHOD ScrollLine(bool aForward) override;
@@ -1480,10 +1532,15 @@ class PresShell final : public nsStubDocumentObserver,
    *   >= FlushType::Style.  This also returns true if a throttled
    *   animation flush is required.
    */
-  bool NeedFlush(FlushType aType) const {
+  bool NeedFlush(FlushType aType, bool aFlushAnimations) const {
     MOZ_ASSERT(aType >= FlushType::Style);
-    return mNeedStyleFlush || mNeedThrottledAnimationFlush ||
+    return mNeedStyleFlush ||
+           (mNeedThrottledAnimationFlush && aFlushAnimations) ||
            (mNeedLayoutFlush && aType >= FlushType::InterruptibleLayout);
+  }
+
+  bool NeedFlush(const ChangesToFlush& aFlush) const {
+    return NeedFlush(aFlush.mFlushType, aFlush.mFlushAnimations);
   }
 
   /**
@@ -1512,7 +1569,7 @@ class PresShell final : public nsStubDocumentObserver,
    */
   MOZ_CAN_RUN_SCRIPT
   void FlushPendingNotifications(FlushType aType) {
-    if (!NeedFlush(aType)) {
+    if (!NeedFlush(aType, /* aFlushAnimations = */ true)) {
       return;
     }
 
@@ -1521,7 +1578,7 @@ class PresShell final : public nsStubDocumentObserver,
 
   MOZ_CAN_RUN_SCRIPT
   void FlushPendingNotifications(ChangesToFlush aType) {
-    if (!NeedFlush(aType.mFlushType)) {
+    if (!NeedFlush(aType)) {
       return;
     }
 
@@ -1534,10 +1591,11 @@ class PresShell final : public nsStubDocumentObserver,
    * long as the ancestor chain between them doesn't cross a reflow root.
    *
    * The bit to add should be NS_FRAME_IS_DIRTY, NS_FRAME_HAS_DIRTY_CHILDREN
-   * or nsFrameState(0); passing 0 means that dirty bits won't be set on the
-   * frame or its ancestors/descendants, but that intrinsic widths will still
-   * be marked dirty.  Passing aIntrinsicDirty = eResize and aBitToAdd = 0
-   * would result in no work being done, so don't do that.
+   * or NS_FRAME_STATE_NONE; passing NS_FRAME_STATE_NONE means that dirty bits
+   * won't be set on the frame or its ancestors/descendants, but that intrinsic
+   * widths will still be marked dirty.  Passing aIntrinsicDirty = eResize and
+   * aBitToAdd = NS_FRAME_STATE_NONE would result in no work being done, so
+   * don't do that.
    */
   void FrameNeedsReflow(
       nsIFrame* aFrame, IntrinsicDirty aIntrinsicDirty, nsFrameState aBitToAdd,
@@ -1584,11 +1642,7 @@ class PresShell final : public nsStubDocumentObserver,
   void ResetVisualViewportSize();
   bool IsVisualViewportSizeSet() { return mVisualViewportSizeSet; }
   void SetNeedsWindowPropertiesSync();
-  nsSize GetVisualViewportSize() {
-    NS_ASSERTION(mVisualViewportSizeSet,
-                 "asking for visual viewport size when its not set?");
-    return mVisualViewportSize;
-  }
+  nsSize GetVisualViewportSize() const;
 
   nsPoint GetVisualViewportOffsetRelativeToLayoutViewport() const;
 
@@ -1703,9 +1757,9 @@ class PresShell final : public nsStubDocumentObserver,
    * @param aContent  The content object of which primary frame should be
    *                  scrolled into view.
    * @param aVertical How to align the frame vertically and when to do so.
-   *                  This is a ScrollAxis of Where and When.
+   *                  This is a AxisScrollParams of Where and When.
    * @param aHorizontal How to align the frame horizontally and when to do so.
-   *                  This is a ScrollAxis of Where and When.
+   *                  This is a AxisScrollParams of Where and When.
    * @param aScrollFlags  If ScrollFlags::ScrollFirstAncestorOnly is set,
    *                      only the nearest scrollable ancestor is scrolled,
    *                      otherwise all scrollable ancestors may be scrolled
@@ -1735,8 +1789,9 @@ class PresShell final : public nsStubDocumentObserver,
    *                      axis, rather than to physical directions.
    */
   MOZ_CAN_RUN_SCRIPT
-  nsresult ScrollContentIntoView(nsIContent* aContent, ScrollAxis aVertical,
-                                 ScrollAxis aHorizontal,
+  nsresult ScrollContentIntoView(nsIContent* aContent,
+                                 AxisScrollParams aVertical,
+                                 AxisScrollParams aHorizontal,
                                  ScrollFlags aScrollFlags);
 
   /**
@@ -1821,6 +1876,18 @@ class PresShell final : public nsStubDocumentObserver,
    */
   bool IsForcingLayoutForHiddenContent(const nsIFrame*) const;
 
+  void IncrementContentVisibilityHiddenCount() {
+    ++mContentVisibilityHiddenCount;
+  }
+  void DecrementContentVisibilityHiddenCount() {
+    MOZ_ASSERT(mContentVisibilityHiddenCount > 0,
+               "Increment/decrement calls should be balanced");
+    --mContentVisibilityHiddenCount;
+  }
+  bool HasContentVisibilityHiddenFrames() const {
+    return mContentVisibilityHiddenCount > 0;
+  }
+
   void RegisterContentVisibilityAutoFrame(nsIFrame* aFrame) {
     mContentVisibilityAutoFrames.Insert(aFrame);
   }
@@ -1882,6 +1949,11 @@ class PresShell final : public nsStubDocumentObserver,
    * point where we know the frame tree is stable.
    */
   void MergeAnchorPosAnchorChanges();
+
+  void CleanupFullscreenState();
+
+  void MaybeExitKeyboardLockedFullscreen(WidgetKeyboardEvent* aKeyboardEvent,
+                                         Document* aFullscreenRoot);
 
  private:
   ~PresShell();
@@ -1973,9 +2045,8 @@ class PresShell final : public nsStubDocumentObserver,
   void CancelPostedReflowCallbacks();
   void FlushPendingScrollAnchorAdjustments();
 
-  void SetPendingVisualScrollUpdate(
-      const nsPoint& aVisualViewportOffset,
-      FrameMetrics::ScrollOffsetUpdateType aUpdateType);
+  void SetPendingVisualScrollUpdate(const nsPoint& aVisualViewportOffset,
+                                    ScrollOffsetUpdateType aUpdateType);
 
 #ifdef MOZ_REFLOW_PERF
   UniquePtr<ReflowCountMgr> mReflowCountMgr;
@@ -1986,8 +2057,8 @@ class PresShell final : public nsStubDocumentObserver,
   // This data is stored as a content property (nsGkAtoms::scrolling) on
   // mContentToScrollTo when we have a pending ScrollIntoView.
   struct ScrollIntoViewData {
-    ScrollAxis mContentScrollVAxis;
-    ScrollAxis mContentScrollHAxis;
+    AxisScrollParams mContentScrollVAxis;
+    AxisScrollParams mContentScrollHAxis;
     ScrollFlags mContentToScrollToFlags;
   };
 
@@ -2068,6 +2139,7 @@ class PresShell final : public nsStubDocumentObserver,
     RenderingState mOldState;
   };
   void SetRenderingState(const RenderingState& aState);
+  void RemoveAnchorPosAnchor(const nsAtom* aName, nsIFrame* aFrame);
 
   friend class ::nsPresShellEventCB;
 
@@ -2793,31 +2865,6 @@ class PresShell final : public nsStubDocumentObserver,
         nsIContent* aCapturingContent, bool* aIsCapturingContentIgnored);
 
     /**
-     * ComputeRootFrameToHandleEventWithCapturingContent() returns root frame
-     * to handle event for the capturing content, or aRootFrameToHandleEvent
-     * if it should be ignored.
-     *
-     * @param aRootFrameToHandleEvent           Candidate root frame to handle
-     *                                          the event.
-     * @param aCapturingContent                 Capturing content.  nullptr is
-     *                                          not allowed.
-     * @param aIsCapturingContentIgnored        [out] true if aCapturingContent
-     *                                          is not nullptr but it should be
-     *                                          ignored to handle the event.
-     * @param aIsCaptureRetargeted              [out] true if aCapturingContent
-     *                                          is not nullptr but it's
-     *                                          retargeted.
-     * @return                                  A popup frame if there is a
-     *                                          popup and we should handle the
-     *                                          event in it.  Otherwise,
-     *                                          aRootFrameToHandleEvent.
-     *                                          I.e., never returns nullptr.
-     */
-    nsIFrame* ComputeRootFrameToHandleEventWithCapturingContent(
-        nsIFrame* aRootFrameToHandleEvent, nsIContent* aCapturingContent,
-        bool* aIsCapturingContentIgnored, bool* aIsCaptureRetargeted);
-
-    /**
      * HandleEventWithPointerCapturingContentWithoutItsFrame() handles
      * aGUIEvent with aPointerCapturingContent when it does not have primary
      * frame.
@@ -3203,6 +3250,9 @@ class PresShell final : public nsStubDocumentObserver,
   nsIFrame* mCurrentReflowRoot = nullptr;
 #endif  // #ifdef DEBUG
 
+  bool ShouldShowFullscreenKeyboardLockWarning(
+      const WidgetKeyboardEvent& aKeyboardEvent);
+
  private:
   // IMPORTANT: The ownership implicit in the following member variables
   // has been explicitly checked.  If you add any members to this class,
@@ -3404,6 +3454,9 @@ class PresShell final : public nsStubDocumentObserver,
   uint32_t mFontSizeInflationMinTwips;
   uint32_t mFontSizeInflationLineThreshold;
 
+  // How many frames in the frame tree have 'content-visibility: hidden'.
+  uint32_t mContentVisibilityHiddenCount = 0;
+
   // Can be multiple of nsISelectionDisplay::DISPLAY_*.
   int16_t mSelectionFlags;
 
@@ -3531,9 +3584,23 @@ class PresShell final : public nsStubDocumentObserver,
   // positioning has ever been seen in any descendant presshell.
   bool mHasSeenAnchorPos : 1;
 
+  // Whether we have already shown a warning about how to exit fullscreen for
+  // the current Escape key down long-press.
+  bool mHasShownFullscreenWarningForCurrentEscapeKeyLongPress : 1;
+
   // The last TimeStamp when the keyup event did not exit fullscreen because it
   // was consumed.
   TimeStamp mLastConsumedEscapeKeyUpForFullscreen;
+
+  // The TimeStamp of the first repeating Escape key keydown event that might
+  // a long-press for exiting fullscreen.
+  TimeStamp mFirstUnmatchedEscapeKeyDownForFullscreen;
+
+  // When the fullscreen keyboard lock is enabled, we want three Escape key
+  // presses within a given interval to trigger a warning about how to exit
+  // fullscreen.
+  uint8_t mEscapeKeyDownCountForFullscreenKeyboardLockWarning;
+  TimeStamp mLastEscapeKeyDownTimeForFullscreenKeyboardLockWarning;
 
   // The `SelectionNodeCache` is tightly coupled with the PresShell.
   // It should only be possible to create a cache from within a PresShell.

@@ -4,6 +4,8 @@
 
 #include "mozilla/AbstractThread.h"
 
+#include <memory>
+
 #include "mozilla/ClearOnShutdown.h"
 #include "mozilla/DelayedRunnable.h"
 #include "mozilla/MozPromise.h"  // We initialize the MozPromise logging in this file.
@@ -18,7 +20,6 @@
 #include "nsServiceManagerUtils.h"
 #include "nsThreadManager.h"
 #include "nsThreadUtils.h"
-#include <memory>
 
 namespace mozilla {
 
@@ -32,9 +33,10 @@ class XPCOMThreadWrapper final : public AbstractThread,
                                  public nsIThreadObserver,
                                  public nsIDirectTaskDispatcher {
  public:
-  XPCOMThreadWrapper(nsIThreadInternal* aThread, bool aRequireTailDispatch,
+  XPCOMThreadWrapper(nsIThreadInternal* aThread,
+                     enum TailDispatchPolicy aTailDispatchPolicy,
                      bool aOnThread)
-      : AbstractThread(aRequireTailDispatch),
+      : AbstractThread(aTailDispatchPolicy),
         mThread(aThread),
         mDirectTaskDispatcher(do_QueryInterface(aThread)),
         mOnThread(aOnThread) {
@@ -88,7 +90,7 @@ class XPCOMThreadWrapper final : public AbstractThread,
       return NS_ERROR_FAILURE;
     }
 
-    RefPtr<nsIRunnable> runner = new Runner(this, r.forget());
+    RefPtr runner = MakeRefPtr<Runner>(this, r.forget());
     return mThread->Dispatch(runner.forget(), NS_DISPATCH_FALLIBLE);
   }
 
@@ -115,9 +117,8 @@ class XPCOMThreadWrapper final : public AbstractThread,
     MOZ_ASSERT(IsCurrentThreadIn());
     MOZ_ASSERT(IsTailDispatcherAvailable());
     if (!mTailDispatcher) {
-      mTailDispatcher =
-          std::make_unique<AutoTaskDispatcher>(mDirectTaskDispatcher,
-                                               /* aIsTailDispatcher = */ true);
+      mTailDispatcher = std::make_unique<AutoTaskDispatcher>(
+          mDirectTaskDispatcher, mTailDispatcherPolicy);
       mThread->AddObserver(this);
     }
 
@@ -264,8 +265,8 @@ AbstractThread::DelayedDispatch(already_AddRefed<nsIRunnable> aEvent,
   nsCOMPtr<nsIRunnable> event = aEvent;
   NS_ENSURE_TRUE(!!aDelayMs, NS_ERROR_UNEXPECTED);
 
-  RefPtr<DelayedRunnable> r =
-      new DelayedRunnable(do_AddRef(this), event.forget(), aDelayMs);
+  RefPtr r =
+      MakeRefPtr<DelayedRunnable>(do_AddRef(this), event.forget(), aDelayMs);
   nsresult rv = r->Init();
   NS_ENSURE_SUCCESS(rv, rv);
 
@@ -321,7 +322,7 @@ void AbstractThread::InitMainThread() {
     MOZ_CRASH();
   }
   sMainThread = new XPCOMThreadWrapper(mainThread.get(),
-                                       /* aRequireTailDispatch = */ true,
+                                       TailDispatchPolicy::ConsistentOrdering,
                                        true /* onThread */);
 }
 

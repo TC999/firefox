@@ -46,17 +46,11 @@ struct FuncCompileInput {
   const uint8_t* begin;
   const uint8_t* end;
   uint32_t index;
-  uint32_t lineOrBytecode;
-  Uint32Vector callSiteLineNums;
+  uint32_t bytecodeOffset;
 
-  FuncCompileInput(uint32_t index, uint32_t lineOrBytecode,
-                   const uint8_t* begin, const uint8_t* end,
-                   Uint32Vector&& callSiteLineNums)
-      : begin(begin),
-        end(end),
-        index(index),
-        lineOrBytecode(lineOrBytecode),
-        callSiteLineNums(std::move(callSiteLineNums)) {}
+  FuncCompileInput(uint32_t index, uint32_t bytecodeOffset,
+                   const uint8_t* begin, const uint8_t* end)
+      : begin(begin), end(end), index(index), bytecodeOffset(bytecodeOffset) {}
 
   uint32_t bytecodeSize() const {
     static_assert(wasm::MaxFunctionBytes <= UINT32_MAX);
@@ -107,6 +101,9 @@ struct CompiledCode {
   FuncIonPerfSpewerVector funcIonSpewers;
   FuncBaselinePerfSpewerVector funcBaselineSpewers;
   FeatureUsage featureUsage;
+#ifdef ENABLE_WASM_JSPI
+  ContBaseFrameOffsetMap contBaseFrameOffsets;
+#endif
   CompileStats compileStats;
 
   [[nodiscard]] bool swap(jit::MacroAssembler& masm);
@@ -130,6 +127,9 @@ struct CompiledCode {
     funcBaselineSpewers.clear();
     featureUsage = FeatureUsage::None;
     compileStats.clear();
+#ifdef ENABLE_WASM_JSPI
+    contBaseFrameOffsets.clear();
+#endif
     MOZ_ASSERT(empty());
   }
 
@@ -154,11 +154,11 @@ struct CompiledCode {
 
 struct CompileTaskState {
   HelperThreadLockData<CompileTaskPtrVector> finished_;
-  HelperThreadLockData<uint32_t> numFailed_;
+  HelperThreadLockData<uint32_t> numFailed_{0};
   HelperThreadLockData<UniqueChars> errorMessage_;
   HelperThreadLockData<ConditionVariable> condVar_;
 
-  CompileTaskState() : numFailed_(0) {}
+  CompileTaskState() = default;
   ~CompileTaskState() {
     MOZ_ASSERT(finished_.refNoCheck().empty());
     MOZ_ASSERT(!numFailed_.refNoCheck());
@@ -246,6 +246,8 @@ class MOZ_STACK_CLASS ModuleGenerator {
   // Data that is used for partial tiering
   SharedCode partialTieringCode_;
 
+  const CodeTailMetadata* existingCodeTailMeta_;
+
   // Data that is used for compiling a complete tier
   mozilla::TimeStamp completeTierStartTime_;
 
@@ -256,7 +258,6 @@ class MOZ_STACK_CLASS ModuleGenerator {
   AllocSitesRangeVector funcDefAllocSites_;
   FuncImportVector funcImports_;
   CodeBlockResult sharedStubs_;
-  MutableCodeMetadataForAsmJS codeMetaForAsmJS_;
   FeatureUsage featureUsage_;
 
   // Data that is used to construct a CodeBlock
@@ -268,6 +269,9 @@ class MOZ_STACK_CLASS ModuleGenerator {
   uint32_t debugStubCodeOffset_;
   uint32_t requestTierUpStubCodeOffset_;
   uint32_t updateCallRefMetricsStubCodeOffset_;
+#ifdef ENABLE_WASM_JSPI
+  ContBaseFrameOffsetMap contBaseFrameOffsets_;
+#endif
   CallFarJumpVector callFarJumps_;
   CallSiteTargetVector callSiteTargets_;
   FuncIonPerfSpewerVector funcIonSpewers_;
@@ -323,7 +327,6 @@ class MOZ_STACK_CLASS ModuleGenerator {
   [[nodiscard]] bool finishTier(CompileAndLinkStats* tierStats,
                                 CodeBlockResult* result);
 
-  bool isAsmJS() const { return codeMeta_->isAsmJS(); }
   Tier tier() const { return compilerEnv_->tier(); }
   CompileMode mode() const { return compilerEnv_->mode(); }
   bool debugEnabled() const { return compilerEnv_->debugEnabled(); }
@@ -343,16 +346,15 @@ class MOZ_STACK_CLASS ModuleGenerator {
                   UniqueCharsVector* warnings);
   ~ModuleGenerator();
   [[nodiscard]] bool initializeCompleteTier(
-      CodeMetadataForAsmJS* codeMetaForAsmJS = nullptr);
+      const CodeTailMetadata* existingCodeTailMeta = nullptr);
   [[nodiscard]] bool initializePartialTier(const Code& code,
                                            uint32_t maybeFuncIndex);
 
   // Before finishFuncDefs() is called, compileFuncDef() must be called once
   // for each funcIndex in the range [0, env->numFuncDefs()).
 
-  [[nodiscard]] bool compileFuncDef(
-      uint32_t funcIndex, uint32_t lineOrBytecode, const uint8_t* begin,
-      const uint8_t* end, Uint32Vector&& callSiteLineNums = Uint32Vector());
+  [[nodiscard]] bool compileFuncDef(uint32_t funcIndex, uint32_t bytecodeOffset,
+                                    const uint8_t* begin, const uint8_t* end);
 
   // Must be called after the last compileFuncDef() and before finishModule()
   // or finishTier2().

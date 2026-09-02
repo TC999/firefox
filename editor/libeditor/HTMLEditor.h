@@ -170,6 +170,9 @@ class HTMLEditor final : public EditorBase,
 
   bool IsEmpty() const final;
 
+  dom::EditContext* ComputeEditContext() const final;
+  bool IsFiringTextUpdate() const;
+
   bool CanPaste(nsIClipboard::ClipboardType aClipboardType) const final;
   using EditorBase::CanPaste;
 
@@ -206,7 +209,30 @@ class HTMLEditor final : public EditorBase,
       const final;
   MOZ_CAN_RUN_SCRIPT nsresult
   OnFocus(const nsINode& aOriginalEventTargetNode) final;
-  nsresult OnBlur(const dom::EventTarget* aEventTarget) final;
+  MOZ_CAN_RUN_SCRIPT void PostHandleFocusEvent(
+      const nsINode& aFocusEventTargetNode) final;
+  MOZ_CAN_RUN_SCRIPT nsresult
+  OnBlur(const dom::EventTarget* aEventTarget) final;
+
+  /**
+   * Called when eFocus event of aNode will be dispatched to the DOM.
+   * Note that aNode is the original target of eFocus (i.e., may be the target
+   * in a shadow). However, aNode may not be editable. E.g., <a href> element
+   * outside contenteditable. Therefore, even when this method is called,
+   * HTMLEditor won't get focus.
+   */
+  MOZ_CAN_RUN_SCRIPT static void WillFocusNode(PresShell& aPresShell,
+                                               nsINode* aNode);
+
+  /**
+   * Called when eFocus event of aNode will be dispatched to the DOM.
+   * Note that aNode is the original target of eBlur (i.e., may be the target
+   * in a shadow). However, aNode may not be editable. E.g., <a href> element
+   * outside contenteditable. Therefore, even when this method is called,
+   * HTMLEditor may not have focus.
+   */
+  MOZ_CAN_RUN_SCRIPT static void WillBlurNode(PresShell& aPresShell,
+                                              nsINode* aNode);
 
   /**
    * Called when aDocument or aElement becomes editable without focus change.
@@ -233,27 +259,6 @@ class HTMLEditor final : public EditorBase,
    */
   MOZ_CAN_RUN_SCRIPT nsresult GetBackgroundColorState(bool* aMixed,
                                                       nsAString& aOutColor);
-
-  /**
-   * PasteNoFormattingAsAction() pastes content in clipboard without any style
-   * information.
-   *
-   * @param aClipboardType      nsIClipboard::kGlobalClipboard or
-   *                            nsIClipboard::kSelectionClipboard.
-   * @param aDispatchPasteEvent Yes if this should dispatch ePaste event
-   *                            before pasting.  Otherwise, No.
-   * @param aDataTransfer       The object containing the data to use for the
-   *                            paste operation. May be nullptr, in which case
-   *                            this will just get the data from the clipboard.
-   * @param aPrincipal          Set subject principal if it may be called by
-   *                            JS.  If set to nullptr, will be treated as
-   *                            called by system.
-   */
-  MOZ_CAN_RUN_SCRIPT nsresult
-  PasteNoFormattingAsAction(nsIClipboard::ClipboardType aClipboardType,
-                            DispatchPasteEvent aDispatchPasteEvent,
-                            DataTransfer* aDataTransfer = nullptr,
-                            nsIPrincipal* aPrincipal = nullptr);
 
   bool CanPasteTransferable(nsITransferable* aTransferable) final;
 
@@ -403,9 +408,12 @@ class HTMLEditor final : public EditorBase,
   bool IsCSSEnabled() const { return mIsCSSPrefChecked; }
 
   /**
-   * Return true when editing host is not plaintext-only.
+   * Return true when editing host is not plaintext-only/EditContext.
+   *
+   * @param aEditingHost Pass editing host to avoid recomputing it.
    */
-  [[nodiscard]] bool IsStyleEditable() const;
+  [[nodiscard]] bool IsStyleEditable(
+      const Element* aEditingHost = nullptr) const;
 
   /**
    * Enable/disable object resizers for <img> elements, <table> elements,
@@ -738,8 +746,8 @@ class HTMLEditor final : public EditorBase,
    * @parem aNodeInserted  Return the node which was inserted.
    */
   MOZ_CAN_RUN_SCRIPT  // USED_BY_COMM_CENTRAL
-      nsresult
-      InsertAsQuotation(const nsAString& aQuotedText, nsINode** aNodeInserted);
+      nsresult InsertAsQuotation(const nsAString& aQuotedText,
+                                 nsINode** aNodeInserted);
 
   MOZ_CAN_RUN_SCRIPT nsresult InsertHTMLAsAction(
       const nsAString& aInString, nsIPrincipal* aPrincipal = nullptr);
@@ -3004,12 +3012,7 @@ class HTMLEditor final : public EditorBase,
     MOZ_CAN_RUN_SCRIPT void Update(HTMLEditor& aHTMLEditor,
                                    Selection& aSelection);
 
-    bool operator==(const CellIndexes& aOther) const {
-      return mRow == aOther.mRow && mColumn == aOther.mColumn;
-    }
-    bool operator!=(const CellIndexes& aOther) const {
-      return mRow != aOther.mRow || mColumn != aOther.mColumn;
-    }
+    bool operator==(const CellIndexes& aOther) const = default;
 
     [[nodiscard]] bool isErr() const { return mRow < 0 || mColumn < 0; }
 
@@ -3269,6 +3272,9 @@ class HTMLEditor final : public EditorBase,
   [[nodiscard]] MOZ_CAN_RUN_SCRIPT nsresult
   HandlePasteTransferable(AutoEditActionDataSetter& aEditActionData,
                           nsITransferable& aTransferable) final;
+  [[nodiscard]] MOZ_CAN_RUN_SCRIPT nsresult HandlePasteNoFormatting(
+      AutoEditActionDataSetter& aEditActionData,
+      nsIClipboard::ClipboardType aClipboardType, DataTransfer* aDataTransfer);
 
   /**
    * PasteInternal() pasts text with replacing selected content.
@@ -4300,13 +4306,14 @@ class HTMLEditor final : public EditorBase,
    */
   [[nodiscard]] MOZ_CAN_RUN_SCRIPT nsresult RefreshResizersInternal();
 
-  ManualNACPtr CreateResizer(int16_t aLocation, nsIContent& aParentContent);
+  MOZ_CAN_RUN_SCRIPT_BOUNDARY ManualNACPtr
+  CreateResizer(int16_t aLocation, nsIContent& aParentContent);
   [[nodiscard]] MOZ_CAN_RUN_SCRIPT nsresult
   SetAnonymousElementPositionWithoutTransaction(nsStyledElement& aStyledElement,
                                                 int32_t aX, int32_t aY);
 
-  ManualNACPtr CreateShadow(nsIContent& aParentContent,
-                            Element& aOriginalObject);
+  MOZ_CAN_RUN_SCRIPT_BOUNDARY ManualNACPtr
+  CreateShadow(nsIContent& aParentContent, Element& aOriginalObject);
 
   /**
    * SetShadowPosition() moves the shadow element to proper position.
@@ -4320,7 +4327,8 @@ class HTMLEditor final : public EditorBase,
   SetShadowPosition(Element& aShadowElement, Element& aElement,
                     int32_t aElementLeft, int32_t aElementTop);
 
-  ManualNACPtr CreateResizingInfo(nsIContent& aParentContent);
+  MOZ_CAN_RUN_SCRIPT_BOUNDARY ManualNACPtr
+  CreateResizingInfo(nsIContent& aParentContent);
   MOZ_CAN_RUN_SCRIPT nsresult SetResizingInfoPosition(int32_t aX, int32_t aY,
                                                       int32_t aW, int32_t aH);
 
@@ -4395,7 +4403,8 @@ class HTMLEditor final : public EditorBase,
    * always non-nullptr.  Otherwise, i.e., the grabber is hidden during
    * creation, this returns false.
    */
-  bool CreateGrabberInternal(nsIContent& aParentContent);
+  MOZ_CAN_RUN_SCRIPT_BOUNDARY bool CreateGrabberInternal(
+      nsIContent& aParentContent);
 
   MOZ_CAN_RUN_SCRIPT nsresult StartMoving();
   MOZ_CAN_RUN_SCRIPT nsresult SetFinalPosition(int32_t aX, int32_t aY);
@@ -4448,9 +4457,9 @@ class HTMLEditor final : public EditorBase,
    *                              is to be added to the created anonymous
    *                              element
    */
-  ManualNACPtr CreateAnonymousElement(nsAtom* aTag, nsIContent& aParentContent,
-                                      const nsAString& aClass,
-                                      bool aIsCreatedHidden);
+  MOZ_CAN_RUN_SCRIPT ManualNACPtr
+  CreateAnonymousElement(nsAtom* aTag, nsIContent& aParentContent,
+                         const nsAString& aClass, bool aIsCreatedHidden);
 
   /**
    * Reads a blob into memory and notifies the BlobReader object when the read

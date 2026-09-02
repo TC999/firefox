@@ -44,7 +44,7 @@ async function getFirstSuggestionIndex() {
   for (let i = 0; i < matchCount; i++) {
     let result = await UrlbarTestUtils.getDetailsOfResultAt(window, i);
     if (
-      result.type == UrlbarUtils.RESULT_TYPE.SEARCH &&
+      result.type == UrlbarShared.RESULT_TYPE.SEARCH &&
       result.searchParams.suggestion
     ) {
       return i;
@@ -266,6 +266,11 @@ add_task(async function test_source_urlbar_oneoffs_newtab() {
 });
 
 add_task(async function test_source_urlbar_handoff() {
+  // The handoff search bar this reports from is superseded by the newtab
+  // <moz-urlbar> when its feature gate is on.
+  await SpecialPowers.pushPrefEnv({
+    set: [["browser.urlbar.newtab.featureGate", false]],
+  });
   let tab;
   await track_ad_click(
     "urlbar-handoff",
@@ -354,6 +359,7 @@ add_task(async function test_source_urlbar_handoff() {
       BrowserTestUtils.removeTab(tab);
     }
   );
+  await SpecialPowers.popPrefEnv();
 });
 
 add_task(async function test_source_searchbar() {
@@ -423,6 +429,123 @@ add_task(async function test_source_system() {
       });
 
       await loadPromise;
+      return tab;
+    },
+    async () => {
+      BrowserTestUtils.removeTab(tab);
+    }
+  );
+});
+
+add_task(async function test_source_searchModeSwitcher() {
+  let tab;
+  await track_ad_click(
+    "urlbar-searchmode",
+    "urlbar_searchmode",
+    async () => {
+      tab = await BrowserTestUtils.openNewForegroundTab(gBrowser);
+      await UrlbarTestUtils.promiseAutocompleteResultPopup({
+        window,
+        value: "searchSuggestion",
+      });
+      let popup = await UrlbarTestUtils.openSearchModeSwitcher(window);
+      let loadPromise = BrowserTestUtils.browserLoaded(tab.linkedBrowser);
+      popup
+        .querySelector("panel-item[data-engine-name=Example]")
+        .button.click();
+      EventUtils.synthesizeKey("KEY_Enter");
+      await loadPromise;
+      return tab;
+    },
+    async () => {
+      BrowserTestUtils.removeTab(tab);
+    }
+  );
+});
+
+add_task(async function test_source_searchModeSwitcherNewtab() {
+  let tab;
+  await track_ad_click(
+    "urlbar-searchmode",
+    "urlbar_searchmode",
+    async () => {
+      await UrlbarTestUtils.promiseAutocompleteResultPopup({
+        window,
+        value: "searchSuggestion",
+      });
+      let popup = await UrlbarTestUtils.openSearchModeSwitcher(window);
+
+      let newTabPromise = BrowserTestUtils.waitForNewTab(gBrowser);
+      EventUtils.synthesizeMouseAtCenter(
+        popup.querySelector("panel-item[data-engine-name=Example]"),
+        { accelKey: true }
+      );
+      let popupHidden = UrlbarTestUtils.searchModeSwitcherPopupClosed(window);
+      popup.hide();
+      await popupHidden;
+
+      tab = await newTabPromise;
+      return tab;
+    },
+    async () => {
+      BrowserTestUtils.removeTab(tab);
+    }
+  );
+});
+
+add_task(async function test_source_searchModeSwitcherNewtabForeground() {
+  let tab;
+  await track_ad_click(
+    "urlbar-searchmode",
+    "urlbar_searchmode",
+    async () => {
+      await UrlbarTestUtils.promiseAutocompleteResultPopup({
+        window,
+        value: "searchSuggestion",
+      });
+      let popup = await UrlbarTestUtils.openSearchModeSwitcher(window);
+
+      let newTabPromise = BrowserTestUtils.waitForNewTab(gBrowser);
+      EventUtils.synthesizeMouseAtCenter(
+        popup.querySelector("panel-item[data-engine-name=Example]"),
+        { accelKey: true, shiftKey: true }
+      );
+      let popupHidden = UrlbarTestUtils.searchModeSwitcherPopupClosed(window);
+      popup.hide();
+      await popupHidden;
+
+      tab = await newTabPromise;
+      return tab;
+    },
+    async () => {
+      BrowserTestUtils.removeTab(tab);
+    }
+  );
+});
+
+add_task(async function test_source_searchModeSwitcherSearchbar() {
+  let tab;
+  await track_ad_click(
+    "searchbar",
+    "searchbar",
+    async () => {
+      await SearchbarTestUtils.promiseAutocompleteResultPopup({
+        window,
+        value: "searchSuggestion",
+      });
+      let popup = await SearchbarTestUtils.openSearchModeSwitcher(window);
+
+      let newTabPromise = BrowserTestUtils.waitForNewTab(gBrowser);
+      EventUtils.synthesizeMouseAtCenter(
+        popup.querySelector("panel-item[data-engine-name=Example]"),
+        { accelKey: true }
+      );
+      let popupHidden =
+        SearchbarTestUtils.searchModeSwitcherPopupClosed(window);
+      popup.hide();
+      await popupHidden;
+
+      tab = await newTabPromise;
       return tab;
     },
     async () => {

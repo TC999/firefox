@@ -10,6 +10,7 @@
 #include "jit/Lowering.h"
 #include "jit/MIR-wasm.h"
 #include "jit/MIR.h"
+
 #include "jit/shared/Lowering-shared-inl.h"
 
 using namespace js;
@@ -47,8 +48,8 @@ void LIRGenerator::visitBox(MBox* box) {
 
   // If the box wrapped a double, it needs a new register.
   if (IsFloatingPointType(inner->type())) {
-    defineBox(new (alloc()) LBoxFloatingPoint(
-                  useRegisterAtStart(inner), tempCopy(inner, 0), inner->type()),
+    defineBox(new (alloc())
+                  LBoxFloatingPoint(useRegister(inner), inner->type()),
               box);
     return;
   }
@@ -116,16 +117,6 @@ void LIRGenerator::visitUnbox(MUnbox* unbox) {
   // tag, so keeping both alive (for the purpose of gcmaps) is unappealing.
   // Instead, we create a new virtual register.
   defineReuseInput(lir, unbox, 0);
-}
-
-void LIRGenerator::visitReturnImpl(MDefinition* opd, bool isGenerator) {
-  MOZ_ASSERT(opd->type() == MIRType::Value);
-
-  LReturn* ins = new (alloc()) LReturn(isGenerator);
-  ins->setOperand(0, LUse(JSReturnReg_Type));
-  ins->setOperand(1, LUse(JSReturnReg_Data));
-  fillBoxUses(ins, 0, opd);
-  add(ins);
 }
 
 void LIRGeneratorARM::defineInt64Phi(MPhi* phi, size_t lirIndex) {
@@ -705,56 +696,6 @@ void LIRGenerator::visitWasmStore(MWasmStore* ins) {
 
   auto* lir = new (alloc()) LWasmStore(ptr, value, memoryBase, ptrCopy);
   add(lir, ins);
-}
-
-void LIRGenerator::visitAsmJSLoadHeap(MAsmJSLoadHeap* ins) {
-  MDefinition* base = ins->base();
-  MOZ_ASSERT(base->type() == MIRType::Int32);
-
-  // For the ARM it is best to keep the 'base' in a register if a bounds check
-  // is needed.
-  LAllocation baseAlloc;
-  LAllocation limitAlloc;
-
-  if (base->isConstant() && !ins->needsBoundsCheck()) {
-    // A bounds check is only skipped for a positive index.
-    MOZ_ASSERT(base->toConstant()->toInt32() >= 0);
-    baseAlloc = LAllocation(base->toConstant());
-  } else {
-    baseAlloc = useRegisterAtStart(base);
-    if (ins->needsBoundsCheck()) {
-      MDefinition* boundsCheckLimit = ins->boundsCheckLimit();
-      MOZ_ASSERT(boundsCheckLimit->type() == MIRType::Int32);
-      limitAlloc = useRegisterAtStart(boundsCheckLimit);
-    }
-  }
-
-  define(new (alloc()) LAsmJSLoadHeap(baseAlloc, limitAlloc, LAllocation()),
-         ins);
-}
-
-void LIRGenerator::visitAsmJSStoreHeap(MAsmJSStoreHeap* ins) {
-  MDefinition* base = ins->base();
-  MOZ_ASSERT(base->type() == MIRType::Int32);
-
-  LAllocation baseAlloc;
-  LAllocation limitAlloc;
-
-  if (base->isConstant() && !ins->needsBoundsCheck()) {
-    MOZ_ASSERT(base->toConstant()->toInt32() >= 0);
-    baseAlloc = LAllocation(base->toConstant());
-  } else {
-    baseAlloc = useRegisterAtStart(base);
-    if (ins->needsBoundsCheck()) {
-      MDefinition* boundsCheckLimit = ins->boundsCheckLimit();
-      MOZ_ASSERT(boundsCheckLimit->type() == MIRType::Int32);
-      limitAlloc = useRegisterAtStart(boundsCheckLimit);
-    }
-  }
-
-  add(new (alloc()) LAsmJSStoreHeap(baseAlloc, useRegisterAtStart(ins->value()),
-                                    limitAlloc, LAllocation()),
-      ins);
 }
 
 void LIRGeneratorARM::lowerTruncateDToInt32(MTruncateToInt32* ins) {

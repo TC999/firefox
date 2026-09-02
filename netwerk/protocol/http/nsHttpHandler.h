@@ -7,29 +7,27 @@
 
 #include <functional>
 
-#include "nsHttp.h"
-#include "nsHttpAuthCache.h"
-#include "nsHttpConnectionInfo.h"
-#include "AlternateServices.h"
 #include "ASpdySession.h"
-#include "HttpTrafficAnalyzer.h"
+#include "AlternateServices.h"
 #include "EventTokenBucket.h"
-
+#include "HttpTrafficAnalyzer.h"
 #include "mozilla/DataMutex.h"
 #include "mozilla/Mutex.h"
 #include "mozilla/StaticPtr.h"
 #include "mozilla/TimeStamp.h"
-#include "nsString.h"
-#include "nsCOMPtr.h"
-#include "nsWeakReference.h"
 #include "mozilla/net/Dictionary.h"
 #include "mozilla/net/HttpConnectionMgrShell.h"
-
+#include "nsCOMPtr.h"
+#include "nsHttp.h"
+#include "nsHttpAuthCache.h"
+#include "nsHttpConnectionInfo.h"
 #include "nsIHttpProtocolHandler.h"
 #include "nsIObserver.h"
 #include "nsISpeculativeConnect.h"
+#include "nsString.h"
 #include "nsTHashMap.h"
 #include "nsTHashSet.h"
+#include "nsWeakReference.h"
 
 #ifdef DEBUG
 #  include "nsIOService.h"
@@ -165,7 +163,6 @@ class nsHttpHandler final : public nsIHttpProtocolHandler,
   PRIntervalTime SpdyPingThreshold() { return mSpdyPingThreshold; }
   PRIntervalTime SpdyPingTimeout() { return mSpdyPingTimeout; }
   bool AllowAltSvc() { return mEnableAltSvc; }
-  bool AllowAltSvcOE() { return mEnableAltSvcOE; }
   uint32_t ConnectTimeout() { return mConnectTimeout; }
   uint32_t TLSHandshakeTimeout() { return mTLSHandshakeTimeout; }
   uint32_t ParallelSpeculativeConnectLimit() {
@@ -455,6 +452,9 @@ class nsHttpHandler final : public nsIHttpProtocolHandler,
 
   void ShutdownConnectionManager();
 
+  // Tears down state that must not outlive XPCOM. Idempotent.
+  void Shutdown();
+
   uint32_t DefaultHpackBuffer() const { return mDefaultHpackBuffer; }
 
   static bool IsHttp3Enabled();
@@ -672,11 +672,14 @@ class nsHttpHandler final : public nsIHttpProtocolHandler,
   // true in between init and shutdown states
   Atomic<bool, Relaxed> mHandlerActive{false};
 
+  // Release/acquire: the destructor may run on any thread and has to see what
+  // Shutdown() already did.
+  Atomic<bool, ReleaseAcquire> mShutdownCalled{false};
+
   // The value of 'hidden' network.http.debug-observations : 1;
   uint32_t mDebugObservations : 1;
 
   uint32_t mEnableAltSvc : 1;
-  uint32_t mEnableAltSvcOE : 1;
 
   // Try to use SPDY features instead of HTTP/1.1 over SSL
   SpdyInformation mSpdyInfo;

@@ -6,18 +6,18 @@ package mozilla.components.support.remotesettings
 
 import android.content.Context
 import android.os.Build
-import mozilla.appservices.remotesettings.RemoteSettingsConfig2
+import java.util.Locale
+import mozilla.appservices.remotesettings.GleanTelemetry
+import mozilla.appservices.remotesettings.RemoteSettingsConfig
 import mozilla.appservices.remotesettings.RemoteSettingsContext
 import mozilla.appservices.remotesettings.RemoteSettingsServer
-import mozilla.appservices.remotesettings.RemoteSettingsService
-import java.util.Locale
+import mozilla.appservices.remotesettings.RemoteSettingsService as AppServicesRemoteSettingsService
 import mozilla.components.Build as AcBuild
 
 /**
  * Wrapper around the app-services RemoteSettingsServer
  *
- * @param context [Context] that we get the storage directory from.  This is where cached records
- * get stored.
+ * @param context [Context] that we get the storage directory from. This is where cached records get stored.
  * @param remoteSettingsServer [RemoteSettingsServer] to download from.
  */
 class RemoteSettingsService(
@@ -26,10 +26,16 @@ class RemoteSettingsService(
     channel: String = "release",
     isLargeScreenSize: Boolean = false,
 ) {
-    val remoteSettingsService: RemoteSettingsService by lazy {
+    val remoteSettingsService: AppServicesRemoteSettingsService by lazy {
         val appContext = generateAppContext(context, channel, isLargeScreenSize)
         val databasePath = context.getDir("remote-settings", Context.MODE_PRIVATE).absolutePath
-        RemoteSettingsService(databasePath, RemoteSettingsConfig2(server = server, appContext = appContext))
+        AppServicesRemoteSettingsService(
+                databasePath,
+                RemoteSettingsConfig(server = server, appContext = appContext),
+            )
+            .also { service ->
+                service.setTelemetry(GleanTelemetry())
+            }
     }
 }
 
@@ -58,20 +64,16 @@ internal fun generateAppContext(
     )
 }
 
-/**
- * Data class representing the RemoteSettingsConfig2 in appservices.
- */
+/** Data class representing the RemoteSettingsConfig in appservices. */
 data class RemoteSettingsServerConfig(
     var server: RemoteSettingsServer? = null,
     var bucketName: String? = null,
     var appContext: RemoteSettingsContext? = null,
 )
 
-/**
- * Convert [mozilla.components.support.remotesettings.RemoteSettingsServerConfig] into [RemoteSettingsConfig2].
- */
-fun mozilla.components.support.remotesettings.RemoteSettingsServerConfig.into(): RemoteSettingsConfig2 {
-    return RemoteSettingsConfig2(
+/** Convert [mozilla.components.support.remotesettings.RemoteSettingsServerConfig] into [RemoteSettingsConfig]. */
+fun mozilla.components.support.remotesettings.RemoteSettingsServerConfig.into(): RemoteSettingsConfig {
+    return RemoteSettingsConfig(
         this.server,
         this.bucketName,
         this.appContext,

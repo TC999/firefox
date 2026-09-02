@@ -50,12 +50,14 @@ class FragmentTest {
 
     @Before
     fun setup() {
-        mockContext = mockk(relaxed = true) {
-            every { settings() } returns settings
-        }
-        fragment = spyk(Fragment()).apply {
-            every { context } returns mockContext
-        }
+        mockContext =
+            mockk(relaxed = true) {
+                every { components.settings } returns settings
+            }
+        fragment =
+            spyk(Fragment()).apply {
+                every { context } returns mockContext
+            }
 
         every { navControllerProvider.getNavController(fragment) } returns navController
         every { navController.currentDestination } returns mockDestination
@@ -88,6 +90,7 @@ class FragmentTest {
 
     @Test
     fun `GIVEN the composable toolbar and the microsurvey are shown at bottom WHEN getBottomToolbarHeight THEN returns the combined height`() {
+        every { mockContext.resources } returns testContext.resources
         every { settings.shouldShowMicrosurveyPrompt } returns true
         every { settings.toolbarPosition } returns ToolbarPosition.BOTTOM
 
@@ -109,6 +112,7 @@ class FragmentTest {
     @Test
     @Config(qualifiers = "h481dp") // navbar is only shown on screens taller than 480dp
     fun `GIVEN just the composable toolbar shown at bottom WHEN getBottomToolbarHeight THEN returns it's height`() {
+        every { mockContext.resources } returns testContext.resources
         every { settings.shouldShowMicrosurveyPrompt } returns false
         every { settings.toolbarPosition } returns ToolbarPosition.BOTTOM
 
@@ -120,10 +124,12 @@ class FragmentTest {
     @Test
     @Config(qualifiers = "h481dp") // navbar is only shown on screens taller than 480dp
     fun `GIVEN the composable toolbar, navigation bar and the microsurvey are shown at bottom WHEN getBottomToolbarHeight with excluded navigation bar THEN returns the combined height minus navigation bar`() {
-        val configuration = Configuration().apply {
-            screenHeightDp = 481
-        }
+        val configuration =
+            Configuration().apply {
+                screenHeightDp = 481
+            }
         every { mockContext.resources.configuration } returns configuration
+        every { mockContext.resources } returns testContext.resources
         every { settings.shouldShowMicrosurveyPrompt } returns true
         every { settings.shouldUseExpandedToolbar } returns true
         every { settings.toolbarPosition } returns ToolbarPosition.BOTTOM
@@ -136,10 +142,12 @@ class FragmentTest {
     @Test
     @Config(qualifiers = "h481dp") // navbar is only shown on screens taller than 480dp
     fun `GIVEN the composable toolbar, navigation bar and the microsurvey are shown at bottom WHEN getBottomToolbarHeight THEN returns the combined height`() {
-        val configuration = Configuration().apply {
-            screenHeightDp = 481
-        }
+        val configuration =
+            Configuration().apply {
+                screenHeightDp = 481
+            }
         every { mockContext.resources.configuration } returns configuration
+        every { mockContext.resources } returns testContext.resources
         every { settings.shouldShowMicrosurveyPrompt } returns true
         every { settings.shouldUseExpandedToolbar } returns true
         every { settings.toolbarPosition } returns ToolbarPosition.BOTTOM
@@ -152,9 +160,10 @@ class FragmentTest {
     @Test
     @Config(qualifiers = "h481dp") // navbar is only shown on screens taller than 480dp
     fun `GIVEN navigation bar and microsurvey is shown at bottom WHEN getBottomToolbarHeight THEN returns the combined height`() {
-        val configuration = Configuration().apply {
-            screenHeightDp = 481
-        }
+        val configuration =
+            Configuration().apply {
+                screenHeightDp = 481
+            }
         every { mockContext.resources.configuration } returns configuration
         every { settings.shouldShowMicrosurveyPrompt } returns true
         every { settings.shouldUseExpandedToolbar } returns true
@@ -179,10 +188,12 @@ class FragmentTest {
     @Test
     @Config(qualifiers = "h481dp") // navbar is only shown on screens taller than 480dp
     fun `GIVEN the composable toolbar and navigation bar are shown at bottom WHEN getBottomToolbarHeight THEN returns the combined height`() {
-        val configuration = Configuration().apply {
-            screenHeightDp = 481
-        }
+        val configuration =
+            Configuration().apply {
+                screenHeightDp = 481
+            }
         every { mockContext.resources.configuration } returns configuration
+        every { mockContext.resources } returns testContext.resources
         every { settings.shouldShowMicrosurveyPrompt } returns false
         every { settings.shouldUseExpandedToolbar } returns true
         every { settings.toolbarPosition } returns ToolbarPosition.BOTTOM
@@ -195,9 +206,10 @@ class FragmentTest {
     @Test
     @Config(qualifiers = "h481dp") // navbar is only shown on screens taller than 480dp
     fun `GIVEN just the navigation bar shown at bottom WHEN getBottomToolbarHeight THEN returns the navbar height`() {
-        val configuration = Configuration().apply {
-            screenHeightDp = 481
-        }
+        val configuration =
+            Configuration().apply {
+                screenHeightDp = 481
+            }
         every { mockContext.resources.configuration } returns configuration
         every { settings.shouldShowMicrosurveyPrompt } returns false
         every { settings.shouldUseExpandedToolbar } returns true
@@ -211,9 +223,10 @@ class FragmentTest {
     @Test
     @Config(qualifiers = "h480dp") // navbar is only shown on screens taller than 480dp
     fun `GIVEN a short screen with navigation bar enabled and address bar at top WHEN getBottomToolbarHeight THEN returns 0`() {
-        val configuration = Configuration().apply {
-            screenHeightDp = 480
-        }
+        val configuration =
+            Configuration().apply {
+                screenHeightDp = 480
+            }
         every { mockContext.resources.configuration } returns configuration
         every { settings.shouldShowMicrosurveyPrompt } returns false
         every { settings.shouldUseExpandedToolbar } returns true
@@ -259,13 +272,7 @@ class FragmentTest {
     }
 
     private fun startFragment(fragment: Fragment) {
-        val activity = Robolectric.buildActivity(FragmentActivity::class.java)
-            .create()
-            .start()
-            .resume()
-            .get()
-        activity.supportFragmentManager.beginTransaction()
-            .add(fragment, null)
-            .commitNow()
+        val activity = Robolectric.buildActivity(FragmentActivity::class.java).create().start().resume().get()
+        activity.supportFragmentManager.beginTransaction().add(fragment, null).commitNow()
     }
 }

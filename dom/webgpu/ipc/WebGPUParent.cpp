@@ -10,6 +10,7 @@
 #include "mozilla/ScopeExit.h"
 #include "mozilla/dom/WebGPUBinding.h"
 #include "mozilla/gfx/FileHandleWrapper.h"
+#include "mozilla/gfx/Logging.h"
 #include "mozilla/gfx/gfxVars.h"
 #include "mozilla/layers/CompositorThread.h"
 #include "mozilla/layers/ImageDataSerializer.h"
@@ -124,24 +125,47 @@ extern int32_t wgpu_server_get_dma_buf_fd(WGPUWebGPUParentPtr aParent,
   // fd should be closed by the caller.
   return fd.release();
 }
+
+extern "C" bool wgpu_server_get_linux_dmabuf_modifiers(
+    const uint64_t** aModifiers, uint32_t* aModifierCount) {
+  if (!aModifiers || !aModifierCount) {
+    return false;
+  }
+
+  *aModifiers = nullptr;
+  *aModifierCount = 0;
+
+  // Vulkan B8G8R8A8_UNORM maps to the exported ARGB dmabuf format on
+  // little-endian Linux.
+  const auto& modifiers = mozilla::gfx::gfxVars::DMABufModifiersARGB();
+  if (modifiers.IsEmpty()) {
+    return false;
+  }
+
+  *aModifiers = modifiers.Elements();
+  *aModifierCount = static_cast<uint32_t>(modifiers.Length());
+  return true;
+}
 #endif
 
 #if defined(XP_LINUX) && !defined(MOZ_WIDGET_ANDROID)
-extern const WGPUVkImageHandle* wgpu_server_get_vk_image_handle(
+extern ffi::WGPUDMABufInfo wgpu_server_get_dma_buf_info(
     WGPUWebGPUParentPtr aParent, WGPUTextureId aId) {
+  ffi::WGPUDMABufInfo info = {};
+
   auto* parent = static_cast<WebGPUParent*>(aParent);
 
   auto texture = parent->GetSharedTexture(aId);
   if (!texture) {
     MOZ_ASSERT_UNREACHABLE("unexpected to be called");
-    return nullptr;
+    return info;
   }
 
   auto* textureDMABuf = texture->AsSharedTextureDMABuf();
   if (!textureDMABuf) {
-    return nullptr;
+    return info;
   }
-  return textureDMABuf->GetHandle();
+  return textureDMABuf->GetDMABufInfo();
 }
 #endif
 
@@ -265,7 +289,7 @@ extern void wgpu_parent_queue_submit(
 
 extern void wgpu_parent_create_swap_chain(
     WGPUWebGPUParentPtr aParent, WGPUDeviceId aDeviceId, WGPUQueueId aQueueId,
-    int32_t aWidth, int32_t aHeight, WGPUSurfaceFormat aFormat,
+    uint32_t aWidth, uint32_t aHeight, WGPUSurfaceFormat aFormat,
     const WGPUBufferId* aBufferIds, uintptr_t aBufferIdsLength,
     WGPURemoteTextureOwnerId aRemoteTextureOwnerId,
     bool aUseSharedTextureInSwapChain) {
@@ -509,11 +533,9 @@ void WebGPUParent::MaintainDevices() {
   ffi::wgpu_server_poll_all_devices(mContext.get(), false);
 }
 
-void WebGPUParent::LoseDevice(const RawId aDeviceId, uint8_t aReason,
+void WebGPUParent::LoseDevice(const RawId aDeviceId,
+                              dom::GPUDeviceLostReason aReason,
                               const nsACString& aMessage) {
-  if (mActiveDeviceIds.Contains(aDeviceId)) {
-    mActiveDeviceIds.Remove(aDeviceId);
-  }
   // Check to see if we've already sent a DeviceLost message to aDeviceId.
   if (mLostDeviceIds.Contains(aDeviceId)) {
     return;
@@ -542,8 +564,7 @@ bool WebGPUParent::ForwardError(ErrorBuffer& aError) {
     // "No errors are generated after device loss."
     if (error->isDeviceLost) {
       if (error->deviceId) {
-        LoseDevice(error->deviceId,
-                   static_cast<uint8_t>(dom::GPUDeviceLostReason::Unknown),
+        LoseDevice(error->deviceId, dom::GPUDeviceLostReason::Unknown,
                    error->message);
       }
     } else {
@@ -604,13 +625,13 @@ static void DeviceLostCleanupCallback(uint8_t* aUserData) {
 
   // NOTE: Based on `u8` discriminant values provided for `DeviceLostReason` in
   // `wgpu_bindings`.
-  uint8_t reason;
+  dom::GPUDeviceLostReason reason;
   switch (aReason) {
     case 0:
-      reason = static_cast<uint8_t>(dom::GPUDeviceLostReason::Unknown);
+      reason = dom::GPUDeviceLostReason::Unknown;
       break;
     case 1:
-      reason = static_cast<uint8_t>(dom::GPUDeviceLostReason::Destroyed);
+      reason = dom::GPUDeviceLostReason::Destroyed;
       break;
     default:
       MOZ_CRASH_UNSAFE_PRINTF(
@@ -645,15 +666,9 @@ void WebGPUParent::PostAdapterRequestDevice(RawId aDeviceId) {
     mDeviceFenceHandles.emplace(aDeviceId, std::move(fenceHandle));
   }
 #endif
-
-  MOZ_ASSERT(!mActiveDeviceIds.Contains(aDeviceId));
-  mActiveDeviceIds.Insert(aDeviceId);
 }
 
 void WebGPUParent::PreDeviceDrop(RawId aDeviceId) {
-  if (mActiveDeviceIds.Contains(aDeviceId)) {
-    mActiveDeviceIds.Remove(aDeviceId);
-  }
   mErrorScopeStackByDevice.erase(aDeviceId);
   mLostDeviceIds.Remove(aDeviceId);
 }
@@ -714,8 +729,7 @@ void WebGPUParent::MapCallback(uint8_t* aUserData,
     // need to lose the device.
     if (aStatus == ffi::WGPUBufferMapAsyncStatus_ContextLost) {
       req->mParent->LoseDevice(
-          req->mDeviceId,
-          static_cast<uint8_t>(dom::GPUDeviceLostReason::Unknown),
+          req->mDeviceId, dom::GPUDeviceLostReason::Unknown,
           nsPrintfCString("Buffer %" PRIu64 " invalid", req->mBufferId));
     }
     auto error = nsPrintfCString("Mapping WebGPU buffer failed: %s",
@@ -826,8 +840,12 @@ const ExternalTextureSourceHost& WebGPUParent::GetExternalTextureSource(
 void WebGPUParent::DestroyExternalTextureSource(RawId aSourceId) {
   auto it = mExternalTextureSources.find(aSourceId);
   if (it != mExternalTextureSources.end()) {
+    for (const auto viewId : it->second.ViewIds()) {
+      ffi::wgpu_server_texture_view_drop(mContext.get(), viewId);
+    }
     for (const auto textureId : it->second.TextureIds()) {
       ffi::wgpu_server_texture_destroy(mContext.get(), textureId);
+      ffi::wgpu_server_texture_drop(mContext.get(), textureId);
     }
   }
 }
@@ -835,12 +853,6 @@ void WebGPUParent::DestroyExternalTextureSource(RawId aSourceId) {
 void WebGPUParent::DropExternalTextureSource(RawId aSourceId) {
   auto it = mExternalTextureSources.find(aSourceId);
   if (it != mExternalTextureSources.end()) {
-    for (const auto viewId : it->second.ViewIds()) {
-      ffi::wgpu_server_texture_view_drop(mContext.get(), viewId);
-    }
-    for (const auto textureId : it->second.TextureIds()) {
-      ffi::wgpu_server_texture_drop(mContext.get(), textureId);
-    }
     mExternalTextureSources.erase(it);
   }
 }
@@ -849,14 +861,6 @@ void WebGPUParent::QueueSubmit(RawId aQueueId, RawId aDeviceId,
                                Span<const RawId> aCommandBuffers,
                                Span<const RawId> aTextureIds,
                                Span<const RawId> aExternalTextureSourceIds) {
-  for (const auto& textureId : aTextureIds) {
-    auto it = mSharedTextures.find(textureId);
-    if (it != mSharedTextures.end()) {
-      auto& sharedTexture = it->second;
-      sharedTexture->onBeforeQueueSubmit(aQueueId);
-    }
-  }
-
   for (const auto& sourceId : aExternalTextureSourceIds) {
     auto it = mExternalTextureSources.find(sourceId);
     if (it != mExternalTextureSources.end()) {
@@ -869,10 +873,24 @@ void WebGPUParent::QueueSubmit(RawId aQueueId, RawId aDeviceId,
     }
   }
 
+  // Must come after the bail-out above: the semaphores created here are
+  // registered as pending signals on the queue, and only
+  // wgpu_server_queue_submit() disposes of them.
+  nsTArray<ffi::WGPUVkSemaphoreHandle> signalSemaphores;
+  for (const auto& textureId : aTextureIds) {
+    auto it = mSharedTextures.find(textureId);
+    if (it != mSharedTextures.end()) {
+      auto& sharedTexture = it->second;
+      sharedTexture->onBeforeQueueSubmit(mContext.get(), aDeviceId, aQueueId,
+                                         signalSemaphores);
+    }
+  }
+
   ErrorBuffer error;
   auto index = ffi::wgpu_server_queue_submit(
       mContext.get(), aDeviceId, aQueueId,
-      {aCommandBuffers.Elements(), aCommandBuffers.Length()}, error.ToFFI());
+      {aCommandBuffers.Elements(), aCommandBuffers.Length()},
+      {signalSemaphores.Elements(), signalSemaphores.Length()}, error.ToFFI());
   // Check if index is valid. 0 means error.
   if (index != 0) {
     for (const auto& textureId : aTextureIds) {
@@ -1058,19 +1076,25 @@ static void ReadbackPresentCallback(uint8_t* userdata,
       uint8_t* src = mapped.ptr;
       uint8_t* dst = mappedData.data;
 
-      const uint32_t dst_stride = mappedData.stride;
+      const size_t dst_stride = static_cast<size_t>(mappedData.stride);
       // `mappedData.stride` is computed via
       // `ImageDataSerializer::ComputeRGBStride` and returns 0 if it overflows
       MOZ_RELEASE_ASSERT(dst_stride != 0);
 
-      // note that this might still copy some padding bytes
-      const uint32_t min_stride = std::min(data->mBufferStride, dst_stride);
+      const size_t src_stride = static_cast<size_t>(data->mBufferStride);
+      const size_t bytesPerRow =
+          static_cast<size_t>(data->mDesc.size().width) * 4;
+      MOZ_RELEASE_ASSERT(src_stride >= bytesPerRow);
+      MOZ_RELEASE_ASSERT(dst_stride >= bytesPerRow);
 
       // The height is in bounds for both buffers since we just requested a new
       // destination buffer with the same height of the source.
       for (auto row = 0; row < size.height; ++row) {
-        memcpy(dst, src, min_stride);
-        src += data->mBufferStride;
+        memcpy(dst, src, bytesPerRow);
+        if (bytesPerRow < dst_stride) {
+          memset(dst + bytesPerRow, 0, dst_stride - bytesPerRow);
+        }
+        src += src_stride;
         dst += dst_stride;
       }
       req->mRemoteTextureOwner->PushTexture(req->mTextureId, req->mOwnerId,
@@ -1156,13 +1180,17 @@ static void ReadbackSnapshotCallback(uint8_t* userdata,
   uint8_t* dst = req->mDestShmem.get<uint8_t>();
 
   const size_t src_stride = static_cast<size_t>(data->mBufferStride);
-  // note that this might still copy some padding bytes
-  const size_t min_stride = std::min(src_stride, req->mDestStride);
+  const size_t bytesPerRow = static_cast<size_t>(data->mDesc.size().width) * 4;
+  MOZ_RELEASE_ASSERT(src_stride >= bytesPerRow);
+  MOZ_RELEASE_ASSERT(req->mDestStride >= bytesPerRow);
 
   // The height is in bounds for both buffers since we previously created a new
   // destination buffer with the same height of the source.
   for (auto row = 0; row < data->mDesc.size().height; ++row) {
-    memcpy(dst, src, min_stride);
+    memcpy(dst, src, bytesPerRow);
+    if (bytesPerRow < req->mDestStride) {
+      memset(dst + bytesPerRow, 0, req->mDestStride - bytesPerRow);
+    }
     src += src_stride;
     dst += req->mDestStride;
   }
@@ -1195,7 +1223,9 @@ ipc::IPCResult WebGPUParent::GetFrontBufferSnapshot(
 
   const auto& lookup = mPresentationDataMap.find(aOwnerId);
   if (lookup == mPresentationDataMap.end()) {
-    MOZ_ASSERT_UNREACHABLE("unexpected to be called");
+    // This can happen if `GPUCanvasContext.configure()` was called with an
+    // invalid configuration.
+    NS_WARNING("WebGPU reading back an invalid canvas");
     return IPC_OK();
   }
 
@@ -1225,6 +1255,10 @@ ipc::IPCResult WebGPUParent::GetFrontBufferSnapshot(
   }
 
   if (data->mLastSubmittedTextureId.isNothing()) {
+    // No commands referencing the canvas have ever been submitted, so it's
+    // blank.
+    memset(shmem.get<uint8_t>(), 0, shmem.Size<uint8_t>());
+    setOutParams(std::move(shmem), size, stride);
     return IPC_OK();
   }
 
@@ -1248,6 +1282,17 @@ ipc::IPCResult WebGPUParent::GetFrontBufferSnapshot(
   RawId bufferId = 0;
   const auto bufferSize = data->mBufferSize;
 
+  // The swap chain owns exactly MAX_SWAPCHAIN_BUFFER_COUNT staging-buffer IDs.
+  // Each ID must always be in exactly one of mUnassignedBufferIds,
+  // mAvailableBufferIds, mQueuedBufferIds, or a pending
+  // ReadbackSnapshotCallback. In error cases, be sure to release the buffer ID
+  // back to the available pool.
+  const auto bufferIdGuard = mozilla::MakeScopeExit([&] {
+    if (bufferId) {
+      data->mAvailableBufferIds.push_back(bufferId);
+    }
+  });
+
   // step 1: find an available staging buffer, or create one
   {
     if (!data->mAvailableBufferIds.empty()) {
@@ -1265,6 +1310,9 @@ ipc::IPCResult WebGPUParent::GetFrontBufferSnapshot(
                                             bufferId, nullptr, bufferSize,
                                             usage, false, error.ToFFI());
       if (ForwardError(error)) {
+        ffi::wgpu_server_buffer_drop(mContext.get(), bufferId);
+        data->mUnassignedBufferIds.push_back(bufferId);
+        bufferId = 0;
         return IPC_OK();
       }
     } else {
@@ -1291,10 +1339,6 @@ ipc::IPCResult WebGPUParent::GetFrontBufferSnapshot(
     }
   }
 
-  if (data->mLastSubmittedTextureId.isNothing()) {
-    return IPC_OK();
-  }
-
   const ffi::WGPUTexelCopyTextureInfo texView = {
       data->mLastSubmittedTextureId.ref(),
   };
@@ -1315,6 +1359,7 @@ ipc::IPCResult WebGPUParent::GetFrontBufferSnapshot(
         mContext.get(), data->mDeviceId, aCommandEncoderId, &texView, bufferId,
         &bufLayout, &extent, error.ToFFI());
     if (ForwardError(error)) {
+      ffi::wgpu_server_command_encoder_drop(mContext.get(), aCommandEncoderId);
       return IPC_OK();
     }
   }
@@ -1335,7 +1380,7 @@ ipc::IPCResult WebGPUParent::GetFrontBufferSnapshot(
     ErrorBuffer error;
     ffi::wgpu_server_queue_submit(mContext.get(), data->mDeviceId,
                                   data->mQueueId, {&aCommandBufferId, 1},
-                                  error.ToFFI());
+                                  {nullptr, 0}, error.ToFFI());
     ffi::wgpu_server_command_encoder_drop(mContext.get(), aCommandEncoderId);
     ffi::wgpu_server_command_buffer_drop(mContext.get(), aCommandBufferId);
     if (ForwardError(error)) {
@@ -1351,6 +1396,8 @@ ipc::IPCResult WebGPUParent::GetFrontBufferSnapshot(
       ffi::WGPUHostMap_Read);
   ReadbackSnapshotCallback(
       reinterpret_cast<uint8_t*>(snapshotRequest.release()), status);
+  // bufferId was transferred to ReadbackSnapshotCallback.
+  bufferId = 0;
 
   // Check if ReadbackSnapshotCallback is called.
   MOZ_RELEASE_ASSERT(data->mReadbackSnapshotCallbackCalled == true);
@@ -1366,7 +1413,7 @@ void WebGPUParent::PostSharedTexture(
   const auto& lookup = mPresentationDataMap.find(aOwnerId);
   if (lookup == mPresentationDataMap.end() || !mRemoteTextureOwner ||
       !mRemoteTextureOwner->IsRegistered(aOwnerId)) {
-    NS_WARNING("WebGPU presenting on a destroyed swap chain!");
+    NS_WARNING("WebGPU presenting on an invalid or destroyed swap chain!");
     return;
   }
 
@@ -1409,7 +1456,7 @@ void WebGPUParent::SwapChainPresent(
   const auto& lookup = mPresentationDataMap.find(aOwnerId);
   if (lookup == mPresentationDataMap.end() || !mRemoteTextureOwner ||
       !mRemoteTextureOwner->IsRegistered(aOwnerId)) {
-    NS_WARNING("WebGPU presenting on a destroyed swap chain!");
+    NS_WARNING("WebGPU presenting on an invalid or destroyed swap chain!");
     return;
   }
 
@@ -1425,7 +1472,8 @@ void WebGPUParent::SwapChainPresent(
     mSharedTextures.erase(it);
 
     if (!sharedTexture->IsSubmitted()) {
-      gfxCriticalNoteOnce << "Texture is not submitted";
+      mRemoteTextureOwner->PushDummyTexture(aRemoteTextureId, aOwnerId);
+      gfxCriticalNoteOnce << "Dummy texture is submitted";
       return;
     }
 
@@ -1456,6 +1504,8 @@ void WebGPUParent::SwapChainPresent(
                                             bufferId, nullptr, bufferSize,
                                             usage, false, error.ToFFI());
       if (ForwardError(error)) {
+        ffi::wgpu_server_buffer_drop(mContext.get(), bufferId);
+        data->mUnassignedBufferIds.push_back(bufferId);
         return;
       }
     } else {
@@ -1526,7 +1576,7 @@ void WebGPUParent::SwapChainPresent(
     ErrorBuffer error;
     ffi::wgpu_server_queue_submit(mContext.get(), data->mDeviceId,
                                   data->mQueueId, {&aCommandBufferId, 1},
-                                  error.ToFFI());
+                                  {nullptr, 0}, error.ToFFI());
     ffi::wgpu_server_command_encoder_drop(mContext.get(), aCommandEncoderId);
     ffi::wgpu_server_command_buffer_drop(mContext.get(), aCommandBufferId);
     if (ForwardError(error)) {
@@ -1566,9 +1616,8 @@ void WebGPUParent::SwapChainDrop(const layers::RemoteTextureOwnerId& aOwnerId,
                                  layers::RemoteTextureTxnType aTxnType,
                                  layers::RemoteTextureTxnId aTxnId) {
   const auto& lookup = mPresentationDataMap.find(aOwnerId);
-  MOZ_ASSERT(lookup != mPresentationDataMap.end());
   if (lookup == mPresentationDataMap.end()) {
-    NS_WARNING("WebGPU presenting on a destroyed swap chain!");
+    NS_WARNING("drop invalid or destroyed swap chain!");
     return;
   }
 
@@ -1615,7 +1664,6 @@ void WebGPUParent::ActorDestroy(ActorDestroyReason aWhy) {
     mRemoteTextureOwner->UnregisterAllTextureOwners();
     mRemoteTextureOwner = nullptr;
   }
-  mActiveDeviceIds.Clear();
   mContext = nullptr;
 }
 
@@ -1738,7 +1786,7 @@ bool WebGPUParent::UseSharedTextureForSwapChain(
   auto ownerId = layers::RemoteTextureOwnerId{aSwapChainId._0};
   const auto& lookup = mPresentationDataMap.find(ownerId);
   if (lookup == mPresentationDataMap.end()) {
-    MOZ_ASSERT_UNREACHABLE("unexpected to be called");
+    NS_WARNING("WebGPU presenting on an invalid or destroyed swap chain!");
     return false;
   }
 
@@ -1766,6 +1814,21 @@ void WebGPUParent::DisableSharedTextureForSwapChain(
   data->mUseSharedTextureInSwapChain = false;
 }
 
+static bool SwapChainFormatMatches(
+    gfx::SurfaceFormat aSurfaceFormat,
+    const ffi::WGPUTextureFormat& aTextureFormat) {
+  switch (aSurfaceFormat) {
+    case gfx::SurfaceFormat::B8G8R8A8:
+      return aTextureFormat.tag == ffi::WGPUTextureFormat_Bgra8Unorm ||
+             aTextureFormat.tag == ffi::WGPUTextureFormat_Bgra8UnormSrgb;
+    case gfx::SurfaceFormat::R8G8B8A8:
+      return aTextureFormat.tag == ffi::WGPUTextureFormat_Rgba8Unorm ||
+             aTextureFormat.tag == ffi::WGPUTextureFormat_Rgba8UnormSrgb;
+    default:
+      return false;
+  }
+}
+
 bool WebGPUParent::EnsureSharedTextureForSwapChain(
     ffi::WGPUSwapChainId aSwapChainId, ffi::WGPUDeviceId aDeviceId,
     ffi::WGPUTextureId aTextureId, uint32_t aWidth, uint32_t aHeight,
@@ -1773,7 +1836,7 @@ bool WebGPUParent::EnsureSharedTextureForSwapChain(
   auto ownerId = layers::RemoteTextureOwnerId{aSwapChainId._0};
   const auto& lookup = mPresentationDataMap.find(ownerId);
   if (lookup == mPresentationDataMap.end()) {
-    MOZ_ASSERT_UNREACHABLE("unexpected to be called");
+    gfxWarningOnce() << "invalid swap chain";
     return false;
   }
 
@@ -1782,6 +1845,11 @@ bool WebGPUParent::EnsureSharedTextureForSwapChain(
     MOZ_ASSERT_UNREACHABLE("unexpected to be called");
     return false;
   }
+
+  MOZ_RELEASE_ASSERT(aWidth == static_cast<uint32_t>(data->mDesc.size().width));
+  MOZ_RELEASE_ASSERT(aHeight ==
+                     static_cast<uint32_t>(data->mDesc.size().height));
+  MOZ_RELEASE_ASSERT(SwapChainFormatMatches(data->mDesc.format(), aFormat));
 
   // Recycled SharedTexture if it exists.
   if (!data->mRecycledSharedTextures.empty()) {
@@ -1810,7 +1878,7 @@ void WebGPUParent::EnsureSharedTextureForReadBackPresent(
   auto ownerId = layers::RemoteTextureOwnerId{aSwapChainId._0};
   const auto& lookup = mPresentationDataMap.find(ownerId);
   if (lookup == mPresentationDataMap.end()) {
-    MOZ_ASSERT_UNREACHABLE("unexpected to be called");
+    gfxWarningOnce() << "invalid swap chain";
     return;
   }
 
@@ -1819,6 +1887,11 @@ void WebGPUParent::EnsureSharedTextureForReadBackPresent(
     MOZ_ASSERT_UNREACHABLE("unexpected to be called");
     return;
   }
+
+  MOZ_RELEASE_ASSERT(aWidth == static_cast<uint32_t>(data->mDesc.size().width));
+  MOZ_RELEASE_ASSERT(aHeight ==
+                     static_cast<uint32_t>(data->mDesc.size().height));
+  MOZ_RELEASE_ASSERT(SwapChainFormatMatches(data->mDesc.format(), aFormat));
 
   UniquePtr<SharedTexture> texture =
       SharedTextureReadBackPresent::Create(aWidth, aHeight, aFormat, aUsage);
@@ -1829,7 +1902,7 @@ void WebGPUParent::EnsureSharedTextureForReadBackPresent(
 
   texture->SetOwnerId(ownerId);
   std::shared_ptr<SharedTexture> shared(texture.release());
-  mSharedTextures[aTextureId] = shared;
+  mSharedTextures[aTextureId] = std::move(shared);
 }
 
 std::shared_ptr<SharedTexture> WebGPUParent::CreateSharedTexture(
@@ -1885,30 +1958,6 @@ Maybe<ffi::WGPUFfiLUID> WebGPUParent::GetCompositorDeviceLuid() {
 
   return Some(
       ffi::WGPUFfiLUID{desc.AdapterLuid.LowPart, desc.AdapterLuid.HighPart});
-}
-#endif
-
-#if defined(XP_LINUX) && !defined(MOZ_WIDGET_ANDROID)
-VkImageHandle::~VkImageHandle() {
-  if (!mParent) {
-    return;
-  }
-  auto* context = mParent->GetContext();
-  if (context && mParent->IsDeviceActive(mDeviceId) && mVkImageHandle) {
-    wgpu_vkimage_destroy(context, mDeviceId, mVkImageHandle);
-  }
-  wgpu_vkimage_delete(mVkImageHandle);
-}
-
-VkSemaphoreHandle::~VkSemaphoreHandle() {
-  if (!mParent) {
-    return;
-  }
-  auto* context = mParent->GetContext();
-  if (context && mParent->IsDeviceActive(mDeviceId) && mVkSemaphoreHandle) {
-    wgpu_vksemaphore_destroy(context, mDeviceId, mVkSemaphoreHandle);
-  }
-  wgpu_vksemaphore_delete(mVkSemaphoreHandle);
 }
 #endif
 

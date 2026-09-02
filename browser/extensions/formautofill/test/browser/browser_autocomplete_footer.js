@@ -1,5 +1,9 @@
 "use strict";
 
+const { SmartFormFillAutocomplete } = ChromeUtils.importESModule(
+  "moz-src:///browser/components/aiwindow/ui/modules/SmartFormFillAutocomplete.sys.mjs"
+);
+
 const URL = BASE_URL + "autocomplete_basic.html";
 
 const l10n = new Localization(["toolkit/formautofill/formAutofill.ftl"], true);
@@ -20,7 +24,7 @@ function getFooterLabel(itemsBox) {
     footer = footer.previousSibling;
   }
 
-  return footer.querySelector(".line1-label");
+  return footer.querySelector("autocomplete-row-item").label;
 }
 
 add_task(async function test_footer_has_correct_button_text_on_address() {
@@ -34,12 +38,112 @@ add_task(async function test_footer_has_correct_button_text_on_address() {
       await openPopupOn(browser, "#organization");
       let footer = getFooterLabel(itemsBox);
       Assert.equal(
-        footer.innerText,
+        footer,
         l10n.formatValueSync("autofill-manage-addresses-label")
       );
       await closePopup(browser);
     }
   );
+});
+
+add_task(async function test_smart_form_fill_with_address_results() {
+  const source = {
+    label: "Source tab",
+    favicon: "page-icon:https://example.com/",
+  };
+  const item = {
+    style: "smartFormFill",
+    value: "",
+    image: "chrome://browser/content/aiwindow/assets/sff-autofill-icon.svg",
+    label: "Smart Form Fill",
+    comment: JSON.stringify({
+      type: "smartFormFill",
+      sources: [source],
+      sourcesLabel: "Sources:",
+      ariaLabel: "Smart Form Fill",
+      loading: false,
+      loadingLabel: "Loading...",
+      emptySourcesLabel: null,
+      fillMessageName: "SmartFormFill:Start",
+      fillMessageData: {},
+      secondaryAction: {
+        type: "edit",
+        fillMessageName: "FormAutofill:EditSmartFormFillSources",
+        fillMessageData: {},
+      },
+    }),
+  };
+  const autocompleteStub = sinon
+    .stub(SmartFormFillAutocomplete, "autocompleteItemsAsync")
+    .resolves([item]);
+
+  try {
+    await BrowserTestUtils.withNewTab(
+      { gBrowser, url: URL },
+      async function (browser) {
+        try {
+          await openPopupOn(browser, "#organization");
+
+          const addressItems = getDisplayedPopupItems(
+            browser,
+            '[originaltype="autofill"]'
+          );
+          Assert.greater(
+            addressItems.length,
+            0,
+            "Address autofill rows remain in the popup"
+          );
+
+          const smartFormFillItems = getDisplayedPopupItems(
+            browser,
+            '[originaltype="smartFormFill"]'
+          );
+          Assert.equal(
+            smartFormFillItems.length,
+            1,
+            "The Smart Form Fill row is present"
+          );
+
+          const displayedItems = getDisplayedPopupItems(browser);
+          const footer = displayedItems.find(candidate =>
+            candidate.hasAttribute("footer")
+          );
+          Assert.ok(footer, "The Manage addresses footer is present");
+          Assert.less(
+            displayedItems.indexOf(addressItems.at(-1)),
+            displayedItems.indexOf(smartFormFillItems[0]),
+            "The Smart Form Fill row comes after the address rows"
+          );
+          Assert.less(
+            displayedItems.indexOf(smartFormFillItems[0]),
+            displayedItems.indexOf(footer),
+            "The Smart Form Fill row comes before the footer"
+          );
+
+          const row = smartFormFillItems[0].querySelector(
+            "autocomplete-row-item"
+          );
+          await row.updateComplete;
+
+          Assert.equal(
+            row.type,
+            "smartFormFill",
+            "The specialized row type is preserved"
+          );
+          Assert.equal(row.label, item.label, "The row label is preserved");
+          Assert.deepEqual(
+            row.sources,
+            [source],
+            "The row sources are preserved"
+          );
+        } finally {
+          await closePopup(browser);
+        }
+      }
+    );
+  } finally {
+    autocompleteStub.restore();
+  }
 });
 
 add_task(async function test_footer_has_correct_button_text_on_credit_card() {
@@ -53,7 +157,7 @@ add_task(async function test_footer_has_correct_button_text_on_credit_card() {
       await openPopupOn(browser, "#cc-number");
       let footer = getFooterLabel(itemsBox);
       Assert.equal(
-        footer.innerText,
+        footer,
         l10n.formatValueSync("autofill-manage-payment-methods-label")
       );
       await closePopup(browser);
@@ -65,16 +169,10 @@ add_task(async function test_press_enter_on_footer() {
   await BrowserTestUtils.withNewTab(
     { gBrowser, url: URL },
     async function (browser) {
-      const {
-        autoCompletePopup: { richlistbox: itemsBox },
-      } = browser;
-
       await openPopupOn(browser, "#organization");
 
       // Navigate to the footer and press enter.
-      const listItemElems = itemsBox.querySelectorAll(
-        ".autocomplete-richlistitem"
-      );
+      const listItemElems = getDisplayedPopupItems(browser);
       const prefTabPromise = BrowserTestUtils.waitForNewTab(
         gBrowser,
         PRIVACY_PREF_URL,
@@ -110,8 +208,9 @@ add_task(async function test_click_on_footer() {
 
       await openPopupOn(browser, "#organization");
       // Click on the footer
+
       let optionButton = itemsBox.querySelector(
-        ".autocomplete-richlistitem:last-child"
+        ".autocomplete-row-item[footer]"
       );
       while (optionButton.collapsed) {
         optionButton = optionButton.previousElementSibling;
@@ -122,11 +221,22 @@ add_task(async function test_click_on_footer() {
         PRIVACY_PREF_URL,
         true
       );
-      // Make sure dropdown is visible before continuing mouse synthesizing.
-      await BrowserTestUtils.waitForCondition(() =>
-        BrowserTestUtils.isVisible(optionButton)
-      );
-      await EventUtils.synthesizeMouseAtCenter(optionButton, {});
+      // The rows can overflow the list while the popup is still being sized,
+      // leaving the footer outside it. Its center is then over the page, so the
+      // click would dismiss the popup. isVisible() ignores clipping.
+      await TestUtils.waitForCondition(() => {
+        if (!BrowserTestUtils.isVisible(optionButton)) {
+          return false;
+        }
+        const listRect = itemsBox.getBoundingClientRect();
+        const footerRect = optionButton.getBoundingClientRect();
+        return (
+          footerRect.height &&
+          footerRect.top >= listRect.top &&
+          footerRect.bottom <= listRect.bottom
+        );
+      }, "the footer to be inside the list");
+      EventUtils.synthesizeMouseAtCenter(optionButton, {});
       info(`expecting tab: about:preferences#privacy opened`);
       const prefTab = await prefTabPromise;
       info(`expecting tab: about:preferences#privacy removed`);

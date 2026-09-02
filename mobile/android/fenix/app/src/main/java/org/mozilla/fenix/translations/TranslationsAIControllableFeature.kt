@@ -5,21 +5,26 @@
 package org.mozilla.fenix.translations
 
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import mozilla.components.browser.state.action.TranslationsAction
 import mozilla.components.browser.state.store.BrowserStore
 import mozilla.components.concept.ai.controls.AIControllableFeature
 import mozilla.components.concept.ai.controls.AIFeatureMetadata
-import org.mozilla.fenix.R
+import mozilla.components.concept.ai.controls.AIFeatureState
 import mozilla.components.ui.icons.R as iconsR
+import org.mozilla.fenix.R
 
-/**
- * The definition of the translation feature for use in AI Controls.
- */
+/** The definition of the translation feature for use in AI Controls. */
 class TranslationsAIControllableFeature(
     private val settings: TranslationsEnabledSettings,
     private val browserStore: BrowserStore,
 ) : AIControllableFeature, AIFeatureMetadata by Companion {
-    override val isEnabled: Flow<Boolean> = settings.isEnabled
+
+    override val featureState: Flow<AIFeatureState>
+        get() =
+            settings.isEnabled.map { enabled ->
+                if (enabled) AIFeatureState.Enabled else AIFeatureState.Disabled
+            }
 
     override suspend fun set(enabled: Boolean) {
         settings.setEnabled(enabled)
@@ -27,11 +32,12 @@ class TranslationsAIControllableFeature(
     }
 
     companion object : AIFeatureMetadata {
-        override val id: AIFeatureMetadata.FeatureId = AIFeatureMetadata.FeatureId("ai.translations")
-        override val description = AIFeatureMetadata.Description(
-            titleRes = R.string.ai_controls_translations_title,
-            descriptionRes = R.string.ai_controls_translations_description,
-            iconRes = iconsR.drawable.mozac_ic_lightning_24,
-        )
+        override val id: AIFeatureMetadata.FeatureId = AIFeatureMetadata.FeatureId("translations")
+        override val description =
+            AIFeatureMetadata.Description(
+                titleRes = R.string.ai_controls_translations_title,
+                descriptionRes = R.string.ai_controls_translations_description,
+                iconRes = iconsR.drawable.mozac_ic_translate_24,
+            )
     }
 }

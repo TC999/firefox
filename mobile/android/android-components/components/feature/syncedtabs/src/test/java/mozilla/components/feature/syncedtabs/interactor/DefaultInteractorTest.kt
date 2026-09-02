@@ -4,12 +4,12 @@
 
 package mozilla.components.feature.syncedtabs.interactor
 
+import kotlin.test.assertNotNull
 import kotlinx.coroutines.test.runTest
 import mozilla.components.browser.storage.sync.SyncedDeviceTabs
 import mozilla.components.feature.syncedtabs.controller.SyncedTabsController
 import mozilla.components.feature.syncedtabs.view.SyncedTabsView
 import mozilla.components.support.test.mock
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -22,12 +22,12 @@ class DefaultInteractorTest {
 
     @Test
     fun start() = runTest {
-        val view =
-            TestSyncedTabsView()
-        val feature = DefaultInteractor(
-            controller,
-            view,
-        ) {}
+        val view = TestSyncedTabsView()
+        val feature =
+            DefaultInteractor(
+                controller,
+                view,
+            ) {}
 
         assertNull(view.listener)
 
@@ -38,12 +38,12 @@ class DefaultInteractorTest {
 
     @Test
     fun stop() = runTest {
-        val view =
-            TestSyncedTabsView()
-        val feature = DefaultInteractor(
-            controller,
-            view,
-        ) {}
+        val view = TestSyncedTabsView()
+        val feature =
+            DefaultInteractor(
+                controller,
+                view,
+            ) {}
 
         assertNull(view.listener)
 
@@ -59,12 +59,13 @@ class DefaultInteractorTest {
     @Test
     fun `onTabClicked invokes callback`() = runTest {
         var invoked = false
-        val feature = DefaultInteractor(
-            controller,
-            view,
-        ) {
-            invoked = true
-        }
+        val feature =
+            DefaultInteractor(
+                controller,
+                view,
+            ) {
+                invoked = true
+            }
 
         feature.onTabClicked(mock())
 
@@ -73,10 +74,11 @@ class DefaultInteractorTest {
 
     @Test
     fun `onRefresh does not update devices when there is no constellation`() = runTest {
-        val feature = DefaultInteractor(
-            controller,
-            view,
-        ) {}
+        val feature =
+            DefaultInteractor(
+                controller,
+                view,
+            ) {}
 
         feature.onRefresh()
 
@@ -85,10 +87,11 @@ class DefaultInteractorTest {
 
     @Test
     fun `onRefresh updates devices when there is a constellation`() = runTest {
-        val feature = DefaultInteractor(
-            controller,
-            view,
-        ) {}
+        val feature =
+            DefaultInteractor(
+                controller,
+                view,
+            ) {}
 
         feature.onRefresh()
 
@@ -98,10 +101,8 @@ class DefaultInteractorTest {
     private class TestSyncedTabsView : SyncedTabsView {
         override var listener: SyncedTabsView.Listener? = null
 
-        override fun onError(error: SyncedTabsView.ErrorType) {
-        }
+        override fun onError(error: SyncedTabsView.ErrorType) {}
 
-        override fun displaySyncedTabs(syncedTabs: List<SyncedDeviceTabs>) {
-        }
+        override fun displaySyncedTabs(syncedTabs: List<SyncedDeviceTabs>) {}
     }
 }

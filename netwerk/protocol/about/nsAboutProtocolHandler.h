@@ -6,9 +6,9 @@
 #define nsAboutProtocolHandler_h_
 
 #include "nsIProtocolHandler.h"
+#include "nsIURIMutator.h"
 #include "nsSimpleNestedURI.h"
 #include "nsWeakReference.h"
-#include "nsIURIMutator.h"
 
 class nsIURI;
 
@@ -55,7 +55,7 @@ class nsNestedAboutURI final : public nsSimpleNestedURI {
  private:
   nsNestedAboutURI(nsIURI* aInnerURI, nsIURI* aBaseURI)
       : nsSimpleNestedURI(aInnerURI), mBaseURI(aBaseURI) {}
-  nsNestedAboutURI() {}
+  nsNestedAboutURI() = default;
   virtual ~nsNestedAboutURI() = default;
 
  public:
@@ -65,7 +65,7 @@ class nsNestedAboutURI final : public nsSimpleNestedURI {
   // Override StartClone(), the nsISerializable methods, and
   virtual already_AddRefed<nsSimpleURI> StartClone() override;
   NS_IMETHOD Mutate(nsIURIMutator** _retval) override;
-  NS_IMETHOD_(void) Serialize(ipc::URIParams& aParams) override;
+  virtual void Serialize(ipc::URIParams& aParams) override;
 
   // nsISerializable
   NS_IMETHOD Read(nsIObjectInputStream* aStream) override;
@@ -76,6 +76,7 @@ class nsNestedAboutURI final : public nsSimpleNestedURI {
  protected:
   nsCOMPtr<nsIURI> mBaseURI;
   bool Deserialize(const mozilla::ipc::URIParams&);
+  bool IsValidInnerURI(nsIURI* aInnerURI) override;
   nsresult ReadPrivate(nsIObjectInputStream* stream);
 
  public:

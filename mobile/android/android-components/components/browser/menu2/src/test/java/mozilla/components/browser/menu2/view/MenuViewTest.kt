@@ -11,6 +11,7 @@ import androidx.cardview.widget.CardView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import kotlin.test.assertNotNull
 import mozilla.components.browser.menu2.R
 import mozilla.components.concept.menu.MenuStyle
 import mozilla.components.concept.menu.Side
@@ -18,7 +19,6 @@ import mozilla.components.concept.menu.candidate.DecorativeTextMenuCandidate
 import mozilla.components.support.test.any
 import mozilla.components.support.test.robolectric.testContext
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -32,10 +32,11 @@ import org.robolectric.annotation.Config
 @RunWith(AndroidJUnit4::class)
 class MenuViewTest {
 
-    private val items = listOf(
-        DecorativeTextMenuCandidate("Hello"),
-        DecorativeTextMenuCandidate("World"),
-    )
+    private val items =
+        listOf(
+            DecorativeTextMenuCandidate("Hello"),
+            DecorativeTextMenuCandidate("World"),
+        )
     private lateinit var menuView: MenuView
     private lateinit var cardView: CardView
     private lateinit var recyclerView: RecyclerView

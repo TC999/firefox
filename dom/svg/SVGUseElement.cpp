@@ -74,8 +74,7 @@ NS_IMPL_ISUPPORTS_CYCLE_COLLECTION_INHERITED(SVGUseElement, SVGUseElementBase,
 //----------------------------------------------------------------------
 // Implementation
 
-SVGUseElement::SVGUseElement(
-    already_AddRefed<mozilla::dom::NodeInfo>&& aNodeInfo)
+SVGUseElement::SVGUseElement(already_AddRefed<mozilla::dom::NodeInfo> aNodeInfo)
     : SVGUseElementBase(std::move(aNodeInfo)), mReferencedElementTracker(this) {
   SetEnabledCallbacks(kCharacterDataChanged | kAttributeChanged |
                       kContentAppended | kContentInserted |
@@ -419,7 +418,7 @@ void SVGUseElement::UpdateShadowTree() {
   if (!shadow) {
     ShadowRootInit init;
     init.mMode = ShadowRootMode::Closed;
-    shadow = AttachShadowWithoutNameChecks(init);
+    shadow = AttachShadowWithoutNameChecks(init, Nothing());
   }
   MOZ_ASSERT(shadow);
 
@@ -564,7 +563,7 @@ void SVGUseElement::LookupHref() {
     return;
   }
 
-  Element* treeToWatch = mOriginal ? mOriginal.get() : this;
+  const RefPtr<Element> treeToWatch = mOriginal ? mOriginal.get() : this;
   if (nsContentUtils::IsLocalRefURL(href)) {
     mReferencedElementTracker.ResetToLocalFragmentID(*treeToWatch, href);
     return;
@@ -584,7 +583,7 @@ void SVGUseElement::LookupHref() {
     return;
   }
 
-  nsIReferrerInfo* referrer =
+  const nsCOMPtr<nsIReferrerInfo> referrer =
       OwnerDoc()->ReferrerInfoForInternalCSSAndSVGResources();
   mReferencedElementTracker.ResetToURIWithFragmentID(*treeToWatch, targetURI,
                                                      referrer);

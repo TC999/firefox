@@ -4,36 +4,20 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-//! Benchmark with simulated time, i.e., measure the network protocol efficiency.
-//!
-//! Given that this uses simulated time, we can measure actual throughput.
+//! Benchmark over a simulated network, measuring instruction count via CodSpeed.
 
 #![expect(
     clippy::significant_drop_tightening,
     reason = "Inherent in codspeed criterion_group! macro."
 )]
 
-use std::time::Duration;
-
-use criterion::{Criterion, Throughput, criterion_group, criterion_main};
+use criterion::{Criterion, criterion_group, criterion_main};
 
 #[path = "common.rs"]
 mod common;
 
 fn benchmark(c: &mut Criterion) {
-    common::benchmark(c, |group, streams, data_size| {
-        let bench_name = format!("simulated/{streams}-streams/each-{data_size}-bytes");
-        group.throughput(Throughput::Bytes((streams * data_size) as u64));
-        group.bench_function(&bench_name, |b| {
-            b.iter_custom(|iters| {
-                let mut d_sum = Duration::ZERO;
-                for _i in 0..iters {
-                    d_sum += common::setup(streams, data_size).run();
-                }
-                d_sum
-            });
-        });
-    });
+    common::bench(c, "simulated");
 }
 
 criterion_group!(benches, benchmark);

@@ -1,5 +1,3 @@
-/* -*- Mode: indent-tabs-mode: nil; js-indent-level: 2 -*- */
-/* vim: set sts=2 sw=2 et tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -57,7 +55,7 @@ function addPanelHidingHandler(panel) {
   panel.addEventListener(
     "popuphiding",
     () => {
-      const window = panel.ownerGlobal;
+      const window = panel.documentGlobal;
       window.addEventListener("click", handleClick, true);
       window.setTimeout(() => {
         window.removeEventListener("click", handleClick, true);
@@ -82,7 +80,7 @@ export class BasePopup {
     this.popupURL = popupURL;
     this.viewNode = viewNode;
     this.browserStyle = browserStyle;
-    this.window = viewNode.ownerGlobal;
+    this.window = viewNode.documentGlobal;
     this.destroyed = false;
     this.fixedWidth = fixedWidth;
     this.blockParser = blockParser;
@@ -148,8 +146,8 @@ export class BasePopup {
         panel.removeEventListener("popuppositioned", this, { capture: true });
       }
       if (panel && panel.id !== REMOTE_PANEL_ID) {
-        panel.style.removeProperty("--arrowpanel-background");
-        panel.style.removeProperty("--arrowpanel-border-color");
+        panel.style.removeProperty("--panel-background-color");
+        panel.style.removeProperty("--panel-border-color");
         panel.removeAttribute("remote");
       }
 
@@ -246,7 +244,7 @@ export class BasePopup {
               // to be fully flushed makes us sure that when the popup panel grabs the focus
               // nsMenuPopupFrame::LayoutPopup has already been colled and set the frame
               // visibility to `ViewVisibility::Show`).
-              this.browser.ownerGlobal.promiseDocumentFlushed(() => {
+              this.browser.documentGlobal.promiseDocumentFlushed(() => {
                 if (this.destroyed) {
                   return;
                 }
@@ -272,7 +270,7 @@ export class BasePopup {
 
       case "DoZoomEnlarge": {
         const browser = event.target;
-        let { ZoomManager } = browser.ownerGlobal;
+        let { ZoomManager } = browser.documentGlobal;
         let zoom = this.browser.fullZoom;
         zoom += 0.1;
         if (zoom > ZoomManager.MAX) {
@@ -284,7 +282,7 @@ export class BasePopup {
 
       case "DoZoomReduce": {
         const browser = event.target;
-        let { ZoomManager } = browser.ownerGlobal;
+        let { ZoomManager } = browser.documentGlobal;
         let zoom = browser.fullZoom;
         zoom -= 0.1;
         if (zoom < ZoomManager.MIN) {
@@ -463,12 +461,12 @@ export class BasePopup {
       background = "#fff";
     }
     if (this.panel.id != "widget-overflow") {
-      this.panel.style.setProperty("--arrowpanel-background", background);
+      this.panel.style.setProperty("--panel-background-color", background);
     }
     if (background == "#fff") {
       // Set a usable default color that work with the default background-color.
       this.panel.style.setProperty(
-        "--arrowpanel-border-color",
+        "--panel-border-color",
         "hsla(210,4%,10%,.15)"
       );
     }

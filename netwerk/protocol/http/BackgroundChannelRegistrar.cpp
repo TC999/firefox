@@ -4,14 +4,15 @@
 
 #include "BackgroundChannelRegistrar.h"
 
-#include "mozilla/ClearOnShutdown.h"
-#include "mozilla/StaticPtr.h"
 #include "HttpBackgroundChannelParent.h"
 #include "HttpChannelParent.h"
+#include "mozilla/ClearOnShutdown.h"
+#include "mozilla/StaticPtr.h"
 #include "nsXULAppAPI.h"
 
 namespace {
-mozilla::StaticRefPtr<mozilla::net::BackgroundChannelRegistrar> gSingleton;
+mozilla::StaticRefPtr<mozilla::net::BackgroundChannelRegistrar>
+    gBackgroundChannelRegistrarSingleton;
 }
 
 namespace mozilla {
@@ -32,13 +33,13 @@ BackgroundChannelRegistrar::~BackgroundChannelRegistrar() {
 }
 
 // static
-already_AddRefed<nsIBackgroundChannelRegistrar>
+already_AddRefed<BackgroundChannelRegistrar>
 BackgroundChannelRegistrar::GetOrCreate() {
-  if (!gSingleton) {
-    gSingleton = new BackgroundChannelRegistrar();
-    ClearOnShutdown(&gSingleton);
+  if (!gBackgroundChannelRegistrarSingleton) {
+    gBackgroundChannelRegistrarSingleton = new BackgroundChannelRegistrar();
+    ClearOnShutdown(&gBackgroundChannelRegistrarSingleton);
   }
-  return do_AddRef(gSingleton);
+  return do_AddRef(gBackgroundChannelRegistrarSingleton);
 }
 
 void BackgroundChannelRegistrar::NotifyChannelLinked(
@@ -46,6 +47,13 @@ void BackgroundChannelRegistrar::NotifyChannelLinked(
   MOZ_ASSERT(NS_IsMainThread());
   MOZ_ASSERT(aChannelParent);
   MOZ_ASSERT(aBgParent);
+
+  // Only link the two actors when they originate from the same content
+  // process, since the channel Id used as the key is supplied by
+  // the content process.
+  if (aChannelParent->GetContentParentId() != aBgParent->GetContentParentId()) {
+    return;
+  }
 
   aBgParent->LinkToChannel(aChannelParent);
   aChannelParent->OnBackgroundParentReady(aBgParent);

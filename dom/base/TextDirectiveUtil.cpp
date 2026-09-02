@@ -145,6 +145,12 @@ Result<nsString, ErrorResult> TextDirectiveUtil::RangeContentAsString(
   if (!aNode.IsElement()) {
     return false;
   }
+  // <br> is inline but creates a line break that should act as a block boundary
+  // for text fragment purposes. Without this, text on both sides of a <br> gets
+  // concatenated (e.g. "test<br>test" -> "testtest").
+  if (aNode.IsHTMLElement(nsGkAtoms::br)) {
+    return true;
+  }
   const Element* nodeAsElement = Element::FromNode(aNode);
   const RefPtr<const ComputedStyle> computedStyle =
       nsComputedDOMStyle::GetComputedStyleNoFlush(nodeAsElement);
@@ -264,6 +270,20 @@ RangeBoundary TextDirectiveUtil::MoveToNextBoundaryPoint(
     return nsContentUtils::IsHTMLWhitespaceOrNBSP(ch) ||
            mozilla::IsPunctuationForWordSelect(ch);
   });
+}
+
+/* static */ bool TextDirectiveUtil::ContainsAtLeastTwoWords(
+    const nsAString& aString) {
+  uint32_t wordCount = 0;
+  for (uint32_t pos = 0; pos < aString.Length();) {
+    const auto [wordBegin, wordEnd] = intl::WordBreaker::FindWord(aString, pos);
+    if (!WordIsJustWhitespaceOrPunctuation(aString, wordBegin, wordEnd) &&
+        ++wordCount == 2) {
+      return true;
+    }
+    pos = wordEnd;
+  }
+  return false;
 }
 
 }  // namespace mozilla::dom

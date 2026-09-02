@@ -11,36 +11,37 @@ import io.mockk.mockk
 import io.mockk.spyk
 import io.mockk.verify
 import mozilla.components.service.nimbus.NimbusApi
+import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
 import org.mozilla.experiments.nimbus.internal.EnrolledExperiment
-import org.mozilla.fenix.BrowserDirection
-import org.mozilla.fenix.HomeActivity
 
 class DefaultStudiesInteractorTest {
-    @RelaxedMockK
-    private lateinit var activity: HomeActivity
+    private val openUrlInBrowserCalls = mutableListOf<String>()
+    private val openUrlInBrowser: (String) -> Unit = { openUrlInBrowserCalls.add(it) }
 
-    @RelaxedMockK
-    private lateinit var experiments: NimbusApi
+    @RelaxedMockK private lateinit var experiments: NimbusApi
 
     private lateinit var interactor: DefaultStudiesInteractor
 
     @Before
     fun setup() {
         MockKAnnotations.init(this)
-        interactor = spyk(DefaultStudiesInteractor(activity, experiments))
+        interactor =
+            spyk(
+                DefaultStudiesInteractor(
+                    openUrlInBrowser = openUrlInBrowser,
+                    experiments = experiments,
+                )
+            )
     }
 
     @Test
-    fun `WHEN calling openWebsite THEN delegate to the homeActivity`() {
+    fun `WHEN calling openWebsite THEN delegate to the openUrlInBrowser callback`() {
         val url = ""
         interactor.openWebsite(url)
 
-        verify {
-            @Suppress("DEPRECATION")
-            activity.openToBrowserAndLoad(url, true, BrowserDirection.FromStudiesFragment)
-        }
+        assertEquals(listOf(url), openUrlInBrowserCalls)
     }
 
     @Test

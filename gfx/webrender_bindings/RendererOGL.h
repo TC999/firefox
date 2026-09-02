@@ -5,12 +5,12 @@
 #ifndef MOZILLA_LAYERS_RENDEREROGL_H
 #define MOZILLA_LAYERS_RENDEREROGL_H
 
-#include "mozilla/layers/CompositorTypes.h"
 #include "mozilla/gfx/Point.h"
+#include "mozilla/layers/CompositorTypes.h"
 #include "mozilla/webrender/RenderThread.h"
+#include "mozilla/webrender/RendererScreenshotGrabber.h"
 #include "mozilla/webrender/WebRenderTypes.h"
 #include "mozilla/webrender/webrender_ffi.h"
-#include "mozilla/webrender/RendererScreenshotGrabber.h"
 
 namespace mozilla {
 
@@ -93,12 +93,12 @@ class RendererOGL {
   Maybe<layers::FrameRecording> EndRecording();
 
 #ifdef MOZ_WIDGET_ANDROID
-  using ScreenPixelsPromise =
-      MozPromise<RefPtr<layers::AndroidHardwareBuffer>, nsresult, true>;
+  using ScreenPixelsPromise = MozPromise<Ok, nsresult, true>;
   // Captures the pixels for the next rendered frame. Returns a promise that
   // resolves once the pixels are captured.
-  RefPtr<ScreenPixelsPromise> RequestScreenPixels(gfx::IntRect aSourceRect,
-                                                  gfx::IntSize aDestSize);
+  RefPtr<ScreenPixelsPromise> RequestScreenPixels(
+      gfx::IntRect aSourceRect,
+      RefPtr<layers::AndroidHardwareBuffer> aHardwareBuffer);
 #endif
 
   /// This can be called on the render thread only.
@@ -170,13 +170,15 @@ class RendererOGL {
   layers::CompositorBridgeParent* mBridge;
   wr::WindowId mWindowId;
   TimeStamp mFrameStartTime;
-
-  bool mDisableNativeCompositor;
+  // RenderCompositor::IsPaused() describes platform surface state and remains
+  // false for normal GTK windows. Track the higher-level Pause/Resume lifecycle
+  // separately so paused-window resource trimming is platform-independent.
+  bool mPausedForResourceTrimming = false;
 
 #ifdef MOZ_WIDGET_ANDROID
   struct ScreenPixelsRequest {
     gfx::IntRect mSourceRect;
-    gfx::IntSize mDestSize;
+    RefPtr<layers::AndroidHardwareBuffer> mHardwareBuffer;
     RefPtr<ScreenPixelsPromise::Private> mPromise;
   };
   Maybe<ScreenPixelsRequest> mPendingScreenPixelsRequest;
@@ -187,7 +189,7 @@ class RendererOGL {
   // The id of the root WebRender pipeline.
   //
   // All other pipelines are considered content.
-  wr::PipelineId mRootPipelineId;
+  wr::PipelineId mRootPipelineId{};
 
   // A mapping of wr::PipelineId to the epochs when last they updated.
   //

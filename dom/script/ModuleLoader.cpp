@@ -4,6 +4,8 @@
 
 #include "ModuleLoader.h"
 
+#include <type_traits>
+
 #include "GeckoProfiler.h"
 #include "ScriptLoader.h"
 #include "js/CompileOptions.h"  // JS::CompileOptions, JS::InstantiateOptions
@@ -32,6 +34,7 @@
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/RequestBinding.h"
 #include "nsContentSecurityManager.h"
+#include "nsContentSecurityUtils.h"
 #include "nsError.h"
 #include "nsIContent.h"
 #include "nsIPrincipal.h"
@@ -94,21 +97,44 @@ bool ModuleLoader::CanStartLoad(ModuleLoadRequest* aRequest, nsresult* aRvOut) {
   return true;
 }
 
+void ModuleLoader::DisallowImportMapsForModuleFetch(
+    ModuleLoadRequest* aRequest) {
+  if (!aRequest->GetScriptLoadContext()->IsPreload() &&
+      !StaticPrefs::dom_multiple_import_maps_enabled()) {
+    LOG(("ScriptLoadRequest (%p): Disallow further import maps.", aRequest));
+    DisallowImportMaps();
+  }
+}
+
+// Skip module CORS checks for resource: principals loading trusted schemes.
+// Other URI security checks still apply.
+static bool IsResourceDocumentLoadingTrustedURI(ModuleLoadRequest* aRequest) {
+  nsIPrincipal* triggeringPrincipal = aRequest->TriggeringPrincipal();
+  if (!triggeringPrincipal->GetIsContentPrincipal() ||
+      !triggeringPrincipal->SchemeIs("resource")) {
+    return false;
+  }
+
+  return nsContentSecurityUtils::IsTrustedScheme(aRequest->URI());
+}
+
 nsresult ModuleLoader::StartFetch(ModuleLoadRequest* aRequest) {
-  if (aRequest->IsCachedStencil()) {
+  if (aRequest->IsRetrievedFromMemoryCache()) {
+    DisallowImportMapsForModuleFetch(aRequest);
     GetScriptLoader()->EmulateNetworkEvents(aRequest, Nothing());
     SetModuleFetchStarted(aRequest);
     return aRequest->OnFetchComplete(NS_OK);
   }
 
-  // According to the spec, module scripts have different behaviour to classic
-  // scripts and always use CORS. Only exception: Non linkable about: pages
-  // which load local module scripts.
-  bool isAboutPageLoadingChromeURI = ScriptLoader::IsAboutPageLoadingChromeURI(
-      aRequest, GetScriptLoader()->GetDocument());
+  // Module scripts normally require CORS. Disable it for non-linkable about:
+  // pages loading chrome: URLs and resource: principals loading trusted
+  // schemes.
+  bool skipCORSChecks = ScriptLoader::IsAboutPageLoadingChromeURI(
+                            aRequest, GetScriptLoader()->GetDocument()) ||
+                        IsResourceDocumentLoadingTrustedURI(aRequest);
 
   nsContentSecurityManager::CORSSecurityMapping corsMapping =
-      isAboutPageLoadingChromeURI
+      skipCORSChecks
           ? nsContentSecurityManager::CORSSecurityMapping::DISABLE_CORS_CHECKS
           : nsContentSecurityManager::CORSSecurityMapping::REQUIRE_CORS_CHECKS;
 
@@ -127,13 +153,7 @@ nsresult ModuleLoader::StartFetch(ModuleLoadRequest* aRequest) {
       aRequest, securityFlags, Nothing() /* aCharsetForPreload */);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  // https://html.spec.whatwg.org/multipage/webappapis.html#fetch-an-import()-module-script-graph
-  // Step 1. Disallow further import maps given settings object.
-  if (!aRequest->GetScriptLoadContext()->IsPreload() &&
-      !StaticPrefs::dom_multiple_import_maps_enabled()) {
-    LOG(("ScriptLoadRequest (%p): Disallow further import maps.", aRequest));
-    DisallowImportMaps();
-  }
+  DisallowImportMapsForModuleFetch(aRequest);
 
   LOG(("ScriptLoadRequest (%p): Start fetching module", aRequest));
 
@@ -155,8 +175,9 @@ void ModuleLoader::ExecuteInlineModule(ModuleLoadRequest* aRequest) {
   if (aRequest->GetScriptLoadContext()->GetParserCreated() == NOT_FROM_PARSER) {
     GetScriptLoader()->RunScriptWhenSafe(aRequest);
   } else {
-    GetScriptLoader()->MaybeMoveToLoadedList(aRequest);
-    GetScriptLoader()->ProcessPendingRequests();
+    const RefPtr<ScriptLoader> scriptLoader = GetScriptLoader();
+    scriptLoader->MaybeMoveToLoadedList(aRequest);
+    scriptLoader->ProcessPendingRequests();
   }
 
   aRequest->GetScriptLoadContext()->MaybeUnblockOnload();
@@ -226,8 +247,9 @@ nsresult ModuleLoader::CompileFetchedModule(
       return CompileJsonModule(aCx, aOptions, aRequest, aModuleOut);
     case JS::ModuleType::CSS:
       return CompileCssModule(aCx, aOptions, aRequest, aModuleOut);
-    case JS::ModuleType::Bytes:
     case JS::ModuleType::Text:
+      return CreateTextModule(aCx, aOptions, aRequest, aModuleOut);
+    case JS::ModuleType::Bytes:
       MOZ_CRASH("Unexpected module type");
   }
 
@@ -242,19 +264,30 @@ nsresult ModuleLoader::CompileJavaScriptOrWasmModule(
 #ifdef NIGHTLY_BUILD
   if (aRequest->HasWasmMimeTypeEssence()) {
     MOZ_ASSERT(aRequest->IsWasmBytes());
-    auto* wasmModule =
-        JS::CompileWasmModule(aCx, aOptions, aRequest->WasmBytes());
-    if (!wasmModule) {
+    if (aRequest->IsSourcePhaseRequest(aCx)) {
+      if (aRequest->GetScriptLoadContext()->mWasCompiledOMT) {
+        if (!aRequest->GetScriptLoadContext()->StealOffThreadWasmResult(
+                aCx, aModuleOut)) {
+          return NS_ERROR_FAILURE;
+        }
+      } else {
+        aModuleOut.set(JS::CompileWasmModuleAsSource(aCx, aOptions,
+                                                     aRequest->WasmBytes()));
+      }
+    } else {
+      aModuleOut.set(
+          JS::CompileWasmModule(aCx, aOptions, aRequest->WasmBytes()));
+    }
+    if (!aModuleOut) {
       return NS_ERROR_FAILURE;
     }
 
-    aModuleOut.set(wasmModule);
     return NS_OK;
   }
 #endif
   MOZ_ASSERT(!aRequest->IsWasmBytes());
 
-  if (aRequest->IsCachedStencil()) {
+  if (aRequest->IsRetrievedFromMemoryCache()) {
     JS::InstantiateOptions instantiateOptions(aOptions);
     RefPtr<JS::Stencil> stencil = aRequest->GetStencil();
     aModuleOut.set(
@@ -263,12 +296,10 @@ nsresult ModuleLoader::CompileJavaScriptOrWasmModule(
       return NS_ERROR_FAILURE;
     }
 
-    bool alreadyStarted;
-    if (!JS::StartCollectingDelazifications(aCx, aModuleOut, stencil,
-                                            alreadyStarted)) {
+    if (!GetScriptLoader()->StartCollectingDelazifications(aCx, aModuleOut,
+                                                           stencil)) {
       return NS_ERROR_FAILURE;
     }
-    (void)alreadyStarted;
 
     return NS_OK;
   }
@@ -291,12 +322,10 @@ nsresult ModuleLoader::CompileJavaScriptOrWasmModule(
     }
 
     if (aRequest->PassedConditionForEitherCache()) {
-      bool alreadyStarted;
-      if (!JS::StartCollectingDelazifications(aCx, aModuleOut, stencil,
-                                              alreadyStarted)) {
+      if (!GetScriptLoader()->StartCollectingDelazifications(aCx, aModuleOut,
+                                                             stencil)) {
         return NS_ERROR_FAILURE;
       }
-      MOZ_ASSERT(!alreadyStarted);
     }
 
     GetScriptLoader()->TryCacheRequest(aRequest);
@@ -305,7 +334,7 @@ nsresult ModuleLoader::CompileJavaScriptOrWasmModule(
   }
 
   RefPtr<JS::Stencil> stencil;
-  if (aRequest->IsTextSource()) {
+  if (aRequest->IsFetchedAsTextSource()) {
     MaybeSourceText maybeSource;
     nsresult rv = aRequest->GetScriptSource(aCx, &maybeSource,
                                             aRequest->mLoadContext.get());
@@ -316,9 +345,11 @@ nsresult ModuleLoader::CompileJavaScriptOrWasmModule(
     };
     stencil = maybeSource.mapNonEmpty(compile);
   } else {
-    MOZ_ASSERT(aRequest->IsSerializedStencil());
+    MOZ_ASSERT(aRequest->IsRetrievedAsSerializedStencil());
     JS::DecodeOptions decodeOptions(aOptions);
-    decodeOptions.borrowBuffer = true;
+    if (!GetScriptLoader()->UsesMemoryCache()) {
+      decodeOptions.borrowBuffer = true;
+    }
 
     JS::TranscodeRange range = aRequest->SerializedStencil();
     JS::TranscodeResult tr =
@@ -342,12 +373,10 @@ nsresult ModuleLoader::CompileJavaScriptOrWasmModule(
   }
 
   if (aRequest->PassedConditionForEitherCache()) {
-    bool alreadyStarted;
-    if (!JS::StartCollectingDelazifications(aCx, aModuleOut, stencil,
-                                            alreadyStarted)) {
+    if (!GetScriptLoader()->StartCollectingDelazifications(aCx, aModuleOut,
+                                                           stencil)) {
       return NS_ERROR_FAILURE;
     }
-    MOZ_ASSERT(!alreadyStarted);
   }
 
   GetScriptLoader()->TryCacheRequest(aRequest);
@@ -360,7 +389,7 @@ nsresult ModuleLoader::CompileJsonModule(
     JS::MutableHandle<JSObject*> aModuleOut) {
   MOZ_ASSERT(!aRequest->GetScriptLoadContext()->mWasCompiledOMT);
 
-  MOZ_ASSERT(aRequest->IsTextSource());
+  MOZ_ASSERT(aRequest->IsFetchedAsTextSource());
   ModuleLoader::MaybeSourceText maybeSource;
   nsresult rv = aRequest->GetScriptSource(aCx, &maybeSource,
                                           aRequest->mLoadContext.get());
@@ -446,7 +475,7 @@ nsresult ModuleLoader::CompileCssModule(
   MOZ_ASSERT(!aRequest->GetScriptLoadContext()->mWasCompiledOMT);
   MOZ_ASSERT(mozilla::StaticPrefs::layout_css_module_scripts_enabled());
 
-  MOZ_ASSERT(aRequest->IsTextSource());
+  MOZ_ASSERT(aRequest->IsFetchedAsTextSource());
   ModuleLoader::MaybeSourceText maybeSource;
   nsresult rv = aRequest->GetScriptSource(aCx, &maybeSource,
                                           aRequest->mLoadContext.get());
@@ -483,6 +512,43 @@ nsresult ModuleLoader::CompileCssModule(
   }
 
   aModuleOut.set(cssModule);
+  return NS_OK;
+}
+
+nsresult ModuleLoader::CreateTextModule(
+    JSContext* aCx, JS::CompileOptions& aOptions, ModuleLoadRequest* aRequest,
+    JS::MutableHandle<JSObject*> aModuleOut) {
+  MOZ_ASSERT(!aRequest->GetScriptLoadContext()->mWasCompiledOMT);
+
+  MOZ_ASSERT(aRequest->IsFetchedAsTextSource());
+  ModuleLoader::MaybeSourceText maybeSource;
+  nsresult rv = aRequest->GetScriptSource(aCx, &maybeSource,
+                                          aRequest->mLoadContext.get());
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  auto compile = [&](auto& source) {
+    using T = decltype(source);
+    static_assert(std::is_same_v<T, JS::SourceText<char16_t>&> ||
+                  std::is_same_v<T, JS::SourceText<Utf8Unit>&>);
+
+    JSString* str;
+    if constexpr (std::is_same_v<T, JS::SourceText<Utf8Unit>&>) {
+      str = JS_NewStringCopyUTF8N(aCx,
+                                  JS::UTF8Chars(source.get(), source.length()));
+    } else {
+      str = JS_NewUCStringCopyN(aCx, source.get(), source.length());
+    }
+
+    JS::Rooted<JS::Value> defaultExport(aCx, JS::StringValue(str));
+    return JS::CreateDefaultExportSyntheticModule(aCx, defaultExport);
+  };
+
+  auto* textModule = maybeSource.mapNonEmpty(compile);
+  if (!textModule) {
+    return NS_ERROR_FAILURE;
+  }
+
+  aModuleOut.set(textModule);
   return NS_OK;
 }
 

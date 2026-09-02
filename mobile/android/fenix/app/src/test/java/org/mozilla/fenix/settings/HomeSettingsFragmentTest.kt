@@ -7,21 +7,28 @@ package org.mozilla.fenix.settings
 import android.content.SharedPreferences
 import androidx.fragment.app.FragmentActivity
 import androidx.preference.CheckBoxPreference
+import androidx.preference.SwitchPreferenceCompat
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import mozilla.components.service.pocket.PocketStoriesService
+import mozilla.components.support.test.robolectric.testContext
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.mozilla.fenix.GleanMetrics.CustomizeHome
+import org.mozilla.fenix.GleanMetrics.Events
 import org.mozilla.fenix.R
 import org.mozilla.fenix.components.AppStore
 import org.mozilla.fenix.components.Components
 import org.mozilla.fenix.components.Core
 import org.mozilla.fenix.components.appstate.AppAction.ContentRecommendationsAction
 import org.mozilla.fenix.ext.getPreferenceKey
+import org.mozilla.fenix.helpers.FenixGleanTestRule
 import org.mozilla.fenix.home.pocket.ContentRecommendationsFeatureHelper
 import org.mozilla.fenix.utils.Settings
 import org.robolectric.Robolectric
@@ -29,6 +36,8 @@ import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
 internal class HomeSettingsFragmentTest {
+    @get:Rule val gleanRule = FenixGleanTestRule(testContext)
+
     private lateinit var homeSettingsFragment: HomeSettingsFragment
     private lateinit var appSettings: Settings
     private lateinit var appPrefs: SharedPreferences
@@ -40,12 +49,14 @@ internal class HomeSettingsFragmentTest {
     @Before
     fun setup() {
         appPrefsEditor = mockk(relaxed = true)
-        appPrefs = mockk(relaxed = true) {
-            every { edit() } returns appPrefsEditor
-        }
-        appSettings = mockk(relaxed = true) {
-            every { preferences } returns appPrefs
-        }
+        appPrefs =
+            mockk(relaxed = true) {
+                every { edit() } returns appPrefsEditor
+            }
+        appSettings =
+            mockk(relaxed = true) {
+                every { preferences } returns appPrefs
+            }
         appStore = mockk(relaxed = true)
         pocketService = mockk(relaxed = true)
         contentRecommendationsHelper = mockk(relaxed = true)
@@ -108,10 +119,40 @@ internal class HomeSettingsFragmentTest {
         verify {
             appPrefsEditor.putBoolean(homeSettingsFragment.getString(R.string.pref_key_pocket_sponsored_stories), false)
             pocketService.deleteUser()
-            appStore.dispatch(
-                ContentRecommendationsAction.SponsoredContentsChange(
-                    sponsoredContents = emptyList(),
-                ),
+            appStore.dispatch(ContentRecommendationsAction.SponsoredContentsChange(sponsoredContents = emptyList()))
+        }
+    }
+
+    @Test
+    fun `WHEN toggling the privacy report setting THEN events preference_toggled is recorded with the privacy_report key`() {
+        activateFragment()
+
+        val result = getPrivacyReportPreference().callChangeListener(true)
+
+        assertTrue(result)
+        val events = Events.preferenceToggled.testGetValue()!!
+        assertEquals(1, events.size)
+        assertEquals("privacy_report", events.single().extra?.get("preference_key"))
+        assertEquals("true", events.single().extra?.get("enabled"))
+    }
+
+    @Test
+    fun `WHEN toggling the weather setting THEN customize home preference_toggled is recorded with the weather key`() {
+        every { appSettings.enableHomepageWeatherWidget } returns true
+
+        activateFragment()
+
+        val result = getWeatherPreference().callChangeListener(true)
+
+        assertTrue(result)
+        val events = CustomizeHome.preferenceToggled.testGetValue()!!
+        assertEquals(1, events.size)
+        assertEquals("weather", events.single().extra?.get("preference_key"))
+        assertEquals("true", events.single().extra?.get("enabled"))
+        verify {
+            appPrefsEditor.putBoolean(
+                homeSettingsFragment.getString(R.string.pref_key_show_homepage_weather_widget),
+                true,
             )
         }
     }
@@ -123,23 +164,33 @@ internal class HomeSettingsFragmentTest {
         val mockCore: Core = mockk {
             every { pocketStoriesService } returns this@HomeSettingsFragmentTest.pocketService
         }
-        val mockComponents: Components = mockk(relaxed = true) {
-            every { appStore } returns this@HomeSettingsFragmentTest.appStore
-            every { core } returns mockCore
-            every { settings } returns this@HomeSettingsFragmentTest.appSettings
-        }
+        val mockComponents: Components =
+            mockk(relaxed = true) {
+                every { appStore } returns this@HomeSettingsFragmentTest.appStore
+                every { core } returns mockCore
+                every { settings } returns this@HomeSettingsFragmentTest.appSettings
+            }
 
         homeSettingsFragment.fenixSettings = appSettings
         homeSettingsFragment.fenixComponents = mockComponents
         homeSettingsFragment.contentRecommendationsHelper = contentRecommendationsHelper
 
-        activity.supportFragmentManager.beginTransaction()
+        activity.supportFragmentManager
+            .beginTransaction()
             .add(homeSettingsFragment, "HomeSettingFragmentTest")
             .commitNow()
     }
 
     private fun getSponsoredStoriesPreference(): CheckBoxPreference =
         homeSettingsFragment.findPreference(
-            homeSettingsFragment.getPreferenceKey(R.string.pref_key_pocket_sponsored_stories),
+            homeSettingsFragment.getPreferenceKey(R.string.pref_key_pocket_sponsored_stories)
+        )!!
+
+    private fun getPrivacyReportPreference(): SwitchPreferenceCompat =
+        homeSettingsFragment.findPreference(homeSettingsFragment.getPreferenceKey(R.string.pref_key_privacy_report))!!
+
+    private fun getWeatherPreference(): SwitchPreferenceCompat =
+        homeSettingsFragment.findPreference(
+            homeSettingsFragment.getPreferenceKey(R.string.pref_key_show_homepage_weather_widget)
         )!!
 }

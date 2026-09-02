@@ -944,22 +944,36 @@ struct BaseCompiler final {
   // instruction immediately after a trap instruction (the "resume"
   // instruction), or the instruction immediately following a no-op (when
   // debugging is enabled).
+  //
+  // The `Maybe<Trap>` argument indicates the reason for creating the map.
+  // `Nothing` means the map is for a call; `Some(t)` means it is for a trap of
+  // kind `t`.  See further comments on StackMapGenerator::createStackMap.
 
   // Create a vanilla stackmap.
-  [[nodiscard]] bool createStackMap(const char* who);
+  [[nodiscard]] bool createStackMap(Maybe<Trap> reason);
 
   // Create a stackmap as vanilla, but for a custom assembler offset.
-  [[nodiscard]] bool createStackMap(const char* who,
+  [[nodiscard]] bool createStackMap(Maybe<Trap> reason,
                                     CodeOffset assemblerOffset);
 
   // Create a stack map as vanilla, and note the presence of a ref-typed
   // DebugFrame on the stack.
   [[nodiscard]] bool createStackMap(
-      const char* who, HasDebugFrameWithLiveRefs debugFrameWithLiveRefs);
+      Maybe<Trap> reason, HasDebugFrameWithLiveRefs debugFrameWithLiveRefs);
 
-  // Creates a stack map for an aborting trap instruction that will be emitted
-  // OOL.
-  [[nodiscard]] bool createAbortingOutOfLineTrapStackMap(StackMap** result);
+  // Create a stackmap for the instruction described by `insnRange`, and note
+  // the presence of a ref-typed DebugFrame on the stack.  The stackmap will be
+  // keyed to `insnRange.resumeOffset()`.  Prefer this method over the above 3,
+  // which are regarded as "legacy" and should be phased out.
+  [[nodiscard]] bool createStackMap(
+      Maybe<Trap> reason, FaultingCodeRange insnRange,
+      HasDebugFrameWithLiveRefs debugFrameWithLiveRefs);
+
+  // When compiling for debugging, creates a stack map for a non-resuming trap
+  // instruction of kind `t1`, and, if specified, `t2`.  When not compiling for
+  // debugging, no stackmap is generated.
+  [[nodiscard]] bool createDebugOnlyStackMapForNonResumingTrap(
+      StackMap** result, Trap t1, Trap t2 = Trap::Limit);
 
   ////////////////////////////////////////////////////////////
   //
@@ -1053,9 +1067,11 @@ struct BaseCompiler final {
   void returnCallRef(const Stk& calleeRef, const FunctionCall& call,
                      const FuncType& funcType);
   CodeOffset builtinCall(SymbolicAddress builtin, const FunctionCall& call);
-  CodeOffset builtinInstanceMethodCall(const SymbolicAddressSignature& builtin,
-                                       const ABIArg& instanceArg,
-                                       const FunctionCall& call);
+  void builtinInstanceMethodCall(const SymbolicAddressSignature& builtin,
+                                 const ABIArg& instanceArg,
+                                 const FunctionCall& call,
+                                 CodeOffset* callStackMapKey,
+                                 CodeOffset* trapStackMapKey);
 
   // Helpers to pick up the returned value from the return register.
   inline RegI32 captureReturnedI32();
@@ -1267,9 +1283,9 @@ struct BaseCompiler final {
 
   // ptr and dest may be the same iff dest is I32.
   // This may destroy ptr even if ptr and dest are not the same.
-  void executeLoad(MemoryAccessDesc* access, AccessCheck* check,
-                   RegPtr instance, RegPtr memoryBase, RegI32 ptr, AnyReg dest,
-                   RegI32 temp);
+  void executeLoad(MemoryAccessDesc* access, RegPtr instance, RegPtr memoryBase,
+                   RegI32 ptr, AnyReg dest, RegI32 temp,
+                   ZeroExtendIndex zeroExtend);
   void load(MemoryAccessDesc* access, AccessCheck* check, RegPtr instance,
             RegPtr memoryBase, RegI32 ptr, AnyReg dest, RegI32 temp);
   void load(MemoryAccessDesc* access, AccessCheck* check, RegPtr instance,
@@ -1282,9 +1298,9 @@ struct BaseCompiler final {
 
   // ptr and src must not be the same register.
   // This may destroy ptr and src.
-  void executeStore(MemoryAccessDesc* access, AccessCheck* check,
-                    RegPtr instance, RegPtr memoryBase, RegI32 ptr, AnyReg src,
-                    RegI32 temp);
+  void executeStore(MemoryAccessDesc* access, RegPtr instance,
+                    RegPtr memoryBase, RegI32 ptr, AnyReg src, RegI32 temp,
+                    ZeroExtendIndex zeroExtend);
   void store(MemoryAccessDesc* access, AccessCheck* check, RegPtr instance,
              RegPtr memoryBase, RegI32 ptr, AnyReg src, RegI32 temp);
   void store(MemoryAccessDesc* access, AccessCheck* check, RegPtr instance,
@@ -1791,12 +1807,12 @@ struct BaseCompiler final {
   // null pointer dereferences/accesses.
   struct NoNullCheck {
     static void emitNullCheck(BaseCompiler* bc, RegRef rp) {}
-    static void emitTrapSite(BaseCompiler* bc, FaultingCodeOffset fco,
+    static void emitTrapSite(BaseCompiler* bc, FaultingCodeRange fcr,
                              TrapMachineInsn tmi) {}
   };
   struct SignalNullCheck {
     static void emitNullCheck(BaseCompiler* bc, RegRef rp);
-    static void emitTrapSite(BaseCompiler* bc, FaultingCodeOffset fco,
+    static void emitTrapSite(BaseCompiler* bc, FaultingCodeRange fcr,
                              TrapMachineInsn tmi);
   };
 

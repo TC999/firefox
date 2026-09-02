@@ -556,14 +556,11 @@ class JS_PUBLIC_API Base {
   explicit Base(void* ptr) : ptr(ptr) {}
 
  public:
-  bool operator==(const Base& rhs) const {
-    // Some compilers will indeed place objects of different types at
-    // the same address, so technically, we should include the vtable
-    // in this comparison. But it seems unlikely to cause problems in
-    // practice.
-    return ptr == rhs.ptr;
-  }
-  bool operator!=(const Base& rhs) const { return !(*this == rhs); }
+  // Some compilers will indeed place objects of different types at
+  // the same address, so technically, we should include the vtable
+  // in this comparison. But it seems unlikely to cause problems in
+  // practice.
+  bool operator==(const Base& rhs) const = default;
 
   // An identifier for this node, guaranteed to be stable and unique for as
   // long as this ubi::Node's referent is alive and at the same address.
@@ -830,7 +827,7 @@ class Node {
   using Id = Base::Id;
   Id identifier() const {
     auto id = base()->identifier();
-    MOZ_ASSERT(JS::Value::isNumberRepresentable(id));
+    MOZ_RELEASE_ASSERT(JS::Value::isNumberRepresentable(id));
     return id;
   }
 

@@ -286,9 +286,7 @@ fn compatible_upgrade_large_initial() {
     client.process_input(dgram.unwrap(), now());
 
     // Connect, but strip padding from all the packets to keep the accounting tight.
-    connect_rtt_idle_with_modifier(&mut client, &mut server, Duration::new(0, 0), |dgram| {
-        Some(strip_padding(dgram))
-    });
+    connect_rtt_idle_with_modifier(&mut client, &mut server, Duration::new(0, 0), strip_padding);
     assert_eq!(client.version(), Version::Version2);
     assert_eq!(server.version(), Version::Version2);
     // We removed padding, so no packets should be dropped.
@@ -656,7 +654,7 @@ fn client_initial_versions() {
 /// that contain CRYPTO frames to decide the version.  That was not wise.
 #[test]
 fn tls_hello_retry_request() {
-    use neqo_crypto::constants::{TLS_GRP_EC_SECP256R1, TLS_GRP_EC_SECP384R1, TLS_GRP_EC_X25519};
+    use nss::constants::{TLS_GRP_EC_SECP256R1, TLS_GRP_EC_SECP384R1, TLS_GRP_EC_X25519};
 
     let mut client = default_client();
     let mut server = default_server();

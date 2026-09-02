@@ -57,15 +57,16 @@ class DecodedStream : public MediaSink {
   void SetVolume(double aVolume) override;
   void SetPlaybackRate(double aPlaybackRate) override;
   void SetPreservesPitch(bool aPreservesPitch) override;
-  void SetPlaying(bool aPlaying) override;
+  void SetPlaying(bool aPlaying,
+                  StopReason aReason = StopReason::Regular) override;
   RefPtr<GenericPromise> SetAudioDevice(
       RefPtr<AudioDeviceInfo> aDevice) override;
 
   double PlaybackRate() const override;
 
-  nsresult Start(const media::TimeUnit& aStartTime,
-                 const MediaInfo& aInfo) override;
-  void Stop() override;
+  nsresult Start(const media::TimeUnit& aStartTime, const MediaInfo& aInfo,
+                 StartType aStartType = StartType::Initial) override;
+  void Stop(StopReason aReason = StopReason::Regular) override;
   bool IsStarted() const override;
   bool IsPlaying() const override;
   void Shutdown() override;
@@ -130,6 +131,7 @@ class DecodedStream : public MediaSink {
   // True if the audio output should be configured to mDevice.
   const bool mShouldConfigAudioOutput;
   RefPtr<AudioDeviceInfo> mDevice;
+  bool mAudioOutputRegistered MOZ_GUARDED_BY(sMainThreadCapability) = false;
 
   media::NullableTimeUnit mStartTime;
   media::TimeUnit mLastOutputTime;

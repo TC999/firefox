@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -11,6 +9,10 @@
 #include "nsLocalFile.h"
 #include "nsXPCOMPrivate.h"
 #include "prlink.h"
+
+#ifdef XP_WIN
+#  include <windows.h>
+#endif
 
 mozilla::LazyLogModule gLlamaLinkerLog("LlamaRuntimeLinker");
 
@@ -50,8 +52,16 @@ static PRLibrary* LoadLlamaLib(nsIFile* aFile) {
   PRLibrary* lib = PR_LoadLibraryWithFlags(lspec, PR_LD_NOW | PR_LD_LOCAL);
 #endif
   if (!lib) {
-    LOG(LogLevel::Error, "unable to load library %s",
-        aFile->HumanReadablePath().get());
+    bool exists = false;
+    aFile->Exists(&exists);
+#ifdef XP_WIN
+    LOG(LogLevel::Error,
+        "unable to load library %s (exists=%d, GetLastError=%lu)",
+        aFile->HumanReadablePath().get(), exists, GetLastError());
+#else
+    LOG(LogLevel::Error, "unable to load library %s (exists=%d)",
+        aFile->HumanReadablePath().get(), exists);
+#endif
   }
   return lib;
 }

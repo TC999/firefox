@@ -5,11 +5,11 @@
 package mozilla.components.browser.state.engine
 
 import android.content.Intent
+import java.security.cert.X509Certificate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import mozilla.components.browser.state.action.BrowserAction
 import mozilla.components.browser.state.action.ContentAction
-import mozilla.components.browser.state.action.CookieBannerAction
 import mozilla.components.browser.state.action.CrashAction
 import mozilla.components.browser.state.action.EngineAction
 import mozilla.components.browser.state.action.MediaSessionAction
@@ -41,7 +41,6 @@ import mozilla.components.concept.engine.window.WindowRequest
 import mozilla.components.concept.fetch.Headers.Names.E_TAG
 import mozilla.components.concept.fetch.Response
 import mozilla.components.lib.state.Store
-import java.security.cert.X509Certificate
 
 internal const val PAGE_LOAD_COMPLETION_PROGRESS = 100
 
@@ -120,7 +119,7 @@ internal class EngineObserver(
             ContentAction.UpdateAppIntentAction(
                 tabId,
                 AppIntentState(url, appIntent, fallbackUrl, appName),
-            ),
+            )
         )
     }
 
@@ -166,7 +165,7 @@ internal class EngineObserver(
             ContentAction.UpdateSecurityInfoAction(
                 tabId,
                 SecurityInfo.from(secure, host ?: "", issuer ?: "", certificate),
-            ),
+            )
         )
     }
 
@@ -186,18 +185,12 @@ internal class EngineObserver(
         dispatchAsync(TrackingProtectionAction.ToggleAction(tabId, enabled))
     }
 
-    override fun onCookieBannerChange(status: EngineSession.CookieBannerHandlingStatus) {
-        dispatchAsync(CookieBannerAction.UpdateStatusAction(tabId, status))
-    }
-
     override fun onTranslatePageChange() {
         dispatchAsync(TranslationsAction.SetTranslateProcessingAction(tabId, isProcessing = false))
     }
 
     override fun onLongPress(hitResult: HitResult) {
-        dispatchAsync(
-            ContentAction.UpdateHitResultAction(tabId, hitResult),
-        )
+        dispatchAsync(ContentAction.UpdateHitResultAction(tabId, hitResult))
     }
 
     override fun onFind(text: String) {
@@ -213,7 +206,7 @@ internal class EngineObserver(
                     numberOfMatches,
                     isDoneCounting,
                 ),
-            ),
+            )
         )
     }
 
@@ -232,26 +225,27 @@ internal class EngineObserver(
         // We want to avoid negative contentLength values
         // For more info see https://bugzilla.mozilla.org/show_bug.cgi?id=1632594
         val fileSize = if (contentLength != null && contentLength < 0) null else contentLength
-        val download = DownloadState(
-            url,
-            fileName,
-            contentType,
-            fileSize,
-            0,
-            INITIATED,
-            userAgent,
-            private = isPrivate,
-            skipConfirmation = skipConfirmation,
-            openInApp = openInApp,
-            response = response,
-            etag = response?.headers?.get(E_TAG),
-        )
+        val download =
+            DownloadState(
+                url,
+                fileName,
+                contentType,
+                fileSize,
+                0,
+                INITIATED,
+                userAgent,
+                private = isPrivate,
+                skipConfirmation = skipConfirmation,
+                openInApp = openInApp,
+                response = response,
+                etag = response?.headers?.get(E_TAG),
+            )
 
         dispatchAsync(
             ContentAction.UpdateDownloadAction(
                 tabId,
                 download,
-            ),
+            )
         )
     }
 
@@ -260,7 +254,7 @@ internal class EngineObserver(
             ContentAction.UpdateTabDesktopMode(
                 tabId,
                 enabled,
-            ),
+            )
         )
     }
 
@@ -269,7 +263,7 @@ internal class EngineObserver(
             ContentAction.FullScreenChangedAction(
                 tabId,
                 enabled,
-            ),
+            )
         )
     }
 
@@ -278,7 +272,7 @@ internal class EngineObserver(
             ContentAction.ViewportFitChangedAction(
                 tabId,
                 layoutInDisplayCutoutMode,
-            ),
+            )
         )
     }
 
@@ -287,7 +281,7 @@ internal class EngineObserver(
             ContentAction.UpdatePermissionsRequest(
                 tabId,
                 permissionRequest,
-            ),
+            )
         )
     }
 
@@ -296,7 +290,7 @@ internal class EngineObserver(
             ContentAction.ConsumePermissionsRequest(
                 tabId,
                 permissionRequest,
-            ),
+            )
         )
     }
 
@@ -305,7 +299,7 @@ internal class EngineObserver(
             ContentAction.UpdateAppPermissionsRequest(
                 tabId,
                 permissionRequest,
-            ),
+            )
         )
     }
 
@@ -314,20 +308,16 @@ internal class EngineObserver(
             ContentAction.UpdatePromptRequestAction(
                 tabId,
                 promptRequest,
-            ),
+            )
         )
     }
 
     override fun onPromptDismissed(promptRequest: PromptRequest) {
-        dispatchAsync(
-            ContentAction.ConsumePromptRequestAction(tabId, promptRequest),
-        )
+        dispatchAsync(ContentAction.ConsumePromptRequestAction(tabId, promptRequest))
     }
 
     override fun onPromptUpdate(previousPromptRequestUid: String, promptRequest: PromptRequest) {
-        dispatchAsync(
-            ContentAction.ReplacePromptRequestAction(tabId, previousPromptRequestUid, promptRequest),
-        )
+        dispatchAsync(ContentAction.ReplacePromptRequestAction(tabId, previousPromptRequestUid, promptRequest))
     }
 
     override fun onRepostPromptCancelled() {
@@ -343,14 +333,12 @@ internal class EngineObserver(
             ContentAction.UpdateWindowRequestAction(
                 tabId,
                 windowRequest,
-            ),
+            )
         )
     }
 
     override fun onShowDynamicToolbar() {
-        dispatchAsync(
-            ContentAction.UpdateExpandedToolbarStateAction(tabId, true),
-        )
+        dispatchAsync(ContentAction.UpdateExpandedToolbarStateAction(tabId, true))
     }
 
     override fun onMediaActivated(mediaSessionController: MediaSession.Controller) {
@@ -358,7 +346,7 @@ internal class EngineObserver(
             MediaSessionAction.ActivatedMediaSessionAction(
                 tabId,
                 mediaSessionController,
-            ),
+            )
         )
     }
 
@@ -370,12 +358,16 @@ internal class EngineObserver(
         dispatchAsync(MediaSessionAction.UpdateMediaMetadataAction(tabId, metadata))
     }
 
+    override fun onMediaAudioSessionTypeChanged(type: MediaSession.AudioSessionType) {
+        dispatchAsync(MediaSessionAction.UpdateMediaAudioSessionTypeAction(tabId, type))
+    }
+
     override fun onMediaPlaybackStateChanged(playbackState: MediaSession.PlaybackState) {
         dispatchAsync(
             MediaSessionAction.UpdateMediaPlaybackStateAction(
                 tabId,
                 playbackState,
-            ),
+            )
         )
     }
 
@@ -384,7 +376,7 @@ internal class EngineObserver(
             MediaSessionAction.UpdateMediaFeatureAction(
                 tabId,
                 features,
-            ),
+            )
         )
     }
 
@@ -393,7 +385,7 @@ internal class EngineObserver(
             MediaSessionAction.UpdateMediaPositionStateAction(
                 tabId,
                 positionState,
-            ),
+            )
         )
     }
 
@@ -402,7 +394,7 @@ internal class EngineObserver(
             MediaSessionAction.UpdateMediaMutedAction(
                 tabId,
                 muted,
-            ),
+            )
         )
     }
 
@@ -415,7 +407,7 @@ internal class EngineObserver(
                 tabId,
                 fullscreen,
                 elementMetadata,
-            ),
+            )
         )
     }
 
@@ -424,19 +416,11 @@ internal class EngineObserver(
     }
 
     override fun onCrash() {
-        dispatchAsync(
-            CrashAction.SessionCrashedAction(
-                tabId,
-            ),
-        )
+        dispatchAsync(CrashAction.SessionCrashedAction(tabId))
     }
 
     override fun onProcessKilled() {
-        dispatchAsync(
-            EngineAction.KillEngineSessionAction(
-                tabId,
-            ),
-        )
+        dispatchAsync(EngineAction.KillEngineSessionAction(tabId))
     }
 
     override fun onStateUpdated(state: EngineSessionState) {
@@ -444,7 +428,7 @@ internal class EngineObserver(
             EngineAction.UpdateEngineSessionStateAction(
                 tabId,
                 state,
-            ),
+            )
         )
     }
 
@@ -453,7 +437,7 @@ internal class EngineObserver(
             ContentAction.SetRecordingDevices(
                 tabId,
                 devices,
-            ),
+            )
         )
     }
 
@@ -463,7 +447,7 @@ internal class EngineObserver(
                 tabId,
                 historyList,
                 currentIndex,
-            ),
+            )
         )
     }
 

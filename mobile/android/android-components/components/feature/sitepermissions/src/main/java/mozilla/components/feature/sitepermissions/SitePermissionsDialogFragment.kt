@@ -23,15 +23,16 @@ import android.widget.ImageView
 import android.widget.LinearLayout.LayoutParams
 import android.widget.TextView
 import androidx.annotation.VisibleForTesting
-import androidx.appcompat.app.AppCompatDialogFragment
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toDrawable
+import mozilla.components.support.base.android.NoObscuredTouchesDialogFragment
 import mozilla.components.support.base.log.logger.Logger
 import mozilla.components.support.ktx.android.content.appName
 import mozilla.components.support.ktx.kotlin.ifNullOrEmpty
 import mozilla.components.support.ktx.util.PromptAbuserDetector
+import mozilla.components.support.utils.OnEnterAnimationCompleteListener
 
 internal const val KEY_SESSION_ID = "KEY_SESSION_ID"
 internal const val KEY_TITLE = "KEY_TITLE"
@@ -51,50 +52,62 @@ private const val KEY_IS_NOTIFICATION_REQUEST = "KEY_IS_NOTIFICATION_REQUEST"
 private const val DEFAULT_VALUE = Int.MAX_VALUE
 private const val KEY_PERMISSION_ID = "KEY_PERMISSION_ID"
 
-internal open class SitePermissionsDialogFragment : AppCompatDialogFragment() {
+internal open class SitePermissionsDialogFragment :
+    NoObscuredTouchesDialogFragment(), OnEnterAnimationCompleteListener {
 
     private val logger = Logger("SitePermissionsDialogFragment")
 
     @VisibleForTesting
-    internal var promptAbuserDetector =
-        PromptAbuserDetector(maxSuccessiveDialogMillisLimit = TIME_SHOWN_OFFSET_MILLIS)
+    internal var promptAbuserDetector = PromptAbuserDetector(maxSuccessiveDialogMillisLimit = TIME_SHOWN_OFFSET_MILLIS)
     // Safe Arguments
 
-    private val safeArguments get() = requireNotNull(arguments)
+    private val safeArguments
+        get() = requireNotNull(arguments)
 
-    internal val sessionId: String get() =
-        safeArguments.getString(KEY_SESSION_ID, "")
-    internal val title: String get() =
-        safeArguments.getString(KEY_TITLE, "")
-    internal val icon get() =
-        safeArguments.getInt(KEY_TITLE_ICON, DEFAULT_VALUE)
-    internal val message: String? get() =
-        safeArguments.getString(KEY_MESSAGE, null)
-    internal val negativeButtonText: String? get() =
-        safeArguments.getString(KEY_NEGATIVE_BUTTON_TEXT, null)
+    internal val sessionId: String
+        get() = safeArguments.getString(KEY_SESSION_ID, "")
 
-    internal val dialogGravity: Int get() =
-        safeArguments.getInt(KEY_DIALOG_GRAVITY, DEFAULT_VALUE)
-    internal val dialogShouldWidthMatchParent: Boolean get() =
-        safeArguments.getBoolean(KEY_DIALOG_WIDTH_MATCH_PARENT)
+    internal val title: String
+        get() = safeArguments.getString(KEY_TITLE, "")
 
-    internal val positiveButtonBackgroundColor get() =
-        safeArguments.getInt(KEY_POSITIVE_BUTTON_BACKGROUND_COLOR, DEFAULT_VALUE)
-    internal val positiveButtonTextColor get() =
-        safeArguments.getInt(KEY_POSITIVE_BUTTON_TEXT_COLOR, DEFAULT_VALUE)
+    internal val icon
+        get() = safeArguments.getInt(KEY_TITLE_ICON, DEFAULT_VALUE)
 
-    internal val isNotificationRequest get() =
-        safeArguments.getBoolean(KEY_IS_NOTIFICATION_REQUEST, false)
-    internal val learnMoreLink: String get() =
-        safeArguments.getString(KEY_LEARN_MORE_LINK, "")
-    internal val shouldShowDoNotAskAgainCheckBox: Boolean get() =
-        safeArguments.getBoolean(KEY_SHOULD_SHOW_DO_NOT_ASK_AGAIN_CHECKBOX, true)
-    internal val shouldPreselectDoNotAskAgainCheckBox: Boolean get() =
-        safeArguments.getBoolean(KEY_SHOULD_PRESELECT_DO_NOT_ASK_AGAIN_CHECKBOX, false)
-    internal val doNotAskAgainCheckBoxLabel: String? get() =
-        safeArguments.getString(KEY_DO_NOT_ASK_AGAIN_CHECKBOX_LABEL, null)
-    internal val permissionRequestId: String get() =
-        safeArguments.getString(KEY_PERMISSION_ID, "")
+    internal val message: String?
+        get() = safeArguments.getString(KEY_MESSAGE, null)
+
+    internal val negativeButtonText: String?
+        get() = safeArguments.getString(KEY_NEGATIVE_BUTTON_TEXT, null)
+
+    internal val dialogGravity: Int
+        get() = safeArguments.getInt(KEY_DIALOG_GRAVITY, DEFAULT_VALUE)
+
+    internal val dialogShouldWidthMatchParent: Boolean
+        get() = safeArguments.getBoolean(KEY_DIALOG_WIDTH_MATCH_PARENT)
+
+    internal val positiveButtonBackgroundColor
+        get() = safeArguments.getInt(KEY_POSITIVE_BUTTON_BACKGROUND_COLOR, DEFAULT_VALUE)
+
+    internal val positiveButtonTextColor
+        get() = safeArguments.getInt(KEY_POSITIVE_BUTTON_TEXT_COLOR, DEFAULT_VALUE)
+
+    internal val isNotificationRequest
+        get() = safeArguments.getBoolean(KEY_IS_NOTIFICATION_REQUEST, false)
+
+    internal val learnMoreLink: String
+        get() = safeArguments.getString(KEY_LEARN_MORE_LINK, "")
+
+    internal val shouldShowDoNotAskAgainCheckBox: Boolean
+        get() = safeArguments.getBoolean(KEY_SHOULD_SHOW_DO_NOT_ASK_AGAIN_CHECKBOX, true)
+
+    internal val shouldPreselectDoNotAskAgainCheckBox: Boolean
+        get() = safeArguments.getBoolean(KEY_SHOULD_PRESELECT_DO_NOT_ASK_AGAIN_CHECKBOX, false)
+
+    internal val doNotAskAgainCheckBoxLabel: String?
+        get() = safeArguments.getString(KEY_DO_NOT_ASK_AGAIN_CHECKBOX_LABEL, null)
+
+    internal val permissionRequestId: String
+        get() = safeArguments.getString(KEY_PERMISSION_ID, "")
 
     // State
 
@@ -134,6 +147,11 @@ internal open class SitePermissionsDialogFragment : AppCompatDialogFragment() {
         feature?.onDismiss(permissionRequestId, sessionId)
     }
 
+    override fun onEnterAnimationComplete() {
+        // Extend the positive button click delay.
+        promptAbuserDetector.updateJSDialogAbusedState()
+    }
+
     private fun Dialog.setContainerView(rootView: View) {
         if (dialogShouldWidthMatchParent) {
             setContentView(rootView)
@@ -150,11 +168,13 @@ internal open class SitePermissionsDialogFragment : AppCompatDialogFragment() {
 
     @SuppressLint("InflateParams")
     private fun createContainer(): View {
-        val rootView = LayoutInflater.from(requireContext()).inflate(
-            R.layout.mozac_site_permissions_prompt,
-            null,
-            false,
-        )
+        val rootView =
+            LayoutInflater.from(requireContext())
+                .inflate(
+                    R.layout.mozac_site_permissions_prompt,
+                    null,
+                    false,
+                )
 
         rootView.findViewById<TextView>(R.id.title).text = title
         rootView.findViewById<ImageView>(R.id.icon).setImageResource(icon)
@@ -195,10 +215,11 @@ internal open class SitePermissionsDialogFragment : AppCompatDialogFragment() {
         }
 
         if (positiveButtonBackgroundColor != DEFAULT_VALUE) {
-            val backgroundTintList = AppCompatResources.getColorStateList(
-                requireContext(),
-                positiveButtonBackgroundColor,
-            )
+            val backgroundTintList =
+                AppCompatResources.getColorStateList(
+                    requireContext(),
+                    positiveButtonBackgroundColor,
+                )
             positiveButton.backgroundTintList = backgroundTintList
         }
 
@@ -223,9 +244,10 @@ internal open class SitePermissionsDialogFragment : AppCompatDialogFragment() {
             showDoNotAskAgainCheckbox(
                 containerView = rootView,
                 checked = shouldPreselectDoNotAskAgainCheckBox,
-                checkboxLabel = doNotAskAgainCheckBoxLabel.ifNullOrEmpty {
-                    getString(R.string.mozac_feature_sitepermissions_do_not_ask_again_on_this_site2)
-                },
+                checkboxLabel =
+                    doNotAskAgainCheckBoxLabel.ifNullOrEmpty {
+                        getString(R.string.mozac_feature_sitepermissions_do_not_ask_again_on_this_site2)
+                    },
             )
         }
 
@@ -238,28 +260,35 @@ internal open class SitePermissionsDialogFragment : AppCompatDialogFragment() {
     private fun showSettingsPrompt() {
         with(requireContext()) {
             NotificationPermissionDialogFragment.newInstance(
-                dialogTitleString = title,
-                dialogMessageString = getString(
-                    R.string.mozac_feature_sitepermissions_notification_permission_rationale_dialog_message,
-                    appName,
-                ),
-                positiveButtonText = getString(
-                    R.string.mozac_feature_sitepermissions_notification_permission_rationale_dialog_settings_label,
-                ),
-                negativeButtonText = getString(
-                    R.string.mozac_feature_sitepermissions_notification_permission_rationale_dialog_dismiss_label,
-                ),
-                positiveButtonAction = {
-                    val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
-                        putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
-                        flags = FLAG_ACTIVITY_NEW_TASK
-                    }
-                    startActivity(intent)
-                },
-            ).showNow(
-                parentFragmentManager,
-                NotificationPermissionDialogFragment.FRAGMENT_TAG,
-            )
+                    dialogTitleString = title,
+                    dialogMessageString =
+                        getString(
+                            R.string.mozac_feature_sitepermissions_notification_permission_rationale_dialog_message,
+                            appName,
+                        ),
+                    positiveButtonText =
+                        getString(
+                            R.string
+                                .mozac_feature_sitepermissions_notification_permission_rationale_dialog_settings_label
+                        ),
+                    negativeButtonText =
+                        getString(
+                            R.string
+                                .mozac_feature_sitepermissions_notification_permission_rationale_dialog_dismiss_label
+                        ),
+                    positiveButtonAction = {
+                        val intent =
+                            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                                putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                                flags = FLAG_ACTIVITY_NEW_TASK
+                            }
+                        startActivity(intent)
+                    },
+                )
+                .showNow(
+                    parentFragmentManager,
+                    NotificationPermissionDialogFragment.FRAGMENT_TAG,
+                )
         }
     }
 
@@ -333,7 +362,8 @@ internal open class SitePermissionsDialogFragment : AppCompatDialogFragment() {
             return fragment
         }
 
-        // See https://searchfox.org/mozilla-central/rev/76cb3efe3b19e649bf675bb6ec5d4af8109b9771/toolkit/modules/PopupNotifications.sys.mjs#18
+        // See
+        // https://searchfox.org/mozilla-central/rev/76cb3efe3b19e649bf675bb6ec5d4af8109b9771/toolkit/modules/PopupNotifications.sys.mjs#18
         private const val TIME_SHOWN_OFFSET_MILLIS = 500
     }
 }

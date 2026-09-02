@@ -142,9 +142,11 @@ def lint(paths, config, binary=None, fix=None, rules=[], setup=None, **lintargs)
         # as it doesn't understand those arguments.
         + list(
             filter(
-                lambda x: not x.startswith("--config")
-                and not x.startswith("--plugin")
-                and not x.startswith("--rule"),
+                lambda x: (
+                    not x.startswith("--config")
+                    and not x.startswith("--plugin")
+                    and not x.startswith("--rule")
+                ),
                 [arg for arg in extra_args if bypass(arg)],
             )
         )

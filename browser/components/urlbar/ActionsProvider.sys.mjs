@@ -41,82 +41,34 @@ export class ActionsProvider {
   }
 
   /**
-   * Pick an action.
-   *
-   * @param {UrlbarQueryContext} _queryContext The query context object.
-   * @param {UrlbarController} _controller The urlbar controller.
-   * @param {Element} _element The element that was selected.
-   * @abstract
+   * @param {UrlbarQueryContext} _queryContext
+   * @param {UrlbarParentController} _controller
+   * @param {ActionsResult} _action
+   * @param {object} _details
    */
-  pickAction(_queryContext, _controller, _element) {
-    throw new Error("Not implemented.");
-  }
+  onPick(_queryContext, _controller, _action, _details) {}
 }
 
 /**
- * Class used to create an Actions Result.
+ * A result produced by an `ActionsProvider`, describing one action button in
+ * the actions row. It's a plain object (no methods, never deserialized) so it
+ * stays structured-cloneable across the urlbar actor boundary.
+ *
+ * @typedef {object} ActionsResult
+ * @property {string} providerName
+ *   The name of the `ActionsProvider` that provided this actions result.
+ * @property {string} key
+ *   A string key used to distinguish between different actions.
+ * @property {string} [l10nId]
+ *   The id of the l10n string displayed in the action button, if any.
+ * @property {{[arg: string]: any}} [l10nArgs]
+ *   Arguments passed to construct the above string.
+ * @property {string} [icon]
+ *   The icon displayed in the button; the view falls back to a default when
+ *   it's absent.
+ * @property {{[key: string]: any}} [dataset]
+ *   An object of properties we set on the action button that can be used to
+ *   pass data when it is selected.
+ * @property {string} [engine]
+ *   The name of an installed engine if the action prompts search mode.
  */
-export class ActionsResult {
-  /**
-   * @type {string}
-   *   The name of the `ActionsProvider` that provided this actions result.
-   */
-  providerName;
-
-  #key;
-  #l10nId;
-  #l10nArgs;
-  #icon;
-  #dataset;
-  #engine;
-
-  /**
-   * @param {object} options
-   *    An option object.
-   * @param {string} options.key
-   *    A string key used to distinguish between different actions.
-   * @param {string} options.l10nId
-   *    The id of the l10n string displayed in the action button.
-   * @param {{[arg: string]: any}} [options.l10nArgs]
-   *    Arguments passed to construct the above string
-   * @param {string} options.icon
-   *    The icon displayed in the button.
-   * @param {{[key: string]: any}} [options.dataset]
-   *    An object of properties we set on the action button that
-   *    can be used to pass data when it is selected.
-   * @param {string} [options.engine]
-   *    The name of an installed engine if the action prompts search mode.
-   */
-  constructor({ key, l10nId, l10nArgs, icon, dataset, engine }) {
-    this.#key = key;
-    this.#l10nId = l10nId;
-    this.#l10nArgs = l10nArgs;
-    this.#icon = icon;
-    this.#dataset = dataset;
-    this.#engine = engine;
-  }
-
-  get key() {
-    return this.#key;
-  }
-
-  get l10nId() {
-    return this.#l10nId;
-  }
-
-  get l10nArgs() {
-    return this.#l10nArgs;
-  }
-
-  get icon() {
-    return this.#icon;
-  }
-
-  get dataset() {
-    return this.#dataset;
-  }
-
-  get engine() {
-    return this.#engine;
-  }
-}

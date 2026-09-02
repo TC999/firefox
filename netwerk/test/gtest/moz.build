@@ -11,6 +11,7 @@ UNIFIED_SOURCES += [
     "TestCapsule.cpp",
     "TestCommon.cpp",
     "TestCookie.cpp",
+    "TestDNS.cpp",
     "TestDNSPacket.cpp",
     "TestEtcHostsParsing.cpp",
     "TestHeaders.cpp",
@@ -28,12 +29,14 @@ UNIFIED_SOURCES += [
     "TestLocalNetworkAccess.cpp",
     "TestMIMEInputStream.cpp",
     "TestMozURL.cpp",
+    "TestNoVarySearchUtils.cpp",
     "TestPACMan.cpp",
     "TestParseHeaders.cpp",
     "TestPollableEvent.cpp",
     "TestProtocolProxyService.cpp",
     "TestReadStreamToString.cpp",
     "TestServerTimingHeader.cpp",
+    "TestSFV.cpp",
     "TestSocketTransportService.cpp",
     "TestSSLTokensCache.cpp",
     "TestStandardURL.cpp",
@@ -44,6 +47,17 @@ UNIFIED_SOURCES += [
     "TestUrlPatternGlue.cpp",
     "TestUseAsDictionary.cpp",
     "TestWebTransportFlowControl.cpp",
+]
+
+# Not in UNIFIED_SOURCES: adding a file to the unified list reshuffles which
+# files share a translation unit, and TestHttpAtom relies on nsHttp atom string
+# literals being pooled within a single TU (a cross-TU pointer-identity
+# assumption). Keeping these files out of the unified build avoids perturbing
+# that grouping.
+SOURCES += [
+    "TestCacheCrypto.cpp",
+    "TestCacheEntryWriterHang.cpp",
+    "TestHappyEyeballsConnectionAttempt.cpp",
 ]
 
 if CONFIG["OS_TARGET"] == "WINNT":
@@ -66,6 +80,7 @@ USE_LIBS += [
 
 LOCAL_INCLUDES += [
     "/netwerk/base",
+    "/netwerk/base/http-sfv",
     "/netwerk/cache2",
     "/netwerk/cookie",
     "/netwerk/dns",
@@ -81,6 +96,10 @@ if CONFIG["OS_TARGET"] == "WINNT":
 # mac includes only
 if CONFIG["TARGET_OS"] == "OSX":
     LOCAL_INCLUDES += ["/netwerk/system/mac"]
+
+# android includes only
+if CONFIG["MOZ_WIDGET_TOOLKIT"] == "android":
+    LOCAL_INCLUDES += ["/netwerk/system/android"]
 
 include("/ipc/chromium/chromium-config.mozbuild")
 

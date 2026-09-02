@@ -37,6 +37,7 @@ header-guards:
     - parser/html/nsHtml5TreeBuilderCppSupplement.h
     - parser/html/nsHtml5TokenizerHSupplement.h
     - parser/html/nsHtml5TokenizerCppSupplement.h
+    - parser/html/nsHtml5PortabilityHSupplement.h
     - security/manager/ssl/StaticHPKPins.h
     - python/mozbuild/mozbuild/test/backend/data/exports-generated/dom1.h
     - python/mozbuild/mozbuild/test/backend/data/exports-generated/foo.h
@@ -70,7 +71,6 @@ header-guards:
     - python/mozbuild/mozbuild/test/frontend/data/exports/pprthred.h
     - python/mozbuild/mozbuild/test/frontend/data/local_includes-filename/foo.h
     - toolkit/components/maintenanceservice/resource.h
-    - tools/clang-tidy/test/structures.h
   type: external
   payload: header_guards:lint
   support-files: ['tools/lint/header_guards/**']

@@ -71,7 +71,6 @@
 #  if defined(MOZ_SANDBOX)
 #    include "WinUtils.h"
 #    include "mozilla/Preferences.h"
-#    include "mozilla/sandboxing/sandboxLogging.h"
 #  endif
 
 #  include "mozilla/NativeNt.h"
@@ -127,6 +126,8 @@ extern char** environ;
 namespace mozilla {
 namespace ipc {
 
+LazyLogModule gChildProcessLifecycleLog("ChildProcessLifecycle");
+
 struct LaunchResults {
   base::ProcessHandle mHandle = 0;
 #ifdef XP_MACOSX
@@ -173,12 +174,11 @@ class BaseProcessLauncher {
 #endif
   {
     aHost->mInitialChannelId.ToProvidedString(mInitialChannelIdString);
+    mChildID = aHost->mChildID;
     SprintfLiteral(mChildIDString, "%d", aHost->mChildID);
 
     // Compute the serial event target we'll use for launching.
-    nsCOMPtr<nsIEventTarget> threadOrPool = GetIPCLauncher();
-    mLaunchThread =
-        TaskQueue::Create(threadOrPool.forget(), "BaseProcessLauncher");
+    mLaunchThread = GetIPCLauncher();
 
     if (ShouldHaveDirectoryService()) {
       // "Current process directory" means the app dir, not the current
@@ -243,6 +243,7 @@ class BaseProcessLauncher {
 #endif
   LaunchResults mResults = LaunchResults();
   char mInitialChannelIdString[NSID_LENGTH];
+  GeckoChildID mChildID;
   char mChildIDString[32];
 
   // Set during launch.
@@ -322,7 +323,8 @@ class AndroidProcessLauncher : public PosixProcessLauncher {
  protected:
   virtual RefPtr<ProcessLaunchPromise> DoLaunch() override;
   RefPtr<ProcessHandlePromise> LaunchAndroidService(
-      const GeckoProcessType aType, const geckoargs::ChildProcessArgs& args);
+      const GeckoProcessType aType, const GeckoChildID aChildID,
+      const geckoargs::ChildProcessArgs& args);
 };
 typedef AndroidProcessLauncher ProcessLauncher;
 // NB: Technically Android is linux (i.e. XP_LINUX is defined), but we want
@@ -441,6 +443,12 @@ GeckoChildProcessHost::~GeckoChildProcessHost() {
 #endif
 
     if (mChildProcessHandle != 0) {
+      MOZ_LOG(
+          gChildProcessLifecycleLog, LogLevel::Info,
+          ("--PROCESS [pid = %" PRIPID "] [childID = %" PRIi32 "] [type = %s]",
+           base::GetProcId(mChildProcessHandle), mChildID,
+           XRE_GeckoProcessTypeToString(mProcessType)));
+
       ProcessWatcher::EnsureProcessTerminated(mChildProcessHandle);
       mChildProcessHandle = 0;
     }
@@ -739,7 +747,7 @@ bool GeckoChildProcessHost::AsyncLaunch(
 #endif
 
   RefPtr<BaseProcessLauncher> launcher =
-      new ProcessLauncher(this, std::move(aExtraOpts));
+      MakeRefPtr<ProcessLauncher>(this, std::move(aExtraOpts));
   TimeStamp startTimeStamp = TimeStamp::Now();
 #ifdef ALLOW_GECKO_CHILD_PROCESS_ARCH
   launcher->SetLaunchArchitecture(mLaunchArch);
@@ -803,6 +811,12 @@ bool GeckoChildProcessHost::AsyncLaunch(
                   this->mSandboxBroker = std::move(aResults.mSandboxBroker);
 #endif
 
+                  MOZ_LOG(gChildProcessLifecycleLog, LogLevel::Info,
+                          ("++PROCESS [pid = %" PRIPID "] [childID = %" PRIi32
+                           "] [type = %s]",
+                           GetChildProcessId(), mChildID,
+                           XRE_GeckoProcessTypeToString(mProcessType)));
+
                   glean::process::child_launch.AccumulateRawDuration(
                       TimeStamp::Now() - startTimeStamp);
 
@@ -848,14 +862,16 @@ bool GeckoChildProcessHost::AsyncLaunch(
                 glean::dom_parentprocess::process_launch_errors
                     .Get(telemetryKey)
                     .Add(1);
-                {
-                  MonitorAutoLock lock(mMonitor);
-                  mProcessState = PROCESS_ERROR;
-                  lock.Notify();
-                }
+                OnProcessLaunchError(aError);
                 return ProcessHandlePromise::CreateAndReject(aError, __func__);
               });
   return true;
+}
+
+void GeckoChildProcessHost::OnProcessLaunchError(const LaunchError aError) {
+  MonitorAutoLock lock(mMonitor);
+  mProcessState = PROCESS_ERROR;
+  lock.Notify();
 }
 
 bool GeckoChildProcessHost::WaitUntilConnected(int32_t aTimeoutMs) {
@@ -933,6 +949,14 @@ void GeckoChildProcessHost::SetAlreadyDead() {
   mozilla::AutoWriteLock handleLock(mHandleLock);
   if (mChildProcessHandle &&
       mChildProcessHandle != base::kInvalidProcessHandle) {
+    // The destructor logs this too, but only one of the two runs, as both are
+    // guarded on still holding the handle.
+    MOZ_LOG(
+        gChildProcessLifecycleLog, LogLevel::Info,
+        ("--PROCESS [pid = %" PRIPID "] [childID = %" PRIi32 "] [type = %s]",
+         base::GetProcId(mChildProcessHandle), mChildID,
+         XRE_GeckoProcessTypeToString(mProcessType)));
+
     base::CloseProcessHandle(mChildProcessHandle);
   }
 
@@ -1082,8 +1106,13 @@ RefPtr<ProcessLaunchPromise> BaseProcessLauncher::PerformAsyncLaunch() {
   if (aError.isErr()) {
     return ProcessLaunchPromise::CreateAndReject(aError.unwrapErr(), __func__);
   }
+
+  // NOTE: We run this task on the IO event target as it should be cheap &
+  // non-blocking, and the next step in our caller will be ->Then-ed onto this
+  // event target, meaning this avoids unnecessary thread hops back to the
+  // launch target on platforms like macOS.
   return DoLaunch()->Then(
-      mLaunchThread, __func__,
+      XRE_GetAsyncIOEventTarget(), __func__,
       [self =
            RefPtr{this}](ProcessLaunchPromise::ResolveOrRejectValue&& aResult) {
         // Explicitly destroy any outstanding references to HANDLEs which may be
@@ -1124,18 +1153,7 @@ Result<Ok, LaunchError> BaseProcessLauncher::DoSetup() {
 
   if (!CrashReporter::IsDummy() && CrashReporter::GetEnabled() &&
       mProcessType != GeckoProcessType_ForkServer) {
-#if defined(MOZ_WIDGET_COCOA) || defined(XP_WIN)
-    geckoargs::sCrashReporter.Put(CrashReporter::GetChildNotificationPipe(),
-                                  mChildArgs);
-#elif defined(XP_UNIX) && !defined(XP_IOS)
-    UniqueFileHandle childCrashFd = CrashReporter::GetChildNotificationPipe();
-    if (!childCrashFd) {
-      return Err(LaunchError("DuplicateFileHandle failed"));
-    }
-    geckoargs::sCrashReporter.Put(std::move(childCrashFd), mChildArgs);
-#endif  // XP_UNIX && !XP_IOS
-
-    if (!CrashReporter::RegisterChildIPCChannel(mChildArgs)) {
+    if (!CrashReporter::RegisterChildIPCChannel(mChildArgs, mChildID)) {
       NS_WARNING("Could not create an IPC channel to the crash helper");
     }
   }
@@ -1329,7 +1347,7 @@ Result<Ok, LaunchError> PosixProcessLauncher::DoSetup() {
 
 #if defined(MOZ_WIDGET_ANDROID)
 RefPtr<ProcessLaunchPromise> AndroidProcessLauncher::DoLaunch() {
-  return LaunchAndroidService(mProcessType, mChildArgs)
+  return LaunchAndroidService(mProcessType, mChildID, mChildArgs)
       ->Then(
           mLaunchThread, __func__,
           [self = RefPtr{this}](ProcessHandle aHandle) {
@@ -1739,10 +1757,18 @@ RefPtr<ProcessLaunchPromise> WindowsProcessLauncher::DoLaunch() {
         mLaunchOptions->env_map, mProcessType, mEnableSandboxLogging,
         cachedNtdllThunk, &mResults.mHandle);
     if (err.isOk()) {
-      EnvironmentLog("MOZ_PROCESS_LOG")
-          .print("==> process %d launched child process %d (%S)\n",
-                 base::GetCurrentProcId(), base::GetProcId(mResults.mHandle),
-                 mCmdLine->command_line_string().c_str());
+      base::ProcessId childPid = base::GetProcId(mResults.mHandle);
+      EnvironmentLog logger = EnvironmentLog("MOZ_PROCESS_LOG");
+      logger.print("==> process %d launched child process %d (%S)\n",
+                   base::GetCurrentProcId(), childPid,
+                   mCmdLine->command_line_string().c_str());
+      if (!CrashReporter::ChildProcessProxyRendezvous(mChildID, childPid,
+                                                      mResults.mHandle)) {
+        logger.print(
+            "==> process %d could not rendez-vous with the crash helper\n",
+            childPid);
+      }
+
       return ProcessLaunchPromise::CreateAndResolve(std::move(mResults),
                                                     __func__);
     }
@@ -1756,6 +1782,17 @@ RefPtr<ProcessLaunchPromise> WindowsProcessLauncher::DoLaunch() {
     return ProcessLaunchPromise::CreateAndReject(launchErr.unwrapErr(),
                                                  __func__);
   }
+
+  base::ProcessId childPid = base::GetProcId(mResults.mHandle);
+  if (!CrashReporter::ChildProcessProxyRendezvous(mChildID, childPid,
+                                                  mResults.mHandle)) {
+    NS_WARNING(
+        nsPrintfCString(
+            "Could not rendez-vous with crash helper on behalf of process %d",
+            mChildID)
+            .get());
+  }
+
   return ProcessLaunchPromise::CreateAndResolve(std::move(mResults), __func__);
 }
 #endif  // XP_WIN
@@ -1788,7 +1825,8 @@ RefPtr<ProcessHandlePromise> GeckoChildProcessHost::WhenProcessHandleReady() {
 
 #ifdef MOZ_WIDGET_ANDROID
 RefPtr<ProcessHandlePromise> AndroidProcessLauncher::LaunchAndroidService(
-    const GeckoProcessType aType, const geckoargs::ChildProcessArgs& args) {
+    const GeckoProcessType aType, const GeckoChildID aChildId,
+    const geckoargs::ChildProcessArgs& args) {
   JNIEnv* const env = mozilla::jni::GetEnvForThread();
   MOZ_ASSERT(env);
 
@@ -1806,7 +1844,8 @@ RefPtr<ProcessHandlePromise> AndroidProcessLauncher::LaunchAndroidService(
   jni::IntArray::LocalRef jfds = jni::IntArray::New(fds.data(), fds.size());
 
   auto type = java::GeckoProcessType::FromInt(aType);
-  auto genericResult = java::GeckoProcessManager::Start(type, jargs, jfds);
+  auto genericResult =
+      java::GeckoProcessManager::Start(type, aChildId, jargs, jfds);
   auto typedResult = java::GeckoResult::LocalRef(std::move(genericResult));
   return ProcessHandlePromise::FromGeckoResult(typedResult);
 }

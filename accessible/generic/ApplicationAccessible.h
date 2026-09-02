@@ -6,7 +6,6 @@
 #define mozilla_a11y_ApplicationAccessible_h_
 
 #include "AccessibleWrap.h"
-
 #include "nsIXULAppInfo.h"
 
 namespace mozilla {
@@ -52,7 +51,7 @@ class ApplicationAccessible : public AccessibleWrap {
   virtual KeyBinding AccessKey() const override;
 
   // ApplicationAccessible
-  void Init();
+  void CreateInitialDocs();
 
   void AppName(nsAString& aName) const {
     MOZ_ASSERT(mAppInfo, "no application info");
@@ -87,7 +86,7 @@ class ApplicationAccessible : public AccessibleWrap {
   }
 
  protected:
-  virtual ~ApplicationAccessible() {}
+  virtual ~ApplicationAccessible() = default;
 
   // LocalAccessible
   virtual LocalAccessible* GetSiblingAtOffset(

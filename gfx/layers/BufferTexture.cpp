@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "gfxPlatform.h"
 #include "libyuv.h"
 #include "mozilla/fallible.h"
 #include "mozilla/gfx/2D.h"
@@ -14,8 +15,6 @@
 #include "mozilla/layers/ISurfaceAllocator.h"
 #include "mozilla/layers/ImageDataSerializer.h"
 #include "mozilla/layers/TextureForwarder.h"
-
-#include "gfxPlatform.h"
 
 #ifdef MOZ_WIDGET_GTK
 #  include "gfxPlatformGtk.h"
@@ -81,7 +80,7 @@ class ShmemTextureData : public BufferTextureData {
       gfx::ColorSpace2 aColorSpace, gfx::TransferFunction aTransferFunction,
       gfx::BackendType aMoz2DBackend, LayersBackend aLayersBackend,
       TextureFlags aFlags, TextureAllocationFlags aAllocFlags,
-      IShmemAllocator* aAllocator);
+      LayersIPCChannel* aAllocator);
 
   virtual TextureData* CreateSimilar(
       LayersIPCChannel* aAllocator, LayersBackend aLayersBackend,
@@ -92,19 +91,50 @@ class ShmemTextureData : public BufferTextureData {
 
   virtual void Deallocate(LayersIPCChannel* aAllocator) override;
 
+  class ShmemHolder final {
+   public:
+    NS_INLINE_DECL_THREADSAFE_REFCOUNTING(ShmemHolder)
+
+    ShmemHolder(LayersIPCChannel* aAllocator, mozilla::ipc::Shmem aShmem)
+        : mAllocator(aAllocator), mShmem(std::move(aShmem)) {}
+    mozilla::ipc::Shmem& GetShmem() { return mShmem; }
+    void SetDeallocShmem() { mDeallocShmem = true; }
+
+    const RefPtr<LayersIPCChannel> mAllocator;
+
+   protected:
+    ~ShmemHolder() {
+      if (mDeallocShmem) {
+        mAllocator->DeallocShmem(mShmem);
+      }
+    }
+
+    mozilla::ipc::Shmem mShmem;
+    mozilla::Atomic<bool> mDeallocShmem{false};
+  };
+
   ShmemTextureData(const BufferDescriptor& aDesc,
-                   gfx::BackendType aMoz2DBackend, mozilla::ipc::Shmem aShmem,
-                   bool aIsClear = false)
-      : BufferTextureData(aDesc, aMoz2DBackend, aIsClear), mShmem(aShmem) {
-    MOZ_ASSERT(mShmem.Size<uint8_t>());
+                   gfx::BackendType aMoz2DBackend,
+                   RefPtr<ShmemHolder>& aShmemHolder, bool aIsClear = false)
+      : BufferTextureData(aDesc, aMoz2DBackend, aIsClear),
+        mShmemHolder(aShmemHolder) {
+    MOZ_ASSERT(mShmemHolder);
+    MOZ_ASSERT(mShmemHolder->GetShmem().Size<uint8_t>());
   }
 
-  virtual uint8_t* GetBuffer() override { return mShmem.get<uint8_t>(); }
+  virtual uint8_t* GetBuffer() override {
+    return mShmemHolder->GetShmem().get<uint8_t>();
+  }
 
-  virtual size_t GetBufferSize() override { return mShmem.Size<uint8_t>(); }
+  virtual size_t GetBufferSize() override {
+    return mShmemHolder->GetShmem().Size<uint8_t>();
+  }
+
+  virtual void OnBorrowDrawTarget(gfx::DrawTarget* aDrawTarget) override;
 
  protected:
-  mozilla::ipc::Shmem mShmem;
+  const RefPtr<ShmemHolder> mShmemHolder;
+  gfx::UserDataKey mShmemHolderKey = {0};
 };
 
 BufferTextureData* BufferTextureData::Create(
@@ -112,7 +142,7 @@ BufferTextureData* BufferTextureData::Create(
     gfx::ColorSpace2 aColorSpace, gfx::TransferFunction aTransferFunction,
     gfx::BackendType aMoz2DBackend, LayersBackend aLayersBackend,
     TextureFlags aFlags, TextureAllocationFlags aAllocFlags,
-    mozilla::ipc::IShmemAllocator* aAllocator, bool aIsSameProcess) {
+    LayersIPCChannel* aAllocator, bool aIsSameProcess) {
   if (!aAllocator || aIsSameProcess) {
     return MemoryTextureData::Create(
         aSize, aFormat, aColorSpace, aTransferFunction, aMoz2DBackend,
@@ -145,7 +175,9 @@ BufferTextureData* BufferTextureData::CreateInternal(
 
     bool isClear = aDesc.type() == BufferDescriptor::TRGBDescriptor &&
                    !IsOpaque(aDesc.get_RGBDescriptor().format());
-    return new ShmemTextureData(aDesc, aMoz2DBackend, shm, isClear);
+    RefPtr shmemHolder =
+        MakeRefPtr<ShmemTextureData::ShmemHolder>(aAllocator, shm);
+    return new ShmemTextureData(aDesc, aMoz2DBackend, shmemHolder, isClear);
   }
 }
 
@@ -155,7 +187,8 @@ BufferTextureData* BufferTextureData::CreateForYCbCr(
     const gfx::IntSize& aCbCrSize, uint32_t aCbCrStride, StereoMode aStereoMode,
     gfx::ColorDepth aColorDepth, gfx::YUVColorSpace aYUVColorSpace,
     gfx::ColorRange aColorRange, gfx::TransferFunction aTransferFunction,
-    gfx::ChromaSubsampling aSubsampling, TextureFlags aTextureFlags) {
+    gfx::ChromaSubsampling aSubsampling, TextureFlags aTextureFlags,
+    const Maybe<gfx::HDRMetadata>& aHDRMetadata) {
   Maybe<uint32_t> bufSize = ImageDataSerializer::ComputeYCbCrBufferSize(
       aDisplay, aYSize, aYStride, aCbCrSize, aCbCrStride, aColorDepth,
       aSubsampling);
@@ -173,7 +206,7 @@ BufferTextureData* BufferTextureData::CreateForYCbCr(
   YCbCrDescriptor descriptor = YCbCrDescriptor(
       aDisplay, aYSize, aYStride, aCbCrSize, aCbCrStride, yOffset, cbOffset,
       crOffset, aStereoMode, aColorDepth, aYUVColorSpace, aColorRange,
-      aTransferFunction, aSubsampling);
+      aTransferFunction, aSubsampling, aHDRMetadata);
 
   return CreateInternal(
       aAllocator ? aAllocator->GetTextureForwarder().get() : nullptr,
@@ -247,6 +280,35 @@ Maybe<gfx::TransferFunction> BufferTextureData::GetTransferFunction() const {
 
 gfx::SurfaceFormat BufferTextureData::GetFormat() const {
   return ImageDataSerializer::FormatFromBufferDescriptor(mDescriptor);
+}
+
+struct ShmemHolderUserData {
+  explicit ShmemHolderUserData(ShmemTextureData::ShmemHolder* aShmemHolder)
+      : mShmemHolder(aShmemHolder) {}
+  ~ShmemHolderUserData() = default;
+  RefPtr<ShmemTextureData::ShmemHolder> mShmemHolder;
+};
+
+void DeleteShmemHolderUserData(void* aClosure) {
+  ShmemHolderUserData* data = reinterpret_cast<ShmemHolderUserData*>(aClosure);
+  auto* eventTarget = data->mShmemHolder->mAllocator->GetThread();
+
+  if (!eventTarget->IsOnCurrentThread()) {
+    RefPtr<Runnable> runnable =
+        NS_NewRunnableFunction("DeleteShmemHolderUserData::Runnable",
+                               [wrapper = std::move(data->mShmemHolder)]() {});
+    eventTarget->Dispatch(runnable.forget());
+  }
+
+  delete data;
+}
+
+void ShmemTextureData::OnBorrowDrawTarget(gfx::DrawTarget* aDrawTarget) {
+  if (!aDrawTarget) {
+    return;
+  }
+  auto* data = new ShmemHolderUserData(mShmemHolder);
+  aDrawTarget->AddUserData(&mShmemHolderKey, data, DeleteShmemHolderUserData);
 }
 
 already_AddRefed<gfx::DrawTarget> BufferTextureData::BorrowDrawTarget() {
@@ -504,8 +566,8 @@ bool ShmemTextureData::Serialize(SurfaceDescriptor& aOutDescriptor) {
     return false;
   }
 
-  aOutDescriptor =
-      SurfaceDescriptorBuffer(mDescriptor, MemoryOrShmem(std::move(mShmem)));
+  aOutDescriptor = SurfaceDescriptorBuffer(
+      mDescriptor, MemoryOrShmem(mShmemHolder->GetShmem()));
 
   return true;
 }
@@ -515,10 +577,11 @@ ShmemTextureData* ShmemTextureData::Create(
     gfx::ColorSpace2 aColorSpace, gfx::TransferFunction aTransferFunction,
     gfx::BackendType aMoz2DBackend, LayersBackend aLayersBackend,
     TextureFlags aFlags, TextureAllocationFlags aAllocFlags,
-    IShmemAllocator* aAllocator) {
+    LayersIPCChannel* aAllocator) {
   MOZ_ASSERT(aAllocator);
   // Should have used CreateForYCbCr.
   MOZ_ASSERT(aFormat != gfx::SurfaceFormat::YUV420);
+  MOZ_ASSERT(!(aFlags & TextureFlags::DEALLOCATE_CLIENT));
 
   if (!aAllocator) {
     return nullptr;
@@ -549,7 +612,9 @@ ShmemTextureData* ShmemTextureData::Create(
   BufferDescriptor descriptor =
       RGBDescriptor(aSize, aFormat, aColorSpace, aTransferFunction);
   bool isClear = (aAllocFlags & ALLOC_CLEAR_BUFFER) || !IsOpaque(aFormat);
-  return new ShmemTextureData(descriptor, aMoz2DBackend, shm, isClear);
+  RefPtr shmemHolder =
+      MakeRefPtr<ShmemTextureData::ShmemHolder>(aAllocator, shm);
+  return new ShmemTextureData(descriptor, aMoz2DBackend, shmemHolder, isClear);
 }
 
 TextureData* ShmemTextureData::CreateSimilar(
@@ -568,7 +633,8 @@ void ShmemTextureData::Deallocate(LayersIPCChannel* aAllocator) {
     gfxCriticalNote << "No allocator in ShmemTextureData::Deallocate";
     return;
   }
-  aAllocator->DeallocShmem(mShmem);
+  MOZ_ASSERT(aAllocator == mShmemHolder->mAllocator);
+  mShmemHolder->SetDeallocShmem();
 }
 
 }  // namespace layers

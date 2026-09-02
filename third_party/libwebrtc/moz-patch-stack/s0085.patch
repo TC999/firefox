@@ -1,23 +1,37 @@
-From: Andreas Pehrson <apehrson@mozilla.com>
-Date: Fri, 19 Apr 2024 06:09:00 +0000
-Subject: Bug 1892221 - Initialize VideoCaptureModuleV4L2::_streaming in ctor.
- r=webrtc-reviewers,dbaker
+From: Nico Grunbaum <na-g@nostrum.com>
+Date: Thu, 23 May 2024 17:28:00 +0000
+Subject: Bug 1897459 - P2 - for BSD reference null socket server
+ instead;r=mjf,webrtc-reviewers
 
-Differential Revision: https://phabricator.services.mozilla.com/D207926
-Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/00c4bd7039dc8992dd93d4a5948a9260b72ec2a8
+Differential Revision: https://phabricator.services.mozilla.com/D211095
+Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/0993ae41fb7db1624dedc5cf2278cd5a505f18f5
 ---
- modules/video_capture/linux/video_capture_v4l2.cc | 1 +
- 1 file changed, 1 insertion(+)
+ rtc_base/internal/default_socket_server.cc | 9 +++++++++
+ 1 file changed, 9 insertions(+)
 
-diff --git a/modules/video_capture/linux/video_capture_v4l2.cc b/modules/video_capture/linux/video_capture_v4l2.cc
-index bad85f00d3..0693b96bea 100644
---- a/modules/video_capture/linux/video_capture_v4l2.cc
-+++ b/modules/video_capture/linux/video_capture_v4l2.cc
-@@ -67,6 +67,7 @@ VideoCaptureModuleV4L2::VideoCaptureModuleV4L2(Clock* clock)
-       _deviceId(-1),
-       _deviceFd(-1),
-       _buffersAllocatedByDevice(-1),
-+      _streaming(false),
-       _captureStarted(false),
-       _pool(nullptr) {}
+diff --git a/rtc_base/internal/default_socket_server.cc b/rtc_base/internal/default_socket_server.cc
+index d49c2bba32..521f21f538 100644
+--- a/rtc_base/internal/default_socket_server.cc
++++ b/rtc_base/internal/default_socket_server.cc
+@@ -13,12 +13,21 @@
+ #include <memory>
  
+ #include "rtc_base/socket_server.h"
++
++#if defined(WEBRTC_BSD)
++#include "rtc_base/null_socket_server.h"
++#else
+ #include "rtc_base/physical_socket_server.h"
++#endif
+ 
+ namespace webrtc {
+ 
+ std::unique_ptr<SocketServer> CreateDefaultSocketServer() {
++#if defined(WEBRTC_BSD)
++  return std::unique_ptr<SocketServer>(new NullSocketServer);
++#else
+   return std::unique_ptr<SocketServer>(new PhysicalSocketServer);
++#endif
+ }
+ 
+ }  // namespace webrtc

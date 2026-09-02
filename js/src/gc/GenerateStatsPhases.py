@@ -173,6 +173,7 @@ PhaseKindGraphRoots = [
                     ),
                 ],
             ),
+            getPhaseKind("EVICT_NURSERY_FOR_MAJOR_GC"),
             addPhaseKind("UPDATE_ATOMS_BITMAP", "Sweep Atoms Bitmap"),
             addPhaseKind("SWEEP_ATOMS_TABLE", "Sweep Atoms Table"),
             addPhaseKind(
@@ -201,6 +202,7 @@ PhaseKindGraphRoots = [
                     getPhaseKind("JOIN_PARALLEL_TASKS"),
                 ],
             ),
+            addPhaseKind("SWEEP_SCRIPT_MAPS", "Sweep Script Maps"),
             addPhaseKind("SWEEP_PROP_MAP", "Sweep PropMap Tree"),
             addPhaseKind("FINALIZE_END", "Finalize End Callback"),
             addPhaseKind("DESTROY", "Deallocate"),

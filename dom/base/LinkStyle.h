@@ -6,16 +6,21 @@
 
 #include "mozilla/Attributes.h"
 #include "mozilla/Result.h"
-#include "mozilla/StyleSheet.h"
 #include "nsINode.h"
 #include "nsTArray.h"
 
 class nsIContent;
 class nsICSSLoaderObserver;
 class nsIPrincipal;
+class nsIReferrerInfo;
 class nsIURI;
 
-namespace mozilla::dom {
+namespace mozilla {
+
+enum CORSMode : uint8_t;
+class StyleSheet;
+
+namespace dom {
 
 class Document;
 enum class FetchPriority : uint8_t;
@@ -169,6 +174,10 @@ class LinkStyle {
    */
   void SetStyleSheet(StyleSheet* aStyleSheet);
 
+  // Gets the inline stylesheet text, as either utf-16 or utf-8.
+  [[nodiscard]] bool GetInlineSheetText(nsACString&);
+  [[nodiscard]] bool GetInlineSheetText(nsAString&);
+
   /**
    * Tells this element whether to update the stylesheet when the element's
    * properties change. This is used by the parser until it has all content etc,
@@ -303,6 +312,7 @@ class LinkStyle {
   uint32_t mColumnNumber = 1;
 };
 
-}  // namespace mozilla::dom
+}  // namespace dom
+}  // namespace mozilla
 
 #endif  // mozilla_dom_LinkStyle_h

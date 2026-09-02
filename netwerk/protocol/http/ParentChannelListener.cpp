@@ -3,31 +3,31 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 // HttpLog.h should generally be included first
-#include "HttpLog.h"
-
 #include "ParentChannelListener.h"
+
+#include "Element.h"
+#include "HttpLog.h"
+#include "mozilla/Components.h"
+#include "mozilla/SchedulerGroup.h"
+#include "mozilla/dom/CanonicalBrowsingContext.h"
 #include "mozilla/dom/ContentParent.h"
 #include "mozilla/dom/Document.h"
+#include "mozilla/dom/LoadURIOptionsBinding.h"
 #include "mozilla/dom/ServiceWorkerInterceptController.h"
 #include "mozilla/dom/ServiceWorkerUtils.h"
 #include "mozilla/net/HttpChannelParent.h"
 #include "mozilla/net/RedirectChannelRegistrar.h"
-#include "mozilla/Components.h"
-#include "mozilla/SchedulerGroup.h"
-#include "nsIHttpHeaderVisitor.h"
-#include "nsIPrompt.h"
-#include "nsISecureBrowserUI.h"
-#include "nsIThreadRetargetableStreamListener.h"
-#include "nsIWindowWatcher.h"
-#include "nsQueryObject.h"
 #include "nsIAuthPrompt.h"
 #include "nsIAuthPrompt2.h"
-#include "nsIPromptFactory.h"
-#include "Element.h"
+#include "nsIHttpHeaderVisitor.h"
 #include "nsILoginManagerAuthPrompter.h"
-#include "mozilla/dom/CanonicalBrowsingContext.h"
-#include "mozilla/dom/LoadURIOptionsBinding.h"
+#include "nsIPrompt.h"
+#include "nsIPromptFactory.h"
+#include "nsISecureBrowserUI.h"
+#include "nsIThreadRetargetableStreamListener.h"
 #include "nsIWebNavigation.h"
+#include "nsIWindowWatcher.h"
+#include "nsQueryObject.h"
 
 using mozilla::dom::ServiceWorkerInterceptController;
 
@@ -83,7 +83,8 @@ ParentChannelListener::OnStartRequest(nsIRequest* aRequest) {
   }
 
   LOG(("ParentChannelListener::OnStartRequest [this=%p]\n", this));
-  return mNextListener->OnStartRequest(aRequest);
+  nsCOMPtr<nsIStreamListener> nextListener = mNextListener;
+  return nextListener->OnStartRequest(aRequest);
 }
 
 NS_IMETHODIMP
@@ -93,7 +94,8 @@ ParentChannelListener::OnStopRequest(nsIRequest* aRequest,
 
   LOG(("ParentChannelListener::OnStopRequest: [this=%p status=%" PRIu32 "]\n",
        this, static_cast<uint32_t>(aStatusCode)));
-  nsresult rv = mNextListener->OnStopRequest(aRequest, aStatusCode);
+  nsCOMPtr<nsIStreamListener> nextListener = mNextListener;
+  nsresult rv = nextListener->OnStopRequest(aRequest, aStatusCode);
 
   if (!mIsMultiPart) {
     mNextListener = nullptr;
@@ -112,8 +114,8 @@ ParentChannelListener::OnDataAvailable(nsIRequest* aRequest,
   if (!mNextListener) return NS_ERROR_UNEXPECTED;
 
   LOG(("ParentChannelListener::OnDataAvailable [this=%p]\n", this));
-  return mNextListener->OnDataAvailable(aRequest, aInputStream, aOffset,
-                                        aCount);
+  nsCOMPtr<nsIStreamListener> nextListener = mNextListener;
+  return nextListener->OnDataAvailable(aRequest, aInputStream, aOffset, aCount);
 }
 
 NS_IMETHODIMP

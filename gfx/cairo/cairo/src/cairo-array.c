@@ -1,3 +1,4 @@
+/* -*- Mode: c; c-basic-offset: 4; indent-tabs-mode: t; tab-width: 8; -*- */
 /* cairo - a vector graphics library with display and print output
  *
  * Copyright © 2004 Red Hat, Inc
@@ -181,6 +182,9 @@ _cairo_array_index (cairo_array_t *array, unsigned int index)
 
     assert (index < array->num_elements);
 
+    if (unlikely (index >= array->num_elements))
+	abort ();
+
     return array->elements + (size_t)index * array->element_size;
 }
 
@@ -225,6 +229,9 @@ _cairo_array_index_const (const cairo_array_t *array, unsigned int index)
 	return NULL;
 
     assert (index < array->num_elements);
+
+    if (unlikely (index >= array->num_elements))
+	abort ();
 
     return array->elements + (size_t)index * array->element_size;
 }

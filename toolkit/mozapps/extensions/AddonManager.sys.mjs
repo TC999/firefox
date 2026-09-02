@@ -31,8 +31,6 @@ const PREF_EM_CHECK_UPDATE_SECURITY = "extensions.checkUpdateSecurity";
 const PREF_SYS_ADDON_UPDATE_ENABLED = "extensions.systemAddon.update.enabled";
 const PREF_REMOTESETTINGS_DISABLED = "extensions.remoteSettings.disabled";
 const PREF_USE_REMOTE = "extensions.webextensions.remote";
-const PREF_AMTELEMETRY_ADDONS_BUILDER =
-  "extensions.telemetry.EnvironmentAddonBuilder";
 const PREF_GLEAN_PING_ADDONS_UPDATED_DELAY_MS =
   "extensions.gleanPingAddons.updated.delay";
 const PREF_GLEAN_PING_ADDONS_UPDATED_IDLE_TIMEOUT_MS =
@@ -105,13 +103,6 @@ XPCOMUtils.defineLazyPreferenceGetter(
   lazy,
   "WEBEXT_POSTDOWNLOAD_THIRD_PARTY",
   PREF_EM_POSTDOWNLOAD_THIRD_PARTY,
-  false
-);
-
-XPCOMUtils.defineLazyPreferenceGetter(
-  lazy,
-  "AMTELEMETRY_ADDONS_BUILDER_ENABLED",
-  PREF_AMTELEMETRY_ADDONS_BUILDER,
   false
 );
 
@@ -193,6 +184,12 @@ const GMP_PROVIDER_REGISTERED_TOPIC = "gmp-provider-registered";
 // The maximum length of strings collected in the Glean addons.activeAddons/activeTheme/activeGMPlugins
 // metrics properties (e.g. description).
 const MAX_ADDON_STRING_LENGTH = 100;
+
+// Notification to inform TelemetryEnvironment of changes to the set of active
+// add-ons, so it can trigger an environment change (with the same frequency as
+// the old environment.addons).
+export const TELEMETRY_ENVIRONMENT_ADDONS_CHANGED_TOPIC =
+  "telemetry-environment-addons-changed";
 
 const UNNAMED_PROVIDER = "<unnamed-provider>";
 function providerName(aProvider) {
@@ -1304,7 +1301,7 @@ var AddonManagerInternal = {
       return Promise.resolve();
     }
 
-    if (info.existingAddon.isInstalledByEnterprisePolicy) {
+    if (Services.policies?.isAddonRequiredByPolicy(info.existingAddon.id)) {
       return Promise.resolve();
     }
 
@@ -2429,7 +2426,7 @@ var AddonManagerInternal = {
    * @param  aMimetype
    *         The mimetype of the add-on being installed
    * @param  aBrowser
-   *         The optional browser element that started the install
+   *         The browser element that started the install
    * @param  aInstallingPrincipal
    *         The nsIPrincipal that initiated the install
    * @param  aInstall
@@ -2461,9 +2458,9 @@ var AddonManagerInternal = {
       );
     }
 
-    if (aBrowser && !Element.isInstance(aBrowser)) {
+    if (!Element.isInstance(aBrowser)) {
       throw Components.Exception(
-        "aSource must be an Element, or null",
+        "aBrowser must be an Element",
         Cr.NS_ERROR_INVALID_ARG
       );
     }
@@ -2482,12 +2479,11 @@ var AddonManagerInternal = {
     // website we want to do our security checks on the inner-browser but
     // notify front-end that install events came from the top browser (the
     // main tab's browser).
-    // aBrowser is null in GeckoView.
-    let topBrowser = aBrowser?.browsingContext.top.embedderElement;
+    let topBrowser = aBrowser.browsingContext.top.embedderElement;
     try {
       // Use fullscreenElement to check for DOM fullscreen, while still allowing
       // macOS fullscreen, which still has a browser chrome.
-      if (topBrowser && topBrowser.ownerDocument.fullscreenElement) {
+      if (topBrowser.ownerDocument.fullscreenElement) {
         // Addon installation and the resulting notifications should be
         // blocked in DOM fullscreen for security and usability reasons.
         // Installation prompts in fullscreen can trick the user into
@@ -2535,20 +2531,8 @@ var AddonManagerInternal = {
         aDetails?.hasCrossOriginAncestor ||
         // Block the install if triggered by a null principal.
         aInstallingPrincipal.isNullPrincipal ||
-        (aBrowser &&
-          (!aBrowser.contentPrincipal ||
-            // When we attempt to handle an XPI load immediately after a
-            // process switch, the DocShell it's being loaded into will have
-            // a null principal, since it won't have been initialized yet.
-            // Allowing installs in this case is relatively safe, since
-            // there isn't much to gain by spoofing an install request from
-            // a null principal in any case. This exception can be removed
-            // once content handlers are triggered by DocumentChannel in the
-            // parent process.
-            !(
-              aBrowser.contentPrincipal.isNullPrincipal ||
-              aInstallingPrincipal.subsumes(aBrowser.contentPrincipal)
-            )))
+        !aBrowser.contentPrincipal ||
+        !aInstallingPrincipal.subsumes(aBrowser.contentPrincipal)
       ) {
         aInstall.cancel();
 
@@ -2561,12 +2545,10 @@ var AddonManagerInternal = {
         return;
       }
 
-      if (aBrowser) {
-        // The install may start now depending on the web install listener,
-        // listen for the browser navigating to a new origin and cancel the
-        // install in that case.
-        new BrowserListener(aBrowser, aInstallingPrincipal, aInstall);
-      }
+      // The install may start now depending on the web install listener,
+      // listen for the browser navigating to a new origin and cancel the
+      // install in that case.
+      new BrowserListener(aBrowser, aInstallingPrincipal, aInstall);
 
       let startInstall = source => {
         AddonManagerInternal.setupPromptHandler(
@@ -4838,19 +4820,12 @@ AMRemoteSettings = {
 /**
  * Encapsulates the Glean addons.activeAddons/activeTheme/activeGMPlugins data collection.
  *
- * In Firefox Desktop build the EnvironmentAddonBuilder is managed from the TelemetryEnvironment,
- * whereas on Firefox for Android / GeckoView builds it is managed from the AMTelemetry singleton
- * defined in this same ES module.
+ * Managed from the AMTelemetry singleton defined in this same ES module.
  */
 export class EnvironmentAddonBuilder {
-  // Used by TelemetryEnvironment to determine if it is still
-  // responsible for creating and managing the EnvironmentAddonBuilder
-  // instance as part of the legacy TelemetryEnvironment.
-  static isTelemetryEnvironmentEnabled = () =>
-    !lazy.AMTELEMETRY_ADDONS_BUILDER_ENABLED;
-
-  constructor(environment) {
-    this._environment = environment;
+  constructor() {
+    // Populated by _updateAddons.
+    this.addons = {};
 
     // The pending task blocks addon manager shutdown. It can either be the initial load
     // or a change load.
@@ -4883,8 +4858,6 @@ export class EnvironmentAddonBuilder {
         ? "Debug"
         : "Warn",
     });
-
-    this._currentData = {};
   }
 
   /**
@@ -4946,6 +4919,9 @@ export class EnvironmentAddonBuilder {
         }
       } catch (err) {
         this._log.error("init - Exception in _updateAddons", err);
+        // Replay the uncaught reject (e.g. so that a rejection coming
+        // from databaseReady would not be detected as caught and handled).
+        Promise.reject(err);
       } finally {
         this._pendingTask = null;
         this._shutdownState = "_pendingTask init complete. No longer blocking.";
@@ -5016,46 +4992,12 @@ export class EnvironmentAddonBuilder {
     if (aTopic == GMP_PROVIDER_REGISTERED_TOPIC) {
       Services.obs.removeObserver(this, GMP_PROVIDER_REGISTERED_TOPIC);
       this._gmpProviderObserverAdded = false;
-      let gmpPluginsPromise = this._getActiveGMPlugins();
-      gmpPluginsPromise.then(
-        gmpPlugins => {
-          let { addons } = this._currentEnvironment;
-          addons.activeGMPlugins = gmpPlugins;
-        },
-        err => {
-          this._log.error("blocklist observe: Error collecting plugins", err);
-        }
-      );
+      this._checkForChanges("gmp-provider-registered");
     }
   }
 
   // Internal helper methods and getters.
-  get _currentEnvironment() {
-    return this._environment?._currentEnvironment ?? this._currentData;
-  }
-
-  _onEnvironmentChange(changeReason, oldEnvironment) {
-    this._environment?._onEnvironmentChange(changeReason, oldEnvironment);
-  }
-
   _onAddonChange(addon) {
-    // On builds where this metric is also reported in the legacy telemetry main ping
-    // as part of the TelemetryEnvironment, return earlier if the add-on is a non-system builtin
-    // to keep the old behavior unchanged (to reduce the change of changing the frequency of the
-    // legacy telemetry main ping as an unexpected side-effect).
-    //
-    // NOTE: on android builds this check is expected to never be true, and the non-system builtin
-    // add-ons like webcompat to be part of the activeAddons Glean metric. This early return
-    // can be dropped completely (along with the similar logic from the _getActiveAddons method)
-    // once we have migrated the Desktop builds away from the legacy TelemetryEnvironment.
-    if (
-      !lazy.AMTELEMETRY_ADDONS_BUILDER_ENABLED &&
-      addon &&
-      addon.isBuiltin &&
-      !addon.isSystem
-    ) {
-      return;
-    }
     this._log.trace(`_onAddonChange ${addon?.id ? addon.id : ""}`);
     this._checkForChanges("addons-changed");
   }
@@ -5075,7 +5017,10 @@ export class EnvironmentAddonBuilder {
         this._pendingTask = null;
         this._shutdownState = "No longer blocking, _updateAddons resolved";
         if (result.changed) {
-          this._onEnvironmentChange(changeReason, result.oldEnvironment);
+          Services.obs.notifyObservers(
+            null,
+            TELEMETRY_ENVIRONMENT_ADDONS_CHANGED_TOPIC
+          );
           this._scheduleGleanPingAddonsUpdated();
         }
       },
@@ -5155,7 +5100,6 @@ export class EnvironmentAddonBuilder {
    *
    * @returns Promise<Object> This returns a Promise resolved with a status object with the following members:
    *   changed - Whether the environment changed.
-   *   oldEnvironment - Only set if a change occured, contains the environment data before the change.
    */
   async _updateAddons() {
     this._log.trace("_updateAddons");
@@ -5169,19 +5113,16 @@ export class EnvironmentAddonBuilder {
     };
 
     let result = {
-      changed:
-        !this._currentEnvironment.addons ||
-        !lazy.ObjectUtils.deepEqual(
-          addons.activeAddons,
-          this._currentEnvironment.addons.activeAddons
-        ),
+      changed: !lazy.ObjectUtils.deepEqual(
+        addons.activeAddons,
+        this.addons.activeAddons
+      ),
     };
 
     if (result.changed) {
       this._log.trace("_updateAddons: addons differ");
-      result.oldEnvironment = Cu.cloneInto(this._currentEnvironment, {});
     }
-    this._currentEnvironment.addons = addons;
+    this.addons = addons;
 
     // Convert into the appropriate schema and record the addon environment
     // data in Glean
@@ -5223,17 +5164,6 @@ export class EnvironmentAddonBuilder {
     this._addonsAreFull = fullData;
     let activeAddons = {};
     for (let addon of allAddons) {
-      // NOTE: This if block should be dropped completely (along with the similar one
-      // on the _onAddonChange side) once we have migrated the Desktop builds away from
-      // the legacy TelemetryEnvironment
-      if (
-        !lazy.AMTELEMETRY_ADDONS_BUILDER_ENABLED &&
-        addon.isBuiltin &&
-        !addon.isSystem
-      ) {
-        continue;
-      }
-
       // Weird addon data in the wild can lead to exceptions while collecting
       // the data.
       try {
@@ -5409,7 +5339,7 @@ export class EnvironmentAddonBuilder {
  */
 AMTelemetry = {
   telemetrySetupDone: false,
-  telemetryAddonBuilder: null,
+  addonsBuilder: null,
 
   // This method is called by the AddonManager, once it has been started, so that we can
   // init the telemetry event category and start listening for the events related to the
@@ -5428,12 +5358,10 @@ AMTelemetry = {
     AddonManager.addInstallListener(this);
     AddonManager.addAddonListener(this);
 
-    if (lazy.AMTELEMETRY_ADDONS_BUILDER_ENABLED) {
-      this.telemetryAddonBuilder = new EnvironmentAddonBuilder();
-      this.telemetryAddonBuilder.init().finally(() => {
-        this.telemetryAddonBuilder.watchForChanges();
-      });
-    }
+    this.addonsBuilder = new EnvironmentAddonBuilder();
+    this.addonsBuilder.init().finally(() => {
+      this.addonsBuilder.watchForChanges();
+    });
   },
 
   // NOTE: used by AddonTestUtils.promiseShutdownManager to ensure
@@ -5451,8 +5379,8 @@ AMTelemetry = {
     AddonManager.removeInstallListener(this);
     AddonManager.removeAddonListener(this);
 
-    await this.telemetryAddonBuilder?.uninit();
-    this.telemetryAddonBuilder = null;
+    await this.addonsBuilder?.uninit();
+    this.addonsBuilder = null;
 
     this.telemetrySetupDone = false;
   },
@@ -5554,6 +5482,8 @@ AMTelemetry = {
 
   /**
    * Get a trimmed version of the given string if it is longer than 80 chars.
+   * Used to bound the addon_id value included in the addonsManager telemetry
+   * events extra vars.
    *
    * @param {string} str
    *        The original string content.
@@ -5569,8 +5499,7 @@ AMTelemetry = {
 
     const length = str.length;
 
-    // Trim the string to prevent a flood of warnings messages logged internally by recordLegacyEvent,
-    // the trimmed version is going to be composed by the first 40 chars and the last 37 and 3 dots
+    // The trimmed version is going to be composed by the first 40 chars and the last 37 and 3 dots
     // that joins the two parts, to visually indicate that the string has been trimmed.
     return `${str.slice(0, 40)}...${str.slice(length - 37, length)}`;
   },
@@ -5602,7 +5531,7 @@ AMTelemetry = {
   },
 
   /**
-   * Retrieve the telemetry event's object property value for the given
+   * Retrieve the telemetry event addon_type string value for the given
    * AddonInstall instance.
    *
    * @param {AddonInstall} install
@@ -5611,7 +5540,7 @@ AMTelemetry = {
    * @returns {string}
    *          The object for the given AddonInstall instance.
    */
-  getEventObjectFromInstall(install) {
+  getInstallAddonTypeForTelemetry(install) {
     let addonType;
 
     if (install.type) {
@@ -5628,7 +5557,7 @@ AMTelemetry = {
       addonType = install.existingAddon.type;
     }
 
-    return this.getEventObjectFromAddonType(addonType);
+    return this.getAddonTypeForTelemetryEvent(addonType);
   },
 
   /**
@@ -5655,17 +5584,16 @@ AMTelemetry = {
   },
 
   /**
-   * Get the telemetry event's object property for the given addon type
+   * Translates the values got from addon.type into the string values expected for the
+   * addon_type included in the telemetry events.
    *
    * @param {string} addonType
-   *        The addon type to convert into the related telemetry event object.
+   *        The addon type to convert into the related telemetry event.
    *
    * @returns {string}
    *          The object for the given addon type.
    */
-  getEventObjectFromAddonType(addonType) {
-    // NOTE: Telemetry events' object maximum length is 20 chars (See https://firefox-source-docs.mozilla.org/toolkit/components/telemetry/collection/events.html#limits)
-    // and the value needs to matching the "^[a-zA-Z][a-zA-Z0-9_.]*[a-zA-Z0-9]$" pattern.
+  getAddonTypeForTelemetryEvent(addonType) {
     switch (addonType) {
       case undefined:
         return "unknown";
@@ -5739,20 +5667,16 @@ AMTelemetry = {
       return;
     }
 
-    const method = "install_stats";
-    const object = this.getEventObjectFromInstall(install);
-    const addonId = this.getAddonIdFromInstall(install);
+    const addon_id = this.getAddonIdFromInstall(install);
 
-    if (!addonId) {
+    if (!addon_id) {
       Cu.reportError(
         "Missing addonId when trying to record an install_stats event"
       );
       return;
     }
 
-    let extra = {
-      addon_id: this.getTrimmedString(addonId),
-    };
+    let extra = {};
 
     if (
       telemetryInfo?.source === "amo" &&
@@ -5774,16 +5698,10 @@ AMTelemetry = {
       };
     }
 
-    this.recordLegacyEvent({
-      method,
-      object,
-      value: install.hashedAddonId,
-      extra,
-    });
     Glean.addonsManager.installStats.record(
       this.formatExtraVars({
-        addon_id: addonId,
-        addon_type: object,
+        addon_id,
+        addon_type: this.getInstallAddonTypeForTelemetry(install),
         hashed_addon_id: install.hashedAddonId,
         taar_based: extra.taar_based,
         utm_campaign: extra.utm_campaign,
@@ -5834,14 +5752,13 @@ AMTelemetry = {
       return;
     }
 
-    let extra = {};
-
+    let source;
     let telemetryInfo = this.getInstallTelemetryInfo(install);
     if (telemetryInfo && typeof telemetryInfo.source === "string") {
-      extra.source = telemetryInfo.source;
+      source = telemetryInfo.source;
     }
 
-    if (extra.source === "internal") {
+    if (source === "internal") {
       // Do not record the telemetry event for installation sources
       // that are marked as "internal".
       return;
@@ -5849,60 +5766,56 @@ AMTelemetry = {
 
     // Also include the install source's method when applicable (e.g. install events with
     // source "about:addons" may have "install-from-file" or "url" as their source method).
+    let source_method;
     if (telemetryInfo && typeof telemetryInfo.method === "string") {
-      extra.method = telemetryInfo.method;
+      source_method = telemetryInfo.method;
     }
 
-    let addonId = this.getAddonIdFromInstall(install);
-    let object = this.getEventObjectFromInstall(install);
+    let addon_id = this.getAddonIdFromInstall(install);
 
-    let installId = String(install.installId);
+    let install_id = String(install.installId);
     let eventMethod = install.existingAddon ? "update" : "install";
 
-    if (addonId) {
-      extra.addon_id = this.getTrimmedString(addonId);
+    if (addon_id) {
+      addon_id = this.getTrimmedString(addon_id);
     }
 
+    let error;
     if (install.error) {
-      extra.error = AddonManager.errorToString(install.error);
+      error = AddonManager.errorToString(install.error);
     }
 
+    let install_origins;
     if (
       eventMethod === "install" &&
       Services.prefs.getBoolPref("extensions.install_origins.enabled", true)
     ) {
       // This is converted to "1" / "0".
-      extra.install_origins = Array.isArray(install.addon?.installOrigins);
+      install_origins = Array.isArray(install.addon?.installOrigins);
     }
 
+    let updated_from;
     if (eventMethod === "update") {
       // For "update" telemetry events, also include an extra var which determine
       // if the update has been requested by the user.
-      extra.updated_from = install.isUserRequestedUpdate ? "user" : "app";
+      updated_from = install.isUserRequestedUpdate ? "user" : "app";
     }
 
-    // All the extra vars in a telemetry event have to be strings.
-    extra = this.formatExtraVars({ ...extraVars, ...extra });
-
-    this.recordLegacyEvent({
-      method: eventMethod,
-      object,
-      value: installId,
-      extra,
-    });
     Glean.addonsManager[eventMethod]?.record(
       this.formatExtraVars({
-        addon_id: extra.addon_id,
-        addon_type: object,
-        install_id: installId,
-        download_time: extra.download_time,
-        error: extra.error,
-        source: extra.source,
-        source_method: extra.method,
-        num_strings: extra.num_strings,
-        updated_from: extra.updated_from,
-        install_origins: extra.install_origins,
-        step: extra.step,
+        addon_id,
+        addon_type: this.getInstallAddonTypeForTelemetry(install),
+        install_id,
+        download_time: extraVars?.download_time,
+        error,
+        source,
+        source_method,
+        num_strings: extraVars?.num_strings,
+        updated_from,
+        install_origins,
+        step: extraVars?.step,
+        // will be undefined for non-site permission addons
+        site_permission: install.newSitePerm,
       })
     );
   },
@@ -5924,51 +5837,38 @@ AMTelemetry = {
       return;
     }
 
-    let extra = {};
-
+    let source;
+    let source_method;
     if (addon.installTelemetryInfo) {
       if ("source" in addon.installTelemetryInfo) {
-        extra.source = addon.installTelemetryInfo.source;
+        source = addon.installTelemetryInfo.source;
       }
 
       // Also include the install source's method when applicable (e.g. install events with
       // source "about:addons" may have "install-from-file" or "url" as their source method).
       if ("method" in addon.installTelemetryInfo) {
-        extra.method = addon.installTelemetryInfo.method;
+        source_method = addon.installTelemetryInfo.method;
       }
     }
 
-    extra.blocklist_state = `${addon.blocklistState}`;
-
-    if (extra.source === "internal") {
+    if (source === "internal") {
       // Do not record the telemetry event for installation sources
       // that are marked as "internal".
       return;
     }
 
-    let object = this.getEventObjectFromAddonType(addon.type);
-    let value = this.getTrimmedString(addon.id);
-
-    extra = { ...extraVars, ...extra };
-
-    let hasExtraVars = !!Object.keys(extra).length;
-    extra = this.formatExtraVars(extra);
-
-    this.recordLegacyEvent({
-      method,
-      object,
-      value,
-      extra: hasExtraVars ? extra : null,
-    });
     Glean.addonsManager.manage.record(
       this.formatExtraVars({
+        addon_id: this.getTrimmedString(addon.id),
+        addon_type: this.getAddonTypeForTelemetryEvent(addon.type),
+        // management method type (e.g. enable/disable/sideload_prompt/uninstall).
         method,
-        addon_id: value,
-        addon_type: object,
-        source: extra.source,
-        source_method: extra.method,
-        num_strings: extra.num_strings,
-        blocklist_state: extra.blocklist_state,
+        source,
+        // source_method is optional and represents how the add-on has been installed by
+        // install sources with more than one install method.
+        source_method,
+        num_strings: extraVars?.num_strings,
+        blocklist_state: `${addon.blocklistState}`,
       })
     );
   },
@@ -5976,25 +5876,16 @@ AMTelemetry = {
   /**
    * @param {object} opts
    * @param {nsIURI} opts.displayURI
+   * @param {string} permissionType The requested permission
    */
-  recordSuspiciousSiteEvent({ displayURI }) {
+  recordSuspiciousSiteEvent({ displayURI, permissionType }) {
     let site = displayURI?.displayHost ?? "(unknown)";
     Glean.addonsManager.reportSuspiciousSite.record(
-      this.formatExtraVars({ suspicious_site: site })
+      this.formatExtraVars({
+        suspicious_site: site,
+        permission_type: permissionType,
+      })
     );
-  },
-
-  recordLegacyEvent({ method, object, value, extra }) {
-    if (typeof value == "string") {
-      if (!extra) {
-        extra = {};
-      }
-      extra.value = value;
-    }
-    const eventName = `${method}_${object}`.replace(/(_[a-z])/g, c =>
-      c[1].toUpperCase()
-    );
-    Glean.addonsManager[eventName].record(extra);
   },
 };
 

@@ -448,39 +448,9 @@ bool DisposalEmitter::emitEnd(EmitterScope& es) {
     return false;
   }
 
-  if (bce_->sc->isSuspendableContext() &&
-      bce_->sc->asSuspendableContext()->isGenerator()) {
-    // [stack] ... THROWING RESOURCES INDEX EXC2 EXC
-
-    // Generator closure is implemented by throwing a magic value
-    // thus when we have a throw completion we must check whether
-    // the pending exception is a generator closing exception and overwrite
-    // it with the normal exception here or else we will end up exposing
-    // the magic value to user program.
-    if (!bce_->emit1(JSOp::IsGenClosing)) {
-      // [stack] ... THROWING RESOURCES INDEX EXC2 EXC GEN-CLOSING
-      return false;
-    }
-
-    if (!bce_->emit1(JSOp::Not)) {
-      // [stack] ... THROWING RESOURCES INDEX EXC2 EXC !GEN-CLOSING
-      return false;
-    }
-
-    if (!bce_->emitPickN(5)) {
-      // [stack] ... RESOURCES INDEX EXC2 EXC (!GEN-CLOSING) THROWING
-      return false;
-    }
-
-    if (!bce_->emit1(JSOp::BitAnd)) {
-      // [stack] ... RESOURCES INDEX EXC2 EXC (!GEN-CLOSING & THROWING)
-      return false;
-    }
-  } else {
-    if (!bce_->emitPickN(4)) {
-      // [stack] ... RESOURCES INDEX EXC2 EXC THROWING
-      return false;
-    }
+  if (!bce_->emitPickN(4)) {
+    // [stack] ... RESOURCES INDEX EXC2 EXC THROWING
+    return false;
   }
 
   // [stack] NEEDS-AWAIT? HAS-AWAITED? RESOURCES INDEX EXC2 EXC THROWING
@@ -1043,46 +1013,49 @@ bool ForOfDisposalEmitter::prepareForForOfLoopIteration() {
   return true;
 }
 
-bool ForOfDisposalEmitter::emitEnd() {
+bool ForOfDisposalEmitter::prepareForForOfIteratorClose() {
   MOZ_ASSERT(state_ == State::Iteration);
   EmitterScope* es = bce_->innermostEmitterScopeNoCheck();
   MOZ_ASSERT(es->hasDisposables());
 
-  // [stack] EXC STACK
+  // [stack] EXC THROWING
 
-  if (!bce_->emit1(JSOp::Swap)) {
-    // [stack] STACK EXC
-    return false;
+  if (hasAwaitUsing()) {
+    if (!bce_->emit1(JSOp::GetRval)) {
+      // [stack] EXC THROWING RVAL
+      return false;
+    }
+    if (!bce_->emitUnpickN(2)) {
+      // [stack] RVAL EXC THROWING
+      return false;
+    }
   }
 
-  if (!bce_->emit1(JSOp::True)) {
-    // [stack] STACK EXC THROWING
-    return false;
-  }
-
   if (!bce_->emit1(JSOp::Swap)) {
-    // [stack] STACK THROWING EXC
+    // [stack] RVAL? THROWING EXC
     return false;
   }
 
   if (!emitDisposeResourcesForEnvironment(*es)) {
-    // [stack] STACK EXC THROWING
+    // [stack] RVAL? EXC THROWING
     return false;
   }
 
-  if (!bce_->emit1(JSOp::Pop)) {
-    // [stack] STACK EXC
-    return false;
+  if (hasAwaitUsing()) {
+    if (!bce_->emitPickN(2)) {
+      // [stack] EXC THROWING RVAL
+      return false;
+    }
+    if (!bce_->emit1(JSOp::SetRval)) {
+      // [stack] EXC THROWING
+      return false;
+    }
   }
 
-  if (!bce_->emit1(JSOp::Swap)) {
-    // [stack] EXC STACK
-    return false;
-  }
-
-#ifdef DEBUG
-  state_ = State::End;
-#endif
+  // The ForOfIteratorClose logic can be emitted multiple times (due different
+  // configurations of for-of loops like yields inside a for-of loop for
+  // example), and thus prepareForForOfIteratorClose stays in the Iteration
+  // state.
   return true;
 }
 
@@ -1144,36 +1117,6 @@ bool UsingEmitter::emitEnd() {
     return false;
   }
 
-  if (bce_->sc->isSuspendableContext() &&
-      bce_->sc->asSuspendableContext()->isGenerator()) {
-    // [stack] ... DISP-EXC DISP-THROWING
-
-    if (!bce_->emit1(JSOp::Swap)) {
-      // [stack] ... DISP-THROWING DISP-EXC
-      return false;
-    }
-
-    if (!bce_->emit1(JSOp::IsGenClosing)) {
-      // [stack] ... DISP-THROWING DISP-EXC GEN-CLOSING
-      return false;
-    }
-
-    if (!bce_->emit1(JSOp::Not)) {
-      // [stack] ... DISP-THROWING DISP-EXC !GEN-CLOSING
-      return false;
-    }
-
-    if (!bce_->emitPickN(2)) {
-      // [stack] ... DISP-EXC !GEN-CLOSING DISP-THROWING
-      return false;
-    }
-
-    if (!bce_->emit1(JSOp::BitAnd)) {
-      // [stack] ... DISP-EXC (DISP-THROWING & !GEN-CLOSING)
-      return false;
-    }
-  }
-
   if (!emitThrowIfException()) {
     // [stack] EXC-OR-RESUME STACK THROWING RVAL?
     return false;
@@ -1196,16 +1139,13 @@ bool UsingEmitter::emitEnd() {
 bool NonLocalIteratorCloseUsingEmitter::prepareForIteratorClose(
     EmitterScope& es) {
   MOZ_ASSERT(state_ == State::Start);
+  MOZ_ASSERT(es.hasDisposables());
+  MOZ_ASSERT(es.blockKind() == BlockKind::ForOf);
+
   // In this function we prepare for the closure of the iterator but first
   // emitting the dispose loop and preseving exceptions on the stack and after
   // that emitting a try to wrap the iterator closure code that shall come after
   // this.
-  if (!es.hasDisposables()) {
-#ifdef DEBUG
-    state_ = State::IteratorClose;
-#endif
-    return true;
-  }
 
   setHasAwaitUsing(es.hasAsyncDisposables());
 
@@ -1306,13 +1246,7 @@ bool NonLocalIteratorCloseUsingEmitter::emitEnd() {
   // }
   //
   MOZ_ASSERT(state_ == State::IteratorClose);
-
-  if (!tryClosingIterator_) {
-#ifdef DEBUG
-    state_ = State::End;
-#endif
-    return true;
-  }
+  MOZ_ASSERT(tryClosingIterator_);
 
   // [stack] EXC-DISPOSE DISPOSE-THROWING ITER
 

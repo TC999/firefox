@@ -3,6 +3,8 @@ Limit the amount of comments you put in the code to a strict minimum. You should
 
 Do not remove existing comments unless they are directly related to what you are changing.
 
+If you see a good first bug that isn't directly related to your work, don't hesitate to propose it as a good first bug (see the `file-good-first-bug` skill).
+
 The Firefox repository is very big and so it isn't advised to blindly run rg or grep commands without specifying a narrow set of directories to search. When local text search via shell is necessary, prefer `rg` over `grep` as it is faster. There are tools available to help, see next section.
 
 ## Tooling for Firefox work
@@ -20,6 +22,7 @@ searchfox-cli --id AudioSink -l 150 --cpp # search for identifier audio sink in 
 - If you must use regular expressions with `searchfox-cli`, don't forget the `--regexp` flag.
 - Use the `searchfox-cli` tool, only using `rg` or usual local tools if you need to find information about something
 that has definitely changed locally. If you're unsure, ask.
+- If recommended tooling (e.g. `searchfox-cli`, `treeherder-cli`) is missing, run `./mach bootstrap` to install it; if it reports it needs updating, let the user know.
 - If you can't find something quickly, it is better to ask than run local searches.
 - `./mach` is the main interface to the Mozilla build system and common developer tasks. Important commands are listed here, and you can run `./mach help` for a full list of commands. If you want additional details for a given command, you can run `./mach COMMAND --help`
 - `./mach format`: Format code. Run it without additional parameters to format all the files you have modified
@@ -28,7 +31,7 @@ that has definitely changed locally. If you're unsure, ask.
 - `./mach run`: Run the project
 - `./mach doc --no-serve --no-open`: Build the documentation
 - `./mach python --virtualenv <virtualenv_name>`: Execute Python of a Mach command's virtualenv. Value of `virtualenv_name` is in relevant `@Command` decorator. This avoids `ImportError`s.
-- `treeherder-cli`: Pull CI results for a try push
+- `treeherder-cli`: Pull CI results for a try push.
 - Use the MCP resource `@moz:bugzilla://bug/{bug_id}` to retrieve a bug
 - Use the MCP resource `@moz:phabricator://revision/D{revision_id}` to retrieve a Phabricator revision
 
@@ -44,10 +47,13 @@ You can find the review identifier by inspecting the commit log with:
 - Our style guide forbids the use of emoji.
 
 ## Workflow
+- This repository moves fast. If the local checkout looks old compared to `origin/main`, suggest pulling the latest changes before going further.
 - You can run tests by using `./mach test --auto`. Once you are satisfied with the tests you run locally, use `mach try auto` to run tests in CI
-- When running slow commands like `./mach test`, `./mach mochitest`, etc., NEVER pipe their output through `tail`, `grep`, `head`, or other filters. `./mach` automatically saves its output and you can get it with `./mach show-log` and then read/search it separately. For other commands redirect output to a temporary file. This avoids having to re-run slow commands multiple times to extract different pieces of information.
+- When running slow commands like `./mach test`, `./mach mochitest`, etc., NEVER pipe their output through `tail`, `grep`, `head`, or other filters. Instead redirect output to a temporary file in `artifacts/` (create if necessary) and selectively read this file. This avoids having to re-run slow commands multiple times to extract different pieces of information.
 - Do not run `./mach build faster` when only front-end test files (JS, HTML, etc.) were modified — they don't need compilation.
-- Ask if you should run a test. If you do, you probably want to run the test with `--headless`
+- Running tests with `--headless` is preferred if possible for the patch.
 - Never submit patches to Phabricator without explicit user approval.
+- In commit messages, group reviewers use a `#` prefix: `r?#group-name` (e.g. `r?#linter-reviewers`), while individual reviewers do not: `r?username`
+- Never put `DONTBUILD` (or `CLOSED TREE`) in the `-m` message of `mach try fuzzy` / `mach try compare` when you want builds to actually run. The Gecko decision task scans the message and on `DONTBUILD` strips every task from the graph: the decision task itself succeeds (Treeherder shows green) but no builds are scheduled.
 - When doing Android and Desktop front-end-only changes, use the special `./mach build faster` to skip all C++/Rust compilation.
-- Conversely, for C++/Rust only changes you can use the special `./mach build binaries` to skip all front-end-related tasks.
+- Conversely, for C/C++/Obj-C/Rust only changes you can use the special `./mach build binaries` to skip all front-end-related tasks.

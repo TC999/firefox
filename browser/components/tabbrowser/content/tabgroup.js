@@ -51,6 +51,16 @@
     /** @type {boolean} */
     #wasCreatedByAdoption = false;
 
+    /**
+     * Whether a drag collapsed this tab group, as opposed to the user, and it
+     * therefore has to be expanded again when the drag ends. Stays true until
+     * the group's tabs are back to their full size, which is how long the tab
+     * strip keeps reserving space for them.
+     *
+     * @type {boolean}
+     */
+    collapsedByDrag = false;
+
     #observerRemoved = false;
 
     constructor() {
@@ -80,7 +90,7 @@
 
       // Similar to above, always set up TabSelect listener, as this gets
       // removed in disconnectedCallback
-      this.ownerGlobal.addEventListener("TabSelect", this);
+      this.documentGlobal.addEventListener("TabSelect", this);
       this.addEventListener("SplitViewTabChange", this);
 
       if (this._initialized) {
@@ -98,7 +108,7 @@
         this.resetDefaultGroupName,
         "intl:app-locales-changed"
       );
-      this.ownerGlobal.addEventListener("unload", this.#removeObserver);
+      this.documentGlobal.addEventListener("unload", this.#removeObserver);
 
       this.addEventListener("click", this);
 
@@ -160,8 +170,8 @@
     };
 
     disconnectedCallback() {
-      this.ownerGlobal.removeEventListener("TabSelect", this);
-      this.ownerGlobal.removeEventListener("unload", this.#removeObserver);
+      this.documentGlobal.removeEventListener("TabSelect", this);
+      this.documentGlobal.removeEventListener("unload", this.#removeObserver);
       this.removeEventListener("SplitViewTabChange", this);
       this.#tabChangeObserver?.disconnect();
       this.#removeObserver();
@@ -233,17 +243,30 @@
     set color(code) {
       let diff = code !== this.#colorCode;
       this.#colorCode = code;
-      this.style.setProperty(
-        "--tab-group-color",
-        `var(--tab-group-color-${code})`
-      );
+      this.style.setProperty("--tab-group-color", `var(--tab-group-${code})`);
       this.style.setProperty(
         "--tab-group-color-invert",
-        `var(--tab-group-color-${code}-invert)`
+        `var(--tab-group-${code}-invert)`
       );
       this.style.setProperty(
         "--tab-group-color-pale",
-        `var(--tab-group-color-${code}-pale)`
+        `var(--tab-group-${code}-pale)`
+      );
+      this.style.setProperty(
+        "--tab-group-background-color",
+        `var(--tab-group-${code})`
+      );
+      this.style.setProperty(
+        "--tab-group-text-color",
+        `var(--tab-group-${code}-text)`
+      );
+      this.style.setProperty(
+        "--tab-group-text-color-invert",
+        `var(--tab-group-${code}-text-invert)`
+      );
+      this.style.setProperty(
+        "--tab-group-background-color-hover",
+        `var(--tab-group-${code}-hover)`
       );
       if (diff) {
         this.dispatchEvent(
@@ -572,36 +595,50 @@
     /**
      * add tabs to the group
      *
-     * @param {MozTabbrowserTab[] | MozSplitViewWrapper} tabsOrSplitViews
+     * @param {(MozTabbrowserTab|MozTabSplitViewWrapper)[]} tabsOrSplitViews
      * @param {TabMetricsContext} [metricsContext]
      *   Optional context to record for metrics purposes.
      */
     addTabs(tabsOrSplitViews, metricsContext = null) {
+      if (metricsContext?.isUserTriggered) {
+        let tabCount = tabsOrSplitViews.reduce(
+          (n, item) =>
+            n + (gBrowser.isSplitViewWrapper(item) ? item.tabs.length : 1),
+          0
+        );
+        gBrowser.recordTabMetrics(
+          gBrowser.TabMetrics.METRIC_ACTION.MOVE,
+          metricsContext,
+          { tabCount }
+        );
+        metricsContext = gBrowser.TabMetrics.decomposedContext(metricsContext);
+      }
+
       for (let tabOrSplitView of tabsOrSplitViews) {
         if (gBrowser.isSplitViewWrapper(tabOrSplitView)) {
           let splitViewToMove =
-            this.ownerGlobal === tabOrSplitView.ownerGlobal
+            this.documentGlobal === tabOrSplitView.documentGlobal
               ? tabOrSplitView
               : gBrowser.adoptSplitView(tabOrSplitView, {
-                  elementIndex: gBrowser.tabs.at(-1)._tPos + 1,
+                  tabIndex: gBrowser.tabs.at(-1).index + 1,
                 });
-          gBrowser.moveSplitViewToExistingGroup(
-            splitViewToMove,
-            this,
-            metricsContext
-          );
+          gBrowser.moveSplitViewToExistingGroup(splitViewToMove, this, {
+            metricsContext,
+          });
         } else {
           if (tabOrSplitView.pinned) {
-            tabOrSplitView.ownerGlobal.gBrowser.unpinTab(tabOrSplitView);
+            tabOrSplitView.documentGlobal.gBrowser.unpinTab(tabOrSplitView, {
+              metricsContext,
+            });
           }
           let tabToMove =
-            this.ownerGlobal === tabOrSplitView.ownerGlobal
+            this.documentGlobal === tabOrSplitView.documentGlobal
               ? tabOrSplitView
               : gBrowser.adoptTab(tabOrSplitView, {
-                  tabIndex: gBrowser.tabs.at(-1)._tPos + 1,
+                  tabIndex: gBrowser.tabs.at(-1).index + 1,
                   selectTab: tabOrSplitView.selected,
                 });
-          gBrowser.moveTabToExistingGroup(tabToMove, this, metricsContext);
+          gBrowser.moveTabToExistingGroup(tabToMove, this, { metricsContext });
         }
       }
       this.#lastAddedTo = Date.now();
@@ -611,17 +648,13 @@
      * Remove all tabs from the group and delete the group.
      *
      * @param {TabMetricsContext} [metricsContext]
+     *   The context for the operation
      */
-    ungroupTabs(
-      metricsContext = {
-        isUserTriggered: false,
-        telemetrySource: TabMetrics.METRIC_SOURCE.UNKNOWN,
-      }
-    ) {
+    ungroupTabs(metricsContext = TabMetrics.UNKNOWN_CONTEXT) {
       this.dispatchEvent(
         new CustomEvent("TabGroupUngroup", {
           bubbles: true,
-          detail: metricsContext,
+          detail: { metricsContext },
         })
       );
       for (let i = this.tabsAndSplitViews.length - 1; i >= 0; i--) {
@@ -636,24 +669,22 @@
     /**
      * Save group data to session store.
      *
-     * @param {object} [options]
-     * @param {boolean} [options.isUserTriggered]
-     *   Whether or not the save operation was explicitly called by the user.
-     *   Used for telemetry. Default is false.
+     * @param {TabMetricsContext} [metricsContext]
+     *   The context for the operation
      */
-    save({ isUserTriggered = false } = {}) {
+    save(metricsContext = TabMetrics.UNKNOWN_CONTEXT) {
       SessionStore.addSavedTabGroup(this);
       this.dispatchEvent(
         new CustomEvent("TabGroupSaved", {
           bubbles: true,
-          detail: { isUserTriggered },
+          detail: { metricsContext },
         })
       );
     }
 
-    saveAndClose({ isUserTriggered } = {}) {
-      this.save({ isUserTriggered });
-      gBrowser.removeTabGroup(this);
+    saveAndClose(metricsContext = TabMetrics.UNKNOWN_CONTEXT) {
+      this.save(metricsContext);
+      gBrowser.removeTabGroup(this, { metricsContext });
     }
 
     /**

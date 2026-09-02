@@ -428,7 +428,7 @@ class FakeDescriptionObserver {
       RTC_DCHECK_RUN_ON(thread_);
       error_ = std::move(error);
     } else {
-      thread_->PostTask([this, error = std::move(error)]() {
+      thread_->PostTask([this, error = std::move(error)]() mutable {
         RTC_DCHECK_RUN_ON(thread_);
         error_ = std::move(error);
       });
@@ -479,6 +479,7 @@ class MockDataChannelObserver : public DataChannelObserver {
   ~MockDataChannelObserver() override { channel_->UnregisterObserver(); }
 
   void OnBufferedAmountChange(uint64_t previous_amount) override {}
+  void OnMaxMessageSize(int max_message_size) override {}
 
   void OnStateChange() override {
     states_.push_back(channel_->state());

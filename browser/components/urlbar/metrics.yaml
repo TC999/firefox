@@ -24,7 +24,8 @@ urlbar:
         description: >
           `sap` is the meaning of `search access point`. It records where the
           user started the search action from. The possible values are: `urlbar`
-          , `handoff`, `urlbar_newtab`, `urlbar_addonpage`, and `searchbar`.
+          , `handoff`, `urlbar_newtab`, `urlbar_addonpage`, `newtab_searchbar`,
+          and `searchbar`.
         type: string
       location:
         description: >
@@ -105,6 +106,7 @@ urlbar:
           `action`,
           `addon`,
           `ai_chat`,
+          `ai_search_fallback`,
           `autofill_about`,
           `autofill_adaptive_origin`,
           `autofill_adaptive_url`,
@@ -232,7 +234,8 @@ urlbar:
         description: >
           `sap` is the meaning of `search access point`. It records where the
           user started the search action from. The possible values are: `urlbar`
-          , `handoff`, `urlbar_newtab`, `urlbar_addonpage`, and `searchbar`.
+          , `handoff`, `urlbar_newtab`, `urlbar_addonpage`, `newtab_searchbar`,
+          and `searchbar`.
         type: string
       location:
         description: >
@@ -368,7 +371,8 @@ urlbar:
         description: >
           `sap` is the meaning of `search access point`. It records where the
           user started the search action from. The possible values are: `urlbar`
-          , `handoff`, `urlbar_newtab`, `urlbar_addonpage`, and `searchbar`.
+          , `handoff`, `urlbar_newtab`, `urlbar_addonpage`, `newtab_searchbar`,
+          and `searchbar`.
         type: string
       location:
         description: >
@@ -471,7 +475,8 @@ urlbar:
         description: >
           `sap` is the meaning of `search access point`. It records where the
           user started the search action from. The possible values are: `urlbar`
-          , `handoff`, `urlbar_newtab`, `urlbar_addonpage`, and `searchbar`.
+          , `handoff`, `urlbar_newtab`, `urlbar_addonpage`, `newtab_searchbar`,
+          and `searchbar`.
         type: string
       location:
         description: >
@@ -538,6 +543,7 @@ urlbar:
           `action`,
           `addon`,
           `ai_chat`,
+          `ai_search_fallback`,
           `autofill_about`,
           `autofill_adaptive_origin`,
           `autofill_adaptive_url`,
@@ -679,6 +685,7 @@ urlbar:
           `action`,
           `addon`,
           `ai_chat`,
+          `ai_search_fallback`,
           `autofill_about`,
           `autofill_adaptive_origin`,
           `autofill_adaptive_url`,
@@ -827,7 +834,7 @@ urlbar:
         description: >
           The search access point. It records where the exposure happened.
           The possible values are: `urlbar`, `handoff`, `urlbar_newtab`,
-          `urlbar_addonpage`, and `searchbar`.
+          `urlbar_addonpage`, `newtab_searchbar`, and `searchbar`.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1819766
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1918299
@@ -869,7 +876,7 @@ urlbar:
         description: >
           The search access point. It records where the exposure happened.
           The possible values are: `urlbar`, `handoff`, `urlbar_newtab`,
-          `urlbar_addonpage`, and `searchbar`.
+          `urlbar_addonpage`, `newtab_searchbar`, and `searchbar`.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1881875
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1915507
@@ -1299,15 +1306,18 @@ quick_suggest:
       - quick-suggest
 
   context_id:
+    disabled: true
     type: uuid
     description: >
       An identifier to identify users for Contextual Services user interaction pings.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1836283
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1941161
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2056936
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1836283
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1941161
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2056936
     data_sensitivity:
       - technical
     notification_emails:
@@ -1328,6 +1338,22 @@ quick_suggest:
     data_sensitivity:
       - interaction
       - web_activity
+    notification_emails:
+      - najiang@mozilla.com
+    expires: never
+    send_in_pings:
+      - quick-suggest
+
+  suggestion_id:
+    type: string
+    description: >
+      The suggestion ID from MARS/Merino.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2050684
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2050684
+    data_sensitivity:
+      - interaction
     notification_emails:
       - najiang@mozilla.com
     expires: never
@@ -1432,7 +1458,7 @@ suggest_relevance:
     notification_emails:
       - disco-team@mozilla.com
       - najiang@mozilla.com
-    expires: 153
+    expires: 160
     data_sensitivity:
       - technical
   outcome:
@@ -1452,7 +1478,7 @@ suggest_relevance:
     notification_emails:
       - disco-team@mozilla.com
       - najiang@mozilla.com
-    expires: 153
+    expires: 160
     data_sensitivity:
       - technical
 
@@ -1614,6 +1640,32 @@ urlbar.unifiedsearchbutton:
     expires: never
     telemetry_mirror: URLBAR_UNIFIEDSEARCHBUTTON_PICKED
 
+urlbar.searchmode:
+  url_like_query:
+    type: rate
+    description: >
+      A rate recording the fraction of search-mode engagements whose typed
+      string parses as a URL (per nsIURIFixup, the same check the heuristic
+      providers use to decide whether a string should navigate). The
+      denominator is search-mode engagements whose heuristic result is a
+      search result (i.e. cases where changing the behavior to navigate
+      instead of search could actually take effect); the numerator is those
+      whose query is URL-like. Local search modes (bookmarks, history, tabs,
+      actions) have no heuristic result and are therefore excluded. Used to
+      evaluate whether the address bar should navigate to such strings
+      instead of searching them while in search mode (bug 1930861).
+      Temporary decision-making probe.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2042945
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2042945
+    notification_emails:
+      - fx-search-telemetry@mozilla.com
+      - dong@mozilla.com
+    expires: 160
+    data_sensitivity:
+      - interaction
+
 urlbar.autofill:
   reintegration:
     type: labeled_counter
@@ -1628,6 +1680,50 @@ urlbar.autofill:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2019719
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2019719
+    notification_emails:
+      - fx-search-telemetry@mozilla.com
+    expires: never
+    data_sensitivity:
+      - interaction
+
+  input_context_menu_dismissal:
+    type: labeled_counter
+    description: >
+      Counts how many times the user dismissed a heuristic autofill result
+      via the urlbar input's right-click context menu. Labeled by which
+      menu item was used: `dismiss` only blocks the autofill pairing,
+      `forget` also removes the page from history.
+    labels:
+      - dismiss
+      - forget
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2013362
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2013362
+    notification_emails:
+      - fx-search-telemetry@mozilla.com
+    expires: never
+    data_sensitivity:
+      - interaction
+
+  reintegration_after_backspace:
+    type: labeled_timing_distribution
+    description: >
+      Time elapsed between a backspace-induced autofill block and the user
+      re-integrating the same destination by picking it as a non-autofill
+      history result in the same session. Only samples re-integrations of
+      blocks that were set via consecutive backspaces on an autofilled
+      value, blocks set via the result menu Dismiss action do not
+      contribute samples. Labeled by whether the cleared block was at the
+      origin or page-URL level.
+    time_unit: millisecond
+    labels:
+      - origin
+      - url
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2037177
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2037177
     notification_emails:
       - fx-search-telemetry@mozilla.com
     expires: never

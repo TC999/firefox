@@ -2,8 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "debugger/Environment-inl.h"
-
 #include "mozilla/Assertions.h"  // for AssertionConditionType
 #include "mozilla/Maybe.h"       // for Maybe, Some, Nothing
 #include "mozilla/Vector.h"      // for Vector
@@ -29,6 +27,7 @@
 #include "vm/Scope.h"                 // for ScopeKind, ScopeKindString
 #include "vm/StringType.h"            // for JSAtom
 
+#include "debugger/Environment-inl.h"
 #include "gc/StableCellHasher-inl.h"
 #include "vm/Compartment-inl.h"        // for Compartment::wrap
 #include "vm/EnvironmentObject-inl.h"  // for JSObject::enclosingEnvironment
@@ -47,16 +46,7 @@ using mozilla::Nothing;
 using mozilla::Some;
 
 const JSClassOps DebuggerEnvironment::classOps_ = {
-    nullptr,                               // addProperty
-    nullptr,                               // delProperty
-    nullptr,                               // enumerate
-    nullptr,                               // newEnumerate
-    nullptr,                               // resolve
-    nullptr,                               // mayResolve
-    nullptr,                               // finalize
-    nullptr,                               // call
-    nullptr,                               // construct
-    CallTraceMethod<DebuggerEnvironment>,  // trace
+    .trace = CallTraceMethod<DebuggerEnvironment>,
 };
 
 const JSClass DebuggerEnvironment::class_ = {
@@ -387,10 +377,9 @@ NativeObject* DebuggerEnvironment::initClass(JSContext* cx,
 DebuggerEnvironment* DebuggerEnvironment::create(
     JSContext* cx, HandleObject proto, HandleObject referent,
     Handle<NativeObject*> debugger) {
-  DebuggerEnvironment* obj =
-      IsInsideNursery(referent)
-          ? NewObjectWithGivenProto<DebuggerEnvironment>(cx, proto)
-          : NewTenuredObjectWithGivenProto<DebuggerEnvironment>(cx, proto);
+  NewObjectKind newKind = GetNewObjectKind(referent);
+  DebuggerEnvironment* obj = NewObjectWithGivenProto<DebuggerEnvironment>(
+      cx, proto, {.newKind = newKind});
   if (!obj) {
     return nullptr;
   }
@@ -520,7 +509,7 @@ bool DebuggerEnvironment::getNames(JSContext* cx,
   });
 
   for (size_t i = 0; i < result.length(); ++i) {
-    cx->markAtom(result[i].toAtom());
+    cx->recordRef(result[i].toAtom());
   }
 
   return true;
@@ -540,7 +529,7 @@ bool DebuggerEnvironment::find(JSContext* cx,
     Maybe<AutoRealm> ar;
     ar.emplace(cx, env);
 
-    cx->markId(id);
+    cx->recordRefToId(id);
 
     // This can trigger resolve hooks.
     ErrorCopier ec(ar);
@@ -576,7 +565,7 @@ bool DebuggerEnvironment::getVariable(JSContext* cx,
     Maybe<AutoRealm> ar;
     ar.emplace(cx, referent);
 
-    cx->markId(id);
+    cx->recordRefToId(id);
 
     // This can trigger getters.
     ErrorCopier ec(ar);
@@ -640,7 +629,7 @@ bool DebuggerEnvironment::setVariable(JSContext* cx,
     if (!cx->compartment()->wrap(cx, &value)) {
       return false;
     }
-    cx->markId(id);
+    cx->recordRefToId(id);
 
     // This can trigger setters.
     ErrorCopier ec(ar);

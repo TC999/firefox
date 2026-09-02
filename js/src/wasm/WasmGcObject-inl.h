@@ -9,6 +9,7 @@
 
 #include "mozilla/Attributes.h"
 #include "mozilla/DebugOnly.h"
+
 #include "util/Memory.h"
 
 #include "gc/Nursery-inl.h"
@@ -120,6 +121,9 @@ MOZ_ALWAYS_INLINE WasmStructObject* WasmStructObject::createStructOOL(
   if (MOZ_UNLIKELY(!outlineData)) {
     // AllocateCellBuffer will have called ReportOutOfMemory(cx) itself,
     // so no need to do that here.
+    size_t headerSize = typeDefData->cached.strukt.payloadOffsetIL;
+    memset((uint8_t*)structObj + headerSize, 0,
+           typeDefData->cached.strukt.totalSizeIL - headerSize);
     structObj->setOOLPointer(typeDefData, nullptr);
     return nullptr;
   }
@@ -204,13 +208,20 @@ MOZ_ALWAYS_INLINE WasmArrayObject* WasmArrayObject::createArrayOOL(
     return nullptr;
   }
 
+  arrayObj->initShape(typeDefData->shape);
+  arrayObj->superTypeVector_ = typeDefData->superTypeVector;
+
   uint8_t* oolAlloc = AllocateCellBuffer<uint8_t>(
       cx, arrayObj, sizeof(OOLDataHeader) + arrayDataBytes,
       MaxNurseryTrailerSize);
   if (MOZ_UNLIKELY(!oolAlloc)) {
+    // AllocateCellBuffer will have called ReportOutOfMemory(cx) itself.
+
+    // Initialize the failed array as an inline array to avoid issues with a
+    // null data pointer.
     arrayObj->numElements_ = 0;
-    arrayObj->data_ = nullptr;
-    ReportOutOfMemory(cx);
+    arrayObj->data_ = arrayObj->inlineArrayData<uint8_t>();
+    MOZ_ASSERT(arrayObj->isDataInline());
     return nullptr;
   }
 
@@ -218,8 +229,6 @@ MOZ_ALWAYS_INLINE WasmArrayObject* WasmArrayObject::createArrayOOL(
   new (oolHeader) OOLDataHeader();
   uint8_t* oolData = WasmArrayObject::oolDataHeaderToDataPointer(oolHeader);
 
-  arrayObj->initShape(typeDefData->shape);
-  arrayObj->superTypeVector_ = typeDefData->superTypeVector;
   arrayObj->numElements_ = numElements;
   arrayObj->data_ = oolData;
   if constexpr (ZeroFields) {

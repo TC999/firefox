@@ -41,6 +41,7 @@ support-files = ["searchTelemetryAd_searchbox_with_content.html", "serp.css"]
 ["browser_search_telemetry_adblock_count.js"]
 
 ["browser_search_telemetry_app_provided_and_overridden.js"]
+tags = "urlbar"
 
 ["browser_search_telemetry_categorization_experiment_info.js"]
 skip-if = [
@@ -174,6 +175,9 @@ support-files = ["searchTelemetryAd_components_text.html", "serp.css"]
 
 ["browser_search_telemetry_impressionAttributes.js"]
 
+["browser_search_telemetry_post_engine.js"]
+support-files = ["searchTelemetryAd_post_result.sjs"]
+
 ["browser_search_telemetry_new_window.js"]
 skip-if = [
   "os == 'win' && os_version == '11.26200' && asan", # Bug 2019745
@@ -201,6 +205,7 @@ skip-if = [
 
 
 ["browser_search_telemetry_searchform.js"]
+tags = "urlbar"
 
 ["browser_search_telemetry_shopping.js"]
 support-files = ["searchTelemetryAd_shopping.html"]
@@ -209,6 +214,7 @@ support-files = ["searchTelemetryAd_shopping.html"]
 support-files = ["searchTelemetry.html"]
 
 ["browser_search_telemetry_sources.js"]
+tags = "urlbar"
 support-files = ["searchTelemetry.html", "searchTelemetryAd.html"]
 
 ["browser_search_telemetry_sources_ads.js"]
@@ -235,6 +241,7 @@ support-files = [
 support-files = ["searchTelemetryAd_searchbox_with_content.html"]
 
 ["browser_search_telemetry_sources_navigation.js"]
+tags = "urlbar"
 support-files = ["searchTelemetry.html", "searchTelemetryAd.html"]
 
 ["browser_search_telemetry_sources_webextension.js"]
@@ -251,6 +258,12 @@ support-files = ["searchTelemetrySinglePageApp.html"]
 
 ["browser_search_telemetry_spa_single_tab.js"]
 support-files = ["searchTelemetrySinglePageApp.html"]
+
+["browser_search_telemetry_spa_require_top_level_impression_origin.js"]
+support-files = [
+  "searchTelemetrySinglePageApp.html",
+  "searchTelemetryNonSerpPushState.html",
+]
 
 ["browser_search_telemetry_subframe.js"]
 support-files = [

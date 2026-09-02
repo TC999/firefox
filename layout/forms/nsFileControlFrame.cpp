@@ -138,8 +138,9 @@ nsresult nsFileControlFrame::CreateAnonymousContent(
   aElements.AppendElement(mTextContent);
 
   // We should be able to interact with the element by doing drag and drop.
-  mContent->AddSystemEventListener(u"drop"_ns, mMouseListener, false);
-  mContent->AddSystemEventListener(u"dragover"_ns, mMouseListener, false);
+  mContent->AddSystemEventListener(u"drop"_ns, mMouseListener, false, false);
+  mContent->AddSystemEventListener(u"dragover"_ns, mMouseListener, false,
+                                   false);
 
   SyncDisabledState();
 
@@ -286,8 +287,7 @@ nsFileControlFrame::DnDListener::HandleEvent(Event* aEvent) {
           nsContentUtils::DispatchInputEvent(inputElement);
       NS_WARNING_ASSERTION(NS_SUCCEEDED(rvIgnored),
                            "Failed to dispatch input event");
-      nsContentUtils::DispatchTrustedEvent(inputElement->OwnerDoc(),
-                                           inputElement, u"change"_ns,
+      nsContentUtils::DispatchTrustedEvent(inputElement, u"change"_ns,
                                            CanBubble::eYes, Cancelable::eNo);
     }
   }
@@ -370,7 +370,8 @@ void nsFileControlFrame::SyncDisabledState() {
 
 void nsFileControlFrame::ElementStateChanged(ElementState aStates) {
   if (aStates.HasState(ElementState::DISABLED)) {
-    nsContentUtils::AddScriptRunner(new SyncDisabledStateEvent(this));
+    nsContentUtils::AddScriptRunner(
+        MakeAndAddRef<SyncDisabledStateEvent>(this));
   }
 }
 

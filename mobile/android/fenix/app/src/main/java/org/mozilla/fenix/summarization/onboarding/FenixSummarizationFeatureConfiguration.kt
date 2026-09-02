@@ -20,8 +20,11 @@ class FenixSummarizationFeatureConfiguration(
     private val summarizationSettingsBinding: SummarizationSettingsBinding,
 ) : SummarizationFeatureDiscoveryConfiguration {
 
+    override val isFeatureAvailable: Boolean
+        get() = settings.shakeToSummarizeFeatureFlagEnabled
+
     override val canShowFeature: Boolean
-        get() = settings.shakeToSummarizeFeatureFlagEnabled && summarizationSettingsBinding.isFeatureEnabled.value
+        get() = isFeatureAvailable && summarizationSettingsBinding.isFeatureEnabled.value
 
     override val showMenuItem: Boolean
         get() = canShowFeature
@@ -36,19 +39,20 @@ class FenixSummarizationFeatureConfiguration(
         get() = canShowFeature && !settings.shakeToSummarizeToolbarCfrShown
 
     /**
-     * We determine if we should highlight the toolbar by checking the feature flags &
-     * checking the number of interactions
+     * We determine if we should highlight the toolbar by checking the feature flags & checking the number of
+     * interactions
      */
     val shouldHighlightToolbarMenuButton: Boolean
         get() = canShowFeature && settings.shakeToSummarizeToolbarInteractionCount.underMaxCount()
 
     private val _toolbarMenuButtonHighlight = MutableStateFlow(shouldHighlightToolbarMenuButton)
     override val toolbarMenuButtonHighlight: Flow<Boolean>
-        get() = _toolbarMenuButtonHighlight.combine(
-            summarizationSettingsBinding.isFeatureEnabled,
-        ) { shouldHighlightToolbarMenuButton, isFeatureEnabled ->
-            isFeatureEnabled && shouldHighlightToolbarMenuButton
-        }
+        get() =
+            _toolbarMenuButtonHighlight.combine(summarizationSettingsBinding.isFeatureEnabled) {
+                shouldHighlightToolbarMenuButton,
+                isFeatureEnabled ->
+                isFeatureEnabled && shouldHighlightToolbarMenuButton
+            }
 
     override fun cacheDiscoveryEvent(event: SummarizeDiscoveryEvent) {
         when (event) {

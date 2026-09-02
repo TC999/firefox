@@ -9,6 +9,7 @@
 
 #include "js/StableStringChars.h"
 #include "js/String.h"
+#include "vm/StringType.h"
 
 namespace js {
 namespace shell {
@@ -42,6 +43,27 @@ bool StringStartsWith(JSLinearString* str,
 
   for (size_t i = 0; i < length; i++) {
     if (CharAt(str, i) != chars[i]) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+template <size_t NullTerminatedLength>
+bool StringEndsWith(JSLinearString* str,
+                    const char16_t (&chars)[NullTerminatedLength]) {
+  MOZ_ASSERT(NullTerminatedLength > 0);
+  const size_t length = NullTerminatedLength - 1;
+  MOZ_ASSERT(chars[length] == '\0');
+
+  if (str->length() < length) {
+    return false;
+  }
+
+  size_t offset = str->length() - length;
+  for (size_t i = 0; i < length; i++) {
+    if (CharAt(str, offset + i) != chars[i]) {
       return false;
     }
   }

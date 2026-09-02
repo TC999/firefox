@@ -11,20 +11,18 @@
 
 #include <cstdint>
 
+#include "MainThreadUtils.h"
 #include "mozilla/Assertions.h"
 #include "mozilla/LinkedList.h"
 #include "mozilla/Mutex.h"
-
-#include "MainThreadUtils.h"
 #include "nsCOMPtr.h"
-#include "nsInterfaceHashtable.h"
 #include "nsHashKeys.h"
-
 #include "nsIConsoleListener.h"
 #include "nsIConsoleMessage.h"
 #include "nsIConsoleService.h"
 #include "nsIObserver.h"
 #include "nsISupports.h"
+#include "nsInterfaceHashtable.h"
 
 template <class T>
 class nsCOMArray;
@@ -70,13 +68,13 @@ class nsConsoleService final : public nsIConsoleService, public nsIObserver {
 
     ~MessageElement();
 
-   private:
-    nsCOMPtr<nsIConsoleMessage> mMessage;
-
     MessageElement(const MessageElement&) = delete;
     MessageElement& operator=(const MessageElement&) = delete;
     MessageElement(MessageElement&&) = delete;
     MessageElement& operator=(MessageElement&&) = delete;
+
+   private:
+    nsCOMPtr<nsIConsoleMessage> mMessage;
   };
 
   ~nsConsoleService();

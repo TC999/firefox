@@ -171,6 +171,7 @@ class nsLayoutUtils {
   typedef mozilla::gfx::RectCornerRadii RectCornerRadii;
   typedef mozilla::gfx::StrokeOptions StrokeOptions;
   typedef mozilla::image::ImgDrawResult ImgDrawResult;
+  using imgDrawingParams = mozilla::image::imgDrawingParams;
 
   using nsDisplayItem = mozilla::nsDisplayItem;
   using nsDisplayList = mozilla::nsDisplayList;
@@ -297,6 +298,24 @@ class nsLayoutUtils {
   static mozilla::dom::Element* GetBackdropPseudo(const nsIContent* aContent);
   static nsIFrame* GetBackdropFrame(const nsIContent* aContent);
 
+  /**
+   * Returns the ::checkmark pseudo-element for aContent, if any.
+   */
+  static mozilla::dom::Element* GetCheckmarkPseudo(const nsIContent* aContent);
+  static nsIFrame* GetCheckmarkFrame(const nsIContent* aContent);
+
+  /**
+   * Returns the ::picker-icon pseudo-element for aContent, if any.
+   */
+  static mozilla::dom::Element* GetPickerIconPseudo(const nsIContent* aContent);
+  static nsIFrame* GetPickerIconFrame(const nsIContent* aContent);
+
+  /**
+   * Stores generated content pseudos such as ::after into aPseudos.
+   */
+  static void AppendGeneratedContentPseudos(
+      const mozilla::dom::Element* aElement, nsTArray<nsIContent*>& aPseudos);
+
 #ifdef ACCESSIBILITY
   /**
    * Set aText to the spoken text for the given ::marker content (aContent)
@@ -376,6 +395,11 @@ class nsLayoutUtils {
    */
   static bool IsPrimaryStyleFrame(const nsIFrame* aFrame);
 
+  enum class CompareTreePositionFlags : uint8_t {
+    None = 0x00,
+    FramesMayBeInDifferentOrIncompleteTrees = 0x01,
+  };
+
   /**
    * CompareTreePosition determines whether aFrame1 comes before or
    * after aFrame2 in a preorder traversal of the frame tree, where out
@@ -390,23 +414,28 @@ class nsLayoutUtils {
    *                        aContent1 or aContent2, this function will
    *                        still work, but it will be slower than
    *                        normal.
+   * @param aFlags If FramesMayBeInDifferentOrIncompleteTrees is set,
+   *               consider that being unable to find tree position to be
+   *               part of the expected behaviour.
    * @return < 0 if aContent1 is before aContent2
    *         > 0 if aContent1 is after aContent2,
-   *         0 otherwise (meaning they're the same, or they're in
-   *           different frame trees)
+   *         0 otherwise, meaning they're the same, or they're in
+   *           different/incomplete frame tree(s).
    */
   static int32_t CompareTreePosition(
       const nsIFrame* aFrame1, const nsIFrame* aFrame2,
-      const nsIFrame* aCommonAncestor = nullptr) {
-    return DoCompareTreePosition(aFrame1, aFrame2, aCommonAncestor);
+      const nsIFrame* aCommonAncestor = nullptr,
+      CompareTreePositionFlags aFlags = CompareTreePositionFlags::None) {
+    return DoCompareTreePosition(aFrame1, aFrame2, aCommonAncestor, aFlags);
   }
 
   static int32_t CompareTreePosition(
       const nsIFrame* aFrame1, const nsIFrame* aFrame2,
       const nsTArray<const nsIFrame*>& aFrame2Ancestors,
-      const nsIFrame* aCommonAncestor = nullptr) {
+      const nsIFrame* aCommonAncestor = nullptr,
+      CompareTreePositionFlags aFlags = CompareTreePositionFlags::None) {
     return DoCompareTreePosition(aFrame1, aFrame2, aFrame2Ancestors,
-                                 aCommonAncestor);
+                                 aCommonAncestor, aFlags);
   }
 
   static const nsIFrame* FillAncestors(const nsIFrame* aFrame,
@@ -415,11 +444,12 @@ class nsLayoutUtils {
 
   static int32_t DoCompareTreePosition(const nsIFrame* aFrame1,
                                        const nsIFrame* aFrame2,
-                                       const nsIFrame* aCommonAncestor);
+                                       const nsIFrame* aCommonAncestor,
+                                       CompareTreePositionFlags aFlags);
   static int32_t DoCompareTreePosition(
       const nsIFrame* aFrame1, const nsIFrame* aFrame2,
       const nsTArray<const nsIFrame*>& aFrame2Ancestors,
-      const nsIFrame* aCommonAncestor);
+      const nsIFrame* aCommonAncestor, CompareTreePositionFlags aFlags);
 
   /**
    * LastContinuationWithChild gets the last continuation in aFrame's chain
@@ -581,6 +611,22 @@ class nsLayoutUtils {
   static mozilla::ScrollContainerFrame* GetNearestScrollableFrameForDirection(
       nsIFrame* aFrame, mozilla::layers::ScrollDirections aDirections);
 
+  /**
+   * GetNearestScrollContainerFrameToScrollTowards locates the first ancestor of
+   * aFrame (or aFrame itself) that is scrollable and whose current scroll
+   * position can still move toward the given physical edge (i.e. it isn't
+   * already scrolled to that edge).
+   * The search extends across document boundaries, but does not cross process
+   * boundaries; callers should handle cross-process scroll handoff themselves.
+   *
+   * @param  aFrame the frame to start with
+   * @param  aSideBits the physical edge we want to scroll toward
+   * @return the nearest scroll container frame or nullptr if not found
+   */
+  static mozilla::ScrollContainerFrame*
+  GetNearestScrollContainerFrameToScrollTowards(nsIFrame* aFrame,
+                                                mozilla::SideBits aSideBits);
+
   enum {
     /**
      * If the SCROLLABLE_SAME_DOC flag is set, then we only walk the frame tree
@@ -631,6 +677,14 @@ class nsLayoutUtils {
    */
   static mozilla::ScrollContainerFrame* GetNearestScrollContainerFrame(
       nsIFrame* aFrame, uint32_t aFlags = 0);
+
+  /**
+   * Walk up the scroll-container ancestor chain starting at |aSearchFrame| and
+   * return the ViewID of the nearest scroll container whose scrolled content
+   * already has one, or NULL_SCROLL_ID if none does.
+   */
+  static mozilla::layers::ScrollableLayerGuid::ViewID GetNearestScrollIdFor(
+      nsIFrame* aSearchFrame);
 
   /**
    * GetScrolledRect returns the range of allowable scroll offsets
@@ -856,25 +910,24 @@ class nsLayoutUtils {
       const nsIFrame* aFrame, const nsRect& aRect, const nsIFrame* aAncestor,
       bool* aPreservesAxisAlignedRectangles = nullptr,
       mozilla::Maybe<Matrix4x4Flagged>* aMatrixCache = nullptr,
-      bool aStopAtStackingContextAndDisplayPortAndOOFFrame = false,
+      mozilla::TransformMatrixFlags aFlags = {},
       nsIFrame** aOutAncestor = nullptr) {
-    return TransformFrameRectToAncestor(
-        aFrame, aRect, RelativeTo{aAncestor}, aPreservesAxisAlignedRectangles,
-        aMatrixCache, aStopAtStackingContextAndDisplayPortAndOOFFrame,
-        aOutAncestor);
+    return TransformFrameRectToAncestor(aFrame, aRect, RelativeTo{aAncestor},
+                                        aPreservesAxisAlignedRectangles,
+                                        aMatrixCache, aFlags, aOutAncestor);
   }
   static nsRect TransformFrameRectToAncestor(
       const nsIFrame* aFrame, const nsRect& aRect, RelativeTo aAncestor,
       bool* aPreservesAxisAlignedRectangles = nullptr,
       mozilla::Maybe<Matrix4x4Flagged>* aMatrixCache = nullptr,
-      bool aStopAtStackingContextAndDisplayPortAndOOFFrame = false,
+      mozilla::TransformMatrixFlags aFlags = {},
       nsIFrame** aOutAncestor = nullptr);
 
   /**
    * Gets the transform for aFrame relative to aAncestor. Pass null for
-   * aAncestor to go up to the root frame. Including nsIFrame::IN_CSS_UNITS
-   * flag in aFlags will return CSS pixels, by default it returns device
-   * pixels.
+   * aAncestor to go up to the root frame. Including
+   * TransformMatrixFlag::InCSSUnits in aFlags will return CSS pixels,
+   * by default it returns device pixels.
    * More info can be found in nsIFrame::GetTransformMatrix.
    *
    * Some notes on the possible combinations of |aFrame.mViewportType| and
@@ -910,7 +963,8 @@ class nsLayoutUtils {
    * ==========================================================================
    */
   static Matrix4x4Flagged GetTransformToAncestor(
-      RelativeTo aFrame, RelativeTo aAncestor, uint32_t aFlags = 0,
+      RelativeTo aFrame, RelativeTo aAncestor,
+      mozilla::TransformMatrixFlags aFlags = {},
       nsIFrame** aOutAncestor = nullptr);
 
   /**
@@ -1011,8 +1065,15 @@ class nsLayoutUtils {
    * Whether the frame should snap to grid. This will end up being passed
    * as the aRounded parameter in PostTranslate above. SVG frames should
    * not have their translation rounded.
+   *
+   * When aBuilder is supplied and is painting for WebRender, reference-frame
+   * origin snapping is left to WebRender (so it can remove the fractional
+   * external scroll offset reliably) and this returns false under the
+   * layout.disable-pixel-alignment pref. The drawSnapshot / non-WebRender path
+   * (no aBuilder, or not painting for WebRender) keeps snapping.
    */
-  static bool ShouldSnapToGrid(const nsIFrame* aFrame);
+  static bool ShouldSnapToGrid(const nsIFrame* aFrame,
+                               const nsDisplayListBuilder* aBuilder = nullptr);
 
   /**
    * Get the border-box of aElement's primary frame, transformed it to be
@@ -1389,7 +1450,8 @@ class nsLayoutUtils {
   static already_AddRefed<nsFontMetrics> GetFontMetricsForComputedStyle(
       const ComputedStyle* aComputedStyle, nsPresContext* aPresContext,
       float aSizeInflation = 1.0f,
-      uint8_t aVariantWidth = NS_FONT_VARIANT_WIDTH_NORMAL);
+      uint8_t aVariantWidth = NS_FONT_VARIANT_WIDTH_NORMAL,
+      bool aForceHorizontalMetrics = false);
 
   /**
    * Get the font metrics of emphasis marks corresponding to the given
@@ -1424,7 +1486,7 @@ class nsLayoutUtils {
   /**
    * Find the nearest ancestor that's a block
    */
-  static nsBlockFrame* FindNearestBlockAncestor(nsIFrame* aFrame);
+  static nsBlockFrame* FindNearestBlockAncestor(const nsIFrame* aFrame);
 
   /*
    * Whether the frame is an nsBlockFrame which is not a wrapper block.
@@ -1832,10 +1894,13 @@ class nsLayoutUtils {
    * Helper function for drawing text-shadow. The callback's job
    * is to draw whatever needs to be blurred onto the given context.
    */
-  typedef void (*TextShadowCallback)(gfxContext* aCtx, nsPoint aShadowOffset,
+  typedef void (*TextShadowCallback)(gfxContext* aCtx,
+                                     imgDrawingParams& aImgParams,
+                                     const nsPoint& aShadowOffset,
                                      const nscolor& aShadowColor, void* aData);
 
   static void PaintTextShadow(const nsIFrame* aFrame, gfxContext* aContext,
+                              imgDrawingParams& aImgParams,
                               const nsRect& aTextRect, const nsRect& aDirtyRect,
                               const nscolor& aForegroundColor,
                               TextShadowCallback aCallback,
@@ -2586,7 +2651,6 @@ class nsLayoutUtils {
   /**
    * Unions the overflow areas of the children of aFrame with aOverflowAreas.
    * aSkipChildLists specifies any child lists that should be skipped.
-   * FrameChildListID::Popup is always skipped.
    */
   static void UnionChildOverflow(
       nsIFrame* aFrame, mozilla::OverflowAreas& aOverflowAreas,
@@ -2631,7 +2695,7 @@ class nsLayoutUtils {
    */
   static bool InvalidationDebuggingIsEnabled() {
     return mozilla::StaticPrefs::nglayout_debug_invalidation() ||
-           getenv("MOZ_DUMP_INVALIDATION") != 0;
+           getenv("MOZ_DUMP_INVALIDATION") != nullptr;
   }
 
   static void Initialize();
@@ -3032,7 +3096,8 @@ class nsLayoutUtils {
    * root of the frame tree if |aTopFrame| is nullptr, and returns true if
    * a transformed frame is encountered.
    */
-  static bool IsTransformed(nsIFrame* aForFrame, nsIFrame* aTopFrame = nullptr);
+  static bool IsTransformed(const nsIFrame* aForFrame,
+                            const nsIFrame* aTopFrame = nullptr);
 
   /**
    * Walk up from aFrame to the cross-doc root, accumulating all the APZ
@@ -3211,27 +3276,6 @@ class nsLayoutUtils {
    */
   static void RecomputeSmoothScrollDefault();
 
-  struct CombinedFragments {
-    // Previous continuation, if exists, that got skipped due to being on a
-    // different page, or a different containing block continuation.
-    const nsIFrame* mSkippedPrevContinuation = nullptr;
-    // Same as above, but next continuation.
-    const nsIFrame* mSkippedNextContinuation = nullptr;
-    // The overall frame rect formed by unioning the frame's fragment rects.
-    nsRect mRect;
-  };
-  /**
-   * Get the union of the rects of aFrame and its continuations (but not if the
-   * context is paginated and they're on a different page, as it doesn't make
-   * sense to "merge" their rects in that case).
-   *
-   * @param aFrame The target frame whose combined fragments are wanted.
-   * @param aContainingBlock If provided, union fragments only up to its
-   * fragmentation boundary.
-   */
-  static CombinedFragments GetCombinedFragmentRects(
-      const nsIFrame* aFrame, const nsIFrame* aContainingBlock = nullptr);
-
  private:
   /**
    * Helper function for LogTestDataForPaint().
@@ -3249,6 +3293,7 @@ class nsLayoutUtils {
 
 MOZ_MAKE_ENUM_CLASS_BITWISE_OPERATORS(nsLayoutUtils::PaintFrameFlags)
 MOZ_MAKE_ENUM_CLASS_BITWISE_OPERATORS(nsLayoutUtils::GetPopupFrameForPointFlags)
+MOZ_MAKE_ENUM_CLASS_BITWISE_OPERATORS(nsLayoutUtils::CompareTreePositionFlags)
 
 template <typename PointType, typename RectType, typename CoordType>
 /* static */ bool nsLayoutUtils::PointIsCloserToRect(

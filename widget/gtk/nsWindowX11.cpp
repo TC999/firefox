@@ -2,20 +2,23 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "nsWindow.h"
 #include "nsWindowX11.h"
 
-#include "mozilla/gfx/gfxVars.h"
-#include "mozilla/PodOperations.h"
-#include <gdk/gdkkeysyms-compat.h>
 #include <X11/Xatom.h>
 #include <X11/extensions/XShm.h>
+#include <X11/extensions/Xfixes.h>
 #include <X11/extensions/shape.h>
-#include "gfxXlibSurface.h"
-#include "GLContextGLX.h"  // for GLContextGLX::FindVisual()
+#include <gdk/gdkkeysyms-compat.h>
+
 #include "GLContextEGL.h"  // for GLContextEGL::FindVisual()
+#include "GLContextGLX.h"  // for GLContextGLX::FindVisual()
 #include "WindowSurfaceX11Image.h"
 #include "WindowSurfaceX11SHM.h"
+#include "gfxXlibSurface.h"
+#include "mozilla/PodOperations.h"
+#include "mozilla/gfx/gfxVars.h"
+#include "mozilla/layers/CompositorBridgeChild.h"
+#include "nsWindow.h"
 
 using namespace mozilla;
 using namespace mozilla::gfx;
@@ -72,46 +75,35 @@ void nsWindowX11::MoveToWorkspace(const nsAString& workspaceIDStr) {
   int32_t workspaceID = workspaceIDStr.ToInteger(&rv);
 
   LOG("nsWindow::MoveToWorkspace() ID %d", workspaceID);
-  if (NS_FAILED(rv) || !workspaceID || !mShell) {
+  if (NS_FAILED(rv)) {
     LOG("  MoveToWorkspace disabled, quit");
     return;
+  }
+
+  if (!SendWorkspaceMoveRequest(workspaceID)) {
+    mDeferredWorkspaceID = Some(workspaceID);
+    LOG("  deferred until the window is shown");
+  }
+}
+
+bool nsWindowX11::SendWorkspaceMoveRequest(int32_t workspaceID) {
+  if (!mShell || !mIsMapped) {
+    return false;
   }
 
   // Get the gdk window for this widget.
   GdkWindow* gdk_window = GetToplevelGdkWindow();
   if (!gdk_window) {
     LOG("  failed to get GdkWindow, quit.");
-    return;
+    return false;
   }
 
-  // This code is inspired by some found in the 'gxtuner' project.
-  // https://github.com/brummer10/gxtuner/blob/792d453da0f3a599408008f0f1107823939d730d/deskpager.cpp#L50
-  XEvent xevent;
-  Display* xdisplay = gdk_x11_get_default_xdisplay();
-  GdkScreen* screen = gdk_window_get_screen(gdk_window);
-  Window root_win = GDK_WINDOW_XID(gdk_screen_get_root_window(screen));
   GdkDisplay* display = gdk_window_get_display(gdk_window);
-  Atom type = gdk_x11_get_xatom_by_name_for_display(display, "_NET_WM_DESKTOP");
-
-  xevent.type = ClientMessage;
-  xevent.xclient.type = ClientMessage;
-  xevent.xclient.serial = 0;
-  xevent.xclient.send_event = TRUE;
-  xevent.xclient.display = xdisplay;
-  xevent.xclient.window = GDK_WINDOW_XID(gdk_window);
-  xevent.xclient.message_type = type;
-  xevent.xclient.format = 32;
-  xevent.xclient.data.l[0] = workspaceID;
-  xevent.xclient.data.l[1] = X11CurrentTime;
-  xevent.xclient.data.l[2] = 0;
-  xevent.xclient.data.l[3] = 0;
-  xevent.xclient.data.l[4] = 0;
-
-  XSendEvent(xdisplay, root_win, FALSE,
-             SubstructureNotifyMask | SubstructureRedirectMask, &xevent);
-
-  XFlush(xdisplay);
+  gdk_x11_window_move_to_desktop(gdk_window,
+                                 static_cast<uint32_t>(workspaceID));
+  gdk_display_flush(display);
   LOG("  moved to workspace");
+  return true;
 }
 
 Window nsWindowX11::GetX11Window() {
@@ -164,16 +156,9 @@ void nsWindowX11::CreateNative() {
 #pragma GCC diagnostic pop
 
   mSurfaceProvider.Initialize(GetX11Window());
-
-  // Set window manager hint to keep fullscreen windows composited.
-  //
-  // If the window were to get unredirected, there could be visible
-  // tearing because Gecko does not align its framebuffer updates with
-  // vblank.
-  SetCompositorHint(GTK_WIDGET_COMPOSITED_ENABLED);
 }
 
-void nsWindowX11::DestroyNative() {}
+void nsWindowX11::DestroyNative() { UnlockNativePointer(); }
 
 void nsWindowX11::SetCompositorHint(WindowComposeRequest aState) {
   gulong value = aState;
@@ -218,6 +203,100 @@ void nsWindowX11::SetProgress(unsigned long progressPercent) {
                            PROGRESS_HINT, progressPercent);
 }
 
+static bool SupportsPointerBarriers(Display* aDisplay) {
+  MOZ_ASSERT(StaticPrefs::dom_pointer_lock_native_lock_enabled());
+  // XXX We expect the capability doesn't change as we use only one display
+  // everywhere.
+  static const bool sSupported = [&] {
+    int eventBase = -1;
+    int errorBase = -1;
+    if (!XFixesQueryExtension(aDisplay, &eventBase, &errorBase)) {
+      return false;
+    }
+
+    int major = 0;
+    int minor = 0;
+    if (!XFixesQueryVersion(aDisplay, &major, &minor)) {
+      return false;
+    }
+
+    return major >= 5;
+  }();
+  return sSupported;
+}
+
+void nsWindowX11::UpdateNativePointerBarriers() {
+  if (!StaticPrefs::dom_pointer_lock_native_lock_enabled()) {
+    MOZ_ASSERT(!mIsNativePointerLocked);
+    MOZ_ASSERT(!mNativePointerBarriers);
+    return;
+  }
+
+  if (NS_WARN_IF(!mGdkWindow)) {
+    return;
+  }
+
+  Display* display = GDK_DISPLAY_XDISPLAY(gdk_window_get_display(mGdkWindow));
+  if (NS_WARN_IF(!SupportsPointerBarriers(display))) {
+    MOZ_ASSERT(!mNativePointerBarriers);
+    return;
+  }
+
+  if (mNativePointerBarriers) {
+    XFixesDestroyPointerBarrier(display, mNativePointerBarriers->mLeft);
+    XFixesDestroyPointerBarrier(display, mNativePointerBarriers->mRight);
+    XFixesDestroyPointerBarrier(display, mNativePointerBarriers->mTop);
+    XFixesDestroyPointerBarrier(display, mNativePointerBarriers->mBottom);
+    mNativePointerBarriers.reset();
+  }
+
+  if (mIsNativePointerLocked) {
+    Window window = GetX11Window();
+    mNativePointerBarriers.emplace(
+        XFixesCreatePointerBarrier(
+            display, window, mClientArea.X(), mClientArea.Y(), mClientArea.X(),
+            mClientArea.YMost(), BarrierPositiveX, 0, nullptr),
+        XFixesCreatePointerBarrier(display, window, mClientArea.XMost(),
+                                   mClientArea.Y(), mClientArea.XMost(),
+                                   mClientArea.YMost(), BarrierNegativeX, 0,
+                                   nullptr),
+        XFixesCreatePointerBarrier(
+            display, window, mClientArea.X(), mClientArea.Y(),
+            mClientArea.XMost(), mClientArea.Y(), BarrierPositiveY, 0, nullptr),
+        XFixesCreatePointerBarrier(display, window, mClientArea.X(),
+                                   mClientArea.YMost(), mClientArea.XMost(),
+                                   mClientArea.YMost(), BarrierNegativeY, 0,
+                                   nullptr));
+  }
+}
+
+void nsWindowX11::LockNativePointer(
+    NativePointerLockMode aNativePointerLockMode) {
+  if (!StaticPrefs::dom_pointer_lock_native_lock_enabled()) {
+    MOZ_ASSERT(!mIsNativePointerLocked);
+    MOZ_ASSERT(!mNativePointerBarriers);
+    return;
+  }
+
+  if (mIsNativePointerLocked) {
+    MOZ_ASSERT(mNativePointerBarriers);
+    return;
+  }
+
+  mIsNativePointerLocked = true;
+  UpdateNativePointerBarriers();
+}
+
+void nsWindowX11::UnlockNativePointer() {
+  if (!mIsNativePointerLocked) {
+    MOZ_ASSERT(!mNativePointerBarriers);
+    return;
+  }
+  MOZ_ASSERT(StaticPrefs::dom_pointer_lock_native_lock_enabled());
+  mIsNativePointerLocked = false;
+  UpdateNativePointerBarriers();
+}
+
 void nsWindowX11::NativeShow(bool aAction) {
   if (aAction) {
     // unset our flag now that our window has been shown
@@ -232,6 +311,11 @@ void nsWindowX11::NativeShow(bool aAction) {
     SetUserTimeAndStartupTokenForActivatedWindow();
     LOG("  calling gtk_widget_show(mShell)\n");
     gtk_widget_show(mShell);
+
+    if (mDeferredWorkspaceID &&
+        SendWorkspaceMoveRequest(*mDeferredWorkspaceID)) {
+      mDeferredWorkspaceID.reset();
+    }
 
     if (mX11HiddenPopupPositioned) {
       LOG("  re-position hidden popup window [%d, %d]", mClientArea.x,
@@ -267,4 +351,29 @@ void nsWindowX11::NativeShow(bool aAction) {
     }
     gtk_widget_hide(mShell);
   }
+}
+
+void nsWindowX11::OnMapNative() {
+  if (mIsDragPopup) {
+    if (GtkWidget* parent = gtk_widget_get_parent(mShell)) {
+      gtk_widget_set_opacity(parent, 0.0);
+    }
+  }
+
+  if (CompositorBridgeChild* remoteRenderer = GetRemoteRenderer()) {
+    remoteRenderer->SendResume();
+    remoteRenderer->SendForcePresent(wr::RenderReasons::WIDGET);
+  }
+
+  // Set window manager hint to keep fullscreen windows composited.
+  //
+  // If the window were to get unredirected, there could be visible
+  // tearing because Gecko does not align its framebuffer updates with
+  // vblank.
+  //
+  // This must be (re-)applied whenever the shell's X window is created,
+  // including after CSD-triggered re-realize in SetCustomTitlebar().
+  SetCompositorHint(GTK_WIDGET_COMPOSITED_ENABLED);
+
+  XFlush(DefaultXDisplay());
 }

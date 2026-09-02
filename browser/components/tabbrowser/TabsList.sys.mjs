@@ -115,6 +115,19 @@ class TabsListBase {
     return this.tabToElement.values();
   }
 
+  /**
+   * Tabs lists can be nested in the DOM, e.g. the list of hidden tabs playing
+   * audio sits inside the main tabs list in the All Tabs menu. Bubbling events
+   * from a nested list must only be handled by the list that owns the row.
+   *
+   * @param {Event} event
+   * @returns {boolean}
+   */
+  #ownsEvent(event) {
+    let row = event.target.closest("toolbaritem");
+    return !row || row.parentNode == this.containerNode;
+  }
+
   handleEvent(event) {
     switch (event.type) {
       case "TabAttrModified":
@@ -141,13 +154,13 @@ class TabsListBase {
         }
         break;
       case "command":
-        this.#handleCommand(event);
+        this.#ownsEvent(event) && this.#handleCommand(event);
         break;
       case "dragstart":
-        this._onDragStart(event);
+        this.#ownsEvent(event) && this._onDragStart(event);
         break;
       case "dragover":
-        this._onDragOver(event);
+        this.#ownsEvent(event) && this._onDragOver(event);
         break;
       case "dragleave":
         this._onDragLeave(event);
@@ -156,10 +169,10 @@ class TabsListBase {
         this._onDragEnd(event);
         break;
       case "drop":
-        this._onDrop(event);
+        this.#ownsEvent(event) && this._onDrop(event);
         break;
       case "click":
-        this._onClick(event);
+        this.#ownsEvent(event) && this._onClick(event);
         break;
     }
   }
@@ -173,12 +186,11 @@ class TabsListBase {
     } else if (event.target.classList.contains("all-tabs-close-button")) {
       const tab = getTabFromRow(event.target);
       if (tab) {
-        this.gBrowser.removeTab(
-          tab,
-          lazy.TabMetrics.userTriggeredContext(
+        this.gBrowser.removeTab(tab, {
+          metricsContext: lazy.TabMetrics.userTriggeredContext(
             lazy.TabMetrics.METRIC_SOURCE.TAB_OVERFLOW_MENU
-          )
-        );
+          ),
+        });
       }
     } else {
       const rowVariant = getRowVariant(event.target);
@@ -195,7 +207,12 @@ class TabsListBase {
 
   _selectTab(tab) {
     if (this.gBrowser.selectedTab != tab) {
-      this.gBrowser.selectedTab = tab;
+      this.gBrowser.setSelectedTab(
+        tab,
+        this.gBrowser.TabMetrics.userTriggeredContext(
+          this.gBrowser.TabMetrics.METRIC_SOURCE.TAB_OVERFLOW_MENU
+        )
+      );
     } else {
       this.gBrowser.tabContainer._handleTabSelect();
     }
@@ -256,7 +273,7 @@ class TabsListBase {
   _refreshDOM() {
     if (!this.#domRefreshPromise) {
       this.#domRefreshPromise = new Promise(resolve => {
-        this.containerNode.ownerGlobal.requestAnimationFrame(() => {
+        this.containerNode.documentGlobal.requestAnimationFrame(() => {
           if (this.#domRefreshPromise) {
             if (this.listenersRegistered) {
               // Only re-render the menu DOM if the menu is still open.
@@ -539,11 +556,14 @@ export class TabsPanel extends TabsListBase {
 
     if (tab.userContextId) {
       tab.classList.forEach(property => {
-        if (property.startsWith("identity-color")) {
+        if (
+          property.startsWith("identity-color") ||
+          property.startsWith("identity-icon")
+        ) {
           button.classList.add(property);
-          button.classList.add("all-tabs-container-indicator");
         }
       });
+      button.classList.add("all-tabs-container-indicator");
     }
 
     if (tab.group) {
@@ -598,19 +618,24 @@ export class TabsPanel extends TabsListBase {
 
     row.style.setProperty(
       "--tab-group-color",
-      `var(--tab-group-color-${group.color})`
+      `var(--tab-group-${group.color})`
     );
     row.style.setProperty(
       "--tab-group-color-invert",
-      `var(--tab-group-color-${group.color}-invert)`
+      `var(--tab-group-${group.color}-invert)`
     );
     row.style.setProperty(
       "--tab-group-color-pale",
-      `var(--tab-group-color-${group.color}-pale)`
+      `var(--tab-group-${group.color}-pale)`
+    );
+    row.style.setProperty(
+      "--tab-group-background-color",
+      `var(--tab-group-${group.color})`
     );
 
     let button = doc.createXULElement("toolbarbutton");
     button.setAttribute("context", "open-tab-group-context-menu");
+    button.dataset.tabGroupId = group.id;
     button.classList.add(
       "all-tabs-button",
       "all-tabs-group-button",
@@ -790,18 +815,17 @@ export class TabsPanel extends TabsListBase {
 
     // NOTE: Given the list is opened only when the window is focused,
     //       we don't have to check `draggedTab.container`.
-    const metricsContext = {
-      isUserTriggered: true,
-      telemetrySource: lazy.TabMetrics.METRIC_SOURCE.TAB_OVERFLOW_MENU,
-    };
+    const metricsContext = lazy.TabMetrics.userTriggeredContext(
+      lazy.TabMetrics.METRIC_SOURCE.TAB_OVERFLOW_MENU
+    );
     if (this.dropTargetDirection == -1) {
-      this.gBrowser.moveTabBefore(
-        draggedElement,
-        targetElement,
-        metricsContext
-      );
+      this.gBrowser.moveTabBefore(draggedElement, targetElement, {
+        metricsContext,
+      });
     } else {
-      this.gBrowser.moveTabAfter(draggedElement, targetElement, metricsContext);
+      this.gBrowser.moveTabAfter(draggedElement, targetElement, {
+        metricsContext,
+      });
     }
 
     this._clearDropTarget();
@@ -934,11 +958,17 @@ export class TabsPanel extends TabsListBase {
       if (rowVariant == ROW_VARIANT_TAB) {
         const tab = getTabFromRow(row);
         this.gBrowser.removeTab(tab, {
-          telemetrySource: lazy.TabMetrics.METRIC_SOURCE.TAB_OVERFLOW_MENU,
           animate: true,
+          metricsContext: lazy.TabMetrics.userTriggeredContext(
+            lazy.TabMetrics.METRIC_SOURCE.TAB_OVERFLOW_MENU
+          ),
         });
       } else if (rowVariant == ROW_VARIANT_TAB_GROUP) {
-        getTabGroupFromRow(row)?.saveAndClose({ isUserTriggered: true });
+        getTabGroupFromRow(row)?.saveAndClose(
+          lazy.TabMetrics.userTriggeredContext(
+            lazy.TabMetrics.METRIC_SOURCE.TAB_OVERFLOW_MENU
+          )
+        );
       }
     }
   }

@@ -8,13 +8,13 @@ Transform the signing task into an actual task description.
 from typing import Optional
 
 import msgspec
+from mozilla_taskgraph.util.attributes import copy_attributes_from_dependent_job
 from taskgraph.transforms.base import TransformSequence
 from taskgraph.util.dependencies import get_primary_dependency
 from taskgraph.util.keyed_by import evaluate_keyed_by
 from taskgraph.util.schema import Schema, taskref_or_string_msgspec
 
 from gecko_taskgraph.transforms.task import TaskDescriptionSchema
-from gecko_taskgraph.util.attributes import copy_attributes_from_dependent_job
 from gecko_taskgraph.util.scriptworker import (
     add_scope_prefix,
     get_signing_type_per_platform,
@@ -121,7 +121,8 @@ def make_task_description(config, jobs):
             treeherder = job.get("treeherder", {})
 
             dep_th_platform = (
-                dep_job.task.get("extra", {})
+                dep_job.task
+                .get("extra", {})
                 .get("treeherder", {})
                 .get("machine", {})
                 .get("platform", "")
@@ -196,8 +197,8 @@ def make_task_description(config, jobs):
         if dep_job.kind in task["dependencies"]:
             task["if-dependencies"] = [dep_job.kind]
 
-        # build-mac-{signing,notarization} uses signingscript instead of iscript
-        if "macosx" in build_platform and config.kind.endswith("-mac-notarization"):
+        # Mac notarization uses signingscript instead of iscript
+        if "macosx" in build_platform and config.kind.endswith("-notarization"):
             task["worker"]["signing-type"] = "release-apple-notarization"
             task["scopes"] = [
                 add_scope_prefix(config, "signing:cert:release-apple-notarization")

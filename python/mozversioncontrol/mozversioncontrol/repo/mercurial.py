@@ -18,7 +18,7 @@ from mozversioncontrol.errors import (
     CannotDeleteFromRootOfRepositoryException,
     MissingVCSExtension,
 )
-from mozversioncontrol.repo.base import Repository
+from mozversioncontrol.repo.base import HG_TRY_URL, Repository
 
 
 class HgRepository(Repository):
@@ -48,6 +48,10 @@ class HgRepository(Repository):
 
     @property
     def head_ref(self):
+        return self.branch or self.head_rev
+
+    @property
+    def head_rev(self):
         return self._run("log", "-r", ".", "-T", "{node}")
 
     def is_cinnabar_repo(self) -> bool:
@@ -90,7 +94,7 @@ class HgRepository(Repository):
         self._client.close()
 
     def _run(self, *args, **runargs):
-        if not self._client.server:
+        if not self._client.server or runargs.get("env"):
             return super()._run(*args, **runargs)
 
         # hglib requires bytes on python 3
@@ -209,12 +213,12 @@ class HgRepository(Repository):
 
         paths = [str(path) for path in paths]
 
-        args = ["addremove"] + paths
+        args = ["addremove"]
         m = re.search(r"\d+\.\d+", self.tool_version)
         simplified_version = float(m.group(0)) if m else 0
         if simplified_version >= 3.9:
             args = ["--config", "extensions.automv="] + args
-        self._run(*args)
+        self._run_batched(*args, paths=paths)
 
     def forget_add_remove_files(self, *paths: Union[str, Path]):
         if not paths:
@@ -222,7 +226,7 @@ class HgRepository(Repository):
 
         paths = [str(path) for path in paths]
 
-        self._run("forget", *paths)
+        self._run_batched("forget", paths=paths)
 
     def get_tracked_files_finder(self, path=None):
         # Can return backslashes on Windows. Normalize to forward slashes.
@@ -290,6 +294,7 @@ class HgRepository(Repository):
         ref: Optional[str] = None,
         dest_branch: Optional[str] = None,
         force: bool = False,
+        env: Optional[dict] = None,
     ):
         if ref and not remote:
             raise ValueError("Cannot specify ref without specifying remote")
@@ -301,19 +306,28 @@ class HgRepository(Repository):
             args.append(remote)
         if ref:
             args.extend(["-r", ref])
-        self._run(*args)
 
-    def push_to_try(
+        kwargs = {"env": env} if env else {}
+        self._run(*args, **kwargs)
+
+    def _resolve_try_branch(self):
+        return self.branch
+
+    def _push_to_git_try(self, *args, **kwargs):
+        raise ValueError("Unable to push to Git from a Mercurial repo")
+
+    def _push_to_hg_try(
         self,
         message: str,
         changed_files: dict[str, str] = {},
+        remote: str = HG_TRY_URL,
         allow_log_capture: bool = False,
     ):
         if changed_files:
             self.stage_changes(changed_files)
 
         try:
-            cmd = (str(self._tool), "push-to-try", "-m", message)
+            cmd = (str(self._tool), "push-to-try", "--message", message)
             if allow_log_capture:
                 self._push_to_try_with_log_capture(
                     cmd,
@@ -336,7 +350,7 @@ class HgRepository(Repository):
             self.raise_for_missing_extension("push-to-try")
             raise
         finally:
-            self._run("revert", "-a")
+            self._run("revert", "--all")
 
     def get_commits(
         self,

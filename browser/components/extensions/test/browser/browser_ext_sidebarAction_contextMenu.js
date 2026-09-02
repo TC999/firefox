@@ -1,5 +1,3 @@
-/* -*- Mode: indent-tabs-mode: nil; js-indent-level: 2 -*- */
-/* vim: set sts=2 sw=2 et tw=80: */
 "use strict";
 
 let extData = {
@@ -32,14 +30,17 @@ let extData = {
   },
 
   background: function () {
-    browser.contextMenus.create({
-      id: "clickme-page",
-      title: "Click me!",
-      contexts: ["all"],
-      onclick(info, tab) {
-        browser.test.sendMessage("menu-click", tab);
+    browser.contextMenus.create(
+      {
+        id: "clickme-page",
+        title: "Click me!",
+        contexts: ["all"],
+        onclick(info, tab) {
+          browser.test.sendMessage("menu-click", tab);
+        },
       },
-    });
+      () => browser.test.sendMessage("menus-created")
+    );
   },
 };
 
@@ -63,6 +64,7 @@ if (AppConstants.platform == "macosx") {
 add_task(async function sidebar_contextmenu() {
   let extension = ExtensionTestUtils.loadExtension(extData);
   await extension.startup();
+  await extension.awaitMessage("menus-created");
   // Test sidebar is opened on install
   await extension.awaitMessage("sidebar");
 
@@ -88,6 +90,7 @@ add_task(async function sidebar_contextmenu() {
 add_task(async function sidebar_contextmenu_hidden_items() {
   let extension = ExtensionTestUtils.loadExtension(extData);
   await extension.startup();
+  await extension.awaitMessage("menus-created");
   // Test sidebar is opened on install
   await extension.awaitMessage("sidebar");
 
@@ -118,6 +121,7 @@ add_task(async function sidebar_contextmenu_hidden_items() {
 add_task(async function sidebar_image_contextmenu() {
   let extension = ExtensionTestUtils.loadExtension(extData);
   await extension.startup();
+  await extension.awaitMessage("menus-created");
   // Test sidebar is opened on install
   await extension.awaitMessage("sidebar");
 

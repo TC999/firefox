@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -17,11 +15,18 @@
 #include "nsDirectoryServiceUtils.h"
 #include "nsNetUtil.h"
 #include "nsServiceManagerUtils.h"
+#include "MainThreadUtils.h"
 #include "mozilla/BasePrincipal.h"
 
 namespace mozilla {
 
 NS_IMPL_ISUPPORTS(AlertNotification, nsIAlertNotification)
+
+AlertNotification::AlertNotification() {
+  MOZ_ASSERT(NS_IsMainThread());
+  static uint64_t sCountId = 0;
+  mCountId = ++sCountId;
+}
 
 NS_IMETHODIMP
 AlertNotification::Init(const nsAString& aName, const nsAString& aImageURL,
@@ -140,6 +145,12 @@ NS_IMETHODIMP
 AlertNotification::SetActions(
     const nsTArray<RefPtr<nsIAlertAction>>& aActions) {
   mActions = aActions.Clone();
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+AlertNotification::GetCountId(uint64_t* aCountId) {
+  *aCountId = mCountId;
   return NS_OK;
 }
 

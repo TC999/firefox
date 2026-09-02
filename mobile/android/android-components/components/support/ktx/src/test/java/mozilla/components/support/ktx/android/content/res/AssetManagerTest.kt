@@ -7,22 +7,20 @@ package mozilla.components.support.ktx.android.content.res
 import android.content.Context
 import android.content.res.AssetManager
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import java.io.ByteArrayInputStream
+import kotlin.test.assertNotNull
 import mozilla.components.support.test.mock
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.mockito.ArgumentMatchers
 import org.mockito.Mockito
-import java.io.ByteArrayInputStream
 
 @RunWith(AndroidJUnit4::class)
 class AssetManagerTest {
 
-    /**
-     * Verify that AssetManager.readJSONObject() closes its stream.
-     */
+    /** Verify that AssetManager.readJSONObject() closes its stream. */
     @Test
     fun readJSONObjectClosesStream() {
         // Setup
@@ -45,9 +43,7 @@ class AssetManagerTest {
         Mockito.verify(stream).close()
     }
 
-    /**
-     * The stream returned by the AssetManager will be read and converted into a JSONObject instance.
-     */
+    /** The stream returned by the AssetManager will be read and converted into a JSONObject instance. */
     @Test
     fun streamsIsTransformedIntoJSONObject() {
         // Setup

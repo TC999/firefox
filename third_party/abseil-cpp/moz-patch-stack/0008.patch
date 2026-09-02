@@ -1,30 +1,23 @@
-From: Michael Froman <mfroman@mozilla.com>
-Date: Thu, 9 Jan 2025 13:53:00 -0600
-Subject: Bug 1938156 - third_party/abseil-cpp ba05f98ec72 added a group we
- don't need.
+From: Ryan VanderMeulen <rvandermeulen@mozilla.com>
+Date: Sat, 29 Aug 2026 11:23:36 -0400
+Subject: Bug 2067508 - define O_NONBLOCK to 0 on platforms lacking it (mingw).
 
-Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/928c6aa703b29d46632c4333b0c8b643fc08c60f
+Cherry-pick of google/cctz@361e53992abb; abseil has not imported it yet.
 ---
- abseil-cpp/BUILD.gn | 2 ++
- 1 file changed, 2 insertions(+)
+ abseil-cpp/absl/time/internal/cctz/src/time_zone_info.cc | 3 +++
+ 1 file changed, 3 insertions(+)
 
-diff --git a/abseil-cpp/BUILD.gn b/abseil-cpp/BUILD.gn
-index ef837cb908a..49b4cb7f92b 100644
---- a/abseil-cpp/BUILD.gn
-+++ b/abseil-cpp/BUILD.gn
-@@ -191,6 +191,7 @@ source_set("absl_full") {
- }
- 
- group("absl_full_deps") {
-+  if (!moz_webrtc_build) {
-   public_deps = [
-     # Banned because each flag registration generates a static initializer, and
-     # the flag registration mechanism is problematic in component builds.
-@@ -212,6 +213,7 @@ group("absl_full_deps") {
-   ]
- 
-   public_configs = [ "//third_party/abseil-cpp/absl/flags:absl_flags_config" ]
-+  }
- }
- 
- config("absl_include_config") {
+diff --git a/abseil-cpp/absl/time/internal/cctz/src/time_zone_info.cc b/abseil-cpp/absl/time/internal/cctz/src/time_zone_info.cc
+index 9abbde72d62..9d385b2772c 100644
+--- a/abseil-cpp/absl/time/internal/cctz/src/time_zone_info.cc
++++ b/abseil-cpp/absl/time/internal/cctz/src/time_zone_info.cc
+@@ -414,6 +414,9 @@ inline FilePtr FOpen(const char* path) {
+   // absolute path) would block indefinitely or read unbounded data.
+ #ifndef O_CLOEXEC
+ #define O_CLOEXEC 0
++#endif
++#ifndef O_NONBLOCK
++#define O_NONBLOCK 0
+ #endif
+   const int fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+   if (fd >= 0) {

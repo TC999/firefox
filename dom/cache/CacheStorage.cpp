@@ -265,6 +265,14 @@ CacheStorage::CacheStorage(Namespace aNamespace, nsIGlobalObject* aGlobal,
       mStatus(NS_OK) {
   MOZ_DIAGNOSTIC_ASSERT(mGlobal);
 
+  // Throw if this process wouldn't be allowed to access storage.
+  if (!BackgroundChild::ValidatePrincipalInfo(*mPrincipalInfo, {})) {
+    MOZ_ASSERT_UNREACHABLE(
+        "ValidatePrincipalInfo failed in CacheStorage constructor");
+    mStatus = NS_ERROR_UNEXPECTED;
+    return;
+  }
+
   // If the PBackground actor is already initialized then we can
   // immediately use it
   PBackgroundChild* actor = BackgroundChild::GetOrCreateForCurrentThread();
@@ -577,10 +585,7 @@ bool CacheStorage::HasStorageAccess(UseCounter aLabel,
     }
   }
 
-  return access > StorageAccess::eDeny ||
-         (StaticPrefs::
-              privacy_partition_always_partition_third_party_non_cookie_storage() &&
-          ShouldPartitionStorage(access));
+  return access > StorageAccess::eDeny || ShouldPartitionStorage(access);
 }
 
 }  // namespace mozilla::dom::cache

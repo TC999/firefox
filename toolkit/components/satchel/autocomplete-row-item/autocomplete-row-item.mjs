@@ -2,11 +2,15 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-import { html, when } from "chrome://global/content/vendor/lit.all.mjs";
+import {
+  html,
+  when,
+  ifDefined,
+} from "chrome://global/content/vendor/lit.all.mjs";
 import { MozLitElement } from "chrome://global/content/lit-utils.mjs";
 
 // eslint-disable-next-line import/no-unassigned-import
-import "chrome://global/content/elements/panel-list.js";
+import "chrome://global/content/elements/panel-list.mjs";
 
 class AutocompleteRowItem extends MozLitElement {
   static properties = {
@@ -15,6 +19,15 @@ class AutocompleteRowItem extends MozLitElement {
     value: { type: String },
     icon: { type: String },
     actions: { type: Object },
+    selected: { type: Boolean, reflect: true },
+    pointerselected: { type: Boolean, reflect: true },
+    subfocused: { type: Boolean, reflect: true },
+    type: { type: String },
+    sources: { type: Array },
+    sourcesLabel: { type: String },
+    loading: { type: Boolean },
+    loadingLabel: { type: String },
+    emptySourcesLabel: { type: String },
   };
 
   #openActionsMenu(anchor, actions) {
@@ -54,20 +67,35 @@ class AutocompleteRowItem extends MozLitElement {
     }
   }
 
+  activateSecondaryAction() {
+    const { action, actions } = this.actions.secondary;
+    if (action) {
+      action();
+    } else if (actions) {
+      const button = this.shadowRoot.querySelector(
+        "moz-button.secondary-action"
+      );
+      this.#openActionsMenu(button, actions);
+    }
+  }
+
   renderSecondaryActionButton() {
-    const { type, action, actions } = this.actions.secondary;
+    const { type, action, actions, label } = this.actions.secondary;
     const stopMouseEvents = e => e.stopPropagation();
+    const onMouseDown = e => {
+      e.stopPropagation();
+      this.activateSecondaryAction();
+    };
 
     // We're expecting a single action
     if (action) {
       return html`<moz-button
-        @mousedown=${stopMouseEvents}
+        id="secondary-action-button"
+        @mousedown=${onMouseDown}
         @mouseup=${stopMouseEvents}
-        @click=${e => {
-          e.stopPropagation();
-          action();
-        }}
         type="icon ghost"
+        aria-label=${ifDefined(label)}
+        title=${ifDefined(label)}
         .iconSrc=${this.getSecondaryActionItemIcon(type)}
         class="secondary-action"
       ></moz-button>`;
@@ -76,14 +104,12 @@ class AutocompleteRowItem extends MozLitElement {
     // We're expecting multiple actions for this item
     if (actions) {
       return html`<moz-button
-        @mousedown=${stopMouseEvents}
+        id="secondary-action-button"
+        @mousedown=${onMouseDown}
         @mouseup=${stopMouseEvents}
-        @click=${e => {
-          e.stopPropagation();
-          this.#openActionsMenu(e.currentTarget, actions);
-        }}
         type="icon ghost"
-        type="icon ghost"
+        aria-label=${ifDefined(label)}
+        title=${ifDefined(label)}
         .iconSrc=${this.getSecondaryActionItemIcon(type)}
         class="secondary-action"
         menuId="secondary-action-menu"
@@ -91,6 +117,33 @@ class AutocompleteRowItem extends MozLitElement {
     }
 
     return "";
+  }
+
+  renderSourcesValue() {
+    if (this.loading) {
+      return this.loadingLabel;
+    }
+
+    if (this.sources?.length) {
+      return html`
+        <span class="sources-list">
+          ${this.sources.map(
+            source => html`
+              <span class="source-pill">
+                <img
+                  role="presentation"
+                  class="source-favicon"
+                  src=${source.favicon}
+                />
+                <span class="source-label">${source.label}</span>
+              </span>
+            `
+          )}
+        </span>
+      `;
+    }
+
+    return this.emptySourcesLabel;
   }
 
   render() {
@@ -106,10 +159,20 @@ class AutocompleteRowItem extends MozLitElement {
         )}
         <div class="labels-container">
           <span class="label">${this.label}</span>
-          ${when(
-            this.description,
-            () => html`<span class="description">${this.description}</span>`
-          )}
+          ${this.type == "smartFormFill"
+            ? html`
+                <span class="description smart-form-fill-sources">
+                  <span class="sources-label">${this.sourcesLabel}</span>
+                  ${" "}
+                  <span class="sources-value">
+                    ${this.renderSourcesValue()}
+                  </span>
+                </span>
+              `
+            : when(
+                this.description,
+                () => html`<span class="description">${this.description}</span>`
+              )}
         </div>
         ${when(this.actions?.secondary, () =>
           this.renderSecondaryActionButton()

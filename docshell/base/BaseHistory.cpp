@@ -16,18 +16,13 @@ namespace mozilla {
 using mozilla::dom::ContentParent;
 using mozilla::dom::Link;
 
-BaseHistory::BaseHistory() : mTrackedURIs(kTrackedUrisInitialSize) {}
-
-BaseHistory::~BaseHistory() = default;
-
 static constexpr nsLiteralCString kDisallowedSchemes[] = {
     "about"_ns,         "blob"_ns,           "cached-favicon"_ns,
     "chrome"_ns,        "data"_ns,           "imap"_ns,
     "javascript"_ns,    "mailbox"_ns,        "news"_ns,
     "page-icon"_ns,     "resource"_ns,       "view-source"_ns,
     "moz-extension"_ns, "moz-page-thumb"_ns, "moz-src"_ns,
-    "x-moz-ews"_ns,
-};
+    "x-moz-ews"_ns,     "x-moz-graph"_ns};
 
 bool BaseHistory::CanStore(nsIURI* aURI) {
   nsAutoCString scheme;

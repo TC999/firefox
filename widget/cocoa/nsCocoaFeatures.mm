@@ -20,15 +20,16 @@
 #define MACOS_VERSION_13_0_HEX 0x000D0000
 #define MACOS_VERSION_14_0_HEX 0x000E0000
 #define MACOS_VERSION_26_0_HEX 0x001A0000
+#define MACOS_VERSION_27_0_HEX 0x001B0000
 
 #include "nsCocoaFeatures.h"
 #include "nsCocoaUtils.h"
 #include "nsDebug.h"
 #include "nsObjCExceptions.h"
 
-#include <atomic>
 #import <Cocoa/Cocoa.h>
 #include <sys/sysctl.h>
+#include <atomic>
 
 // The lazily-initialized version. 0 before initialization, non-zero after.
 static std::atomic<int32_t> sOSVersion = 0;
@@ -191,6 +192,11 @@ int32_t nsCocoaFeatures::GetVersion(int32_t aMajor, int32_t aMinor,
   return (macOSVersion() >= MACOS_VERSION_26_0_HEX);
 }
 
+/* static */ bool nsCocoaFeatures::OnGoldenGateOrLater() {
+  // See comments above regarding SYSTEM_VERSION_COMPAT.
+  return (macOSVersion() >= MACOS_VERSION_27_0_HEX);
+}
+
 /* static */ bool nsCocoaFeatures::IsAtLeastVersion(int32_t aMajor,
                                                     int32_t aMinor,
                                                     int32_t aBugFix) {
@@ -207,7 +213,7 @@ int32_t nsCocoaFeatures::GetVersion(int32_t aMajor, int32_t aMinor,
 /* static */ bool nsCocoaFeatures::ProcessIsRosettaTranslated() {
   int ret = 0;
   size_t size = sizeof(ret);
-  if (sysctlbyname("sysctl.proc_translated", &ret, &size, NULL, 0) == -1) {
+  if (sysctlbyname("sysctl.proc_translated", &ret, &size, nullptr, 0) == -1) {
     if (errno != ENOENT) {
       fprintf(stderr, "Failed to check for translation environment\n");
     }

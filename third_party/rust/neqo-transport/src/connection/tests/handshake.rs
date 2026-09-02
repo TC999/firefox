@@ -17,10 +17,10 @@ use std::{
     time::Duration,
 };
 
-use neqo_common::{Datagram, event::Provider as _, qdebug};
-use neqo_crypto::{
-    AuthenticationStatus, constants::TLS_CHACHA20_POLY1305_SHA256, generate_ech_keys,
-};
+#[cfg(not(feature = "disable-encryption"))]
+use neqo_common::Decoder;
+use neqo_common::{Datagram, event::Provider as _, qdebug, to_u64};
+use nss::{AuthenticationStatus, constants::TLS_CHACHA20_POLY1305_SHA256, generate_ech_keys};
 #[cfg(not(feature = "disable-encryption"))]
 use test_fixture::datagram;
 use test_fixture::{
@@ -565,7 +565,7 @@ fn reorder_handshake() {
         c_stats_before.packets_rx,
         usize::from(s_hs1_has_initial) + usize::from(s_hs2_has_initial)
     );
-    assert!(c_stats_before.dropped_rx == 0);
+    assert_eq!(c_stats_before.dropped_rx, 0);
 
     // Deliver all Initial packets.
     client.process_input(s_initial_2, now);
@@ -806,8 +806,7 @@ fn corrupted_initial() {
         .iter()
         .enumerate()
         .rev()
-        .skip(1) // Skip the last byte, which might be a SCONE indicator.
-        .find(|&(_, &v)| v != Connection::SCONE_INDICATION[0]) // The SCONE padding value.
+        .find(|&(_, &v)| v != 0)
         .unwrap();
     corrupted[idx] ^= 0x76;
 
@@ -1531,7 +1530,7 @@ fn server_initial_retransmits_identical() {
                 // base count for CRYPTO is two per flight, plus any extra
                 crypto: i * 2 + extra,
                 ack: i,
-                largest_acknowledged: (i - i.saturating_sub(1)) as u64,
+                largest_acknowledged: to_u64(i - i.saturating_sub(1)),
                 ..Default::default()
             }
         );
@@ -1612,41 +1611,123 @@ fn zero_rtt_with_ech() {
     assert!(server.tls_info().unwrap().early_data_accepted());
 }
 
-#[test]
-fn scone() {
-    fn add_scone(d: &Datagram) -> Datagram {
+fn scone(enable: bool) {
+    const PERIOD: Duration = crate::scone::Scone::PERIOD;
+
+    fn add_scone(d: &Datagram, signal: u8) -> Datagram {
         const SCONE: &[u8] = &[0xff, 0x6f, 0x7d, 0xc0, 0xfd, 0x00, 0x00];
         let mut sconed = SCONE.to_vec();
+        sconed[0] = 0b1100_0000 | ((signal >> 1) & 0x3f);
+        sconed[1] |= (signal << 7) & 0x80;
         sconed.extend_from_slice(&d[..]);
         Datagram::new(d.source(), d.destination(), d.tos(), sconed)
     }
+    let got_scone = |e| matches!(e, ConnectionEvent::SconeUpdated(_));
 
-    let mut server = new_server(ConnectionParameters::default().scone(true));
-    let mut client = new_client(ConnectionParameters::default().scone(true));
-
-    let ci = client.process_output(now()).dgram().unwrap();
-    let ci_len = ci.len();
-    assert_eq!(
-        &ci[ci_len - Connection::SCONE_INDICATION.len()..],
-        Connection::SCONE_INDICATION,
-        "Client should send indication"
+    // This test needs to keep connections alive long past the default idle timeout.
+    let mut client = new_client(
+        ConnectionParameters::default()
+            .idle_timeout(PERIOD * 10)
+            .scone(enable),
     );
-    server.process_input(ci, now());
+    let mut server = new_server(
+        ConnectionParameters::default()
+            .idle_timeout(PERIOD * 10)
+            .scone(enable),
+    );
+    let mut now = now();
+
+    let ci = client.process_output(now).dgram().unwrap();
+    let ci_len = ci.len();
+    if enable {
+        assert_eq!(
+            &ci[ci_len - Connection::SCONE_INDICATION.len()..],
+            Connection::SCONE_INDICATION,
+            "Client should send indication"
+        );
+    } else {
+        assert_ne!(
+            &ci[ci_len - Connection::SCONE_INDICATION.len()..],
+            Connection::SCONE_INDICATION,
+            "Client should not send indication when SCONE is disabled"
+        );
+    }
+    server.process_input(ci, now);
 
     connect(&mut client, &mut server);
-    assert!(client.tps.borrow_mut().remote().get_empty(Scone));
-    assert!(server.tps.borrow_mut().remote().get_empty(Scone));
+    assert_eq!(client.tps.borrow_mut().remote().get_empty(Scone), enable);
+    assert_eq!(server.tps.borrow_mut().remote().get_empty(Scone), enable);
 
     let client_stats = client.stats();
     let server_stats = server.stats();
-    let d = send_something(&mut client, now());
-    server.process_input(add_scone(&d), now());
-    let d = send_something(&mut server, now());
-    client.process_input(add_scone(&d), now());
+    let d = send_something(&mut client, now);
+    server.process_input(add_scone(&d, 0x7f), now);
+    assert!(!server.events().any(got_scone), "no event for unknown");
+    let d = send_something(&mut server, now);
+    client.process_input(add_scone(&d, 0x31), now);
+    assert!(client.events().any(got_scone));
 
     // The SCONE packets are effectively invisible.
     assert_eq!(server.stats().packets_rx, server_stats.packets_rx + 1);
     assert_eq!(client.stats().packets_rx, client_stats.packets_rx + 1);
+
+    // Now check that events are correctly generated (or not).
+
+    // A duplicate packet means no event, even with a rate decrease.
+    client.process_input(add_scone(&d, 0x2), now);
+    assert!(!client.events().any(got_scone));
+
+    // A repeated signal means no event.
+    let d = send_something(&mut server, now);
+    client.process_input(add_scone(&d, 0x31), now);
+    assert!(!client.events().any(got_scone));
+
+    // A noop signal means no event.
+    let d = send_something(&mut server, now);
+    client.process_input(add_scone(&d, 0x7f), now);
+    assert!(!client.events().any(got_scone));
+
+    // A higher signal means no event.
+    let d = send_something(&mut server, now);
+    client.process_input(add_scone(&d, 0x42), now);
+    assert!(!client.events().any(got_scone));
+
+    // A lower signal generates an event.
+    let d = send_something(&mut server, now);
+    client.process_input(add_scone(&d, 0x17), now);
+    assert!(client.events().any(got_scone));
+
+    // Elapsed time results in an event, even with a rate increase.
+    now += PERIOD;
+    let d = send_something(&mut server, now);
+    client.process_input(add_scone(&d, 0x42), now);
+    assert!(client.events().any(got_scone));
+
+    // Same for a shift to the unknown rate,
+    // which doesn't require a SCONE packet.
+    now += PERIOD;
+    let d = send_something(&mut server, now);
+    client.process_input(d, now);
+    assert!(client.events().any(got_scone));
+
+    // No event when a SCONE packet with unknown rate is immediately received.
+    let d = send_something(&mut server, now);
+    client.process_input(add_scone(&d, 0x7f), now);
+    assert!(!client.events().any(got_scone));
+}
+
+#[test]
+fn scone_enabled() {
+    scone(true);
+}
+
+/// With the connection parameter disabled, the client does not send the SCONE
+/// indicator in Initial padding and does not advertise the SCONE transport
+/// parameter. Inbound SCONE packets are still tolerated but do not generate
+/// `SconeUpdated` events, since neither peer has negotiated the feature.
+#[test]
+fn scone_disabled() {
+    scone(false);
 }
 
 /// RFC 9287 Section 3.1 states: "A server MUST NOT remember that a client negotiated
@@ -1693,7 +1774,7 @@ fn grease_quic_bit_respects_current_handshake() {
 fn certificate_compression() {
     use std::sync::Mutex;
 
-    use neqo_crypto::agent::CertificateCompressor;
+    use nss::agent::CertificateCompressor;
 
     // These statics work for concurrent test execution because the certificate is
     // effectively a fixed value. A more robust approach would use a hash-based lookup,
@@ -1706,7 +1787,7 @@ fn certificate_compression() {
         const ID: u16 = 0x1234;
         const NAME: &std::ffi::CStr = c"xor";
         const ENABLE_ENCODING: bool = true;
-        fn decode(input: &[u8], output: &mut [u8]) -> neqo_crypto::Res<()> {
+        fn decode(input: &[u8], output: &mut [u8]) -> nss::Res<()> {
             output
                 .iter_mut()
                 .zip(input)
@@ -1714,7 +1795,7 @@ fn certificate_compression() {
             *DECODED.lock().unwrap() = output[..input.len()].to_vec();
             Ok(())
         }
-        fn encode(input: &[u8], output: &mut [u8]) -> neqo_crypto::Res<usize> {
+        fn encode(input: &[u8], output: &mut [u8]) -> nss::Res<usize> {
             *ORIGINAL.lock().unwrap() = input.to_vec();
             output
                 .iter_mut()
@@ -1823,4 +1904,178 @@ fn initial_crypto_retransmit_during_handshake_pto() {
              packets sent: {packets_sent}"
         );
     }
+}
+
+#[test]
+fn export_keying_material_basic() {
+    let mut client = default_client();
+    let mut server = default_server();
+    connect(&mut client, &mut server);
+
+    let mut material = vec![0u8; 32];
+    client
+        .export_keying_material("EXPORTER-WebTransport", &[], &mut material)
+        .expect("export should succeed after handshake");
+    assert_ne!(material, vec![0u8; 32]);
+}
+
+#[test]
+fn export_keying_material_same_both_sides() {
+    let mut client = default_client();
+    let mut server = default_server();
+    connect(&mut client, &mut server);
+
+    let label = "EXPORTER-WebTransport";
+    let context = b"session-context";
+
+    let mut client_material = vec![0u8; 32];
+    client
+        .export_keying_material(label, context, &mut client_material)
+        .expect("client export should succeed");
+    let mut server_material = vec![0u8; 32];
+    server
+        .export_keying_material(label, context, &mut server_material)
+        .expect("server export should succeed");
+
+    assert_eq!(
+        client_material, server_material,
+        "client and server must export identical keying material"
+    );
+}
+
+#[test]
+fn export_keying_material_before_handshake() {
+    let client = default_client();
+    let result = client.export_keying_material("EXPORTER-WebTransport", &[], &mut [0u8; 32]);
+    assert!(matches!(result, Err(Error::NotConnected)));
+}
+
+#[test]
+fn export_keying_material_zero_length() {
+    let mut client = default_client();
+    let mut server = default_server();
+    connect(&mut client, &mut server);
+
+    assert!(matches!(
+        client.export_keying_material("EXPORTER-WebTransport", &[], &mut []),
+        Err(Error::InvalidInput)
+    ));
+}
+
+#[test]
+fn export_keying_material_empty_label() {
+    let mut client = default_client();
+    let mut server = default_server();
+    connect(&mut client, &mut server);
+    assert!(matches!(
+        client.export_keying_material("", &[], &mut [0u8; 32]),
+        Err(Error::InvalidInput)
+    ));
+}
+
+// Export should succeed while the connection is closing or draining.
+#[test]
+fn export_keying_material_while_closing() {
+    let mut client = default_client();
+    let mut server = default_server();
+    connect(&mut client, &mut server);
+
+    client.close(now(), 0, "");
+    assert!(client.state().closing());
+
+    let mut material = vec![0u8; 32];
+    client
+        .export_keying_material("EXPORTER-WebTransport", &[], &mut material)
+        .expect("export should succeed while closing");
+
+    let close_pkt = client.process_output(now()).dgram().unwrap();
+    server.process_input(close_pkt, now());
+    assert!(server.state().closing());
+
+    let mut material = vec![0u8; 32];
+    server
+        .export_keying_material("EXPORTER-WebTransport", &[], &mut material)
+        .expect("export should succeed while draining");
+}
+
+// Export should fail once the connection is fully closed.
+#[test]
+fn export_keying_material_after_closed() {
+    let mut client = default_client();
+    let mut server = default_server();
+    connect(&mut client, &mut server);
+
+    client.close(now(), 0, "");
+    let close_pkt = client.process_output(now()).dgram();
+    let close_timer = client.process_output(now()).callback();
+    drop(client.process_output(now() + close_timer));
+    assert!(matches!(*client.state(), State::Closed(..)));
+
+    assert!(matches!(
+        client.export_keying_material("EXPORTER-WebTransport", &[], &mut [0u8; 32]),
+        Err(Error::NotConnected)
+    ));
+    let _server_close = server.process(close_pkt, now()).dgram();
+    let drain_timer = server.process_output(now()).callback();
+    drop(server.process_output(now() + drain_timer));
+    assert!(matches!(*server.state(), State::Closed(..)));
+    assert!(matches!(
+        server.export_keying_material("EXPORTER-WebTransport", &[], &mut [0u8; 32]),
+        Err(Error::NotConnected)
+    ));
+}
+
+/// RFC 9000, Section 17.2.5.2: a client MUST discard a Retry packet whose Source
+/// Connection ID is identical to the Destination Connection ID of its Initial. A
+/// Retry with a distinct Source Connection ID is still processed.
+#[cfg(not(feature = "disable-encryption"))]
+#[test]
+fn retry_scid_matching_initial_dcid() {
+    // Read the connection IDs carried in the client's Initial: skip the first byte
+    // and the 4-byte version, then two length-prefixed connection IDs (DCID, SCID).
+    fn initial_cids(initial: &[u8]) -> (Vec<u8>, Vec<u8>) {
+        let mut dec = Decoder::from(&initial[5..]);
+        let dcid = dec.decode_vec(1).expect("client DCID").to_vec();
+        let scid = dec.decode_vec(1).expect("client SCID").to_vec();
+        assert!(!dcid.is_empty(), "client DCID is non-empty");
+        assert!(!scid.is_empty(), "client SCID is non-empty");
+        (dcid, scid)
+    }
+
+    // A Retry whose Source Connection ID equals our Initial's Destination
+    // Connection ID is dropped, leaving the client in its initial state.
+    let mut client = default_client();
+    let initial = client
+        .process_output(now())
+        .dgram()
+        .expect("a datagram")
+        .to_vec();
+    let (dcid, scid) = initial_cids(&initial);
+    let retry = crate::packet::Builder::retry(
+        Version::default(),
+        &scid,   // Destination CID: copied from the client as required
+        &dcid,   // Source CID: copied from client (bad!)
+        &[0x01], // non-empty token
+        &dcid,   // as required: a seed for authenticating the Retry
+    )
+    .expect("build retry");
+    drop(client.process(Some(datagram(retry)), now()));
+    assert_eq!(client.stats().dropped_rx, 1);
+    assert_eq!(*client.state(), State::WaitInitial);
+
+    // The same Retry with a distinct Source Connection ID is accepted.
+    let mut client = default_client();
+    let initial = client
+        .process_output(now())
+        .dgram()
+        .expect("a datagram")
+        .to_vec();
+    let (dcid, scid) = initial_cids(&initial);
+    let mut server_scid = dcid.clone();
+    server_scid[0] ^= 0xff;
+    let retry =
+        crate::packet::Builder::retry(Version::default(), &scid, &server_scid, &[0x01], &dcid)
+            .expect("build retry");
+    drop(client.process(Some(datagram(retry)), now()));
+    assert_eq!(client.stats().dropped_rx, 0);
 }

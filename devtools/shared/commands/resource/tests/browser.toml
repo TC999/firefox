@@ -3,7 +3,6 @@ tags = "devtools"
 subsuite = "devtools"
 support-files = [
   "!/devtools/client/shared/test/shared-head.js",
-  "!/devtools/client/shared/test/telemetry-test-helpers.js",
   "!/devtools/client/shared/test/highlighter-test-actor.js",
   "head.js",
   "breakpoint_document.html",
@@ -37,6 +36,7 @@ support-files = [
   "websocket_frontend_iframe.html",
   "websocket_frontend.html",
   "worker-sources.js",
+  "parent_worker_debugger_statement.js",
 ]
 
 ["browser_browser_resources_console_messages.js"]
@@ -95,6 +95,8 @@ skip-if = [
 
 ["browser_resources_server_sent_events.js"]
 
+["browser_resources_session_history_events.js"]
+
 ["browser_resources_several_resources.js"]
 
 ["browser_resources_sources.js"]
@@ -116,6 +118,8 @@ skip-if = [
 ["browser_resources_target_switching.js"]
 
 ["browser_resources_thread_states.js"]
+
+["browser_resources_thread_states_parent_worker.js"]
 
 ["browser_resources_unwatch_early.js"]
 

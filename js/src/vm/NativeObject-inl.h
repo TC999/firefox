@@ -21,6 +21,7 @@
 #include "vm/PropertyResult.h"
 #include "vm/StringType.h"
 #include "vm/TypedArrayObject.h"
+#include "vm/Watchtower.h"
 
 #include "gc/Marking-inl.h"
 #include "gc/ObjectKind-inl.h"
@@ -156,7 +157,7 @@ inline void NativeObject::initDenseElements(const Value* src, uint32_t count) {
   }
 #endif
 
-  memcpy(reinterpret_cast<Value*>(elements_), src, count * sizeof(Value));
+  memcpy(unbarrieredElements(), src, count * sizeof(Value));
   elementsRangePostWriteBarrier(0, count);
 }
 
@@ -168,7 +169,7 @@ inline void NativeObject::initDenseElements(IteratorProperty* src,
   MOZ_ASSERT(isExtensible());
 
   setDenseInitializedLength(count);
-  Value* elementsBase = reinterpret_cast<Value*>(elements_);
+  Value* elementsBase = unbarrieredElements();
   for (size_t i = 0; i < count; i++) {
     elementsBase[i].setString(src[i].asString());
   }
@@ -194,8 +195,7 @@ inline void NativeObject::initDenseElementRange(uint32_t destStart,
     checkStoredValue(vp[i]);
   }
 #endif
-  memcpy(reinterpret_cast<Value*>(elements_) + destStart, vp,
-         count * sizeof(Value));
+  memcpy(unbarrieredElements() + destStart, vp, count * sizeof(Value));
   elementsRangePostWriteBarrier(destStart, count);
 }
 
@@ -225,13 +225,14 @@ inline bool NativeObject::initDenseElementsFromRange(JSContext* cx, Iter begin,
 
   HeapSlot* sp = elements_;
   size_t slot = 0;
-  for (; begin != end; sp++, begin++) {
+  for (; begin != end; sp++, begin++, slot++) {
     Value v = *begin;
 #ifdef DEBUG
     checkStoredValue(v);
 #endif
-    sp->init(this, HeapSlot::Element, slot++, v);
+    sp->unbarrieredInit(v);
   }
+  elementsRangePostWriteBarrier(0, count);
   MOZ_ASSERT(slot == count);
 
   getElementsHeader()->initializedLength = count;
@@ -333,7 +334,7 @@ inline void NativeObject::reverseDenseElementsNoPreBarrier(uint32_t length) {
   MOZ_ASSERT(length > 1);
   MOZ_ASSERT(length <= getDenseInitializedLength());
 
-  Value* valLo = reinterpret_cast<Value*>(elements_);
+  Value* valLo = unbarrieredElements();
   Value* valHi = valLo + (length - 1);
   MOZ_ASSERT(valLo < valHi);
 
@@ -524,7 +525,7 @@ MOZ_ALWAYS_INLINE void NativeObject::initEmptyDynamicSlots() {
 }
 
 MOZ_ALWAYS_INLINE void NativeObject::setDictionaryModeSlotSpan(uint32_t span) {
-  MOZ_ASSERT(inDictionaryMode());
+  // This may be called before setShape() has put us into dictionary mode.
 
   if (!hasDynamicSlots()) {
     setEmptyDynamicSlots(span);
@@ -536,7 +537,7 @@ MOZ_ALWAYS_INLINE void NativeObject::setDictionaryModeSlotSpan(uint32_t span) {
 
 MOZ_ALWAYS_INLINE void NativeObject::setEmptyDynamicSlots(
     uint32_t dictionarySlotSpan) {
-  MOZ_ASSERT_IF(!inDictionaryMode(), dictionarySlotSpan == 0);
+  // This may be called before setShape() has put us into dictionary mode.
   MOZ_ASSERT(dictionarySlotSpan <= MAX_FIXED_SLOTS);
 
   slots_ = emptyObjectSlotsForDictionaryObject[dictionarySlotSpan];
@@ -584,6 +585,21 @@ MOZ_ALWAYS_INLINE bool NativeObject::setShapeAndAddNewSlots(
   forEachSlotRangeUnchecked(oldSpan, newSpan, initRange);
 
   setShape(newShape);
+  return true;
+}
+
+MOZ_ALWAYS_INLINE bool NativeObject::canDoSetPropertyFastpath() const {
+  if (is<TypedArrayObject>()) {
+    return false;
+  }
+
+  const JSClass* clasp = getClass();
+  if (clasp->getAddProperty() || clasp->getResolve() ||
+      clasp->getOpsDefineProperty() || clasp->getOpsLookupProperty() ||
+      clasp->getOpsSetProperty()) {
+    return false;
+  }
+
   return true;
 }
 
@@ -885,10 +901,10 @@ inline bool IsPackedArray(JSObject* obj) {
   return true;
 }
 
-// Like AddDataProperty but optimized for plain objects. Plain objects don't
-// have an addProperty hook.
-MOZ_ALWAYS_INLINE bool AddDataPropertyToPlainObject(
-    JSContext* cx, Handle<PlainObject*> obj, HandleId id, HandleValue v,
+// Like AddDataProperty but eliding checks for add property hooks and
+// wrapper preservation.
+MOZ_ALWAYS_INLINE bool AddDataPropertyToNativeObjectNoHooks(
+    JSContext* cx, Handle<NativeObject*> obj, HandleId id, HandleValue v,
     uint32_t* resultSlot = nullptr) {
   MOZ_ASSERT(!id.isInt());
 
@@ -903,8 +919,82 @@ MOZ_ALWAYS_INLINE bool AddDataPropertyToPlainObject(
 
   obj->initSlot(*resultSlot, v);
 
-  MOZ_ASSERT(!obj->getClass()->getAddProperty());
-  MOZ_ASSERT(!obj->getClass()->preservesWrapper());
+  MOZ_ASSERT(obj->canDoSetPropertyFastpath());
+  MOZ_ASSERT(!obj->hasUnpreservedWrapper());
+  return true;
+}
+
+// Give empty object |target| the shape |newShape| and copy |numSlots| slots
+// from the |from| object.
+MOZ_ALWAYS_INLINE bool CopyPropertiesWithNewShape(JSContext* cx,
+                                                  PlainObject* target,
+                                                  PlainObject* from,
+                                                  SharedShape* newShape,
+                                                  uint32_t numSlots) {
+  MOZ_ASSERT(target->empty());
+  MOZ_ASSERT(target->isExtensible());
+  MOZ_ASSERT(!Watchtower::watchesPropertyAdd(target));
+  MOZ_ASSERT(from->slotSpan() == numSlots);
+
+  if (!target->setShapeAndAddNewSlots(cx, newShape, 0, numSlots)) {
+    return false;
+  }
+
+  MOZ_ASSERT(target->slotSpan() == numSlots);
+
+  for (size_t i = 0; i < numSlots; i++) {
+    target->initSlot(i, from->getSlot(i));
+  }
+  return true;
+}
+
+// Try to copy all |numProps| properties of |from| into the empty object
+// |target| by reusing |from|'s Shape or PropMap.
+//
+// All of |from|'s properties must be enumerable, configurable, and writable
+// data properties.
+//
+// Sets |*copied| to false if the Shape or PropMap can't be reused.
+MOZ_ALWAYS_INLINE bool TryCopyPropertiesReusingShapeOrPropMap(
+    JSContext* cx, Handle<PlainObject*> target, Handle<PlainObject*> from,
+    uint32_t numProps, bool* copied) {
+  MOZ_ASSERT(target->empty());
+  MOZ_ASSERT(numProps > 0);
+
+  *copied = false;
+
+  CanReuseShape canReuse = target->canReuseShapeForNewProperties(from->shape());
+  if (canReuse == CanReuseShape::NoReuse) {
+    return true;
+  }
+
+  MOZ_ASSERT(from->slotSpan() == numProps);
+
+  SharedShape* newShape;
+  if (canReuse == CanReuseShape::CanReuseShape) {
+    newShape = from->sharedShape();
+  } else {
+    // Get a shape with |from|'s PropMap and ObjectFlags (because we need the
+    // HasEnumerable flag checked in canReuseShapeForNewProperties) and the
+    // other fields (BaseShape, numFixedSlots) unchanged.
+    MOZ_ASSERT(canReuse == CanReuseShape::CanReusePropMap);
+    ObjectFlags objectFlags = from->sharedShape()->objectFlags();
+    Rooted<SharedPropMap*> map(cx, from->sharedShape()->propMap());
+    uint32_t mapLength = from->sharedShape()->propMapLength();
+    BaseShape* base = target->sharedShape()->base();
+    uint32_t nfixed = target->sharedShape()->numFixedSlots();
+    newShape = SharedShape::getPropMapShape(cx, base, nfixed, map, mapLength,
+                                            objectFlags);
+    if (!newShape) {
+      return false;
+    }
+  }
+
+  if (!CopyPropertiesWithNewShape(cx, target, from, newShape, numProps)) {
+    return false;
+  }
+
+  *copied = true;
   return true;
 }
 

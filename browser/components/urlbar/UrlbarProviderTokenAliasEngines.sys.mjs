@@ -15,7 +15,8 @@ const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
   UrlbarPrefs: "moz-src:///browser/components/urlbar/UrlbarPrefs.sys.mjs",
-  UrlbarResult: "moz-src:///browser/components/urlbar/UrlbarResult.sys.mjs",
+  UrlbarResult: "chrome://browser/content/urlbar/UrlbarResult.mjs",
+  UrlbarShared: "chrome://browser/content/urlbar/UrlbarShared.mjs",
   UrlbarSearchUtils:
     "moz-src:///browser/components/urlbar/UrlbarSearchUtils.sys.mjs",
   UrlUtils: "resource://gre/modules/UrlUtils.sys.mjs",
@@ -31,10 +32,10 @@ export class UrlbarProviderTokenAliasEngines extends UrlbarProvider {
   }
 
   /**
-   * @returns {Values<typeof UrlbarUtils.PROVIDER_TYPE>}
+   * @returns {Values<typeof lazy.UrlbarShared.PROVIDER_TYPE>}
    */
   get type() {
-    return UrlbarUtils.PROVIDER_TYPE.HEURISTIC;
+    return lazy.UrlbarShared.PROVIDER_TYPE.HEURISTIC;
   }
 
   static get PRIORITY() {
@@ -48,8 +49,9 @@ export class UrlbarProviderTokenAliasEngines extends UrlbarProvider {
    * with this provider, to save on resources.
    *
    * @param {UrlbarQueryContext} queryContext The query context object
+   * @param {UrlbarParentController} controller The controller instance.
    */
-  async isActive(queryContext) {
+  async isActive(queryContext, controller) {
     let instance = this.queryInstance;
 
     // This is usually reset on canceling or completing the query, but since we
@@ -67,7 +69,7 @@ export class UrlbarProviderTokenAliasEngines extends UrlbarProvider {
     }
 
     // Do not show token alias results in search mode.
-    if (queryContext.searchMode) {
+    if (queryContext.restrictInSearchMode()) {
       return false;
     }
 
@@ -87,7 +89,7 @@ export class UrlbarProviderTokenAliasEngines extends UrlbarProvider {
 
     // If the user is typing a potential engine name, autofill it.
     if (lazy.UrlbarPrefs.get("autoFill") && queryContext.allowAutofill) {
-      let result = await this._getAutofillResult(queryContext);
+      let result = await this._getAutofillResult(queryContext, controller);
       if (result && instance == this.queryInstance) {
         this._autofillData = { result, instance };
         return true;
@@ -103,8 +105,9 @@ export class UrlbarProviderTokenAliasEngines extends UrlbarProvider {
    * @param {UrlbarQueryContext} queryContext
    * @param {(provider: UrlbarProvider, result: UrlbarResult) => void} addCallback
    *   Callback invoked by the provider to add a new result.
+   * @param {UrlbarParentController} controller The controller instance.
    */
-  async startQuery(queryContext, addCallback) {
+  async startQuery(queryContext, addCallback, controller) {
     if (!this._engines || !this._engines.length) {
       return;
     }
@@ -123,20 +126,20 @@ export class UrlbarProviderTokenAliasEngines extends UrlbarProvider {
         engine.name != this._autofillData?.result.payload.engine
       ) {
         let result = new lazy.UrlbarResult({
-          type: UrlbarUtils.RESULT_TYPE.SEARCH,
-          source: UrlbarUtils.RESULT_SOURCE.SEARCH,
+          type: lazy.UrlbarShared.RESULT_TYPE.SEARCH,
+          source: lazy.UrlbarShared.RESULT_SOURCE.SEARCH,
           hideRowLabel: true,
           payload: {
             engine: engine.name,
             keyword: tokenAliases[0],
             keywords: tokenAliases.join(", "),
             query: "",
-            icon: await engine.getIconURL(),
+            icon: await UrlbarUtils.getEngineIconUrl(engine, controller),
             providesSearchMode: true,
           },
           highlights: {
-            engine: UrlbarUtils.HIGHLIGHT.TYPED,
-            keyword: UrlbarUtils.HIGHLIGHT.TYPED,
+            engine: lazy.UrlbarShared.HIGHLIGHT.TYPED,
+            keyword: lazy.UrlbarShared.HIGHLIGHT.TYPED,
           },
         });
         if (instance != this.queryInstance) {
@@ -167,7 +170,7 @@ export class UrlbarProviderTokenAliasEngines extends UrlbarProvider {
     }
   }
 
-  async _getAutofillResult(queryContext) {
+  async _getAutofillResult(queryContext, controller) {
     let { lowerCaseSearchString } = queryContext;
 
     // The user is typing a specific engine. We should show a heuristic result.
@@ -194,8 +197,8 @@ export class UrlbarProviderTokenAliasEngines extends UrlbarProvider {
             alias.substr(queryContext.searchString.length);
           let value = aliasPreservingUserCase + " ";
           return new lazy.UrlbarResult({
-            type: UrlbarUtils.RESULT_TYPE.SEARCH,
-            source: UrlbarUtils.RESULT_SOURCE.SEARCH,
+            type: lazy.UrlbarShared.RESULT_TYPE.SEARCH,
+            source: lazy.UrlbarShared.RESULT_SOURCE.SEARCH,
             // We set suggestedIndex = 0 instead of the heuristic because we
             // don't want this result to be automatically selected. That way,
             // users can press Tab to select the result, building on their
@@ -212,12 +215,12 @@ export class UrlbarProviderTokenAliasEngines extends UrlbarProvider {
               keyword: aliasPreservingUserCase,
               keywords: tokenAliases.join(", "),
               query: "",
-              icon: await engine.getIconURL(),
+              icon: await UrlbarUtils.getEngineIconUrl(engine, controller),
               providesSearchMode: true,
             },
             highlights: {
-              engine: UrlbarUtils.HIGHLIGHT.TYPED,
-              keyword: UrlbarUtils.HIGHLIGHT.TYPED,
+              engine: lazy.UrlbarShared.HIGHLIGHT.TYPED,
+              keyword: lazy.UrlbarShared.HIGHLIGHT.TYPED,
             },
           });
         }

@@ -22,7 +22,7 @@ import { Provider } from "react-redux";
 import { combineReducers, createStore } from "redux";
 
 const DEFAULT_PROPS = {
-  url: "about:robots",
+  url: "https://example.com",
   title: "title",
   raw_image_src: "https://picsum.photos/200",
   icon_src: "https://picsum.photos/200",
@@ -52,43 +52,6 @@ describe("<DSCard>", () => {
   it("should render", () => {
     assert.ok(wrapper.exists());
     assert.ok(wrapper.find(".ds-card"));
-  });
-
-  it("should include nova-card-ui class when Nova is enabled in sections mode", () => {
-    wrapper.setProps({
-      mayHaveSectionsCards: true,
-      sectionsClassNames: "col-1-small",
-      Prefs: {
-        ...INITIAL_STATE.Prefs,
-        values: { ...INITIAL_STATE.Prefs.values, "nova.enabled": true },
-      },
-    });
-
-    assert.isTrue(wrapper.find("article.ds-card").hasClass("nova-card-ui"));
-  });
-
-  it("should include nova-card-ui class when Nova is enabled in CardGrid (no sections)", () => {
-    wrapper.setProps({
-      mayHaveSectionsCards: false,
-      Prefs: {
-        ...INITIAL_STATE.Prefs,
-        values: { ...INITIAL_STATE.Prefs.values, "nova.enabled": true },
-      },
-    });
-
-    assert.isTrue(wrapper.find("article.ds-card").hasClass("nova-card-ui"));
-  });
-
-  it("should not include nova-card-ui class when Nova is disabled", () => {
-    wrapper.setProps({
-      mayHaveSectionsCards: false,
-      Prefs: {
-        ...INITIAL_STATE.Prefs,
-        values: { ...INITIAL_STATE.Prefs.values, "nova.enabled": false },
-      },
-    });
-
-    assert.isFalse(wrapper.find("article.ds-card").hasClass("nova-card-ui"));
   });
 
   it("should render a SafeAnchor", () => {
@@ -287,7 +250,6 @@ describe("<DSCard>", () => {
           value: {
             event_source: "card",
             card_type: "organic",
-            recommendation_id: undefined,
             tile_id: "fooidx",
             scheduled_corpus_item_id: undefined,
             corpus_item_id: undefined,
@@ -312,7 +274,6 @@ describe("<DSCard>", () => {
               id: "fooidx",
               pos: 1,
               type: "organic",
-              recommendation_id: undefined,
               topic: undefined,
               selected_topics: undefined,
               format: "medium-card",
@@ -347,7 +308,6 @@ describe("<DSCard>", () => {
           value: {
             event_source: "card",
             card_type: "spoc",
-            recommendation_id: undefined,
             tile_id: "fooidx",
             scheduled_corpus_item_id: undefined,
             corpus_item_id: undefined,
@@ -372,7 +332,6 @@ describe("<DSCard>", () => {
               id: "fooidx",
               pos: 1,
               type: "spoc",
-              recommendation_id: undefined,
               topic: undefined,
               selected_topics: undefined,
               format: "spoc",
@@ -409,7 +368,6 @@ describe("<DSCard>", () => {
           value: {
             event_source: "card",
             card_type: "organic",
-            recommendation_id: undefined,
             tile_id: "fooidx",
             shim: "click shim",
             scheduled_corpus_item_id: undefined,
@@ -436,7 +394,6 @@ describe("<DSCard>", () => {
               pos: 1,
               shim: "click shim",
               type: "organic",
-              recommendation_id: undefined,
               topic: undefined,
               selected_topics: undefined,
               format: "medium-card",
@@ -870,26 +827,6 @@ describe("<DSCard>", () => {
       assert.equal(image.at(3).props().sizes[0].height, cardSizes.large.height);
       assert.equal(image.at(3).props().sizes[0].width, cardSizes.large.width);
     });
-  });
-
-  it("should render topic label when isDailyBrief is true", () => {
-    const store = createStore(combineReducers(reducers), INITIAL_STATE);
-    wrapper = mount(
-      <Provider store={store}>
-        <DSCard {...DEFAULT_PROPS} isDailyBrief={true} topic="technology" />
-      </Provider>
-    );
-
-    const dsCardInstance = wrapper.find(DSCard).instance();
-    dsCardInstance.setState({ isSeen: true });
-    wrapper.update();
-
-    const topicLabel = wrapper.find(".ds-card-daily-brief-topic");
-    assert.lengthOf(topicLabel, 1);
-    assert.equal(
-      topicLabel.prop("data-l10n-id"),
-      "newtab-topic-label-technology"
-    );
   });
 });
 

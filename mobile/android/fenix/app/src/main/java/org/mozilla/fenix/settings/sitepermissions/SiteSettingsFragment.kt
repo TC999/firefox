@@ -11,6 +11,7 @@ import androidx.preference.Preference
 import androidx.preference.Preference.OnPreferenceClickListener
 import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.SwitchPreferenceCompat
+import com.google.android.material.R as materialR
 import com.google.android.material.color.MaterialColors
 import mozilla.components.browser.state.action.DefaultDesktopModeAction
 import mozilla.telemetry.glean.private.NoExtras
@@ -21,16 +22,12 @@ import org.mozilla.fenix.ext.components
 import org.mozilla.fenix.ext.getPreferenceKey
 import org.mozilla.fenix.ext.navigateWithBreadcrumb
 import org.mozilla.fenix.ext.requireComponents
-import org.mozilla.fenix.ext.settings
 import org.mozilla.fenix.ext.showToolbar
 import org.mozilla.fenix.settings.PhoneFeature
 import org.mozilla.fenix.settings.requirePreference
 import org.mozilla.fenix.settings.scrollToPreferenceWithHighlight
-import com.google.android.material.R as materialR
 
-/**
- * Screen for managing settings related to site permissions and content defaults.
- */
+/** Screen for managing settings related to site permissions and content defaults. */
 @SuppressWarnings("TooManyFunctions")
 class SiteSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment {
 
@@ -64,15 +61,14 @@ class SiteSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
                     requireContext(),
                     materialR.attr.colorOnSurface,
                     "Could not resolve themed color",
-                ),
+                )
             )
             isChecked = requireComponents.core.store.state.desktopMode
             isPersistent = false
-            onPreferenceChangeListener =
-                Preference.OnPreferenceChangeListener { _, _ ->
-                    requireComponents.core.store.dispatch(DefaultDesktopModeAction.ToggleDesktopMode)
-                    true
-                }
+            onPreferenceChangeListener = Preference.OnPreferenceChangeListener { _, _ ->
+                requireComponents.core.store.dispatch(DefaultDesktopModeAction.ToggleDesktopMode)
+                true
+            }
         }
     }
 
@@ -93,18 +89,19 @@ class SiteSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
             // not need to be bound
             .filter { it != PhoneFeature.AUTOPLAY_INAUDIBLE }
             .excludeFeatures(
-                condition = { !requireContext().settings().isLnaFeatureEnabled },
-                features = setOf(
-                    PhoneFeature.LOCAL_DEVICE_ACCESS,
-                    PhoneFeature.LOCAL_NETWORK_ACCESS,
-                ),
+                condition = { !requireComponents.settings.isLnaFeatureEnabled },
+                features =
+                    setOf(
+                        PhoneFeature.LOCAL_DEVICE_ACCESS,
+                        PhoneFeature.LOCAL_NETWORK_ACCESS,
+                    ),
             )
             .forEach(::initPhoneFeature)
     }
 
     private fun initPhoneFeature(phoneFeature: PhoneFeature) {
         val context = requireContext()
-        val settings = context.settings()
+        val settings = context.components.settings
 
         val preference = requirePreference<Preference>(phoneFeature.getPreferenceId())
         preference.summary = phoneFeature.getActionLabel(context, settings = settings)
@@ -114,7 +111,7 @@ class SiteSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
                 requireContext(),
                 materialR.attr.colorOnSurface,
                 "Could not resolve themed color",
-            ),
+            )
         )
         preference.onPreferenceClickListener = OnPreferenceClickListener {
             navigateToPhoneFeature(phoneFeature)
@@ -123,19 +120,20 @@ class SiteSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
     }
 
     private fun navigateToPhoneFeature(phoneFeature: PhoneFeature) {
-        val directions = SiteSettingsFragmentDirections
-            .actionSitePermissionsToManagePhoneFeatures(phoneFeature)
+        val directions = SiteSettingsFragmentDirections.actionSitePermissionsToManagePhoneFeatures(phoneFeature)
 
         if (phoneFeature == PhoneFeature.AUTOPLAY_AUDIBLE) {
             Autoplay.visitedSetting.record(NoExtras())
         }
         context?.let {
-            requireView().findNavController().navigateWithBreadcrumb(
-                directions = directions,
-                navigateFrom = "SitePermissionsFragment",
-                navigateTo = "ActionSitePermissionsToManagePhoneFeatures",
-                crashReporter = it.components.analytics.crashReporter,
-            )
+            requireView()
+                .findNavController()
+                .navigateWithBreadcrumb(
+                    directions = directions,
+                    navigateFrom = "SitePermissionsFragment",
+                    navigateTo = "ActionSitePermissionsToManagePhoneFeatures",
+                    crashReporter = it.components.analytics.crashReporter,
+                )
         }
     }
 

@@ -6,10 +6,17 @@ support-files = [
 
 ["browser_browserGlue_client_association_ping.js"]
 
+["browser_browserGlue_fxa_client_info_ping.js"]
+
 ["browser_browserGlue_os_auth.js"]
 skip-if = [
   "os == 'linux' && os_version == '22.04' && arch == 'x86_64' && display == 'wayland'",
   "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && display == 'x11'",
+]
+
+["browser_browserGlue_rosettaNotification.js"]
+run-if = [
+  "os == 'mac'",
 ]
 
 ["browser_browserGlue_sandboxDisabledNotification.js"]
@@ -27,6 +34,11 @@ run-if = [
 reason = "test depends on update channel"
 
 ["browser_contentpermissionprompt.js"]
+
+["browser_csp_baseline.js"]
+skip-if = [
+  "debug", # Loading a page without a custom CSP asserts in debug
+]
 
 ["browser_csp_blocks.js"]
 
@@ -57,6 +69,8 @@ run-if = [
 ["browser_initial_tab_remoteType.js"]
 https_first_disabled = true
 
+["browser_last_window_close_trigger.js"]
+
 ["browser_quit_close_current_tab.js"]
 
 ["browser_quit_disabled.js"]
@@ -69,6 +83,11 @@ run-if = [
 ["browser_quit_shortcut_warning.js"]
 
 ["browser_startup_homepage.js"]
+
+["browser_telemetry_activation.js"]
+run-if = [
+  "os == 'win'",
+]
 
 ["browser_to_handle_telemetry.js"]
 run-if = [

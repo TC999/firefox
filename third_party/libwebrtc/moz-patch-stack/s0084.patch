@@ -1,39 +1,31 @@
-From: Andreas Pehrson <apehrson@mozilla.com>
-Date: Wed, 10 Apr 2024 21:54:00 +0000
-Subject: Bug 1888181 - (fix-52fec7d3) Limit scope of race checker in
- VideoCaptureModuleV4L2::StartCapture. r=mjf
+From: Nico Grunbaum <na-g@nostrum.com>
+Date: Thu, 23 May 2024 17:28:00 +0000
+Subject: Bug 1897459 - P0 - for BSD do not build physical_socket_server in
+ libwebrtc;r=mjf,webrtc-reviewers
 
-TSAN detects a race between destroying the scoped race checker in StartCapture
-and creating the scoped race checker in CaptureProcess, because once the capture
-thread has been created (and given its run function) there is no synchronization
-before the run function starts to run.
+libwebrtc added the use of several non-portable socket options in this code.
+Firefox does not use any of the code in this file, but there is a header dependency chain leading from code that is used.
 
-This patch avoids the race by destroying the StartCapture scoped race checker
-before creating the capture thread.
-
-Differential Revision: https://phabricator.services.mozilla.com/D207203
-Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/b046a1446cee5ab485d4868b3ca9784b16b2d02f
+Differential Revision: https://phabricator.services.mozilla.com/D210858
+Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/4e7b3c485e549e7e35b227b517acadbbad957004
 ---
- modules/video_capture/linux/video_capture_v4l2.cc | 2 ++
- 1 file changed, 2 insertions(+)
+ rtc_base/BUILD.gn | 6 ++++++
+ 1 file changed, 6 insertions(+)
 
-diff --git a/modules/video_capture/linux/video_capture_v4l2.cc b/modules/video_capture/linux/video_capture_v4l2.cc
-index 6d1a452590..bad85f00d3 100644
---- a/modules/video_capture/linux/video_capture_v4l2.cc
-+++ b/modules/video_capture/linux/video_capture_v4l2.cc
-@@ -134,6 +134,7 @@ int32_t VideoCaptureModuleV4L2::StartCapture(
-     }
-   }
- 
-+  {
-   // We don't want members above to be guarded by capture_checker_ as
-   // it's meant to be for members that are accessed on the API thread
-   // only when we are not capturing. The code above can be called many
-@@ -301,6 +302,7 @@ int32_t VideoCaptureModuleV4L2::StartCapture(
-   _requestedCapability = capability;
-   _captureStarted = true;
-   _streaming = true;
+diff --git a/rtc_base/BUILD.gn b/rtc_base/BUILD.gn
+index d32aa81772..d328c609f1 100644
+--- a/rtc_base/BUILD.gn
++++ b/rtc_base/BUILD.gn
+@@ -1100,6 +1100,12 @@ rtc_library("threading") {
+     "thread.cc",
+     "thread.h",
+   ]
++  if (is_bsd && build_with_mozilla) {
++    sources -= [
++      "physical_socket_server.cc",
++      "physical_socket_server.h",
++    ]
 +  }
- 
-   // start capture thread;
-   if (_captureThread.empty()) {
+   deps = [
+     ":async_dns_resolver",
+     ":checks",

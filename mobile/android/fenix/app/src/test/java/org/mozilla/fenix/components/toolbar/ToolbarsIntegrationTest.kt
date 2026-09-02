@@ -12,13 +12,13 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import junit.framework.TestCase.assertEquals
+import mozilla.components.compose.browser.toolbar.R as toolbarR
 import mozilla.components.concept.engine.EngineView
 import mozilla.components.feature.pwa.feature.WebAppHideToolbarFeature
 import mozilla.components.feature.session.FullScreenFeature
 import org.junit.Before
 import org.junit.Test
 import org.mozilla.fenix.utils.Settings
-import mozilla.components.compose.browser.toolbar.R as toolbarR
 
 class ToolbarsIntegrationTest {
     private val fullScreenFeature: FullScreenFeature = mockk(relaxed = true)
@@ -28,9 +28,9 @@ class ToolbarsIntegrationTest {
     private val context: Context = mockk(relaxed = true)
     private val browserLayout: ViewGroup = mockk(relaxed = true)
     private val engineView: EngineView = mockk(relaxed = true)
-    private val toolbar: FenixBrowserToolbarView = mockk(relaxed = true)
-    private val navbar: BrowserNavigationBar = mockk(relaxed = true)
-    private val onToolbarsReset: () -> Unit = mockk(relaxed = true)
+    private val toolbar: BrowserToolbarComposable = mockk(relaxed = true)
+    private var onToolbarsResetCount = 0
+    private val onToolbarsReset: () -> Unit = { onToolbarsResetCount++ }
 
     private val topToolbarHeight = 150
     private val minimalBottomToolbarHeight = 32
@@ -44,23 +44,25 @@ class ToolbarsIntegrationTest {
         every { browserLayout.context } returns context
         every { browserLayout.layoutParams } returns layoutParams
         every { browserLayout.viewTreeObserver } returns viewTreeObserver
-        every { browserLayout.resources } returns mockk(relaxed = true) {
-            every {
-                getDimensionPixelSize(toolbarR.dimen.mozac_minimal_display_toolbar_height)
-            } returns minimalBottomToolbarHeight
-        }
+        every { browserLayout.resources } returns
+            mockk(relaxed = true) {
+                every {
+                    getDimensionPixelSize(toolbarR.dimen.mozac_minimal_display_toolbar_height)
+                } returns minimalBottomToolbarHeight
+            }
         layoutParams.behavior = mockk(relaxed = true)
 
-        toolbarsIntegration = ToolbarsIntegration(
-            fullScreenFeature = { fullScreenFeature },
-            webAppHideToolbarFeature = { webAppHideToolbarFeature },
-            settings = settings,
-            browserLayout = browserLayout,
-            engineView = engineView,
-            toolbar = toolbar,
-            topToolbarHeight = { topToolbarHeight },
-            onToolbarsReset = onToolbarsReset,
-        )
+        toolbarsIntegration =
+            ToolbarsIntegration(
+                fullScreenFeature = { fullScreenFeature },
+                webAppHideToolbarFeature = { webAppHideToolbarFeature },
+                settings = settings,
+                browserLayout = browserLayout,
+                engineView = engineView,
+                toolbar = toolbar,
+                topToolbarHeight = { topToolbarHeight },
+                onToolbarsReset = onToolbarsReset,
+            )
     }
 
     @Test
@@ -72,7 +74,7 @@ class ToolbarsIntegrationTest {
 
         toolbarsIntegration.onKeyboardShown(isKeyboardShown = true)
 
-        verify(exactly = 0) { onToolbarsReset() }
+        assertEquals(0, onToolbarsResetCount)
         verify(exactly = 0) { toolbar.enableScrolling() }
         assertEquals(23, layoutParams.topMargin)
         assertEquals(32, layoutParams.bottomMargin)
@@ -87,7 +89,7 @@ class ToolbarsIntegrationTest {
 
         toolbarsIntegration.onKeyboardShown(isKeyboardShown = true)
 
-        verify(exactly = 0) { onToolbarsReset() }
+        assertEquals(0, onToolbarsResetCount)
         assertEquals(34, layoutParams.topMargin)
         assertEquals(45, layoutParams.bottomMargin)
     }
@@ -104,7 +106,7 @@ class ToolbarsIntegrationTest {
 
         assertEquals(0, layoutParams.topMargin)
         assertEquals(0, layoutParams.bottomMargin)
-        verify { onToolbarsReset() }
+        assertEquals(1, onToolbarsResetCount)
         verify { toolbar.enableScrolling() }
     }
 

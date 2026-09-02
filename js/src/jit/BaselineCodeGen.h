@@ -53,12 +53,20 @@ class BaselineCodeGen {
   // Prologue code where we resume for Ion prologue bailouts.
   NonAssertingLabel bailoutPrologue_;
 
+  // Prologue code where we resume for a bailout of a frame that is still
+  // mid-generator-resume.
+  NonAssertingLabel bailoutResumePrologue_;
+
   CodeOffset profilerEnterFrameToggleOffset_;
   CodeOffset profilerExitFrameToggleOffset_;
 
   // Early Ion bailouts will enter at this address. This is after frame
   // construction and before environment chain is initialized.
   CodeOffset bailoutPrologueOffset_;
+
+  // Bailouts of a frame that is still mid-generator-resume enter at this
+  // address.
+  CodeOffset bailoutResumePrologueOffset_;
 
   // Baseline Interpreter can enter Baseline Compiler code at this address. This
   // is right after the warm-up counter check in the prologue.
@@ -119,6 +127,11 @@ class BaselineCodeGen {
   void jumpToResumeEntry(Register resumeIndex, Register scratch1,
                          Register scratch2);
 
+  // Compute the base of a resumed frame's resume args into |dest|.
+  void loadResumeArgsBase(Register dest);
+
+  void setInterpreterPCToScriptStart(Register script, Register scratch);
+
   // Load the global's lexical environment.
   void loadGlobalLexicalEnvironment(Register dest);
   void pushGlobalLexicalEnvironmentValue(ValueOperand scratch);
@@ -166,9 +179,6 @@ class BaselineCodeGen {
 
   bool emitSuspend(JSOp op);
 
-  [[nodiscard]] bool emitAfterYieldDebugInstrumentation(Register scratch);
-  [[nodiscard]] bool emitDebugAfterYield();
-
   // ifSet should be a function emitting code for when the script has |flag|
   // set. ifNotSet emits code for when the flag isn't set.
   template <typename F1, typename F2>
@@ -184,10 +194,6 @@ class BaselineCodeGen {
   template <typename F>
   [[nodiscard]] bool emitTestScriptFlag(JSScript::MutableFlags flag, bool value,
                                         const F& emit, Register scratch);
-
-  [[nodiscard]] bool emitEnterGeneratorCode(Register script,
-                                            Register resumeIndex,
-                                            Register scratch);
 
   void emitInterpJumpToResumeEntry(Register script, Register resumeIndex,
                                    Register scratch);
@@ -261,7 +267,7 @@ class BaselineCodeGen {
 
   [[nodiscard]] bool emitUninitializedLexicalCheck(const ValueOperand& val);
 
-  [[nodiscard]] bool emitIsMagicValue();
+  [[nodiscard]] bool emitIsMagicValue(JSWhyMagic why);
 
   void getEnvironmentCoordinateObject(Register reg);
   Address getEnvironmentCoordinateAddressFromObject(Register objReg,
@@ -270,7 +276,11 @@ class BaselineCodeGen {
 
   [[nodiscard]] bool emitPrologue();
   [[nodiscard]] bool emitEpilogue();
-  [[nodiscard]] bool emitStackCheck();
+  // |emitAfterCall| is emitted on the VM-call path only, after the call
+  // returns. This can be used to restore registers clobbered by the call.
+  template <typename F>
+  [[nodiscard]] bool emitStackCheck(RetAddrEntry::Kind kind, Register scratch1,
+                                    Register scratch2, const F& emitAfterCall);
   [[nodiscard]] bool emitDebugPrologue();
   [[nodiscard]] bool emitDebugEpilogue();
 
@@ -278,8 +288,15 @@ class BaselineCodeGen {
 
   [[nodiscard]] bool emitHandleCodeCoverageAtPrologue();
 
+  [[nodiscard]] bool emitGeneratorResumePrologue();
+  [[nodiscard]] bool emitGeneratorResumePrologueBody();
+
   void emitInitFrameFields(Register nonFunctionEnv);
-  [[nodiscard]] bool emitIsDebuggeeCheck();
+  // Sets the frame's DEBUGGEE flag if the script is a debuggee script. This
+  // clobbers volatile registers, so emitAfterCall is called on the path that
+  // actually calls into C++ to let the caller restore registers.
+  template <typename F>
+  [[nodiscard]] bool emitIsDebuggeeCheck(const F& emitAfterCall);
   void emitInitializeLocals();
 
   void emitProfilerEnterFrame();
@@ -493,6 +510,10 @@ class BaselineInterpreterHandler {
   // InterpreterPCReg.
   NonAssertingLabel interpretOpWithPCReg_;
 
+  // Out-of-line code that restores a suspended generator's frame and jumps to
+  // its resume point.
+  NonAssertingLabel generatorResumePrologue_;
+
   // Offsets of toggled jumps for debugger instrumentation.
   using CodeOffsetVector = Vector<uint32_t, 0, SystemAllocPolicy>;
   CodeOffsetVector debugInstrumentationOffsets_;
@@ -520,6 +541,7 @@ class BaselineInterpreterHandler {
 
   Label* interpretOpLabel() { return &interpretOp_; }
   Label* interpretOpWithPCRegLabel() { return &interpretOpWithPCReg_; }
+  Label* generatorResumePrologueLabel() { return &generatorResumePrologue_; }
 
   Label* codeCoverageAtPrologueLabel() { return &codeCoverageAtPrologueLabel_; }
   Label* codeCoverageAtPCLabel() { return &codeCoverageAtPCLabel_; }
@@ -609,6 +631,7 @@ class BaselineInterpreterGenerator final : private BaselineInterpreterCodeGen {
   [[nodiscard]] bool emitDebugTrap();
 
   void emitOutOfLineCodeCoverageInstrumentation();
+  [[nodiscard]] bool emitOutOfLineGeneratorResumePrologue();
 };
 
 }  // namespace jit

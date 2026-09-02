@@ -3,7 +3,12 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 // @nova-cleanup(merge-styles): Merge nova/activity-stream.scss back to activity-stream.scss after ship
+// @nova-cleanup(remove-file): The CSS switcher in AboutNewTabChild.sys.mjs was removed, but it won't
+// train hop to older Firefox versions. This file is kept so those versions still have a working
+// reference when the switcher swaps to it. Once the switcher removal reaches Release, this file
+// can be removed.
 
+@import 'tokens';
 @import '../normalize';
 @import '../variables';
 @import '../theme';
@@ -41,7 +46,7 @@ body {
   background-image:
     var(--newtab-wallpaper, ''),
     linear-gradient(to right, var(--newtab-wallpaper-color, ''), var(--newtab-wallpaper-color, ''));
-  overflow-y: scroll;
+  overflow-y: auto;
 }
 
 h1,
@@ -145,6 +150,7 @@ input {
 // Components
 // stylelint-disable no-invalid-position-at-import-rule
 @import '../../components/A11yLinkButton/A11yLinkButton';
+@import '../../components/ActivationWindowMessage/ActivationWindowMessage';
 @import '../../components/Base/Base';
 @import '../../components/Base/Grid';
 @import '../../components/ErrorBoundary/ErrorBoundary';
@@ -167,12 +173,21 @@ input {
 
 // Widget Components
 @import '../../components/Widgets/Widgets';
+@import '../../components/Widgets/WidgetWrapper';
+@import '../../components/Widgets/WidgetCelebration';
 @import '../../components/Widgets/Lists/Lists';
 @import '../../components/Widgets/FocusTimer/FocusTimer';
+@import '../../components/Widgets/SportsWidget/SportsWidget';
+@import '../../components/Widgets/SportsWidget/SportsMatchRow';
+@import '../../components/Widgets/SportsWidget/SportsResultCelebration';
+@import '../../components/Widgets/SportsWidget/WatchLiveModal';
+@import '../../components/Widgets/SportsWidget/LivePagination';
 @import '../../components/Widgets/Weather/Weather';
+@import '../../components/Widgets/Clocks/Clocks';
 
 // Discovery Stream Components
 @import '../../components/DiscoveryStreamComponents/CardGrid/CardGrid';
+@import '../../components/DiscoveryStreamComponents/CardCarousel/CardCarousel';
 @import '../../components/DiscoveryStreamComponents/CardSections/CardSections';
 @import '../../components/DiscoveryStreamComponents/Highlights/Highlights';
 @import '../../components/DiscoveryStreamComponents/HorizontalRule/HorizontalRule';
@@ -181,7 +196,6 @@ input {
 @import '../../components/DiscoveryStreamComponents/TopSites/TopSites';
 @import '../../components/DiscoveryStreamComponents/DSLinkMenu/DSLinkMenu';
 @import '../../components/DiscoveryStreamComponents/DSCard/DSCard';
-@import '../../components/DiscoveryStreamComponents/DSCard/nova/DSCard';
 @import '../../components/DiscoveryStreamComponents/DSContextFooter/DSContextFooter';
 @import '../../components/DiscoveryStreamComponents/DSImage/DSImage';
 @import '../../components/DiscoveryStreamImpressionStats/ImpressionStats';
@@ -192,18 +206,23 @@ input {
 @import '../../components/DiscoveryStreamComponents/FeatureHighlight/DownloadMobilePromoHighlight';
 @import '../../components/DiscoveryStreamComponents/FeatureHighlight/FollowSectionButtonHighlight';
 @import '../../components/DiscoveryStreamComponents/FeatureHighlight/WallpaperFeatureHighlight';
-@import '../../components/DiscoveryStreamComponents/FeatureHighlight/ShortcutFeatureHighlight';
+@import '../../components/DiscoveryStreamComponents/FeatureHighlight/WidgetsRowFeatureHighlight';
+@import '../../components/DiscoveryStreamComponents/FeatureHighlight/OMCHighlightBody';
+@import '../../components/DiscoveryStreamComponents/FeatureHighlight/OMCHighlightPopover';
 @import '../../components/DiscoveryStreamComponents/TopicSelection/TopicSelection';
 @import '../../components/DiscoveryStreamComponents/AdBanner/AdBanner';
 @import '../../components/DiscoveryStreamComponents/AdBannerContextMenu/AdBannerContextMenu';
 @import '../../components/DiscoveryStreamComponents/PromoCard/PromoCard';
 @import '../../components/DiscoveryStreamComponents/SectionContextMenu/SectionContextMenu';
 @import '../../components/DiscoveryStreamComponents/InterestPicker/InterestPicker';
+@import '../../components/DiscoveryStreamComponents/TopicNavigation/TopicNavigation';
 @import '../../components/DiscoveryStreamComponents/ReportContent/ReportContent';
 @import '../../components/DiscoveryStreamComponents/PersonalizedCard/PersonalizedCard';
+@import '../../components/MessageWrapper/MessageWrapper';
 
 // Nova Component Styles
 @import 'TopSites';
 @import 'CardSections';
+@import 'DSCard';
 
 // stylelint-enable no-invalid-position-at-import-rule

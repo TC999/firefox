@@ -7,6 +7,7 @@ package org.mozilla.focus.menu.browser
 import android.content.Context
 import android.content.res.Resources
 import android.util.TypedValue
+import kotlin.test.assertIs
 import mozilla.components.browser.menu.item.BrowserMenuCategory
 import mozilla.components.browser.menu.item.BrowserMenuDivider
 import mozilla.components.browser.menu.item.BrowserMenuImageSwitch
@@ -17,7 +18,6 @@ import mozilla.components.browser.menu.item.WebExtensionPlaceholderMenuItem
 import mozilla.components.browser.state.store.BrowserStore
 import mozilla.components.support.test.any
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.mockito.ArgumentMatchers.anyString
@@ -41,77 +41,78 @@ class CustomTabMenuTest {
 
         `when`(context.theme).thenReturn(mockTheme)
 
-        `when`(mockTheme.resolveAttribute(anyInt(), any(), eq(true)))
-            .thenAnswer { invocation ->
-                val typedValueArg = invocation.arguments[1] as TypedValue
-                typedValueArg.resourceId = 1
-                true
-            }
+        `when`(mockTheme.resolveAttribute(anyInt(), any(), eq(true))).thenAnswer { invocation ->
+            val typedValueArg = invocation.arguments[1] as TypedValue
+            typedValueArg.resourceId = 1
+            true
+        }
     }
 
     @Test
     fun `WHEN is onboarding tab is false THEN menu items contains all menu items`() {
-        val customTabMenu = CustomTabMenu(
-            context = context,
-            store = BrowserStore(),
-            currentTabId = "",
-            isOnboardingTab = false,
-        ) {}
+        val customTabMenu =
+            CustomTabMenu(
+                context = context,
+                store = BrowserStore(),
+                currentTabId = "",
+                isOnboardingTab = false,
+            ) {}
 
         val expectedSize = 10
         val menuItems = customTabMenu.menuBuilder.items
         assertEquals(expectedSize, customTabMenu.menuBuilder.items.size)
 
         // Browser menu
-        assertTrue(menuItems[0] is BrowserMenuItemToolbar)
+        assertIs<BrowserMenuItemToolbar>(menuItems[0])
         // Browser menu divider
-        assertTrue(menuItems[1] is BrowserMenuDivider)
+        assertIs<BrowserMenuDivider>(menuItems[1])
         // Find in page
-        assertTrue(menuItems[2] is BrowserMenuImageText)
+        assertIs<BrowserMenuImageText>(menuItems[2])
         // Desktop mode
-        assertTrue(menuItems[3] is BrowserMenuImageSwitch)
+        assertIs<BrowserMenuImageSwitch>(menuItems[3])
         // Report site issue
-        assertTrue(menuItems[4] is WebExtensionPlaceholderMenuItem)
+        assertIs<WebExtensionPlaceholderMenuItem>(menuItems[4])
         // Browser menu divider
-        assertTrue(menuItems[5] is BrowserMenuDivider)
+        assertIs<BrowserMenuDivider>(menuItems[5])
         // Add to homescreen
-        assertTrue(menuItems[6] is BrowserMenuImageText)
+        assertIs<BrowserMenuImageText>(menuItems[6])
         // Open in Focus
-        assertTrue(menuItems[7] is SimpleBrowserMenuItem)
+        assertIs<SimpleBrowserMenuItem>(menuItems[7])
         // Open in...
-        assertTrue(menuItems[8] is SimpleBrowserMenuItem)
+        assertIs<SimpleBrowserMenuItem>(menuItems[8])
         // Powered by
-        assertTrue(menuItems[9] is BrowserMenuCategory)
+        assertIs<BrowserMenuCategory>(menuItems[9])
     }
 
     @Test
     fun `WHEN is onboarding tab is true THEN menu items contains only sandboxed menu items`() {
-        val customTabMenu = CustomTabMenu(
-            context = context,
-            store = BrowserStore(),
-            currentTabId = "",
-            isOnboardingTab = true,
-        ) {}
+        val customTabMenu =
+            CustomTabMenu(
+                context = context,
+                store = BrowserStore(),
+                currentTabId = "",
+                isOnboardingTab = true,
+            ) {}
 
         val expectedSize = 8
         val menuItems = customTabMenu.menuBuilder.items
         assertEquals(expectedSize, customTabMenu.menuBuilder.items.size)
 
         // Browser menu
-        assertTrue(menuItems[0] is BrowserMenuItemToolbar)
+        assertIs<BrowserMenuItemToolbar>(menuItems[0])
         // Browser menu divider
-        assertTrue(menuItems[1] is BrowserMenuDivider)
+        assertIs<BrowserMenuDivider>(menuItems[1])
         // Find in page
-        assertTrue(menuItems[2] is BrowserMenuImageText)
+        assertIs<BrowserMenuImageText>(menuItems[2])
         // Desktop mode
-        assertTrue(menuItems[3] is BrowserMenuImageSwitch)
+        assertIs<BrowserMenuImageSwitch>(menuItems[3])
         // Report site issue
-        assertTrue(menuItems[4] is WebExtensionPlaceholderMenuItem)
+        assertIs<WebExtensionPlaceholderMenuItem>(menuItems[4])
         // Browser menu divider
-        assertTrue(menuItems[5] is BrowserMenuDivider)
+        assertIs<BrowserMenuDivider>(menuItems[5])
         // Add to homescreen
-        assertTrue(menuItems[6] is BrowserMenuImageText)
+        assertIs<BrowserMenuImageText>(menuItems[6])
         // Powered by
-        assertTrue(menuItems[7] is BrowserMenuCategory)
+        assertIs<BrowserMenuCategory>(menuItems[7])
     }
 }

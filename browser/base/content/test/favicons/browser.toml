@@ -63,6 +63,9 @@ support-files = [
   "file_favicon_empty.html",
 ]
 
+["browser_favicon_force_reload.js"]
+support-files = ["file_force_reload_page.html"]
+
 ["browser_favicon_load.js"]
 https_first_disabled = true
 support-files = [

@@ -55,9 +55,10 @@ already_AddRefed<MediaDataEncoder> RemoteEncoderModule::CreateEncoder(
       RemoteMediaManagerChild::GetManagerThread();
   if (!thread) {
     // Shutdown has begun.
-    MOZ_LOG(sPEMLog, LogLevel::Debug,
-            ("Sandbox %s encoder requested codec %d after shutdown",
-             RemoteMediaInToStr(mLocation), static_cast<int>(aConfig.mCodec)));
+    MOZ_LOG_FMT(sPEMLog, LogLevel::Debug,
+                "Sandbox {} encoder requested codec {} after shutdown",
+                RemoteMediaInToStr(mLocation),
+                static_cast<int>(aConfig.mCodec));
     return nullptr;
   }
 
@@ -80,10 +81,10 @@ RemoteEncoderModule::AsyncCreateEncoder(const EncoderConfig& aEncoderConfig,
       RemoteMediaManagerChild::GetManagerThread();
   if (!thread) {
     // Shutdown has begun.
-    MOZ_LOG(sPEMLog, LogLevel::Debug,
-            ("Sandbox %s encoder requested codec %d after shutdown",
-             RemoteMediaInToStr(mLocation),
-             static_cast<int>(aEncoderConfig.mCodec)));
+    MOZ_LOG_FMT(sPEMLog, LogLevel::Debug,
+                "Sandbox {} encoder requested codec {} after shutdown",
+                RemoteMediaInToStr(mLocation),
+                static_cast<int>(aEncoderConfig.mCodec));
     return PlatformEncoderModule::CreateEncoderPromise::CreateAndReject(
         MediaResult(NS_ERROR_DOM_MEDIA_CANCELED,
                     "Remote manager not available"),
@@ -105,6 +106,7 @@ media::EncodeSupportSet RemoteEncoderModule::Supports(
   // TODO(aosmond): The platform specific criteria were copied from the various
   // PEMs in order to pass the WebCodecs WPTs but should eventually be rewritten
   // to generically support any PEM.
+  auto hwPref = aConfig.mHardwarePreference;
 
 #ifdef MOZ_APPLEMEDIA
   // Only two temporal layers supported, and only from 11.3 and more recent
@@ -133,20 +135,40 @@ media::EncodeSupportSet RemoteEncoderModule::Supports(
         return media::EncodeSupportSet{};
     }
   }
+
+  // Some hardware encoders have poor realtime performance, as measured by
+  // the latency between frames. If the config is realtime, and hardware
+  // is required, hardware is allowed, but otherwise not. See bug 2049606.
+  if ((aConfig.mCodec == CodecType::VP8 || aConfig.mCodec == CodecType::VP9) &&
+      aConfig.mUsage == Usage::Realtime &&
+      aConfig.mHardwarePreference == HardwarePreference::None) {
+    hwPref = HardwarePreference::RequireSoftware;
+  }
 #endif
 
-  return SupportsCodec(aConfig.mCodec);
+  media::EncodeSupportSet supports = SupportsCodec(aConfig.mCodec);
+  switch (hwPref) {
+    case HardwarePreference::RequireHardware:
+      supports -= media::EncodeSupport::SoftwareEncode;
+      break;
+    case HardwarePreference::RequireSoftware:
+      supports -= media::EncodeSupport::HardwareEncode;
+      break;
+    default:
+      break;
+  }
+  return supports;
 }
 
 media::EncodeSupportSet RemoteEncoderModule::SupportsCodec(
     CodecType aCodecType) const {
   media::EncodeSupportSet supports =
       RemoteMediaManagerChild::Supports(mLocation, aCodecType);
-  MOZ_LOG(sPEMLog, LogLevel::Debug,
-          ("Sandbox %s encoder %s requested codec %d",
-           RemoteMediaInToStr(mLocation),
-           supports.isEmpty() ? "supports" : "rejects",
-           static_cast<int>(aCodecType)));
+  MOZ_LOG_FMT(sPEMLog, LogLevel::Debug,
+              "Sandbox {} encoder {} requested codec {}",
+              RemoteMediaInToStr(mLocation),
+              !supports.isEmpty() ? "supports" : "rejects",
+              static_cast<int>(aCodecType));
   return supports;
 }
 

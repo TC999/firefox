@@ -20,6 +20,8 @@
 #include "mozilla/TimeStamp.h"             // for TimeStamp, TimeDuration
 #include "mozilla/dom/AnimationBinding.h"  // for AnimationPlayState
 #include "mozilla/dom/AnimationTimeline.h"
+#include "mozilla/dom/CSSNumericValueBindingFwd.h"
+#include "mozilla/dom/TimelineName.h"
 #include "nsCycleCollectionParticipant.h"
 
 struct JSContext;
@@ -32,6 +34,27 @@ namespace mozilla {
 
 struct AnimationRule;
 class MicroTaskRunnable;
+
+// Properties of CSS Animations that can be overridden by the Web Animations API
+// in a manner that means we should ignore subsequent changes to markup for that
+// property.
+enum class CSSAnimationProperties : uint16_t {
+  None = 0,
+  Keyframes = 1 << 0,
+  Duration = 1 << 1,
+  IterationCount = 1 << 2,
+  Direction = 1 << 3,
+  Delay = 1 << 4,
+  FillMode = 1 << 5,
+  Composition = 1 << 6,
+  Effect = Keyframes | Duration | IterationCount | Direction | Delay |
+           FillMode | Composition,
+  PlayState = 1 << 7,
+  Timeline = 1 << 8,
+  AnimationRangeStart = 1 << 9,
+  AnimationRangeEnd = 1 << 10,
+};
+MOZ_MAKE_ENUM_CLASS_BITWISE_OPERATORS(CSSAnimationProperties)
 
 namespace dom {
 
@@ -61,6 +84,11 @@ class Animation : public DOMEventTargetHelper,
   virtual ~Animation();
 
  public:
+  enum class FromJS : bool {
+    No,
+    Yes,
+  };
+
   explicit Animation(nsIGlobalObject* aGlobal);
 
   // Constructs a copy of |aOther| with a new effect and timeline.
@@ -74,7 +102,7 @@ class Animation : public DOMEventTargetHelper,
   NS_DECL_ISUPPORTS_INHERITED
   NS_DECL_CYCLE_COLLECTION_CLASS_INHERITED(Animation, DOMEventTargetHelper)
 
-  nsIGlobalObject* GetParentObject() const { return GetOwnerGlobal(); }
+  nsIGlobalObject* GetParentObject() const { return GetRelevantGlobal(); }
 
   /**
    * Utility function to get the target (pseudo-)element associated with an
@@ -110,44 +138,69 @@ class Animation : public DOMEventTargetHelper,
   virtual void SetEffect(AnimationEffect* aEffect);
   void SetEffectNoUpdate(AnimationEffect* aEffect);
 
-  // FIXME: Bug 1676794. This is a tentative solution before we implement
-  // ScrollTimeline interface. If the timeline is scroll/view timeline, we
-  // return null. Once we implement ScrollTimeline interface, we can drop this.
-  already_AddRefed<AnimationTimeline> GetTimelineFromJS() const {
-    return mTimeline && mTimeline->IsScrollTimeline() ? nullptr
-                                                      : do_AddRef(mTimeline);
-  }
-  void SetTimelineFromJS(AnimationTimeline* aTimeline) {
-    SetTimeline(aTimeline);
+  void RemovedNamedTimelineReferenceFromJS(const nsAtom* aName);
+
+  AnimationTimeline* GetTimelineFromJS() const {
+    auto* timeline = GetTimeline();
+    if (timeline && timeline->IsUnresolvedTimeline()) {
+      // See:
+      // https://github.com/w3c/csswg-drafts/issues/13807#issuecomment-4390005560
+      return nullptr;
+    }
+    return timeline;
   }
 
+  virtual void PropertiesWillSetFromJS(CSSAnimationProperties) {}
+  virtual CSSAnimationProperties PropertiesOverridenByJS() const {
+    return CSSAnimationProperties::None;
+  }
+
+  void SetTimelineFromJS(AnimationTimeline* aTimeline);
   AnimationTimeline* GetTimeline() const { return mTimeline; }
-  void SetTimeline(AnimationTimeline* aTimeline);
-  void SetTimelineNoUpdate(AnimationTimeline* aTimeline);
+  // Timeline may be overriden through JS, any update from the CSS side
+  // will not take effect. Returns true if the timeline did update.
+  bool SetTimeline(AnimationTimeline* aTimeline,
+                   const ScopedTimelineName& aTimelineName, FromJS aFromJS);
+  bool SetTimelineNoUpdate(AnimationTimeline* aTimeline,
+                           const ScopedTimelineName& aTimelineName,
+                           FromJS aFromJS);
 
   const AnimationRange& GetTimelineRange() const { return mTimelineRange; }
-  void SetTimelineRange(AnimationRange&& aRange);
-  void SetTimelineRangeNoUpdate(AnimationRange&& aRange);
+  void SetTimelineRange(AnimationRange&& aRange, FromJS aFromJS);
+  void SetTimelineRangeNoUpdate(AnimationRange&& aRange, FromJS aFromJS);
 
   Nullable<TimeDuration> GetStartTime() const { return mStartTime; }
-  Nullable<double> GetStartTimeAsDouble() const;
   void SetStartTime(const Nullable<TimeDuration>& aNewStartTime);
   const TimeStamp& GetPendingReadyTime() const { return mPendingReadyTime; }
   void SetPendingReadyTime(const TimeStamp& aReadyTime) {
     mPendingReadyTime = aReadyTime;
   }
-  virtual void SetStartTimeAsDouble(const Nullable<double>& aStartTime);
 
-  // This is deliberately _not_ called GetCurrentTime since that would clash
-  // with a macro defined in winbase.h
+  // Web IDL binding for `attribute CSSNumberish? startTime`.
+  void GetStartTime(Nullable<OwningCSSNumberish>& aRetVal) const;
+  virtual void SetStartTime(const Nullable<CSSNumberish>& aStartTime,
+                            ErrorResult& aRv);
+
+  // Web IDL binding for `attribute CSSNumberish? currentTime`.
+  void GetCurrentTime(Nullable<OwningCSSNumberish>& aRetVal) const;
+  void SetCurrentTime(const Nullable<CSSNumberish>& aCurrentTime,
+                      ErrorResult& aRv);
+
+  // Web IDL binding for the rangeStart/rangeEnd attributes.
+  void GetRangeStart(JSContext* aCx, JS::MutableHandle<JS::Value> aRetVal,
+                     ErrorResult& aRv);
+  void GetRangeEnd(JSContext* aCx, JS::MutableHandle<JS::Value> aRetVal,
+                   ErrorResult& aRv);
+  void SetRangeStart(JSContext* aCx, JS::Handle<JS::Value> aValue,
+                     ErrorResult& aRv);
+  void SetRangeEnd(JSContext* aCx, JS::Handle<JS::Value> aValue,
+                   ErrorResult& aRv);
+
   Nullable<TimeDuration> GetCurrentTimeAsDuration() const {
     return GetCurrentTimeForHoldTime(mHoldTime);
   }
-  Nullable<double> GetCurrentTimeAsDouble() const;
   void SetCurrentTime(const TimeDuration& aSeekTime);
   void SetCurrentTimeNoUpdate(const TimeDuration& aSeekTime);
-  void SetCurrentTimeAsDouble(const Nullable<double>& aCurrentTime,
-                              ErrorResult& aRv);
 
   Nullable<double> GetOverallProgress() const;
 
@@ -343,13 +396,6 @@ class Animation : public DOMEventTargetHelper,
   }
 
   /**
-   * Returns true if this animation does not currently need to update
-   * style on the main thread (e.g. because it is empty, or is
-   * running on the compositor).
-   */
-  bool CanThrottle() const;
-
-  /**
    * Updates various bits of state that we need to update as the result of
    * running ComposeStyle().
    * See the comment of KeyframeEffect::WillComposeStyle for more detail.
@@ -433,6 +479,7 @@ class Animation : public DOMEventTargetHelper,
   }
 
   void UpdateNormalizedTimingForTimelineDataChange();
+  void MaybeUpdateKeyframeComputedOffsets();
 
   void SetHiddenByContentVisibility(bool hidden);
   bool IsHiddenByContentVisibility() const {
@@ -443,8 +490,22 @@ class Animation : public DOMEventTargetHelper,
   DocGroup* GetDocGroup();
 
   void PostUpdate();
+  bool MakeReadyAndMaybeTrigger();
 
   void AutoAlignStartTime();
+
+  ScopedTimelineName GetTimelineName() const {
+    return ScopedTimelineName{mTimelineName};
+  }
+
+  bool HasFiniteTimeline() const {
+    return mTimeline && !mTimeline->IsMonotonicallyIncreasing();
+  }
+
+  // True when CSSNumberish times for this animation are expressed as
+  // percentages, i.e. typed-OM is enabled and the animation is associated with
+  // a progress-based timeline.
+  bool AcceptsPercentageBasedTime() const;
 
  protected:
   void SilentlySetCurrentTime(const TimeDuration& aNewCurrentTime);
@@ -538,8 +599,9 @@ class Animation : public DOMEventTargetHelper,
   Document* GetRenderedDocument() const;
   Document* GetTimelineDocument() const;
 
-  bool HasFiniteTimeline() const {
-    return mTimeline && !mTimeline->IsMonotonicallyIncreasing();
+  bool HasFiniteActiveTimeline() const {
+    return mTimeline && !mTimeline->IsMonotonicallyIncreasing() &&
+           !mTimeline->IsUnresolvedTimeline();
   }
 
   RefPtr<AnimationTimeline> mTimeline;
@@ -626,6 +688,13 @@ class Animation : public DOMEventTargetHelper,
   // calculated until post layout since the start time is to align with the
   // start or end of the animation range.
   bool mAutoAlignStartTime = false;
+
+  // The name of the timeline this animation is referring to, if one exists.
+  // Note that animations can have a null timeline but have this set, if it
+  // refers to a timeline that does not exist by name.
+  // We must store the scoped context, since the rule introducing the timeline
+  // name may be at a different scope, even with the identical name.
+  OwningScopedTimelineName mTimelineName;
 };
 
 }  // namespace dom

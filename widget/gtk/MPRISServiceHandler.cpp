@@ -6,26 +6,26 @@
 #include "MPRISServiceHandler.h"
 
 #include <stdint.h>
-#include <inttypes.h>
+
 #include <unordered_map>
 
+#include "AsyncDBus.h"
 #include "MPRISInterfaceDescription.h"
-#include "mozilla/dom/MediaControlUtils.h"
+#include "WidgetUtilsGtk.h"
 #include "mozilla/GRefPtr.h"
 #include "mozilla/GUniquePtr.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/ScopeExit.h"
 #include "mozilla/Sprintf.h"
 #include "mozilla/XREAppData.h"
-#include "nsXULAppAPI.h"
-#include "nsIXULAppInfo.h"
+#include "mozilla/dom/MediaControlUtils.h"
+#include "nsAppRunner.h"
 #include "nsIOutputStream.h"
+#include "nsIXULAppInfo.h"
 #include "nsNetUtil.h"
 #include "nsServiceManagerUtils.h"
-#include "WidgetUtilsGtk.h"
-#include "AsyncDBus.h"
+#include "nsXULAppAPI.h"
 #include "prio.h"
-#include "nsAppRunner.h"
 
 #define LOGMPRIS(msg, ...)                   \
   MOZ_LOG(gMediaControlLog, LogLevel::Debug, \
@@ -560,16 +560,16 @@ GVariant* MPRISServiceHandler::GetPlaybackStatus() const {
 
 void MPRISServiceHandler::SetMediaMetadata(
     const dom::MediaMetadataBase& aMetadata) {
-  SetMediaMetadataInternal(aMetadata);
-
+  bool clearArt = true;
   for (const dom::MediaImageData& image : aMetadata.mArtwork) {
-    if (!image.mDataSurface) {
-      continue;
-    }
-
     if (mCurrentImageUrl == image.mSrc) {
       LOGMPRIS("Artwork image URL did not change");
+      clearArt = false;
       break;
+    }
+
+    if (!image.mDataSurface) {
+      continue;
     }
 
     uint32_t size = 0;
@@ -587,11 +587,13 @@ void MPRISServiceHandler::SetMediaMetadata(
 
     if (SetImageToDisplay(data, size)) {
       mCurrentImageUrl = image.mSrc;
+      clearArt = false;
       LOGMPRIS("The MPRIS image is updated to the image from: %s",
                NS_ConvertUTF16toUTF8(mCurrentImageUrl).get());
       break;
     }
   }
+  SetMediaMetadataInternal(aMetadata, clearArt);
 }
 
 bool MPRISServiceHandler::EmitMetadataChanged() const {
@@ -844,17 +846,33 @@ struct InterfaceProperty {
   const char* interface;
   const char* property;
 };
-MOZ_RUNINIT static const std::unordered_map<dom::MediaControlKey,
-                                            InterfaceProperty>
-    gKeyProperty = {
-        {dom::MediaControlKey::Focus, {DBUS_MPRIS_INTERFACE, "CanRaise"}},
-        {dom::MediaControlKey::Nexttrack,
-         {DBUS_MPRIS_PLAYER_INTERFACE, "CanGoNext"}},
-        {dom::MediaControlKey::Previoustrack,
-         {DBUS_MPRIS_PLAYER_INTERFACE, "CanGoPrevious"}},
-        {dom::MediaControlKey::Play, {DBUS_MPRIS_PLAYER_INTERFACE, "CanPlay"}},
-        {dom::MediaControlKey::Pause,
-         {DBUS_MPRIS_PLAYER_INTERFACE, "CanPause"}}};
+
+class MediaControlKeyToInterfaceProperty {
+  static constexpr std::pair<dom::MediaControlKey, InterfaceProperty>
+      mapping[] = {
+          {dom::MediaControlKey::Focus, {DBUS_MPRIS_INTERFACE, "CanRaise"}},
+          {dom::MediaControlKey::Nexttrack,
+           {DBUS_MPRIS_PLAYER_INTERFACE, "CanGoNext"}},
+          {dom::MediaControlKey::Previoustrack,
+           {DBUS_MPRIS_PLAYER_INTERFACE, "CanGoPrevious"}},
+          {dom::MediaControlKey::Play,
+           {DBUS_MPRIS_PLAYER_INTERFACE, "CanPlay"}},
+          {dom::MediaControlKey::Pause,
+           {DBUS_MPRIS_PLAYER_INTERFACE, "CanPause"}},
+  };
+
+ public:
+  auto find(dom::MediaControlKey Value) const {
+    // Linear scan has we have only a few entries. Could move to a LUT if that
+    // number were to grow.
+    return std::find_if(std::begin(mapping), std::end(mapping),
+                        [Value](const auto& kv) { return kv.first == Value; });
+  }
+  auto begin() const { return std::begin(mapping); }
+  auto end() const { return std::end(mapping); }
+};
+
+constexpr MediaControlKeyToInterfaceProperty gKeyProperty;
 
 void MPRISServiceHandler::SetSupportedMediaKeys(
     const MediaKeysArray& aSupportedKeys) {

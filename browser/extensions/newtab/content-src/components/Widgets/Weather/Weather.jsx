@@ -5,8 +5,11 @@
 import React, { useCallback, useEffect, useRef } from "react";
 import { useSelector, batch } from "react-redux";
 import { actionCreators as ac, actionTypes as at } from "common/Actions.mjs";
+import { PREF_WEATHER_SIZE } from "common/WidgetsRegistry.mjs";
 import { useIntersectionObserver } from "../../../lib/utils";
 import { LocationSearch } from "content-src/components/Weather/LocationSearch";
+import { SizeSubmenu } from "../SizeSubmenu";
+import { WidgetMenuFooter } from "../WidgetMenuFooter";
 
 const USER_ACTION_TYPES = {
   CHANGE_LOCATION: "change_location",
@@ -18,17 +21,40 @@ const USER_ACTION_TYPES = {
   PROVIDER_LINK_CLICK: "provider_link_click",
 };
 
-const PREF_WEATHER_SIZE = "widgets.weather.size";
+const WEATHER_PROVIDER = "AccuWeather®";
 
-function Weather({ dispatch, size }) {
+function SponsoredText({ size }) {
+  if (size === "small") {
+    return (
+      <span className="sponsored-text" aria-hidden="true">
+        {WEATHER_PROVIDER}
+      </span>
+    );
+  }
+  return (
+    <span
+      className="sponsored-text"
+      aria-hidden="true"
+      data-l10n-id="newtab-weather-sponsored"
+      data-l10n-args={JSON.stringify({ provider: WEATHER_PROVIDER })}
+    />
+  );
+}
+
+function Weather({ dispatch, size, widgetEnabledMap }) {
   const prefs = useSelector(state => state.Prefs.values);
   const weatherData = useSelector(state => state.Weather);
   const impressionFired = useRef(false);
   const errorTelemetrySent = useRef(false);
   const errorRef = useRef(null);
-  const sizeSubmenuRef = useRef(null);
-
   const currentWeatherSize = prefs[PREF_WEATHER_SIZE] || "medium";
+  const trainhopWidgetsEnabled = prefs.trainhopConfig?.widgets?.enabled;
+  const widgetsSystemEnabled =
+    trainhopWidgetsEnabled || prefs["widgets.system.enabled"];
+  const widgetsEnabled = trainhopWidgetsEnabled || prefs["widgets.enabled"];
+  const widgetsMayBeMaximized =
+    prefs.trainhopConfig?.widgets?.maximized ||
+    prefs["widgets.system.maximized"];
 
   const handleChangeSize = useCallback(
     newSize => {
@@ -58,21 +84,6 @@ function Weather({ dispatch, size }) {
     },
     [dispatch]
   );
-
-  useEffect(() => {
-    const el = sizeSubmenuRef.current;
-    if (!el) {
-      return undefined;
-    }
-    const listener = e => {
-      const item = e.composedPath().find(node => node.dataset?.size);
-      if (item) {
-        handleChangeSize(item.dataset.size);
-      }
-    };
-    el.addEventListener("click", listener);
-    return () => el.removeEventListener("click", listener);
-  }, [handleChangeSize]);
 
   const handleIntersection = useCallback(() => {
     if (impressionFired.current) {
@@ -137,6 +148,11 @@ function Weather({ dispatch, size }) {
     return undefined;
   }, [handleErrorIntersection, hasError]);
 
+  // Must be declared before the early return to satisfy React's Rules of Hooks.
+  const handleOptInLocationSelected = useCallback(() => {
+    dispatch(ac.SetPref("weather.optInAccepted", true));
+  }, [dispatch]);
+
   if (!weatherData?.initialized || !isWeatherEnabled) {
     return null;
   }
@@ -145,9 +161,13 @@ function Weather({ dispatch, size }) {
   const nimbusWeatherOptInEnabled =
     prefs.trainhopConfig?.weather?.weatherOptInEnabled;
   const isOptInEnabled = weatherOptIn || nimbusWeatherOptInEnabled;
-  const optInDisplayed = prefs["weather.optInDisplayed"];
   const optInUserChoice = prefs["weather.optInAccepted"];
-  const showOptInState = isOptInEnabled && optInDisplayed && !optInUserChoice;
+  // Show the opt-in prompt whenever opt-in is required and the user has not yet
+  // accepted, independent of weather.optInDisplayed. The Nova widget has no
+  // reject button, so the only path to optInDisplayed=false is acceptance (which
+  // sets optInAccepted=true); gating on optInDisplayed previously let real
+  // location weather render for users migrated from a legacy reject (Bug 2046143).
+  const showOptInState = isOptInEnabled && !optInUserChoice;
 
   const { searchActive } = weatherData;
 
@@ -220,53 +240,18 @@ function Weather({ dispatch, size }) {
     });
   }
 
-  function handleHideWeather() {
-    batch(() => {
-      dispatch(
-        ac.OnlyToMain({
-          type: at.SET_PREF,
-          data: {
-            name: "widgets.weather.enabled",
-            value: false,
-          },
-        })
-      );
-      dispatch(
-        ac.OnlyToMain({
-          type: at.WIDGETS_ENABLED,
-          data: {
-            widget_name: "weather",
-            widget_source: "context_menu",
-            enabled: false,
-            widget_size: size,
-          },
-        })
-      );
-    });
-  }
-
   function handleLearnMore() {
-    batch(() => {
-      dispatch(
-        ac.OnlyToMain({
-          type: at.OPEN_LINK,
-          data: {
-            url: "https://support.mozilla.org/kb/firefox-new-tab-widgets",
-          },
-        })
-      );
-      dispatch(
-        ac.OnlyToMain({
-          type: at.WIDGETS_USER_EVENT,
-          data: {
-            widget_name: "weather",
-            widget_source: "context_menu",
-            user_action: USER_ACTION_TYPES.LEARN_MORE,
-            widget_size: size,
-          },
-        })
-      );
-    });
+    dispatch(
+      ac.OnlyToMain({
+        type: at.WIDGETS_USER_EVENT,
+        data: {
+          widget_name: "weather",
+          widget_source: "context_menu",
+          user_action: USER_ACTION_TYPES.LEARN_MORE,
+          widget_size: size,
+        },
+      })
+    );
   }
 
   function handleProviderLinkClick() {
@@ -283,8 +268,35 @@ function Weather({ dispatch, size }) {
     );
   }
 
-  // Bug 2029823 - Opt-in UI to be implemented
-  // eslint-disable-next-line no-unused-vars
+  function handleOptInChooseLocation() {
+    batch(() => {
+      dispatch(
+        ac.AlsoToMain({
+          type: at.WEATHER_OPT_IN_PROMPT_SELECTION,
+          data: "choose_location",
+        })
+      );
+      dispatch(
+        ac.BroadcastToContent({
+          type: at.WEATHER_SEARCH_ACTIVE,
+          data: true,
+        })
+      );
+      dispatch(
+        ac.OnlyToMain({
+          type: at.WIDGETS_USER_EVENT,
+          data: {
+            widget_name: "weather",
+            widget_source: "widget",
+            user_action: USER_ACTION_TYPES.OPT_IN_ACCEPTED,
+            widget_size: size,
+            action_value: "choose_location",
+          },
+        })
+      );
+    });
+  }
+
   function handleAcceptOptIn() {
     batch(() => {
       dispatch(
@@ -295,7 +307,7 @@ function Weather({ dispatch, size }) {
       dispatch(
         ac.AlsoToMain({
           type: at.WEATHER_OPT_IN_PROMPT_SELECTION,
-          data: "accepted opt-in",
+          data: "use_location",
         })
       );
       dispatch(
@@ -306,34 +318,7 @@ function Weather({ dispatch, size }) {
             widget_source: "widget",
             user_action: USER_ACTION_TYPES.OPT_IN_ACCEPTED,
             widget_size: size,
-            action_value: true,
-          },
-        })
-      );
-    });
-  }
-
-  // Bug 2029823 - Opt-in UI to be implemented
-  // eslint-disable-next-line no-unused-vars
-  function handleRejectOptIn() {
-    batch(() => {
-      dispatch(ac.SetPref("weather.optInAccepted", false));
-      dispatch(ac.SetPref("weather.optInDisplayed", false));
-      dispatch(
-        ac.AlsoToMain({
-          type: at.WEATHER_OPT_IN_PROMPT_SELECTION,
-          data: "rejected opt-in",
-        })
-      );
-      dispatch(
-        ac.OnlyToMain({
-          type: at.WIDGETS_USER_EVENT,
-          data: {
-            widget_name: "weather",
-            widget_source: "widget",
-            user_action: USER_ACTION_TYPES.OPT_IN_ACCEPTED,
-            widget_size: size,
-            action_value: false,
+            action_value: "use_location",
           },
         })
       );
@@ -351,8 +336,11 @@ function Weather({ dispatch, size }) {
           type="ghost"
           size="small"
         />
-        <panel-list id="weather-widget-context-menu">
-          {!isOptInEnabled &&
+        <panel-list
+          className="panel-list-no-icons"
+          id="weather-widget-context-menu"
+        >
+          {!showOptInState &&
             (prefs["weather.temperatureUnits"] === "f" ? (
               <panel-item
                 data-l10n-id="newtab-weather-menu-change-temperature-units-celsius"
@@ -364,63 +352,76 @@ function Weather({ dispatch, size }) {
                 onClick={() => handleChangeTempUnit("f")}
               />
             ))}
-          {prefs["weather.locationSearchEnabled"] && (
+          {!showOptInState && prefs["weather.locationSearchEnabled"] && (
             <panel-item
               data-l10n-id="newtab-weather-menu-change-location"
               onClick={handleChangeLocation}
             />
           )}
-          {isOptInEnabled && (
+          {!showOptInState && isOptInEnabled && (
             <panel-item
               data-l10n-id="newtab-weather-menu-detect-my-location"
               onClick={handleDetectLocation}
             />
           )}
-          {/* Only show size options when both system and user prefs are enabled;
-              medium/large sizes require the widgets row, which only renders when both are true. */}
-          {prefs["widgets.system.enabled"] && prefs["widgets.enabled"] && (
-            <panel-item
-              submenu="weather-widget-size-submenu"
-              data-l10n-id="newtab-widget-menu-change-size"
-            >
-              <panel-list
-                ref={sizeSubmenuRef}
-                slot="submenu"
-                id="weather-widget-size-submenu"
-              >
-                {["small", "medium", "large"].map(s => (
-                  <panel-item
-                    key={s}
-                    type="checkbox"
-                    checked={currentWeatherSize === s || undefined}
-                    data-size={s}
-                    data-l10n-id={`newtab-widget-size-${s}`}
-                  />
-                ))}
-              </panel-list>
-            </panel-item>
-          )}
-          <panel-item
-            data-l10n-id="newtab-widget-menu-hide"
-            onClick={handleHideWeather}
-          />
-          <panel-item
-            data-l10n-id="newtab-weather-menu-learn-more"
-            onClick={handleLearnMore}
+          <WidgetMenuFooter
+            dispatch={dispatch}
+            widgetId="weather"
+            widgetEnabledMap={widgetEnabledMap}
+            widgetName="weather"
+            enabledPref="widgets.weather.enabled"
+            widgetSize={size}
+            learnMoreL10nId="newtab-weather-menu-learn-more"
+            onLearnMore={handleLearnMore}
+            showDivider={!showOptInState}
+            sizeSubmenu={
+              /* Only show size options when both system and user prefs are enabled;
+                 medium/large sizes require the widgets row, which only renders when both are true.
+                 trainhopConfig.widgets.enabled overrides either system or user pref so
+                 an experiment payload can drive the submenu without flipping local prefs. */
+              widgetsSystemEnabled &&
+              widgetsEnabled &&
+              widgetsMayBeMaximized && (
+                <SizeSubmenu
+                  submenuId="weather-size-submenu"
+                  sizes={["small", "medium", "large"]}
+                  checkedSize={currentWeatherSize}
+                  onChangeSize={handleChangeSize}
+                />
+              )
+            }
           />
         </panel-list>
       </div>
     );
   }
 
+  function getArticleClassNames() {
+    return [
+      "weather-widget",
+      "col-4",
+      `${size}-widget`,
+      // weather-error-state is suppressed during opt-in so the error UI does
+      // not overlap or push the opt-in layout out of its container.
+      hasError && !showOptInState && "weather-error-state",
+      // weather-opt-in is suppressed while search is active so the opt-in
+      // layout styles don't conflict with the search UI layout.
+      showOptInState && !searchActive && "weather-opt-in",
+      // weather-search-active hides weather content and expands small widgets to 4-col.
+      searchActive && "weather-search-active",
+    ]
+      .filter(Boolean)
+      .join(" ");
+  }
+
   return (
     <article
-      className={`weather-widget col-4 ${size}-widget${hasError ? " weather-error-state" : ""}`}
+      className={getArticleClassNames()}
       ref={el => {
         weatherRef.current = [el];
       }}
     >
-      {!hasError && (
+      {!hasError && !showOptInState && (
         <a
           className="weather-anchor"
           href={
@@ -434,23 +435,57 @@ function Weather({ dispatch, size }) {
       )}
       <div className="widget-title-bar">
         <div className="widget-title">
-          {searchActive ? (
-            <LocationSearch outerClassName="" />
-          ) : (
+          {!showOptInState && !searchActive && (
             <h3>{weatherData.locationData.city}</h3>
           )}
         </div>
-        {renderContextMenu()}
+        {!searchActive && renderContextMenu()}
       </div>
-      {hasError && (
-        <div className="forecast-error" ref={errorRef}>
+      {hasError && !showOptInState && (
+        <div className="weather-error" ref={errorRef}>
           <span className="icon icon-info-warning" />{" "}
           <p data-l10n-id="newtab-weather-error-not-available"></p>
         </div>
       )}
+      {/* Search  */}
+      {searchActive && (
+        <div className="weather-search-container">
+          <LocationSearch
+            outerClassName=""
+            onLocationSelected={
+              showOptInState ? handleOptInLocationSelected : undefined
+            }
+          />
+        </div>
+      )}
+
       {showOptInState ? (
-        // Bug 2029823 - Opt-in UI placeholder
-        <div className="weather-opt-in-container" />
+        !searchActive && (
+          <div className="weather-opt-in-container">
+            <div className="weather-opt-in-container-title-bar">
+              <div className="weather-icon-column">
+                <span className="weather-icon iconId3" />
+              </div>
+              <h3
+                className="weather-opt-in-container-title"
+                data-l10n-id="newtab-weather-opt-in-headline"
+              />
+            </div>
+            <div className="weather-opt-in-container-buttons">
+              <moz-button
+                data-l10n-id="newtab-weather-opt-in-use-location"
+                onClick={handleAcceptOptIn}
+                type="primary"
+                size={size === "small" ? "small" : undefined}
+              />
+              <button
+                className="weather-text-link"
+                onClick={handleOptInChooseLocation}
+                data-l10n-id="newtab-weather-opt-in-choose-location"
+              />
+            </div>
+          </div>
+        )
       ) : (
         <>
           <div className="weather-container">
@@ -458,7 +493,9 @@ function Weather({ dispatch, size }) {
               <div className="weather-conditions-view">
                 <a
                   data-l10n-id="newtab-weather-see-forecast-description"
-                  data-l10n-args='{"provider": "AccuWeather®"}'
+                  data-l10n-args={JSON.stringify({
+                    provider: WEATHER_PROVIDER,
+                  })}
                   data-l10n-attrs="aria-description"
                   href={WEATHER_SUGGESTION.forecast.url}
                   className="weather-info-link"
@@ -512,6 +549,7 @@ function Weather({ dispatch, size }) {
                     </div>
                   </div>
                 </a>
+                {size === "medium" && <SponsoredText size={size} />}
               </div>
             )}
             {!hasError && showForecast && (
@@ -545,14 +583,9 @@ function Weather({ dispatch, size }) {
               </div>
             )}
           </div>
-          {!hasError && (
+          {!hasError && size !== "medium" && (
             <div className="forecast-footer">
-              <span
-                className="sponsored-text"
-                aria-hidden="true"
-                data-l10n-id="newtab-weather-sponsored"
-                data-l10n-args='{"provider": "AccuWeather®"}'
-              ></span>
+              <SponsoredText size={size} />
               {showForecast && (
                 <a
                   className="full-forecast"

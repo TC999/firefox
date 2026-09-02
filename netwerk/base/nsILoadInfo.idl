@@ -34,6 +34,7 @@ class ClientInfo;
 class ClientSource;
 struct FeaturePolicyInfo;
 class PerformanceStorage;
+struct RemoteType;
 class ServiceWorkerDescriptor;
 enum class RequestMode : uint8_t;
 enum class ForceMediaDocument : uint8_t;
@@ -64,6 +65,8 @@ native OriginAttributes(mozilla::OriginAttributes);
 [ref] native const_FeaturePolicyInfoRef(const mozilla::dom::FeaturePolicyInfo);
       native MaybeRequestMode(mozilla::Maybe<mozilla::dom::RequestMode>);
       native ForceMediaDocument(mozilla::dom::ForceMediaDocument);
+[ref] native RemoteType(mozilla::dom::RemoteType);
+[ref] native const_RemoteTypeRef(const mozilla::dom::RemoteType);
 
 typedef unsigned long nsSecurityFlags;
 
@@ -339,7 +342,11 @@ interface nsILoadInfo : nsISupports
    * reset to the remote type of the sending process when sent from a content
    * process to the parent process.
    */
-  attribute AUTF8String triggeringRemoteType;
+  [binaryname(XPCOMTriggeringRemoteType)]
+  readonly attribute AUTF8String triggeringRemoteType;
+
+  [noscript] RemoteType getTriggeringRemoteType();
+  [noscript] void setTriggeringRemoteType(in const_RemoteTypeRef aTriggeringRemoteType);
 
   /**
    * For non-document loads the principalToInherit is always null. For
@@ -732,6 +739,13 @@ interface nsILoadInfo : nsISupports
   [infallible] attribute boolean isMetaRefresh;
 
   /**
+   * True if this navigation was served from a completed navigational prefetch.
+   * Diagnostics only (profiler network markers); don't gate behaviour on it.
+   * https://wicg.github.io/nav-speculation/prefetch.html
+   */
+  [infallible] attribute boolean activatedFromNavigationalPrefetch;
+
+  /**
    * If forceInheritPrincipal is true, the data coming from the channel should
    * inherit its principal, even when the data is loaded over http:// or another
    * protocol that would normally use a URI-based principal.
@@ -963,19 +977,14 @@ interface nsILoadInfo : nsISupports
   [infallible] readonly attribute BrowsingContext browsingContext;
 
   /**
-   * The BrowsingContext which the worker is associated.
+   * The BrowsingContextID that a request such as fetch() or importScripts() is
+   * associated with.
    *
-   * When used with workers:
-   * Note that this could be 0 if the load is not triggered in a WorkerScope.
-   * This value is only set and used in the parent process for some sitautions
-   * the channel is created in the parent process for Workers. Such as fetch().
-   * In content process, it is always 0.
-   * This value would not be propagated through IPC.
-   *
-   * When used for Reporting API:
-   * Fetch is used send reports to endpoints. The associated bc ID is
+   * Fetch is used to send reports to endpoints. The associated bc ID is
    * used so that a web developer can track the sending of reports in devtools,
    * by ultimately setting the browsing context ID on a LoadInfo object.
+   *
+   * This will be 0 when the request is from a SharedWorker or ServiceWorker.
    */
   [infallible] attribute unsigned long long associatedBrowsingContextID;
   [infallible] readonly attribute BrowsingContext associatedBrowsingContext;
@@ -1621,17 +1630,12 @@ interface nsILoadInfo : nsISupports
    * credentialless enabled in Origin Trial.
    */
   [infallible] attribute boolean isOriginTrialCoepCredentiallessEnabledForTopLevel;
+
   /**
    * This attribute will be true if this is a load triggered by a media
    * element.
    */
   [infallible] attribute boolean isMediaRequest;
-
-  /**
-   * This attribute will be true if this is a load triggered by a media
-   * element and it's an initial request.
-   */
-  [infallible] attribute boolean isMediaInitialRequest;
 
   /**
    * This attribute will be true if the fetch request is from object or embed
@@ -1657,12 +1661,6 @@ interface nsILoadInfo : nsISupports
   [noscript, notxpcom, nostdcall, binaryname(SetInterceptionInfo)]
   void binarySetInterceptionInfo(in nsIInterceptionInfo info);
 
-  /**
-   * Whether nsICookieInjector has injected a cookie for this request to
-   * handle a cookie banner. This is only done for top-level requests.
-   */
-  [infallible] attribute boolean hasInjectedCookieForCookieBannerHandling;
-
   cenum SchemelessInputType : 8 {
     SchemelessInputTypeUnset = 0,
     SchemelessInputTypeSchemeful = 1,
@@ -1675,20 +1673,21 @@ interface nsILoadInfo : nsISupports
 
   cenum HTTPSUpgradeTelemetryType : 32 {
     NOT_INITIALIZED = 0,
-    NO_UPGRADE = (1 << 0),
-    ALREADY_HTTPS = (1 << 1),
-    HSTS = (1 << 2),
-    HTTPS_ONLY_UPGRADE = (1 << 3),
-    HTTPS_ONLY_UPGRADE_DOWNGRADE = (1 << 4),
-    HTTPS_FIRST_UPGRADE = (1 << 5),
-    HTTPS_FIRST_UPGRADE_DOWNGRADE = (1 << 6),
-    HTTPS_FIRST_SCHEMELESS_UPGRADE = (1 << 7),
-    HTTPS_FIRST_SCHEMELESS_UPGRADE_DOWNGRADE = (1 << 8),
-    CSP_UIR = (1 << 9),
-    HTTPS_RR = (1 << 10),
-    WEB_EXTENSION_UPGRADE = (1 << 11),
-    UPGRADE_EXCEPTION = (1 << 12),
-    SKIP_HTTPS_UPGRADE = (1 << 13),
+    NO_UPGRADE = 1,
+    ALREADY_HTTPS = 2,
+    HSTS = 3,
+    HTTPS_ONLY_UPGRADE = 4,
+    HTTPS_ONLY_UPGRADE_DOWNGRADE = 5,
+    HTTPS_FIRST_UPGRADE = 6,
+    HTTPS_FIRST_UPGRADE_DOWNGRADE = 7,
+    HTTPS_FIRST_SCHEMELESS_UPGRADE = 8,
+    HTTPS_FIRST_SCHEMELESS_UPGRADE_DOWNGRADE = 9,
+    CSP_UIR = 10,
+    HTTPS_RR = 11,
+    WEB_EXTENSION_UPGRADE = 12,
+    UPGRADE_EXCEPTION = 13,
+    SKIP_HTTPS_UPGRADE = 14,
+    /* Don't forget to update DomSecurityIPCUtils.h */
   };
 
   /**

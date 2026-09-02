@@ -14,7 +14,9 @@
   let imports = {};
   ChromeUtils.defineESModuleGetters(imports, {
     DeferredTask: "resource://gre/modules/DeferredTask.sys.mjs",
+    KeyboardLockUtils: "resource://gre/modules/KeyboardLockUtils.sys.mjs",
     ShortcutUtils: "resource://gre/modules/ShortcutUtils.sys.mjs",
+    XPCOMUtils: "resource://gre/modules/XPCOMUtils.sys.mjs",
   });
 
   const DIRECTION_BACKWARD = -1;
@@ -116,17 +118,27 @@
         return;
       }
 
-      // Skip if chrome code has cancelled this:
-      if (event.defaultPreventedByChrome) {
+      // Skip if chrome code has cancelled this
+      // or keyboard lock & webcontent default prevented it
+      if (event.defaultPrevented) {
         return;
       }
 
       // Don't check if the event was already consumed because tab
       // navigation should always work for better user experience.
 
-      const { ShortcutUtils } = imports;
+      const { KeyboardLockUtils, ShortcutUtils } = imports;
 
-      switch (ShortcutUtils.getSystemActionForEvent(event)) {
+      const action = ShortcutUtils.getSystemActionForEvent(event);
+      // If we don't have an action, don't request reply.
+      if (
+        action != null &&
+        KeyboardLockUtils.mustWaitForKeyboardLockRequestedReply(event)
+      ) {
+        return;
+      }
+
+      switch (action) {
         case ShortcutUtils.CYCLE_TABS:
           Glean.browserUiInteraction.keyboard["ctrl-tab"].add(1);
           Services.prefs.setBoolPref(
@@ -136,20 +148,21 @@
           if (this.tabs && this.handleCtrlTab) {
             this.tabs.advanceSelectedTab(
               event.shiftKey ? DIRECTION_BACKWARD : DIRECTION_FORWARD,
-              true
+              true,
+              event
             );
             event.preventDefault();
           }
           break;
         case ShortcutUtils.PREVIOUS_TAB:
           if (this.tabs) {
-            this.tabs.advanceSelectedTab(DIRECTION_BACKWARD, true);
+            this.tabs.advanceSelectedTab(DIRECTION_BACKWARD, true, event);
             event.preventDefault();
           }
           break;
         case ShortcutUtils.NEXT_TAB:
           if (this.tabs) {
-            this.tabs.advanceSelectedTab(DIRECTION_FORWARD, true);
+            this.tabs.advanceSelectedTab(DIRECTION_FORWARD, true, event);
             event.preventDefault();
           }
           break;
@@ -331,11 +344,37 @@
       Glean.splitview.resize.record({ width: widthPercentage });
     }
 
+    /**
+     * Reflect the column of the currently selected split view panel onto the
+     * root element, so that chrome outside of the tabbox (e.g. the sidebar
+     * splitters) can react to it without needing an expensive :has() selector.
+     */
+    #updateSelectedSplitViewColumn() {
+      const panel = this.selectedPanel;
+      const column =
+        this.hasAttribute("splitview") &&
+        panel?.classList.contains("split-view-panel")
+          ? panel.getAttribute("column")
+          : null;
+      const root = this.ownerDocument.documentElement;
+      if (column === null) {
+        root.removeAttribute("splitview-selected-column");
+      } else {
+        root.setAttribute("splitview-selected-column", column);
+      }
+    }
+
+    updateSelectedIndex(...args) {
+      super.updateSelectedIndex(...args);
+      this.#updateSelectedSplitViewColumn();
+    }
+
     handleEvent(e) {
-      const browser =
-        e.currentTarget.tagName === "browser"
-          ? e.currentTarget
-          : e.currentTarget.querySelector("browser");
+      const validBrowserTargetSelector =
+        "browser:not(.devtools-toolbox-iframe)";
+      const browser = e.currentTarget.matches(validBrowserTargetSelector)
+        ? e.currentTarget
+        : e.currentTarget.querySelector(validBrowserTargetSelector);
       let elToFocus = null;
       switch (e.type) {
         case "click":
@@ -427,7 +466,7 @@
         // frames width
         if (controlledPanel.hasAttribute("width")) {
           const storedWidth = Number(controlledPanel.getAttribute("width"));
-          if (storedWidth != currentWidth) {
+          if (storedWidth > maxWidth) {
             controlledPanel.setAttribute("width", currentWidth);
             controlledPanel.style.width = currentWidth + "px";
           }
@@ -493,7 +532,9 @@
         const panelEl = document.getElementById(panel);
         panelEl?.classList.add("split-view-panel");
         panelEl?.setAttribute("column", i);
-        const browser = panelEl?.querySelector("browser");
+        const browser = panelEl?.querySelector(
+          "browser:not(.devtools-toolbox-iframe)"
+        );
         const browserContainer = panelEl?.querySelector(".browserContainer");
         for (const eventType of MozTabpanels.#SPLIT_VIEW_PANEL_EVENTS) {
           browserContainer?.addEventListener(eventType, this);
@@ -520,7 +561,9 @@
         panelEl?.classList.remove("split-view-panel");
         panelEl?.classList.remove("split-view-panel-active");
         panelEl?.removeAttribute("column");
-        const browser = panelEl?.querySelector("browser");
+        const browser = panelEl?.querySelector(
+          "browser:not(.devtools-toolbox-iframe)"
+        );
         const browserContainer = panelEl?.querySelector(".browserContainer");
 
         for (const eventType of MozTabpanels.#SPLIT_VIEW_PANEL_EVENTS) {
@@ -538,40 +581,34 @@
     }
 
     /**
+     * Temporarily hide split view panels when switching to a non-split-view tab.
+     * Preserves the split-view-panel class and column attribute so panels re-enter
+     * the flex layout at their correct size when reactivated.
+     *
+     * @param {MozTabbrowserTab[]} tabs
+     */
+    suspendSplitViewPanels(tabs) {
+      for (const tab of tabs) {
+        const panelEl = document.getElementById(tab.linkedPanel);
+        panelEl?.classList.remove("split-view-panel-active");
+      }
+      this.setSplitViewActive(!!this.#splitViewPanels.length);
+    }
+
+    /**
      * Updates attributes on panels such as the blue outline for active splitview tabs,
      * panel ordering and aria attributes.
      *
      * @param {boolean} updatedValue
      */
     setSplitViewActive(updatedValue) {
-      let isActive = gBrowser.selectedTab.splitview && updatedValue;
-      this.toggleAttribute("splitview", isActive);
-      this.splitViewSplitter.hidden = !isActive;
+      const splitViewTabSelected =
+        gBrowser.selectedTab.splitview && updatedValue;
+      this.toggleAttribute("splitview", updatedValue);
+      this.splitViewSplitter.hidden = !splitViewTabSelected;
       const selectedPanel = this.selectedPanel;
 
-      /**
-       * Check whether `node` follows `a` in DOM order, and optionally
-       * precedes `b`.
-       *
-       * @param {Node} node - The node to test.
-       * @param {Node} a - `node` must follow this element.
-       * @param {Node} [b] - If provided, `node` must also precede this element.
-       * @returns {boolean}
-       */
-      const isBetween = (node, a, b = null) => {
-        const isAfterA = Boolean(
-          node.compareDocumentPosition(a) & Node.DOCUMENT_POSITION_PRECEDING
-        );
-        if (!b) {
-          return isAfterA;
-        }
-        const isBeforeB = Boolean(
-          node.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING
-        );
-        return isAfterA && isBeforeB;
-      };
-
-      if (isActive) {
+      if (splitViewTabSelected) {
         // Ensure panels are in the correct DOM order so that focus moves
         // as expected when tabbing across a splitview
         const firstPanel = document.getElementById(this.splitViewPanels[0]);
@@ -590,7 +627,7 @@
         // Ensure the splitter is in-between the panels
         if (
           firstPanel &&
-          !isBetween(this.#splitViewSplitter, firstPanel, secondPanel)
+          firstPanel.nextElementSibling !== this.#splitViewSplitter
         ) {
           firstPanel.after(this.#splitViewSplitter);
         }
@@ -598,6 +635,7 @@
       // Ensure that selected index stays up to date, in case the splitter
       // offsets it.
       this.selectedPanel = selectedPanel;
+      this.#updateSelectedSplitViewColumn();
       // Update aria attributes
       this.#splitterAriaUpdateTask.arm();
     }
@@ -773,17 +811,12 @@
     }
 
     get selected() {
-      return this.getAttribute("selected") == "true";
+      return this.hasAttribute("selected");
     }
 
     set _selected(val) {
-      if (val) {
-        this.setAttribute("selected", "true");
-        this.setAttribute("visuallyselected", "true");
-      } else {
-        this.removeAttribute("selected");
-        this.removeAttribute("visuallyselected");
-      }
+      this.toggleAttribute("selected", val);
+      this.toggleAttribute("visuallyselected", val);
     }
 
     /** @returns {boolean} */
@@ -808,19 +841,43 @@
   const ARIA_FOCUSED_CLASS_NAME = "tablist-keyboard-focus";
 
   class TabsBase extends MozElements.BaseControl {
+    #scrollHandler = event => {
+      if (event.detail > 0) {
+        this.advanceSelectedTab(DIRECTION_FORWARD, false, event);
+      } else {
+        this.advanceSelectedTab(DIRECTION_BACKWARD, false, event);
+      }
+      // Preventing the default action of the legacy event also prevents it for
+      // the wheel event it came from, so the tabs don't scroll as well.
+      event.preventDefault();
+      event.stopPropagation();
+    };
+
     constructor() {
       super();
 
-      this.addEventListener("DOMMouseScroll", event => {
-        if (Services.prefs.getBoolPref("toolkit.tabbox.switchByScrolling")) {
-          if (event.detail > 0) {
-            this.advanceSelectedTab(DIRECTION_FORWARD, false);
-          } else {
-            this.advanceSelectedTab(DIRECTION_BACKWARD, false);
-          }
-          event.stopPropagation();
-        }
-      });
+      imports.XPCOMUtils.defineLazyPreferenceGetter(
+        this,
+        "switchByScrolling",
+        "toolkit.tabbox.switchByScrolling",
+        false,
+        () => this.updateWheelListeners()
+      );
+      this.updateWheelListeners();
+    }
+
+    /**
+     * Wheel-type listeners are registered only while switching tabs by scrolling
+     * is enabled, because they are APZ-aware: registering them unconditionally
+     * would make APZ wait for the main thread before it can scroll. A subclass
+     * that has wheel-type listeners of its own extends this.
+     */
+    updateWheelListeners() {
+      if (this.switchByScrolling) {
+        this.addEventListener("DOMMouseScroll", this.#scrollHandler);
+      } else {
+        this.removeEventListener("DOMMouseScroll", this.#scrollHandler);
+      }
     }
 
     // to be called from derived class connectedCallback
@@ -843,7 +900,7 @@
       let children = this.allTabs;
       let length = children.length;
       for (var i = 0; i < length; i++) {
-        if (children[i].getAttribute("selected") == "true") {
+        if (children[i].hasAttribute("selected")) {
           this.selectedIndex = i;
           return;
         }
@@ -1170,8 +1227,10 @@
      *
      * @param {-1|1} [aDir]
      * @param {boolean} [aWrap]
+     * @param {Event} [aEvent] The DOM event that triggered this call.
      */
-    advanceSelectedTab(aDir, aWrap) {
+    // eslint-disable-next-line no-unused-vars
+    advanceSelectedTab(aDir, aWrap, aEvent) {
       let { ariaFocusedItem } = this;
       let startTab = ariaFocusedItem;
       if (!ariaFocusedItem || !this.allTabs.includes(ariaFocusedItem)) {

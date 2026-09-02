@@ -143,13 +143,7 @@ class AOMDecoder final : public MediaDataDecoder,
     // seq_tier[ i ]: The tier for the selected operating point.
     uint8_t mTier = 0;
 
-    bool operator==(const OperatingPoint& aOther) const {
-      return mLayers == aOther.mLayers && mLevel == aOther.mLevel &&
-             mTier == aOther.mTier;
-    }
-    bool operator!=(const OperatingPoint& aOther) const {
-      return !(*this == aOther);
-    }
+    bool operator==(const OperatingPoint& aOther) const = default;
   };
 
   struct AV1SequenceInfo {
@@ -238,6 +232,13 @@ class AOMDecoder final : public MediaDataDecoder,
   //    Other errors will indicate that the data was corrupt.
   static MediaResult ReadSequenceHeaderInfo(const Span<const uint8_t>& aSample,
                                             AV1SequenceInfo& aDestInfo);
+
+  // Parse SMPTE ST 2086 mastering display and CTA-861.3 content light level
+  // from an AV1 sample's Metadata OBUs.
+  // Returns Nothing if neither metadata type is present.
+  static mozilla::Maybe<mozilla::gfx::HDRMetadata> ReadMetadataOBUHDR(
+      const Span<const uint8_t>& aSample);
+
   // Writes a sequence header OBU to the buffer.
   static already_AddRefed<MediaByteBuffer> CreateSequenceHeader(
       const AV1SequenceInfo& aInfo, nsresult& aResult);

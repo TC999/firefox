@@ -5,25 +5,38 @@
 #include "VectorImage.h"
 
 #include "AutoRestoreSVGState.h"
+#include "BlobSurfaceProvider.h"
+#include "ISurfaceProvider.h"
+#include "ImageRegion.h"
+#include "LookupResult.h"
+#include "Orientation.h"
+#include "SVGDocumentWrapper.h"
+#include "SVGDrawingCallback.h"
+#include "SVGDrawingParameters.h"
+#include "SurfaceCache.h"
+#include "WindowRenderer.h"
 #include "gfx2DGlue.h"
 #include "gfxContext.h"
 #include "gfxDrawable.h"
 #include "gfxPlatform.h"
 #include "gfxUtils.h"
 #include "imgFrame.h"
-#include "mozilla/MemoryReporting.h"
 #include "mozilla/MediaFeatureChange.h"
-#include "mozilla/dom/Event.h"
-#include "mozilla/dom/SVGSVGElement.h"
-#include "mozilla/dom/SVGDocument.h"
-#include "mozilla/gfx/2D.h"
+#include "mozilla/MemoryReporting.h"
 #include "mozilla/PresShell.h"
 #include "mozilla/ProfilerLabels.h"
 #include "mozilla/RefPtr.h"
-#include "mozilla/StaticPrefs_image.h"
 #include "mozilla/SVGObserverUtils.h"  // for SVGRenderingObserver
 #include "mozilla/SVGUtils.h"
-
+#include "mozilla/StaticPrefs_image.h"
+#include "mozilla/dom/Document.h"
+#include "mozilla/dom/DocumentInlines.h"
+#include "mozilla/dom/Event.h"
+#include "mozilla/dom/SVGDocument.h"
+#include "mozilla/dom/SVGSVGElement.h"
+#include "mozilla/gfx/2D.h"
+#include "mozilla/image/Resolution.h"
+#include "nsIDOMEventListener.h"
 #include "nsIStreamListener.h"
 #include "nsMimeTypes.h"
 #include "nsPresContext.h"
@@ -31,20 +44,6 @@
 #include "nsString.h"
 #include "nsStubDocumentObserver.h"
 #include "nsWindowSizes.h"
-#include "ImageRegion.h"
-#include "ISurfaceProvider.h"
-#include "LookupResult.h"
-#include "Orientation.h"
-#include "SVGDocumentWrapper.h"
-#include "SVGDrawingCallback.h"
-#include "SVGDrawingParameters.h"
-#include "nsIDOMEventListener.h"
-#include "SurfaceCache.h"
-#include "BlobSurfaceProvider.h"
-#include "mozilla/dom/Document.h"
-#include "mozilla/dom/DocumentInlines.h"
-#include "mozilla/image/Resolution.h"
-#include "WindowRenderer.h"
 
 namespace mozilla {
 
@@ -230,7 +229,7 @@ class SVGLoadEventListener final : public nsIDOMEventListener {
 NS_IMPL_ISUPPORTS(SVGLoadEventListener, nsIDOMEventListener)
 
 SVGDrawingCallback::SVGDrawingCallback(SVGDocumentWrapper* aSVGDocumentWrapper,
-                                       const IntSize& aViewportSize,
+                                       const CSSSize& aViewportSize,
                                        const IntSize& aSize,
                                        uint32_t aImageFlags)
     : mSVGDocumentWrapper(aSVGDocumentWrapper),
@@ -272,11 +271,7 @@ bool SVGDrawingCallback::operator()(gfxContext* aContext,
           double(mSize.width) / mViewportSize.width,
           double(mSize.height) / mViewportSize.height));
 
-  nsPresContext* presContext = presShell->GetPresContext();
-  MOZ_ASSERT(presContext, "pres shell w/out pres context");
-
-  nsRect svgRect(0, 0, presContext->DevPixelsToAppUnits(mViewportSize.width),
-                 presContext->DevPixelsToAppUnits(mViewportSize.height));
+  nsRect svgRect(nsPoint(), CSSPixel::ToAppUnits(mViewportSize));
 
   RenderDocumentFlags renderDocFlags =
       RenderDocumentFlags::IgnoreViewportScrolling;
@@ -956,8 +951,7 @@ VectorImage::Draw(gfxContext* aContext, const nsIntSize& aSize,
   std::tie(sourceSurface, params.size) =
       LookupCachedSurface(aSize, params.svgContext, aFlags);
   if (sourceSurface) {
-    RefPtr<gfxDrawable> drawable =
-        new gfxSurfaceDrawable(sourceSurface, params.size);
+    auto drawable = MakeRefPtr<gfxSurfaceDrawable>(sourceSurface, params.size);
     Show(drawable, params);
     return ImgDrawResult::SUCCESS;
   }
@@ -980,8 +974,7 @@ VectorImage::Draw(gfxContext* aContext, const nsIntSize& aSize,
     return ImgDrawResult::SUCCESS;
   }
 
-  RefPtr<gfxDrawable> drawable =
-      new gfxSurfaceDrawable(sourceSurface, params.size);
+  auto drawable = MakeRefPtr<gfxSurfaceDrawable>(sourceSurface, params.size);
   Show(drawable, params);
   SendFrameComplete(didCache, params.flags);
   return ImgDrawResult::SUCCESS;
@@ -1241,10 +1234,10 @@ bool VectorImage::MaybeRestrictSVGContext(SVGImageContext& aSVGContext,
 
 already_AddRefed<gfxDrawable> VectorImage::CreateSVGDrawable(
     const SVGDrawingParameters& aParams) {
-  RefPtr<gfxDrawingCallback> cb = new SVGDrawingCallback(
+  auto cb = MakeRefPtr<SVGDrawingCallback>(
       mSVGDocumentWrapper, aParams.viewportSize, aParams.size, aParams.flags);
 
-  RefPtr<gfxDrawable> svgDrawable = new gfxCallbackDrawable(cb, aParams.size);
+  auto svgDrawable = MakeRefPtr<gfxCallbackDrawable>(cb, aParams.size);
   return svgDrawable.forget();
 }
 
@@ -1455,7 +1448,8 @@ VectorImage::OnStartRequest(nsIRequest* aRequest) {
              "Repeated call to OnStartRequest -- can this happen?");
 
   mSVGDocumentWrapper = new SVGDocumentWrapper();
-  nsresult rv = mSVGDocumentWrapper->OnStartRequest(aRequest);
+  RefPtr<SVGDocumentWrapper> wrapper = mSVGDocumentWrapper;
+  nsresult rv = wrapper->OnStartRequest(aRequest);
   if (NS_FAILED(rv)) {
     mSVGDocumentWrapper = nullptr;
     mError = true;
@@ -1487,7 +1481,8 @@ VectorImage::OnStopRequest(nsIRequest* aRequest, nsresult aStatus) {
     return NS_ERROR_FAILURE;
   }
 
-  return mSVGDocumentWrapper->OnStopRequest(aRequest, aStatus);
+  RefPtr<SVGDocumentWrapper> wrapper = mSVGDocumentWrapper;
+  return wrapper->OnStopRequest(aRequest, aStatus);
 }
 
 void VectorImage::OnSVGDocumentParsed() {
@@ -1632,8 +1627,8 @@ VectorImage::OnDataAvailable(nsIRequest* aRequest, nsIInputStream* aInStr,
     return NS_ERROR_FAILURE;
   }
 
-  return mSVGDocumentWrapper->OnDataAvailable(aRequest, aInStr, aSourceOffset,
-                                              aCount);
+  RefPtr<SVGDocumentWrapper> wrapper = mSVGDocumentWrapper;
+  return wrapper->OnDataAvailable(aRequest, aInStr, aSourceOffset, aCount);
 }
 
 // --------------------------

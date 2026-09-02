@@ -3,11 +3,11 @@
 
 "use strict";
 
+const TRACKER_COUNT_PREF = "browser.urlbar.trackerCount.enabled";
+
 add_setup(async function () {
   await SpecialPowers.pushPrefEnv({
     set: [
-      // Show the ETP status section in the privacy pane.
-      ["browser.settings-redesign.etpStatus.enabled", true],
       // Ensure we start from ETP "standard".
       ["browser.contentblocking.category", "standard"],
     ],
@@ -77,6 +77,65 @@ add_task(async function test_status_categories() {
   gBrowser.removeCurrentTab();
 });
 
+add_task(async function test_tracker_count_toggle() {
+  await SpecialPowers.pushPrefEnv({
+    set: [
+      // The feature gate ships disabled by default (bug 2065206); enable it so
+      // the toggle is shown.
+      ["browser.urlbar.trackerCount.featureGate", true],
+      [TRACKER_COUNT_PREF, true],
+    ],
+  });
+  await openPreferencesViaOpenPreferencesAPI("privacy", { leaveOpen: true });
+  let doc = gBrowser.contentDocument;
+
+  let toggle = doc.getElementById("etpTrackerCountEnabled");
+  Assert.ok(
+    BrowserTestUtils.isVisible(toggle),
+    "Tracker count toggle is visible"
+  );
+  Assert.ok(toggle.checked, "Toggle is on when pref is true");
+
+  info("Click the toggle to disable the pref");
+  let prefChange = waitForAndAssertPrefState(
+    TRACKER_COUNT_PREF,
+    false,
+    "Pref set to false after toggling off"
+  );
+  synthesizeClick(toggle);
+  await prefChange;
+  Assert.ok(!toggle.checked, "Toggle is off after clicking");
+
+  await SpecialPowers.popPrefEnv();
+  gBrowser.removeCurrentTab();
+});
+
+add_task(async function test_tracker_count_hidden_when_gate_disabled() {
+  await ExperimentAPI.ready();
+  const doCleanup = await NimbusTestUtils.enrollWithFeatureConfig({
+    featureId: "urlbar",
+    value: { trackerCountFeatureGate: false },
+  });
+
+  await openPreferencesViaOpenPreferencesAPI("privacy", { leaveOpen: true });
+  let doc = gBrowser.contentDocument;
+
+  await TestUtils.waitForCondition(
+    () => doc.querySelector('setting-group[groupid="etpStatus"]'),
+    "Wait for etpStatus setting group"
+  );
+
+  let toggle = doc.getElementById("etpTrackerCountEnabled");
+  ok(toggle, "Tracker count toggle exists in the DOM");
+  is_element_hidden(
+    toggle,
+    "Tracker count toggle is hidden when feature gate is off"
+  );
+
+  gBrowser.removeCurrentTab();
+  await doCleanup();
+});
+
 // Test that the protections dashboard link in the ETP status section opens the about:protections page.
 add_task(async function test_protections_dashboard_link() {
   await openPreferencesViaOpenPreferencesAPI("privacy", { leaveOpen: true });
@@ -93,6 +152,7 @@ add_task(async function test_protections_dashboard_link() {
     gBrowser,
     "about:protections"
   );
+  protectionsDashboardLink.scrollIntoView();
   await BrowserTestUtils.synthesizeMouseAtCenter(
     "#protectionsDashboardLink",
     {},

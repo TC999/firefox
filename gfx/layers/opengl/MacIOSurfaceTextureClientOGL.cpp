@@ -3,9 +3,10 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "MacIOSurfaceTextureClientOGL.h"
-#include "mozilla/gfx/MacIOSurface.h"
+
 #include "MacIOSurfaceHelpers.h"
 #include "gfxPlatform.h"
+#include "mozilla/gfx/MacIOSurface.h"
 
 namespace mozilla {
 namespace layers {
@@ -38,8 +39,11 @@ MacIOSurfaceTextureData* MacIOSurfaceTextureData::Create(const IntSize& aSize,
     return nullptr;
   }
 
-  RefPtr<MacIOSurface> surf = MacIOSurface::CreateIOSurface(
-      aSize.width, aSize.height, aFormat == SurfaceFormat::B8G8R8A8);
+  MacIOSurface::AllowAlpha allowAlpha =
+      ((aFormat == SurfaceFormat::B8G8R8A8) ? MacIOSurface::AllowAlpha::Yes
+                                            : MacIOSurface::AllowAlpha::No);
+  RefPtr<MacIOSurface> surf =
+      MacIOSurface::CreateIOSurface(aSize.width, aSize.height, allowAlpha);
   if (!surf) {
     return nullptr;
   }

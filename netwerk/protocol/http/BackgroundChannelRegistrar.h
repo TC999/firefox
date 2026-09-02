@@ -5,9 +5,9 @@
 #ifndef mozilla_net_BackgroundChannelRegistrar_h_
 #define mozilla_net_BackgroundChannelRegistrar_h_
 
+#include "mozilla/AlreadyAddRefed.h"
 #include "nsIBackgroundChannelRegistrar.h"
 #include "nsRefPtrHashtable.h"
-#include "mozilla/AlreadyAddRefed.h"
 
 namespace mozilla {
 namespace net {
@@ -28,7 +28,7 @@ class BackgroundChannelRegistrar final : public nsIBackgroundChannelRegistrar {
   explicit BackgroundChannelRegistrar();
 
   // Singleton accessors
-  static already_AddRefed<nsIBackgroundChannelRegistrar> GetOrCreate();
+  static already_AddRefed<BackgroundChannelRegistrar> GetOrCreate();
 
  private:
   virtual ~BackgroundChannelRegistrar();

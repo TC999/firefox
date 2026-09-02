@@ -10,7 +10,7 @@ defines: [asyncTest, assert.throwsAsync]
 
 /**
  * Defines the **sole** asynchronous test of a file.
- * @see {@link ../docs/rfcs/async-helpers.md} for background.
+ * @see {@link ../rfcs/async-helpers.md} for background.
  *
  * @param {Function} testFunc a callback whose returned promise indicates test results
  *   (fulfillment for success, rejection for failure)
@@ -221,6 +221,23 @@ var TemporalHelpers = {
       { era: "broc" },
     ],
   },
+
+
+  /**
+   * Apple's fork of ICU contains code for these calendars, but they are not yet
+   * allowed to be supported in AvailableCalendars. See
+   * https://github.com/tc39/ecma402/blob/main/meetings/notes-2025-12-04.md#datetimeformatconstructor-options-calendar-islamic-fallbackjs-should-allow-other-fallback-values-4677
+   */
+  NotYetSupportedCalendars: [
+    "bangla",
+    "gujarati",
+    "kannada",
+    "marathi",
+    "odia",
+    "tamil",
+    "telugu",
+    "vikram",
+  ],
 
   /*
    * Return the canonical era code.

@@ -13,24 +13,20 @@
 #  define gfxToolkitPlatform gfxAndroidPlatform
 #endif
 
-#include "gfxTypes.h"
-#include "gfxFT2Fonts.h"
 #include "gfxFT2FontBase.h"
-#include "gfxFT2Utils.h"
 #include "gfxFT2FontList.h"
+#include "gfxFT2Fonts.h"
+#include "gfxFT2Utils.h"
 #include "gfxTextRun.h"
-#include <locale.h>
-#include "nsGkAtoms.h"
-#include "nsTArray.h"
-#include "nsCRT.h"
-#include "nsXULAppAPI.h"
-
+#include "gfxTypes.h"
 #include "mozilla/Logging.h"
-#include "prinit.h"
-
 #include "mozilla/MemoryReporting.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/gfx/2D.h"
+#include "nsCRT.h"
+#include "nsTArray.h"
+#include "nsXULAppAPI.h"
+#include "prinit.h"
 
 using namespace mozilla;
 using namespace mozilla::gfx;
@@ -39,17 +35,15 @@ using namespace mozilla::gfx;
  * gfxFT2Font
  */
 
-bool gfxFT2Font::ShapeText(DrawTarget* aDrawTarget, const char16_t* aText,
-                           uint32_t aOffset, uint32_t aLength, Script aScript,
-                           nsAtom* aLanguage, bool aVertical,
-                           RoundingFlags aRounding,
+bool gfxFT2Font::ShapeText(const char16_t* aText, uint32_t aOffset,
+                           uint32_t aLength, Script aScript, nsAtom* aLanguage,
+                           bool aVertical, RoundingFlags aRounding,
                            gfxShapedText* aShapedText) {
-  if (!gfxFont::ShapeText(aDrawTarget, aText, aOffset, aLength, aScript,
-                          aLanguage, aVertical, aRounding, aShapedText)) {
+  if (!gfxFont::ShapeText(aText, aOffset, aLength, aScript, aLanguage,
+                          aVertical, aRounding, aShapedText)) {
     // harfbuzz must have failed(?!), just render raw glyphs
     AddRange(aText, aOffset, aLength, aShapedText);
-    PostShapingFixup(aDrawTarget, aText, aOffset, aLength, aVertical,
-                     aShapedText);
+    PostShapingFixup(aText, aOffset, aLength, aVertical, aShapedText);
   }
 
   return true;

@@ -31,7 +31,7 @@ NS_IMPL_CYCLE_COLLECTION_CLASS(ScriptLoadContext)
 
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN_INHERITED(ScriptLoadContext,
                                                 JS::loader::LoadContextBase)
-  MOZ_ASSERT(!tmp->mCompileOrDecodeTask);
+  tmp->MaybeCancelOffThreadScript();
   tmp->MaybeUnblockOnload();
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mScriptElement);
 NS_IMPL_CYCLE_COLLECTION_UNLINK_END
@@ -59,6 +59,7 @@ ScriptLoadContext::ScriptLoadContext(
       mInCompilingList(false),
       mWasCompiledOMT(false),
       mIsPreload(false),
+      mIsCoalescedModulePreload(false),
       mUnreportedPreloadError(NS_OK),
       mLineNo(1),
       mColumnNo(0),
@@ -69,7 +70,9 @@ ScriptLoadContext::ScriptLoadContext(
 ScriptLoadContext::~ScriptLoadContext() {
   MOZ_ASSERT(NS_IsMainThread());
 
-  // Off-thread parsing must have completed or cancelled by this point.
+  // A request can be abandoned after off-thread compilation completes but
+  // before execution steals the result.
+  MaybeCancelOffThreadScript();
   MOZ_DIAGNOSTIC_ASSERT(!mCompileOrDecodeTask);
 
   mRequest = nullptr;
@@ -87,6 +90,36 @@ void ScriptLoadContext::MaybeUnblockOnload() {
   if (mLoadBlockedDocument) {
     mLoadBlockedDocument->UnblockOnload(false);
     mLoadBlockedDocument = nullptr;
+  }
+}
+
+void ScriptLoadContext::NotifyPreloadCoalescingResult() {
+  MOZ_ASSERT(mIsCoalescedModulePreload);
+
+  if (HasStopped()) {
+    return;
+  }
+
+  MOZ_ASSERT(!Channel());
+
+  JS::loader::ModuleLoadRequest* request = mRequest->AsModuleRequest();
+  MOZ_ASSERT(request->IsTopLevel());
+
+  if (request->mModuleScript) {
+    // Fetching produced a module script, even if it has a parse error.
+    NotifyStop(NS_OK);
+    MOZ_ASSERT(HasStopped());
+  } else if (request->IsFinished()) {
+    // The fetch failed, or the request was canceled before it finished. Either
+    // way there will be no module script, so this is the element's last chance
+    // to hear about the load.
+    NotifyStop(NS_ERROR_FAILURE);
+    MOZ_ASSERT(HasStopped());
+  } else {
+    // The top-level module is still being fetched.
+    // The result of the fetch will be notified via
+    // ModuleLoaderBase::ResumeWaitingRequests or Cancel.
+    MOZ_ASSERT(request->IsFetching());
   }
 }
 
@@ -251,7 +284,16 @@ already_AddRefed<JS::Stencil> ScriptLoadContext::StealOffThreadResult(
   RefPtr<CompileOrDecodeTask> compileOrDecodeTask =
       mCompileOrDecodeTask.forget();
 
-  return compileOrDecodeTask->StealResult(aCx, aInstantiationStorage);
+  return compileOrDecodeTask->AsStencilCompileOrDecodeTask()->StealResult(
+      aCx, aInstantiationStorage);
+}
+
+bool ScriptLoadContext::StealOffThreadWasmResult(
+    JSContext* aCx, JS::MutableHandle<JSObject*> aModuleOut) {
+  RefPtr<CompileOrDecodeTask> compileOrDecodeTask =
+      mCompileOrDecodeTask.forget();
+
+  return compileOrDecodeTask->AsWasmCompileTask()->StealResult(aCx, aModuleOut);
 }
 
 }  // namespace mozilla::dom

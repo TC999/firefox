@@ -5,7 +5,6 @@
 #ifndef mozilla_dom_HTMLTrackElement_h
 #define mozilla_dom_HTMLTrackElement_h
 
-#include "mozilla/dom/HTMLMediaElement.h"
 #include "mozilla/dom/TextTrack.h"
 #include "nsCycleCollectionParticipant.h"
 #include "nsGenericHTMLElement.h"
@@ -18,11 +17,11 @@ namespace mozilla::dom {
 class WebVTTListener;
 class WindowDestroyObserver;
 enum class TextTrackReadyState : uint8_t;
+class HTMLMediaElement;
 
 class HTMLTrackElement final : public nsGenericHTMLElement {
  public:
-  explicit HTMLTrackElement(
-      already_AddRefed<mozilla::dom::NodeInfo>&& aNodeInfo);
+  explicit HTMLTrackElement(already_AddRefed<mozilla::dom::NodeInfo> aNodeInfo);
 
   // nsISupports
   NS_DECL_ISUPPORTS_INHERITED
@@ -92,8 +91,8 @@ class HTMLTrackElement final : public nsGenericHTMLElement {
                             bool aNotify) override;
 
   void DispatchTrackRunnable(const nsString& aEventName);
-  void DispatchTrustedEvent(const nsAString& aName);
-  void DispatchTestEvent(const nsAString& aName);
+  MOZ_CAN_RUN_SCRIPT void DispatchTrustedEvent(const nsAString& aName);
+  MOZ_CAN_RUN_SCRIPT void DispatchTestEvent(const nsAString& aName);
 
   void CancelChannelAndListener(bool aCheckRFP);
 

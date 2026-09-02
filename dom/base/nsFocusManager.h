@@ -13,6 +13,7 @@
 #include "nsIContent.h"
 #include "nsIFocusManager.h"
 #include "nsIObserver.h"
+#include "nsPIDOMWindowInlines.h"  // FIXME: Stop including inline definitions!
 #include "nsWeakReference.h"
 
 #define FOCUSMANAGER_CONTRACTID "@mozilla.org/focus-manager;1"
@@ -49,7 +50,7 @@ class nsFocusManager final : public nsIFocusManager,
 
  public:
   NS_DECL_CYCLE_COLLECTION_CLASS_AMBIGUOUS(nsFocusManager, nsIFocusManager)
-  NS_DECL_CYCLE_COLLECTING_ISUPPORTS
+  NS_DECL_CYCLE_COLLECTING_ISUPPORTS_FINAL
   NS_DECL_NSIOBSERVER
   NS_DECL_NSIFOCUSMANAGER
 
@@ -325,7 +326,8 @@ class nsFocusManager final : public nsIFocusManager,
   /**
    * Activate or deactivate the window and send the activate/deactivate events.
    */
-  void ActivateOrDeactivate(nsPIDOMWindowOuter* aWindow, bool aActive);
+  MOZ_CAN_RUN_SCRIPT void ActivateOrDeactivate(nsPIDOMWindowOuter* aWindow,
+                                               bool aActive);
 
   /**
    * Blur whatever is currently focused and focus aNewContent. aFlags is a
@@ -576,6 +578,19 @@ class nsFocusManager final : public nsIFocusManager,
   void GetSelectionLocation(Document* aDocument, mozilla::PresShell* aPresShell,
                             nsIContent** aStartContent,
                             nsIContent** aEndContent);
+
+  /*
+   * Determine place to start sequential focus navigation, for
+   * MOVEFOCUS_FORWARD/BACKWARD.
+   * *aConsiderStartContent is set to true if we should move
+   * focus directly to *aStartContent if it is focusable
+   * (rather than the next/previous content).
+   */
+  void GetSequentialFocusNavigationStartingPoint(Document* aDocument,
+                                                 nsIContent* aFocusedContent,
+                                                 bool aForward,
+                                                 nsIContent** aStartContent,
+                                                 bool* aConsiderStartContent);
 
   /**
    * Retrieve the next tabbable element in scope owned by aOwner, using

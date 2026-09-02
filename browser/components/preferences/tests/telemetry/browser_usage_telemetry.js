@@ -119,7 +119,7 @@ add_task(async function testSettingGroupTelemetry() {
         ],
       };
       group.getSetting = win.Preferences.getSetting.bind(win.Preferences);
-      group.dataset.category = "paneGeneral";
+      group.dataset.category = DEFAULT_PANE;
       doc.getElementById("mainPrefPane").append(group);
 
       // Ensure all elements have updated.
@@ -156,8 +156,12 @@ add_task(async function testSettingGroupTelemetry() {
       EventUtils.synthesizeMouseAtCenter(select.inputEl, {}, win);
       let popup = await popupShown;
       let popupHidden = BrowserTestUtils.waitForEvent(popup, "popuphidden");
-      EventUtils.synthesizeKey("KEY_ArrowDown", {}, win);
-      EventUtils.synthesizeKey("KEY_Enter", {}, win);
+      if (popup.isNativeMenu) {
+        popup.activateItem(popup.childNodes[1]);
+      } else {
+        EventUtils.synthesizeKey("KEY_ArrowDown", {}, win);
+        EventUtils.synthesizeKey("KEY_Enter", {}, win);
+      }
       await popupHidden;
 
       // Focus the visual picker via the keyboard.
@@ -200,7 +204,7 @@ add_task(async function testSettingGroupTelemetry() {
         info(id, count);
         TelemetryTestUtils.assertKeyedScalar(
           snapshot,
-          "browser.ui.interaction.preferences_paneGeneral",
+          `browser.ui.interaction.preferences_${DEFAULT_PANE}`,
           id,
           count
         );
@@ -227,8 +231,8 @@ add_task(async function testSettingGroupTelemetry() {
         );
         Assert.equal(
           event.extra.pane,
-          "paneGeneral",
-          "Pane is paneGeneral for change events"
+          DEFAULT_PANE,
+          `Pane is ${DEFAULT_PANE} for change events`
         );
         Assert.ok(event.extra.setting, "Setting ID is present");
       }

@@ -6,8 +6,8 @@
 #define mozilla_net_Http3StreamTunnel_h
 
 #include "Http3Stream.h"
-#include "nsHttpConnection.h"
 #include "SimpleBuffer.h"
+#include "nsHttpConnection.h"
 
 namespace mozilla::net {
 
@@ -115,6 +115,8 @@ class Http3StreamTunnel final : public Http3Stream {
 
   [[nodiscard]] nsresult OnWriteSegment(char* buf, uint32_t count,
                                         uint32_t* countWritten) override;
+
+  bool Closed() const { return mClosed; }
 
  private:
   virtual ~Http3StreamTunnel();

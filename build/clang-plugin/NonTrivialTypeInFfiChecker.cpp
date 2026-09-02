@@ -6,7 +6,8 @@
 #include "CustomMatchers.h"
 
 void NonTrivialTypeInFfiChecker::registerMatchers(MatchFinder *AstMatcher) {
-  AstMatcher->addMatcher(functionDecl(isExternC()).bind("func"), this);
+  AstMatcher->addMatcher(functionDecl(isExternC(), isFirstParty()).bind("func"),
+                         this);
 }
 
 void NonTrivialTypeInFfiChecker::check(const MatchFinder::MatchResult &Result) {
@@ -15,10 +16,6 @@ void NonTrivialTypeInFfiChecker::check(const MatchFinder::MatchResult &Result) {
   const FunctionDecl *func = Result.Nodes.getNodeAs<FunctionDecl>("func");
   // Don't report errors on the same declarations more than once.
   if (!CheckedFunctionDecls.insert(func).second) {
-    return;
-  }
-
-  if (inThirdPartyPath(func)) {
     return;
   }
 

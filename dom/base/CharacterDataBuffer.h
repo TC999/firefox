@@ -15,7 +15,7 @@
 #include "mozilla/EnumSet.h"
 #include "mozilla/MemoryReporting.h"
 #include "mozilla/StringBuffer.h"
-#include "nsCharTraits.h"
+#include "mozilla/Utf16.h"
 #include "nsISupportsImpl.h"
 #include "nsReadableUtils.h"
 #include "nsString.h"
@@ -127,9 +127,9 @@ class CharacterDataBuffer final {
     if (MOZ_UNLIKELY(aString.Length() > NS_MAX_CHARACTER_DATA_BUFFER_LENGTH)) {
       return false;
     }
-    ReleaseBuffer();
     if (aForce2b && !aUpdateBidi) {
-      if (mozilla::StringBuffer* buffer = aString.GetStringBuffer()) {
+      if (StringBuffer* buffer = aString.GetStringBuffer()) {
+        ReleaseBuffer();
         NS_ADDREF(m2b = buffer);
         mState.mInHeap = true;
         mState.mIs2b = true;
@@ -152,11 +152,10 @@ class CharacterDataBuffer final {
   bool Append(const char16_t* aBuffer, uint32_t aLength, bool aUpdateBidi,
               bool aForce2b);
 
-  /**
-   * Append the contents of this data buffer to aString
-   */
-  void AppendTo(nsAString& aString) const {
-    if (!AppendTo(aString, mozilla::fallible)) {
+  // Append the contents of this data buffer to aString
+  template <typename CharT>
+  void AppendTo(nsTSubstring<CharT>& aString) const {
+    if (!AppendTo(aString, fallible)) {
       aString.AllocFailed(aString.Length() + GetLength());
     }
   }
@@ -166,7 +165,7 @@ class CharacterDataBuffer final {
    * @return false if an out of memory condition is detected, true otherwise
    */
   [[nodiscard]] bool AppendTo(nsAString& aString,
-                              const mozilla::fallible_t& aFallible) const {
+                              const fallible_t& aFallible) const {
     if (mState.mIs2b) {
       if (aString.IsEmpty()) {
         aString.Assign(m2b, mState.mLength);
@@ -178,13 +177,24 @@ class CharacterDataBuffer final {
                               aFallible);
   }
 
+  // As above but to UTF-8.
+  [[nodiscard]] bool AppendTo(nsACString& aString,
+                              const fallible_t& aFallible) const {
+    if (mState.mIs2b) {
+      return AppendUTF16toUTF8(Span(Get2b(), mState.mLength), aString,
+                               aFallible);
+    }
+    return AppendLatin1toUTF8(Substring(m1b, mState.mLength), aString,
+                              aFallible);
+  }
+
   /**
    * Append a substring of the contents of this data buffer to aString.
    * @param aOffset where to start the substring in this data buffer
    * @param aLength the length of the substring
    */
   void AppendTo(nsAString& aString, uint32_t aOffset, uint32_t aLength) const {
-    if (!AppendTo(aString, aOffset, aLength, mozilla::fallible)) {
+    if (!AppendTo(aString, aOffset, aLength, fallible)) {
       aString.AllocFailed(aString.Length() + aLength);
     }
   }
@@ -198,18 +208,12 @@ class CharacterDataBuffer final {
    */
   [[nodiscard]] bool AppendTo(nsAString& aString, uint32_t aOffset,
                               uint32_t aLength,
-                              const mozilla::fallible_t& aFallible) const {
+                              const fallible_t& aFallible) const {
     if (mState.mIs2b) {
-      bool ok = aString.Append(Get2b() + aOffset, aLength, aFallible);
-      if (!ok) {
-        return false;
-      }
-
-      return true;
-    } else {
-      return AppendASCIItoUTF16(Substring(m1b + aOffset, aLength), aString,
-                                aFallible);
+      return aString.Append(Get2b() + aOffset, aLength, aFallible);
     }
+    return AppendASCIItoUTF16(Substring(m1b + aOffset, aLength), aString,
+                              aFallible);
   }
 
   /**
@@ -267,7 +271,7 @@ class CharacterDataBuffer final {
     if (!mState.mIs2b || aIndex + 1 >= mState.mLength) {
       return false;
     }
-    return NS_IS_SURROGATE_PAIR(Get2b()[aIndex], Get2b()[aIndex + 1]);
+    return IsSurrogatePair(Get2b()[aIndex], Get2b()[aIndex + 1]);
   }
 
   /**
@@ -279,7 +283,7 @@ class CharacterDataBuffer final {
     if (!mState.mIs2b || !aIndex) {
       return false;
     }
-    return NS_IS_SURROGATE_PAIR(Get2b()[aIndex - 1], Get2b()[aIndex]);
+    return IsSurrogatePair(Get2b()[aIndex - 1], Get2b()[aIndex]);
   }
 
   /**
@@ -294,13 +298,13 @@ class CharacterDataBuffer final {
       return static_cast<unsigned char>(m1b[aIndex]);
     }
     char16_t ch = Get2b()[aIndex];
-    if (!IS_SURROGATE(ch)) {
+    if (!IsSurrogate(ch)) {
       return ch;
     }
-    if (aIndex + 1 < mState.mLength && NS_IS_HIGH_SURROGATE(ch)) {
+    if (aIndex + 1 < mState.mLength && IsHighSurrogate(ch)) {
       char16_t nextCh = Get2b()[aIndex + 1];
-      if (NS_IS_LOW_SURROGATE(nextCh)) {
-        return SURROGATE_TO_UCS4(ch, nextCh);
+      if (IsLowSurrogate(nextCh)) {
+        return SurrogateToUCS4(ch, nextCh);
       }
     }
     return 0;
@@ -322,7 +326,7 @@ class CharacterDataBuffer final {
     uint32_t mLength : 29;
   };
 
-  size_t SizeOfExcludingThis(mozilla::MallocSizeOf aMallocSizeOf) const;
+  size_t SizeOfExcludingThis(MallocSizeOf aMallocSizeOf) const;
 
   /**
    * Check whether the text in this buffer is the same as the text in the
@@ -405,7 +409,7 @@ class CharacterDataBuffer final {
     // `data:text/html,<div>abc %0C def</div>`.
     FormFeedIsSignificant,
   };
-  using WhitespaceOptions = mozilla::EnumSet<WhitespaceOption>;
+  using WhitespaceOptions = EnumSet<WhitespaceOption>;
 
  private:
   // Helper class to check whether the character is a non-whitespace or not.
@@ -560,7 +564,7 @@ class CharacterDataBuffer final {
   void UpdateBidiFlag(const char16_t* aBuffer, uint32_t aLength);
 
   union {
-    mozilla::StringBuffer* m2b;
+    StringBuffer* m2b;
     // FIXME: m1b is actually treated as const unsigned char* since the array
     // may contain characters between 0x80 - 0xFF.  So, copying the value to
     // char16_t might depend on how the compiler to treat the values.

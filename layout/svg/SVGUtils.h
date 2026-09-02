@@ -42,7 +42,6 @@ namespace mozilla {
 class SVGAnimatedEnumeration;
 class SVGAnimatedLength;
 class SVGContextPaint;
-struct SVGContextPaintImpl;
 class SVGDisplayContainerFrame;
 class SVGGeometryFrame;
 class SVGOuterSVGFrame;
@@ -289,7 +288,8 @@ class SVGUtils final {
    * the viewport established by aFrame.
    */
   static gfxRect GetClipRectForFrame(const nsIFrame* aFrame, float aX, float aY,
-                                     float aWidth, float aHeight);
+                                     float aWidth, float aHeight,
+                                     SVGBBoxFlags aFlags = {});
 
   /* Using group opacity instead of fill or stroke opacity on a
    * geometry object seems to be a common authoring mistake.  If we're
@@ -374,14 +374,13 @@ class SVGUtils final {
    * See https://svgwg.org/svg2-draft/painting.html#NonScalingStroke
    *
    * If the computed value of the 'vector-effect' property on aFrame is
-   * 'non-scaling-stroke', then this function will set aUserToOuterSVG to the
+   * 'non-scaling-stroke', then this function will return the
    * transform from aFrame's SVG user space to the initial coordinate system
    * established by the viewport of aFrame's outer-<svg>'s (the coordinate
-   * system in which the stroke is fixed).  If aUserToOuterSVG is set to a
-   * non-identity matrix this function returns true, else it returns false.
+   * system in which the stroke is fixed). If the transform is an identity
+   * matrix or singular then Nothing() is returned.
    */
-  static bool GetNonScalingStrokeTransform(const nsIFrame* aFrame,
-                                           gfxMatrix* aUserToOuterSVG);
+  static Maybe<gfxMatrix> GetNonScalingStrokeTransform(const nsIFrame* aFrame);
 
   /**
    * We need to track whether content has non-scaling-stroke because we can't
@@ -487,9 +486,11 @@ class SVGUtils final {
    * Render a SVG glyph.
    * @param aElement the SVG glyph element to render
    * @param aContext the thebes aContext to draw to
+   * @param aImgParams imagelib parameters that may be used when painting
    * @return true if rendering succeeded
    */
-  static void PaintSVGGlyph(Element* aElement, gfxContext* aContext);
+  static void PaintSVGGlyph(Element* aElement, gfxContext* aContext,
+                            imgDrawingParams& aImgParams);
 
   /**
    * Get the extents of a SVG glyph.

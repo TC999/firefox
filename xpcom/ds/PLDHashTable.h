@@ -85,7 +85,7 @@ struct PLDHashEntryHdr {
 //
 class Checker {
  public:
-  constexpr Checker() : mState(kIdle), mIsWritable(true) {}
+  constexpr Checker() = default;
 
   Checker& operator=(Checker&& aOther) {
     // Atomic<> doesn't have an |operator=(Atomic<>&&)|.
@@ -190,8 +190,8 @@ class Checker {
   static const uint32_t kReadMax = 9999;
   static const uint32_t kWrite = 10000;
 
-  mozilla::Atomic<uint32_t, mozilla::SequentiallyConsistent> mState;
-  mozilla::Atomic<bool, mozilla::SequentiallyConsistent> mIsWritable;
+  mozilla::Atomic<uint32_t, mozilla::SequentiallyConsistent> mState{kIdle};
+  mozilla::Atomic<bool, mozilla::SequentiallyConsistent> mIsWritable{true};
 };
 #endif
 
@@ -345,7 +345,7 @@ class PLDHashTable {
 
     template <typename F>
     void ForEachSlot(uint32_t aCapacity, uint32_t aEntrySize, F&& aFunc) {
-      ForEachSlot(Get(), aCapacity, aEntrySize, std::move(aFunc));
+      ForEachSlot(Get(), aCapacity, aEntrySize, std::forward<F>(aFunc));
     }
 
     template <typename F>
@@ -373,7 +373,7 @@ class PLDHashTable {
       nullptr;                   // Virtual operations; see below.
   EntryStore mEntryStore;        // (Lazy) entry storage and generation.
   uint16_t mGeneration = 0;      // The storage generation.
-  uint8_t mHashShift;            // Multiplicative hash shift.
+  uint8_t mHashShift = 0;        // Multiplicative hash shift.
   const uint8_t mEntrySize = 0;  // Number of bytes in an entry.
   uint32_t mEntryCount = 0;      // Number of entries in table.
   uint32_t mRemovedCount = 0;    // Removed entry sentinels in table.
@@ -431,6 +431,9 @@ class PLDHashTable {
 
   PLDHashTable& operator=(PLDHashTable&& aOther);
 
+  PLDHashTable(const PLDHashTable& aOther) = delete;
+  PLDHashTable& operator=(const PLDHashTable& aOther) = delete;
+
   ~PLDHashTable();
 
   // This should be used rarely.
@@ -445,6 +448,7 @@ class PLDHashTable {
 
   uint32_t EntrySize() const { return mEntrySize; }
   uint32_t EntryCount() const { return mEntryCount; }
+  bool IsEmpty() const { return mEntryCount == 0; }
   uint32_t Generation() const { return mGeneration; }
 
   // To search for a |key| in |table|, call:
@@ -498,6 +502,13 @@ class PLDHashTable {
   // This function is equivalent to
   // ClearAndPrepareForLength(kDefaultInitialLength).
   void Clear();
+
+  // Removes all entries from the table but keeps the entry storage allocated,
+  // so the table retains its current capacity. Use this instead of Clear()
+  // when the table is about to be re-populated and the repeated free/realloc
+  // of the entry store would be wasteful (e.g. a cache that is invalidated and
+  // rebuilt frequently). Unlike Clear(), the capacity is never reduced.
+  void ClearAndRetainStorage();
 
   // This function clears the table's contents and frees its entry storage,
   // leaving it in a empty state ready to be used again. Afterwards, when the
@@ -652,6 +663,10 @@ class PLDHashTable {
   class Iterator {
    public:
     explicit Iterator(PLDHashTable* aTable);
+    Iterator() = delete;
+    Iterator& operator=(const Iterator&) = delete;
+    Iterator& operator=(const Iterator&&) = delete;
+
     struct EndIteratorTag {};
     Iterator(PLDHashTable* aTable, EndIteratorTag aTag);
     Iterator(Iterator&& aOther);
@@ -696,10 +711,7 @@ class PLDHashTable {
 
     void MoveToNextLiveEntry();
 
-    Iterator() = delete;
     Iterator(const Iterator&);
-    Iterator& operator=(const Iterator&) = delete;
-    Iterator& operator=(const Iterator&&) = delete;
   };
 
   Iterator Iter() { return Iterator(this); }
@@ -797,9 +809,6 @@ class PLDHashTable {
                                               const mozilla::fallible_t&);
 
   EntryHandle MakeEntryHandle(const void* aKey);
-
-  PLDHashTable(const PLDHashTable& aOther) = delete;
-  PLDHashTable& operator=(const PLDHashTable& aOther) = delete;
 };
 
 // Compute the hash code for a given key to be looked up, added, or removed.

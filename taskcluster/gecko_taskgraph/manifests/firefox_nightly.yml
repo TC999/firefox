@@ -53,6 +53,8 @@ tasktype_map:
     repackage-signing: repackage
     repackage-signing-msi: repackage
     repackage-signing-shippable-l10n-msix: signing
+    repackage-pkg-notarization: signing
+    repackage-l10n-pkg-notarization: signing
     langpack-copy: signing
     attribution: build
     attribution-l10n: build
@@ -130,6 +132,21 @@ mapping:
         only_for_platforms:
             - linux64-shippable
             - linux64-aarch64-shippable
+        destinations:
+            - ${year}/${month}/${upload_date}-${branch}
+            - latest-${branch}
+    RPM-KEY:
+        <<: *default
+        from:
+            - repackage-rpm-signing
+        description: "Public GPG Key used to sign the .rpm packages, without the revoked subkeys that rpm chokes on"
+        pretty_name: RPM-KEY
+        checksums_path: RPM-KEY
+        only_for_platforms:
+            - linux64-shippable
+            - linux64-aarch64-shippable
+            - linux64-devedition
+            - linux64-aarch64-devedition
         destinations:
             - ${year}/${month}/${upload_date}-${branch}
             - latest-${branch}
@@ -285,7 +302,13 @@ mapping:
         description: "Main package installer for Mac OS X platforms"
         all_locales: true
         from:
-            - signing
+            by-level:
+                "3":
+                    - repackage-pkg-notarization
+                    - repackage-l10n-pkg-notarization
+                default:
+                    - repackage
+                    - repackage-l10n
         only_for_platforms:
             - macosx64-shippable
         pretty_name: firefox-${version}.${locale}.${filename_platform}.pkg

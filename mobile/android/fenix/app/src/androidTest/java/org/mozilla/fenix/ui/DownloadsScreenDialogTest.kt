@@ -3,11 +3,12 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 package org.mozilla.fenix.ui
 
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import junit.framework.TestCase.assertEquals
+import kotlin.test.assertIs
 import mozilla.components.lib.state.Middleware
 import mozilla.components.lib.state.Store
 import org.junit.Assert.assertTrue
@@ -25,25 +26,25 @@ import org.mozilla.fenix.downloads.listscreen.store.TimeCategory
 @RunWith(AndroidJUnit4::class)
 class DownloadsScreenDialogTest {
 
-    @get:Rule
-    val composeTestRule = createComposeRule()
+    @get:Rule val composeTestRule = createComposeRule()
 
     @Test
     fun confirmDeleteDialogClickedTest() {
         var dispatchedAction: DownloadUIAction.AddPendingDeletionSet? = null
 
-        val downloadedFileItem = FileItem(
-            id = "1",
-            fileName = "test_file.pdf",
-            url = "https://example.com/file",
-            description = "1.2 MB",
-            directoryPath = "/Downloads",
-            displayedShortUrl = "example.com",
-            contentType = "application/pdf",
-            status = FileItem.Status.Completed,
-            filePath = "/path/to/file",
-            timeCategory = TimeCategory.TODAY,
-        )
+        val downloadedFileItem =
+            FileItem(
+                id = "1",
+                fileName = "test_file.pdf",
+                url = "https://example.com/file",
+                description = "1.2 MB",
+                directoryPath = "/Downloads",
+                displayedShortUrl = "example.com",
+                contentType = "application/pdf",
+                status = FileItem.Status.Completed,
+                filePath = "/path/to/file",
+                timeCategory = TimeCategory.TODAY,
+            )
 
         val middleware = createMiddleware { action ->
             if (action is DownloadUIAction.AddPendingDeletionSet) {
@@ -51,12 +52,14 @@ class DownloadsScreenDialogTest {
             }
         }
 
-        val store = DownloadUIStore(
-            initialState = DownloadUIState.INITIAL.copy(
-                dialogState = DownloadUIState.DialogState.DeleteConfirmation(setOf(downloadedFileItem)),
-            ),
-            middleware = listOf(middleware),
-        )
+        val store =
+            DownloadUIStore(
+                initialState =
+                    DownloadUIState.INITIAL.copy(
+                        dialogState = DownloadUIState.DialogState.DeleteConfirmation(setOf(downloadedFileItem))
+                    ),
+                middleware = listOf(middleware),
+            )
 
         composeTestRule.setContent {
             DownloadsScreen(
@@ -76,18 +79,19 @@ class DownloadsScreenDialogTest {
     fun cancelDeleteDialogClickedTest() {
         var dispatchedAction: DownloadUIAction.DismissDeleteDialog? = null
 
-        val downloadedFileItem = FileItem(
-            id = "1",
-            fileName = "test_file.pdf",
-            url = "https://example.com/file",
-            description = "1.2 MB",
-            directoryPath = "/Downloads",
-            displayedShortUrl = "example.com",
-            contentType = "application/pdf",
-            status = FileItem.Status.Completed,
-            filePath = "/path/to/file",
-            timeCategory = TimeCategory.TODAY,
-        )
+        val downloadedFileItem =
+            FileItem(
+                id = "1",
+                fileName = "test_file.pdf",
+                url = "https://example.com/file",
+                description = "1.2 MB",
+                directoryPath = "/Downloads",
+                displayedShortUrl = "example.com",
+                contentType = "application/pdf",
+                status = FileItem.Status.Completed,
+                filePath = "/path/to/file",
+                timeCategory = TimeCategory.TODAY,
+            )
 
         val middleware = createMiddleware { action ->
             if (action is DownloadUIAction.DismissDeleteDialog) {
@@ -95,12 +99,14 @@ class DownloadsScreenDialogTest {
             }
         }
 
-        val store = DownloadUIStore(
-            initialState = DownloadUIState.INITIAL.copy(
-                dialogState = DownloadUIState.DialogState.DeleteConfirmation(setOf(downloadedFileItem)),
-            ),
-            middleware = listOf(middleware),
-        )
+        val store =
+            DownloadUIStore(
+                initialState =
+                    DownloadUIState.INITIAL.copy(
+                        dialogState = DownloadUIState.DialogState.DeleteConfirmation(setOf(downloadedFileItem))
+                    ),
+                middleware = listOf(middleware),
+            )
 
         composeTestRule.setContent {
             DownloadsScreen(
@@ -111,19 +117,18 @@ class DownloadsScreenDialogTest {
 
         composeTestRule.onNodeWithTag(DownloadsScreenTestTag.DELETE_DIALOG_CANCEL_BUTTON).performClick()
 
-        assertTrue(dispatchedAction is DownloadUIAction.DismissDeleteDialog)
+        assertIs<DownloadUIAction.DismissDeleteDialog>(dispatchedAction)
     }
 
-    private fun createMiddleware(
-        onAction: (DownloadUIAction) -> Unit,
-    ) = object : Middleware<DownloadUIState, DownloadUIAction> {
-        override fun invoke(
-            store: Store<DownloadUIState, DownloadUIAction>,
-            next: (DownloadUIAction) -> Unit,
-            action: DownloadUIAction,
-        ) {
-            onAction(action)
-            next(action)
+    private fun createMiddleware(onAction: (DownloadUIAction) -> Unit) =
+        object : Middleware<DownloadUIState, DownloadUIAction> {
+            override fun invoke(
+                store: Store<DownloadUIState, DownloadUIAction>,
+                next: (DownloadUIAction) -> Unit,
+                action: DownloadUIAction,
+            ) {
+                onAction(action)
+                next(action)
+            }
         }
-    }
 }

@@ -98,8 +98,6 @@ async function clearAndValidateDataSizes({
   await addToSiteUsage();
   let promiseSanitized = promiseSanitizationComplete();
 
-  await openPreferencesViaOpenPreferencesAPI("privacy", { leaveOpen: true });
-
   let dh = new ClearHistoryDialogHelper({ checkingDataSizes: true });
   dh.onload = async function () {
     await validateDataSizes(this);
@@ -125,7 +123,6 @@ async function clearAndValidateDataSizes({
   await dh2.promiseClosed;
 
   await SiteDataTestUtils.clear();
-  BrowserTestUtils.removeTab(gBrowser.selectedTab);
 }
 
 add_task(async function test_cookie_sizes() {

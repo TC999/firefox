@@ -3,30 +3,30 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 // HttpLog.h should generally be included first
-#include "HttpLog.h"
-
-#include "ConnectionHandle.h"
 #include "DnsAndConnectSocket.h"
-#include "nsHttpConnection.h"
-#include "nsIClassOfService.h"
-#include "nsIDNSRecord.h"
-#include "nsIInterfaceRequestorUtils.h"
-#include "nsIHttpActivityObserver.h"
-#include "nsSocketTransportService2.h"
-#include "nsDNSService2.h"
-#include "nsQueryObject.h"
-#include "nsURLHelper.h"
+
+#include "ConnectionEntry.h"
+#include "ConnectionHandle.h"
+#include "HttpConnectionUDP.h"
+#include "HttpLog.h"
+#include "NullHttpTransaction.h"
 #include "mozilla/Components.h"
 #include "mozilla/StaticPrefs_network.h"
 #include "mozilla/SyncRunnable.h"
 #include "mozilla/glean/NetwerkProtocolHttpMetrics.h"
-#include "nsHttpHandler.h"
-#include "nsHttpConnectionMgr.h"
-#include "ConnectionEntry.h"
-#include "HttpConnectionUDP.h"
-#include "NullHttpTransaction.h"
-#include "nsServiceManagerUtils.h"
 #include "mozilla/net/NeckoChannelParams.h"  // For HttpActivityArgs.
+#include "nsDNSService2.h"
+#include "nsHttpConnection.h"
+#include "nsHttpConnectionMgr.h"
+#include "nsHttpHandler.h"
+#include "nsIClassOfService.h"
+#include "nsIDNSRecord.h"
+#include "nsIHttpActivityObserver.h"
+#include "nsIInterfaceRequestorUtils.h"
+#include "nsQueryObject.h"
+#include "nsServiceManagerUtils.h"
+#include "nsSocketTransportService2.h"
+#include "nsURLHelper.h"
 
 // Log on level :5, instead of default :4.
 #undef LOG
@@ -608,7 +608,10 @@ nsresult DnsAndConnectSocket::SetupConn(bool isPrimary, nsresult status) {
 
   // This half-open socket has created a connection.  This flag excludes it
   // from counter of actual connections used for checking limits.
-  mHasConnected = true;
+  if (!mHasConnected) {
+    mHasConnected = true;
+    ent->OnConnectionAttemptConnected();
+  }
 
   // if this is still in the pending list, remove it and dispatch it
   RefPtr<PendingTransactionInfo> pendingTransInfo =
@@ -763,14 +766,22 @@ DnsAndConnectSocket::OnTransportStatus(nsITransport* trans, nsresult status,
     // Early LNA check: close socket before TLS handshake can send SNI.
     // This is called synchronously from nsSocketTransport::OnSocketConnected,
     // which runs after TCP connect but before TRANSFERRING-mode polling.
+    // Local (loopback) targets are always checked here. For Private targets
+    // on HTTPS, the check is deferred to after the TLS handshake succeeds
+    // (see nsHttpConnection::HandshakeDoneInternal) when
+    // network.lna.defer_https_check is set; this avoids spurious prompts
+    // when DNS misdirects a public hostname to a private address.
     if (mConnInfo->FirstHopSSL() && !mConnInfo->UsingProxy() &&
         StaticPrefs::network_lna_blocking()) {
       NetAddr peerAddr;
       if (NS_SUCCEEDED(transport->mSocketTransport->GetPeerAddr(&peerAddr))) {
         auto addrSpace = peerAddr.GetIpAddressSpace();
-        if ((addrSpace == nsILoadInfo::IPAddressSpace::Local ||
-             addrSpace == nsILoadInfo::IPAddressSpace::Private) &&
-            mTransaction &&
+        bool deferPrivate = addrSpace == nsILoadInfo::IPAddressSpace::Private &&
+                            StaticPrefs::network_lna_defer_https_check();
+        bool checkNow = addrSpace == nsILoadInfo::IPAddressSpace::Local ||
+                        (addrSpace == nsILoadInfo::IPAddressSpace::Private &&
+                         !deferPrivate);
+        if (checkNow && mTransaction &&
             !mTransaction->AllowedToConnectToIpAddressSpace(addrSpace)) {
           transport->mSocketTransport->Close(
               NS_ERROR_LOCAL_NETWORK_ACCESS_DENIED);
@@ -1244,7 +1255,7 @@ nsresult DnsAndConnectSocket::TransportSetup::SetupStreams(
     tmpFlags |= nsISocketTransport::NO_PERMANENT_STORAGE;
   }
 
-  (void)socketTransport->SetIsPrivate(ci->GetPrivate());
+  (void)socketTransport->SetOriginAttributes(ci->GetOriginAttributes());
   (void)socketTransport->SetIsTRRConnection(ci->GetIsTrrServiceChannel());
 
   if (dnsAndSock->mCaps & NS_HTTP_DISALLOW_ECH) {
@@ -1301,12 +1312,6 @@ nsresult DnsAndConnectSocket::TransportSetup::SetupStreams(
 
   socketTransport->SetConnectionFlags(tmpFlags);
   socketTransport->SetTlsFlags(ci->GetTlsFlags());
-
-  const OriginAttributes& originAttributes =
-      dnsAndSock->mConnInfo->GetOriginAttributes();
-  if (originAttributes != OriginAttributes()) {
-    socketTransport->SetOriginAttributes(originAttributes);
-  }
 
   socketTransport->SetQoSBits(gHttpHandler->GetQoSBits());
 

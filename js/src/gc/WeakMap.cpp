@@ -2,16 +2,22 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "gc/WeakMap-inl.h"
-
 #include "gc/PublicIterators.h"
 #include "vm/JSObject.h"
 
+#include "gc/AtomMarking-inl.h"
 #include "gc/Marking-inl.h"
 #include "gc/StoreBuffer-inl.h"
+#include "gc/WeakMap-inl.h"
 
 using namespace js;
 using namespace js::gc;
+
+void js::gc::MarkSymbolForWeakMapReadBarrier(JS::Zone* zone, JS::Symbol* sym) {
+  MOZ_ASSERT(zone && !zone->isAtomsZone());
+  zone->runtimeFromMainThread()->gc.atomReferences.inlinedRecordRefInfallible(
+      zone, sym);
+}
 
 WeakMapBase::WeakMapBase(JSObject* memOf, Zone* zone)
     : memberOf(memOf), zone_(zone) {

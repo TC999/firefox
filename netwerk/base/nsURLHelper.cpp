@@ -4,29 +4,28 @@
 
 #include "nsURLHelper.h"
 
+#include <algorithm>
+#include <iterator>
+
 #include "mozilla/AppShutdown.h"
 #include "mozilla/CompactPair.h"
 #include "mozilla/Encoding.h"
 #include "mozilla/Mutex.h"
+#include "mozilla/Preferences.h"
+#include "mozilla/StaticPrefs_network.h"
 #include "mozilla/TextUtils.h"
-
-#include <algorithm>
-#include <iterator>
-
+#include "mozilla/Tokenizer.h"
+#include "mozilla/net/DNS.h"
+#include "mozilla/net/rust_helper.h"
 #include "nsASCIIMask.h"
-#include "nsIFile.h"
-#include "nsIURLParser.h"
 #include "nsCOMPtr.h"
 #include "nsCRT.h"
-#include "nsNetCID.h"
-#include "mozilla/Preferences.h"
-#include "prnetdb.h"
-#include "mozilla/StaticPrefs_network.h"
-#include "mozilla/Tokenizer.h"
-#include "nsEscape.h"
 #include "nsDOMString.h"
-#include "mozilla/net/rust_helper.h"
-#include "mozilla/net/DNS.h"
+#include "nsEscape.h"
+#include "nsIFile.h"
+#include "nsIURLParser.h"
+#include "nsNetCID.h"
+#include "prnetdb.h"
 
 using namespace mozilla;
 
@@ -36,7 +35,7 @@ using namespace mozilla;
 
 // We protect only the initialization with the mutex, such that we cannot
 // annotate the following static variables.
-static StaticMutex gInitLock MOZ_UNANNOTATED;
+static StaticMutex gInitLock MOZ_ANNOTATED;
 // The relaxed memory ordering is fine here as we write this only when holding
 // gInitLock and only ever set it true once during EnsureGlobalsAreInited.
 static Atomic<bool, MemoryOrdering::Relaxed> gInitialized(false);
@@ -123,7 +122,7 @@ nsresult net_GetURLSpecFromDir(nsIFile* aFile, nsACString& result) {
     escPath += '/';
   }
 
-  result = escPath;
+  result = std::move(escPath);
   return NS_OK;
 }
 
@@ -143,7 +142,7 @@ nsresult net_GetURLSpecFromFile(nsIFile* aFile, nsACString& result) {
     if (NS_SUCCEEDED(rv) && dir) escPath += '/';
   }
 
-  result = escPath;
+  result = std::move(escPath);
   return NS_OK;
 }
 
@@ -886,8 +885,8 @@ void net_ParseRequestContentType(const nsACString& aHeaderStr,
   net_ParseMediaType(flatStr, contentType, contentCharset, 0, &hadCharset,
                      &dummy1, &dummy2, true);
 
-  aContentType = contentType;
-  aContentCharset = contentCharset;
+  aContentType = std::move(contentType);
+  aContentCharset = std::move(contentCharset);
   *aHadCharset = hadCharset;
 }
 

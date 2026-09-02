@@ -5,16 +5,16 @@
 #include "CanvasRenderer.h"
 
 #include "BuildConstants.h"
-#include "ipc/KnowsCompositor.h"
-#include "mozilla/gfx/gfxVars.h"
-#include "mozilla/StaticPrefs_webgl.h"
-#include "nsICanvasRenderingContextInternal.h"
 #include "PersistentBufferProvider.h"
 #include "WebGLTypes.h"
+#include "ipc/KnowsCompositor.h"
+#include "mozilla/StaticPrefs_webgl.h"
+#include "mozilla/gfx/gfxVars.h"
+#include "nsICanvasRenderingContextInternal.h"
 
 #ifdef MOZ_WIDGET_GTK
-#  include "mozilla/widget/DMABufSurface.h"
 #  include "mozilla/widget/DMABufDevice.h"
+#  include "mozilla/widget/DMABufSurface.h"
 #endif
 
 namespace mozilla {
@@ -122,13 +122,15 @@ TextureType TexTypeForWebgl(KnowsCompositor* const knowsCompositor,
   if (kIsAndroid) {
     // EGLimages cannot be shared cross-process, so only use if webgl is
     // out-of-process.
-    if (aIsWebglOop && StaticPrefs::webgl_enable_egl_image()) {
+    if (aIsWebglOop && !gfx::gfxVars::UseWebRenderANGLE() &&
+        StaticPrefs::webgl_enable_egl_image()) {
       return TextureType::EGLImage;
     }
     if (gfx::gfxVars::UseAHardwareBufferSharedSurfaceWebglOop()) {
       return TextureType::AndroidHardwareBuffer;
     }
-    if (StaticPrefs::webgl_enable_surface_texture()) {
+    if (!gfx::gfxVars::UseWebRenderANGLE() &&
+        StaticPrefs::webgl_enable_surface_texture()) {
       return TextureType::AndroidNativeWindow;
     }
   }

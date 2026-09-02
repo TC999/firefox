@@ -2,21 +2,20 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "gtest/gtest.h"
-
 #include <cmath>
 
 #include "Common.h"
 #include "Decoder.h"
 #include "DecoderFactory.h"
 #include "IDecodingTask.h"
+#include "SourceBuffer.h"
+#include "gtest/gtest.h"
 #include "imgIEncoder.h"
 #include "mozilla/gfx/2D.h"
-#include "nsComponentManagerUtils.h"
 #include "nsCOMPtr.h"
+#include "nsComponentManagerUtils.h"
 #include "nsStreamUtils.h"
 #include "nsString.h"
-#include "SourceBuffer.h"
 
 using namespace mozilla;
 using namespace mozilla::gfx;
@@ -184,8 +183,8 @@ static RefPtr<SourceSurface> DecodePNG(const nsTArray<uint8_t>& aPNGData) {
       DefaultSurfaceFlags());
   EXPECT_TRUE(decoder != nullptr);
 
-  RefPtr<IDecodingTask> task =
-      new AnonymousDecodingTask(WrapNotNull(decoder), /* aResumable */ false);
+  auto task = MakeRefPtr<AnonymousDecodingTask>(WrapNotNull(decoder),
+                                                /* aResumable */ false);
   task->Run();
 
   EXPECT_TRUE(decoder->GetDecodeDone());
@@ -232,7 +231,7 @@ static void VerifyPixels(SourceSurface* aSurface) {
   }
 }
 
-TEST(TestHDRPNGEncoder, R10G10B10A2RoundTrip)
+TEST(ImageHDRPNGEncoder, R10G10B10A2RoundTrip)
 {
   AutoInitializeImageLib initLib;
 
@@ -250,7 +249,7 @@ TEST(TestHDRPNGEncoder, R10G10B10A2RoundTrip)
   VerifyPixels(surface);
 }
 
-TEST(TestHDRPNGEncoder, U10RoundTrip)
+TEST(ImageHDRPNGEncoder, U10RoundTrip)
 {
   AutoInitializeImageLib initLib;
 
@@ -268,7 +267,7 @@ TEST(TestHDRPNGEncoder, U10RoundTrip)
   VerifyPixels(surface);
 }
 
-TEST(TestHDRPNGEncoder, U12RoundTrip)
+TEST(ImageHDRPNGEncoder, U12RoundTrip)
 {
   AutoInitializeImageLib initLib;
 
@@ -286,7 +285,7 @@ TEST(TestHDRPNGEncoder, U12RoundTrip)
   VerifyPixels(surface);
 }
 
-TEST(TestHDRPNGEncoder, U16RoundTrip)
+TEST(ImageHDRPNGEncoder, U16RoundTrip)
 {
   AutoInitializeImageLib initLib;
 
@@ -304,7 +303,7 @@ TEST(TestHDRPNGEncoder, U16RoundTrip)
   VerifyPixels(surface);
 }
 
-TEST(TestHDRPNGEncoder, F16RoundTrip)
+TEST(ImageHDRPNGEncoder, F16RoundTrip)
 {
   AutoInitializeImageLib initLib;
 

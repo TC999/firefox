@@ -271,3 +271,110 @@ add_task(async function test_DownloadHistory() {
   allView2.expected = allView.expected;
   await allView2.waitForExpected();
 });
+
+add_task(async function test_DownloadHistory_original_url() {
+  await PlacesUtils.history.clear();
+  const publicList = await promiseNewList();
+  DownloadHistory._listPromises = {};
+
+  const originalUrl = httpUrl("original.pdf");
+  const targetFile = getTempFile(TEST_TARGET_FILE_NAME + "-original-url");
+  const download = await Downloads.createDownload({
+    source: {
+      url: "blob:resource://pdf.js/test",
+      originalUrl,
+    },
+    target: { path: targetFile.path },
+    startTime: new Date(),
+    succeeded: true,
+  });
+  await publicList.add(download);
+
+  const fileAnnotation = waitForAnnotation(
+    originalUrl,
+    "downloads/destinationFileURI"
+  );
+  const metaAnnotation = waitForAnnotation(originalUrl, "downloads/metaData");
+  const visit = promiseWaitForVisit(originalUrl);
+  await DownloadHistory.addDownloadToHistory(download);
+  await visit;
+  await DownloadHistory.updateMetaData(download);
+  await Promise.all([fileAnnotation, metaAnnotation]);
+
+  const historyList = await DownloadHistory.getList();
+  let downloads = await historyList.getAll();
+  Assert.equal(
+    downloads.length,
+    1,
+    "The history and session entries are merged"
+  );
+  Assert.strictEqual(
+    downloads[0],
+    download,
+    "The session download is displayed while it is available"
+  );
+
+  await publicList.remove(download);
+  downloads = await historyList.getAll();
+  Assert.equal(downloads.length, 1, "The history entry remains");
+  Assert.equal(
+    downloads[0].source.url,
+    originalUrl,
+    "The history entry uses the original URL"
+  );
+  Assert.equal(
+    downloads[0].target.path,
+    targetFile.path,
+    "The history entry retains the target path"
+  );
+
+  await PlacesUtils.history.clear();
+});
+
+/**
+ * Tests that a DownloadHistoryList slot is correctly cleaned up when a
+ * download's URL is stripped before the download is removed from the list,
+ * as happens with large data URI downloads.
+ */
+add_task(async function test_DownloadHistoryList_cleared_data_uri() {
+  let publicList = await promiseNewList();
+  DownloadHistory._listPromises = {};
+  let historyList = await DownloadHistory.getList();
+
+  let { promise: added, resolve: addedResolve } = Promise.withResolvers();
+  let { promise: removed, resolve: removedResolve } = Promise.withResolvers();
+  let view = {
+    onDownloadAdded: addedResolve,
+    onDownloadChanged() {},
+    onDownloadRemoved: removedResolve,
+  };
+  historyList.addView(view);
+
+  let download = await Downloads.createDownload({
+    source: { url: "data:text/plain,hello" },
+    target: { path: getTempFile(TEST_TARGET_FILE_NAME).path },
+  });
+  await publicList.add(download);
+  await added;
+
+  // Simulate URL body being stripped after a large data URI download completes.
+  download.source.url = "data:text/plain,";
+  download.source.isDataURICleared = true;
+
+  // Removing should correctly clean up the slot via its stored URL key,
+  // even though source.url has since been truncated.
+  await publicList.remove(download);
+  await removed;
+
+  Assert.ok(
+    !historyList._slotForDownload.has(download),
+    "The slot should be removed from the download map after removal"
+  );
+  Assert.equal(
+    historyList._slotsForUrl.size,
+    0,
+    "The URL slots map should be empty after removal"
+  );
+
+  historyList.removeView(view);
+});

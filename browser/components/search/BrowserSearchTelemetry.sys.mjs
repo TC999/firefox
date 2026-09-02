@@ -5,17 +5,21 @@
 import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
 
 const lazy = XPCOMUtils.declareLazy({
+  AboutNewTab: "resource:///modules/AboutNewTab.sys.mjs",
+  ConfigSearchEngine:
+    "moz-src:///toolkit/components/search/ConfigSearchEngine.sys.mjs",
   ContextId: "moz-src:///browser/modules/ContextId.sys.mjs",
   PrivateBrowsingUtils: "resource://gre/modules/PrivateBrowsingUtils.sys.mjs",
   SearchSERPTelemetry:
     "moz-src:///browser/components/search/SearchSERPTelemetry.sys.mjs",
   SearchUtils: "moz-src:///toolkit/components/search/SearchUtils.sys.mjs",
+  SearchService: "moz-src:///toolkit/components/search/SearchService.sys.mjs",
   UrlbarSearchUtils:
     "moz-src:///browser/components/urlbar/UrlbarSearchUtils.sys.mjs",
 });
 
 /**
- * @import {SearchEngine} from "moz-src:///toolkit/components/search/SearchEngine.sys.mjs"
+ * @import {SearchSubmissionData, SearchEngine} from "moz-src:///toolkit/components/search/SearchEngine.sys.mjs"
  */
 
 /**
@@ -54,9 +58,11 @@ class BrowserSearchTelemetryHandler {
    */
   KNOWN_SEARCH_SOURCES = Object.freeze({
     about_home: "abouthome",
+    about_newtab: "newtab",
     contextmenu: "contextmenu",
     contextmenu_visual: "contextmenu_visual",
-    about_newtab: "newtab",
+    errorpage: "errorpage",
+    newtab_searchbar: "newtab-searchbar",
     searchbar: "searchbar",
     smartbar: "smartbar",
     smartwindow_assistant: "smartwindow_assistant",
@@ -79,7 +85,7 @@ class BrowserSearchTelemetryHandler {
    */
   shouldRecordSearchCount(browser) {
     return (
-      !lazy.PrivateBrowsingUtils.isWindowPrivate(browser.ownerGlobal) ||
+      !lazy.PrivateBrowsingUtils.isWindowPrivate(browser.documentGlobal) ||
       !Services.prefs.getBoolPref("browser.engagement.search_counts.pbm", false)
     );
   }
@@ -146,8 +152,8 @@ class BrowserSearchTelemetryHandler {
    *
    * @param {MozBrowser} browser
    *        The browser where the search originated.
-   * @param {SearchEngine} engine
-   *        The engine handling the search.
+   * @param {SearchEngine|string} engine
+   *        The engine handling the search or its id.
    * @param {keyof typeof BrowserSearchTelemetry.KNOWN_SEARCH_SOURCES} source
    *        Where the search originated from.
    * @param {object} [details] Options object.
@@ -164,9 +170,15 @@ class BrowserSearchTelemetryHandler {
    * @param {Values<typeof lazy.SearchUtils.URL_TYPE>} [details.searchUrlType=undefined]
    *        A `SearchUtils.URL_TYPE` value that indicates the type of search.
    *        Defaults to `SearchUtils.URL_TYPE.SEARCH`, a plain old search.
+   * @param {SearchSubmissionData} [details.submission]
+   *        Submission details used for this event. This is used for recording
+   *        specific details to telemetry.
    * @throws if source is not in the known sources list.
    */
   recordSearch(browser, engine, source, details = {}) {
+    if (typeof engine == "string") {
+      engine = lazy.SearchService.getEngineById(engine);
+    }
     if (engine.clickUrl) {
       this.#reportSearchInGlean(engine.clickUrl);
     }
@@ -187,15 +199,17 @@ class BrowserSearchTelemetryHandler {
         );
       }
 
+      let legacyTelemetryId =
+        details.submission?.telemetryId ?? engine.telemetryId;
       if (source != "contextmenu_visual") {
-        const countIdPrefix = `${engine.telemetryId}.`;
-        const countIdSource = countIdPrefix + this.KNOWN_SEARCH_SOURCES[source];
+        let countIdPrefix = `${legacyTelemetryId}.`;
+        let countIdSource = countIdPrefix + this.KNOWN_SEARCH_SOURCES[source];
 
         // NOTE: When removing the sap.deprecatedCounts telemetry, see the note
         // above KNOWN_SEARCH_SOURCES.
         if (
           details.alias &&
-          engine.isConfigEngine &&
+          engine instanceof lazy.ConfigSearchEngine &&
           engine.aliases.includes(details.alias)
         ) {
           // This is a keyword search using a config engine.
@@ -214,52 +228,72 @@ class BrowserSearchTelemetryHandler {
       let searchUrlType =
         details.searchUrlType ?? lazy.SearchUtils.URL_TYPE.SEARCH;
 
+      let partnerCodeToUse = details.submission
+        ? details.submission.partnerCode
+        : engine.partnerCode;
       // Strict equality is used because we want to only match against the
       // empty string and not other values. We would have `engine.partnerCode`
       // return `undefined`, but the XPCOM interfaces force us to return an
       // empty string.
       let reportPartnerCode =
         !isOverridden &&
-        engine.partnerCode !== "" &&
+        partnerCodeToUse !== "" &&
         !engine.getURLOfType(searchUrlType)?.excludePartnerCodeFromTelemetry;
 
       Glean.sap.counts.record({
         source,
-        provider_id: engine.isConfigEngine ? engine.id : "other",
+        provider_id:
+          engine instanceof lazy.ConfigSearchEngine ? engine.id : "other",
         provider_name: engine.name,
         // If no code is reported, we must returned undefined, Glean will then
         // not report the field.
-        partner_code: reportPartnerCode ? engine.partnerCode : undefined,
+        partner_code: reportPartnerCode ? partnerCodeToUse : undefined,
         overridden_by_third_party: isOverridden.toString(),
       });
 
       // Dispatch the search signal to other handlers.
       switch (source) {
-        case "urlbar":
-        case "searchbar":
-        case "smartbar":
-        case "urlbar_searchmode":
-        case "urlbar_persisted":
-        case "urlbar_handoff":
-          this._handleSearchAndUrlbar(browser, engine, source, details);
-          break;
         case "about_home":
         case "about_newtab":
           this.#recordSearch(browser, source, "enter");
+          break;
+        case "errorpage":
+        case "newtab_searchbar":
+        case "searchbar":
+        case "smartbar":
+        case "urlbar":
+        case "urlbar_handoff":
+        case "urlbar_persisted":
+        case "urlbar_searchmode":
+          this._handleSearchAndUrlbar(browser, engine, source, details);
           break;
         default:
           this.#recordSearch(browser, source);
           break;
       }
-      if (["urlbar_handoff", "about_home", "about_newtab"].includes(source)) {
+      if (
+        [
+          "about_home",
+          "about_newtab",
+          "newtab_searchbar",
+          "urlbar_handoff",
+        ].includes(source)
+      ) {
+        // The New Tab search bar is part of the page rather than a handoff
+        // target, so no visit id was handed to it: the visit is the one the
+        // browser is showing.
+        let newtabVisitId =
+          source == "newtab_searchbar"
+            ? lazy.AboutNewTab.getVisitId(browser)
+            : details.newtabSessionId;
         Glean.newtabSearch.issued.record({
-          newtab_visit_id: details.newtabSessionId,
+          newtab_visit_id: newtabVisitId,
           search_access_point: source,
-          telemetry_id: engine.telemetryId,
+          telemetry_id: legacyTelemetryId,
         });
         lazy.SearchSERPTelemetry.recordBrowserNewtabSession(
           browser,
-          details.newtabSessionId
+          newtabVisitId
         );
       }
     } catch (ex) {
@@ -274,14 +308,15 @@ class BrowserSearchTelemetryHandler {
    *
    * @param {SearchEngine} engine
    *   The engine whose search form is being visited.
-   * @param {"searchbar"|"smartbar"|"urlbar"} source
+   * @param {"newtab_searchbar"|"searchbar"|"smartbar"|"urlbar"} source
    *   Where the search form was opened from. This is a sub-set of the
    *   KNOWN_SEARCH_SOURCES.
    */
   recordSearchForm(engine, source) {
     Glean.sap.searchFormCounts.record({
       source,
-      provider_id: engine.isConfigEngine ? engine.id : "other",
+      provider_id:
+        engine instanceof lazy.ConfigSearchEngine ? engine.id : "other",
     });
   }
 
@@ -308,7 +343,7 @@ class BrowserSearchTelemetryHandler {
     }
 
     let name = source.replace(/_([a-z])/g, (m, p) => p.toUpperCase());
-    let label = engine?.isConfigEngine ? engine.id : "none";
+    let label = engine instanceof lazy.ConfigSearchEngine ? engine.id : "none";
     Glean.sapImpressionCounts[name][label].add(1);
   }
 

@@ -5,8 +5,10 @@
 #include "mozilla/dom/CSSContainerRule.h"
 
 #include "mozilla/ServoBindings.h"
+#include "mozilla/ServoStyleSet.h"
 #include "mozilla/css/GroupRule.h"
 #include "mozilla/dom/CSSContainerRuleBinding.h"
+#include "mozilla/dom/DocumentInlines.h"
 
 using namespace mozilla::css;
 
@@ -85,6 +87,18 @@ Element* CSSContainerRule::QueryContainerFor(const Element& aElement,
                                              size_t aConditionIndex) const {
   return const_cast<Element*>(Servo_ContainerRule_QueryContainerFor(
       mRawRule, &aElement, aConditionIndex));
+}
+
+bool CSSContainerRule::QueryConditionMatchesElement(
+    const Element& aElement, size_t aConditionIndex) const {
+  RefPtr<Document> doc = aElement.GetComposedDoc();
+  if (!doc) {
+    return false;
+  }
+  doc->FlushPendingNotifications(FlushType::Layout);
+
+  return Servo_ContainerRule_QueryConditionMatchesElement(
+      mRawRule, &aElement, aConditionIndex, doc->EnsureStyleSet().RawData());
 }
 
 void CSSContainerRule::SetRawAfterClone(RefPtr<StyleContainerRule> aRaw) {

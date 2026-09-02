@@ -37,10 +37,18 @@ enum class FrameChildListID {
   Overflow,
   OverflowContainers,
   ExcessOverflowContainers,
-  OverflowOutOfFlow,
+  // Floats placed by the block. Their placeholders are in the block's in-flow
+  // lines.
   Float,
-  Marker,
+  // Floats pushed to the block's next-in-flow because they didn't fit. The list
+  // can hold floats' first-in-flows and next-in-flows, and it is expected to be
+  // drained by the block's next-in-flow during reflow.
   PushedFloats,
+  // Floats whose placeholders are in the overflow lines. This list collects the
+  // floats' real frames so they are drained with their placeholders by the
+  // block's next-in-flow.
+  OverflowFloats,
+  Marker,
   // A special alias for FrameChildListID::Principal that suppress the reflow
   // request that is normally done when manipulating child lists.
   NoReflowPrincipal,
@@ -244,13 +252,13 @@ class nsFrameList {
   template <typename Predicate>
   nsFrameList Split(Predicate&& aPredicate) {
     static_assert(
-        std::is_same<
+        std::is_same_v<
             typename mozilla::FunctionTypeTraits<Predicate>::ReturnType,
-            bool>::value &&
+            bool> &&
             mozilla::FunctionTypeTraits<Predicate>::arity == 1 &&
-            std::is_same<typename mozilla::FunctionTypeTraits<
-                             Predicate>::template ParameterType<0>,
-                         nsIFrame*>::value,
+            std::is_same_v<typename mozilla::FunctionTypeTraits<
+                               Predicate>::template ParameterType<0>,
+                           nsIFrame*>,
         "aPredicate should be of this function signature: bool(nsIFrame*)");
 
     for (nsIFrame* f : *this) {
@@ -344,6 +352,8 @@ class nsFrameList {
         : mStart(aList.FirstChild()), mEnd(nullptr) {}
     Slice(nsIFrame* aStart, nsIFrame* aEnd) : mStart(aStart), mEnd(aEnd) {}
 
+    void operator delete(void*) = delete;
+
     iterator begin() const { return iterator(mStart); }
     const_iterator cbegin() const { return begin(); }
     iterator end() const { return iterator(mEnd); }
@@ -397,7 +407,6 @@ class nsFrameList {
     }
 
     bool operator==(const Iterator<FrameTraversal>& aOther) const = default;
-    bool operator!=(const Iterator<FrameTraversal>& aOther) const = default;
 
    private:
     nsIFrame* mCurrent;
@@ -413,8 +422,6 @@ class nsFrameList {
   const_reverse_iterator crend() const { return rend(); }
 
  private:
-  void operator delete(void*) = delete;
-
   static const nsFrameList sEmptyList;
 
 #ifdef DEBUG_FRAME_LIST

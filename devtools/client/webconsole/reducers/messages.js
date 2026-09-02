@@ -604,9 +604,17 @@ function messages(
           ...networkMessagesUpdateById,
         },
       };
-      let hasNetworkError = null;
+      let hasNetworkError = false;
+      let hasUpdatesForMessageInState = false;
       for (const message of action.messages) {
         const { id } = message;
+        // Ignore the update if the network message isn't in the map of messages
+        if (!updatedState.mutableMessagesById.has(id)) {
+          continue;
+        }
+
+        hasUpdatesForMessageInState = true;
+
         updatedState.mutableMessagesById.set(id, message);
         updatedState.networkMessagesUpdateById[id] = {
           ...(updatedState.networkMessagesUpdateById[id] || {}),
@@ -616,6 +624,12 @@ function messages(
         if (isMessageNetworkError(message)) {
           hasNetworkError = true;
         }
+      }
+
+      // if there was no actual update, let's return the original state so we don't
+      // trigger a re-rendering.
+      if (!hasUpdatesForMessageInState) {
+        return state;
       }
 
       // If the message updates contained a network error, then we may have to display it.
@@ -650,6 +664,12 @@ function messages(
         if (!request) {
           continue;
         }
+
+        // We do not want to overwrite priority with "undefined"
+        if (!Number.isInteger(data.priority)) {
+          delete data.priority;
+        }
+
         newState.networkMessagesUpdateById[id] = {
           ...request,
           ...processNetworkUpdates(data),
@@ -1264,6 +1284,16 @@ function getMessageVisibility(
     };
   }
 
+  // In the browser console and the browser toolbox console, let the user
+  // separately show or hide messages coming from the browser itself (privileged
+  // code) and those coming from web content.
+  if (!passOriginFilters(message, filtersState)) {
+    return {
+      visible: false,
+      cause: message.chromeContext ? FILTERS.CHROME : FILTERS.CONTENT,
+    };
+  }
+
   // Let's check all level filters (error, warn, log, …) and return visible: false
   // and the message level as a cause if the function returns false.
   if (!passLevelFilters(message, filtersState)) {
@@ -1388,6 +1418,23 @@ function passLevelFilters(message, filters) {
     filters[message.level] === true ||
     (filters[FILTERS.ERROR] && isMessageNetworkError(message))
   );
+}
+
+/**
+ * Returns true if the message shouldn't be hidden because of the origin filters
+ * (chrome/content). These filters are only displayed in the browser console and
+ * the browser toolbox console; in the web console both default to true so this
+ * never hides anything.
+ *
+ * @param {object} message - The message to check the filter against.
+ * @param {FilterState} filters - redux "filters" state.
+ * @returns {boolean}
+ */
+function passOriginFilters(message, filters) {
+  if (message.chromeContext) {
+    return filters[FILTERS.CHROME] === true;
+  }
+  return filters[FILTERS.CONTENT] === true;
 }
 
 /**

@@ -9,6 +9,7 @@
 
 #include "mozilla/Assertions.h"
 #include "mozilla/dom/quota/Assertions.h"
+#include "mozilla/dom/quota/QuotaCommon.h"
 
 namespace mozilla::dom::quota {
 
@@ -39,10 +40,36 @@ void AssertNoOverflow(uint64_t aDest, T aArg) {
 }
 
 template <typename T, typename U>
-void AssertNoUnderflow(T aDest, U aArg) {
+void AssertNoUnderflow(T aDest, U aArg, const nsACString& context) {
   detail::IntChecker<T>::Assert(aDest);
   detail::IntChecker<T>::Assert(aArg);
-  MOZ_ASSERT(uint64_t(aDest) >= uint64_t(aArg));
+#if defined(NIGHTLY_BUILD) || defined(DEBUG)
+  {
+    const auto scope =
+        context.IsEmpty()
+            ? Nothing{}
+            : Some(quota::ScopedLogExtraInfo{
+                  quota::ScopedLogExtraInfo::kTagContextTainted, context});
+    const bool noUnderflow = uint64_t(aDest) >= uint64_t(aArg);
+    MOZ_ASSERT(noUnderflow);
+    QM_TRY(OkIf(noUnderflow), QM_VOID, QM_NO_CLEANUP,
+           ([&context]() { return ShouldReportDiagnostic(context); }));
+  }
+#endif
+}
+
+// Reports when a usage value tracked in memory disagrees with real value (e.g.
+// a file's actual size).
+// This is used to help find which client/code path is corrupting quota usage
+// counters (bug 1585978).
+inline void ReportUsageDriftIfAny(int64_t aTracked, int64_t aReal,
+                                  const nsACString& aContext) {
+#if defined(NIGHTLY_BUILD) || defined(DEBUG)
+  MOZ_ASSERT_DEBUG_OR_FUZZING(aTracked == aReal);
+  QM_SCOPED_CONTEXT(aContext);
+  QM_TRY(OkIf(aTracked == aReal), QM_VOID, QM_NO_CLEANUP,
+         ([&aContext]() { return ShouldReportDiagnostic(aContext); }));
+#endif
 }
 
 }  // namespace mozilla::dom::quota

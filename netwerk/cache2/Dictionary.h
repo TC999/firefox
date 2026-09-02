@@ -5,7 +5,15 @@
 #ifndef mozilla_net_Dictionary_h
 #define mozilla_net_Dictionary_h
 
+#include <vector>
+
+#include "mozilla/RefPtr.h"
+#include "mozilla/TimeStamp.h"
+#include "mozilla/Vector.h"
+#include "mozilla/dom/RequestBinding.h"
+#include "mozilla/net/urlpattern_glue.h"
 #include "nsCOMPtr.h"
+#include "nsHashKeys.h"
 #include "nsICacheEntry.h"
 #include "nsICacheEntryOpenCallback.h"
 #include "nsICacheStorageService.h"
@@ -14,16 +22,9 @@
 #include "nsIInterfaceRequestor.h"
 #include "nsIObserver.h"
 #include "nsIStreamListener.h"
-#include "mozilla/RefPtr.h"
-#include "mozilla/Vector.h"
 #include "nsString.h"
 #include "nsTArray.h"
-#include <vector>
-#include "mozilla/dom/RequestBinding.h"
-#include "mozilla/TimeStamp.h"
 #include "nsTHashMap.h"
-#include "nsHashKeys.h"
-#include "mozilla/net/urlpattern_glue.h"
 
 class nsICacheStorage;
 class nsIIOService;
@@ -122,6 +123,7 @@ class DictionaryCacheEntry final : public nsICacheEntryOpenCallback,
   // Accumulate a hash while saving a file being received to the cache
   void AccumulateHash(const char* aBuf, int32_t aCount);
   void FinishHash();
+  void FinishHashOnMainThread();
 
   // return a pointer to the data and length
   uint8_t* DictionaryData(size_t* aLength) const;
@@ -188,8 +190,9 @@ class DictionaryCacheEntry final : public nsICacheEntryOpenCallback,
   // Populated on MainThread after hash validation succeeds
   Vector<uint8_t> mDictionaryData;
 
-  // Atomic flag indicating dictionary data is complete and validated
-  Atomic<bool, Relaxed> mDictionaryDataComplete{false};
+  // Publishes mDictionaryData to reader threads. ReleaseAcquire so that
+  // the non-atomic mDictionaryData write is visible before readers see true.
+  Atomic<bool, ReleaseAcquire> mDictionaryDataComplete{false};
 
   // Temporary buffer for accumulating dictionary data during cache reads
   // Only accessed by cache I/O thread during stream callbacks (serialized)
@@ -228,6 +231,11 @@ class DictionaryCacheEntry final : public nsICacheEntryOpenCallback,
 
   // We're blocked from taking over for the old entry for now
   bool mBlocked{false};
+
+  // Set during Prefetch in OnCacheEntryAvailable if the stored response
+  // headers still contain Content-Encoding. Non-empty means data on disk
+  // is likely still compressed (decompressor wasn't applied before save).
+  nsCString mStoredContentEncoding;
 };
 
 // XXX Do we want to pre-read dictionaries into RAM at startup (lazily)?
@@ -247,7 +255,7 @@ class DictionaryOriginReader final : public nsICacheEntryOpenCallback,
   NS_DECL_NSIREQUESTOBSERVER
   NS_DECL_NSISTREAMLISTENER
 
-  DictionaryOriginReader() {}
+  DictionaryOriginReader() = default;
 
   void Start(
       bool aCreate, DictionaryOrigin* aOrigin, nsACString& aKey, nsIURI* aURI,
@@ -256,11 +264,11 @@ class DictionaryOriginReader final : public nsICacheEntryOpenCallback,
   void FinishMatch();
 
  private:
-  ~DictionaryOriginReader() {}
+  ~DictionaryOriginReader() = default;
 
   RefPtr<DictionaryOrigin> mOrigin;
   nsCOMPtr<nsIURI> mURI;
-  ExtContentPolicyType mType;
+  ExtContentPolicyType mType = ExtContentPolicyType::TYPE_INVALID;
   std::function<nsresult(bool, DictionaryCacheEntry*)> mCallback;
   RefPtr<DictionaryCache> mCache;
 };
@@ -298,7 +306,7 @@ class DictionaryOrigin : public nsICacheEntryMetaDataVisitor {
   }
 
  private:
-  virtual ~DictionaryOrigin() {}
+  virtual ~DictionaryOrigin() = default;
 
   nsCString mOrigin;
   nsCOMPtr<nsICacheEntry> mEntry;
@@ -324,7 +332,7 @@ class DictionaryCache final : public nsIObserver {
     (void)rv;
     MOZ_DIAGNOSTIC_ASSERT(NS_SUCCEEDED(rv));
   }
-  ~DictionaryCache() {}
+  ~DictionaryCache() = default;
 
   friend class DictionaryOriginReader;
   friend class DictionaryCacheEntry;
@@ -337,6 +345,12 @@ class DictionaryCache final : public nsIObserver {
 
   nsresult Init();
   static void Shutdown();
+
+  // Test-only: undo Shutdown()'s permanent disable so the cache can be used
+  // again after a simulated restart (see
+  // nsICacheTesting::startupCacheForTesting). The instance is recreated lazily
+  // by GetInstance().
+  static void ResetShutdownForTesting() { sShutdown = false; }
 
   nsresult AddEntry(nsIURI* aURI, const nsACString& aKey,
                     const nsACString& aPattern, nsTArray<nsCString>& aMatchDest,

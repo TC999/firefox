@@ -3,8 +3,10 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 plugins {
-    alias(libs.plugins.kotlin.dsl)
-    alias(libs.plugins.kotlin.serialization)
+    `kotlin-dsl`
+    alias(libs.plugins.android.lint.plugin)
+    // kotlin-dsl builds against Gradle's embedded Kotlin, and warns if another version is applied.
+    id("org.jetbrains.kotlin.plugin.serialization") version embeddedKotlinVersion
 }
 
 group = "org.mozilla"
@@ -33,12 +35,21 @@ gradlePlugin {
     }
 }
 
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    compilerOptions {
+        allWarningsAsErrors.set(true)
+    }
+}
+
 dependencies {
     implementation(libs.kaml)
     compileOnly(libs.android.gradle.plugin)
+    implementation(libs.spotless.plugin)
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)
+
+    lintChecks(libs.androidx.lint)
 }
 
 tasks.test {

@@ -21,7 +21,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -31,12 +30,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.PreviewLightDark
 import androidx.compose.ui.unit.dp
+import mozilla.components.compose.base.button.TextButton
 import mozilla.components.lib.state.ext.observeAsComposableState
 import org.mozilla.fenix.R
 import org.mozilla.fenix.settings.settingssearch.ui.SettingsSearchSectionHeader
@@ -71,11 +70,12 @@ fun SettingsSearchScreen(
                 )
                 HorizontalDivider()
             }
-        },
-    ) { paddingValues ->
-        val topPadding = remember(paddingValues) {
-            paddingValues.calculateTopPadding()
         }
+    ) { paddingValues ->
+        val topPadding =
+            remember(paddingValues) {
+                paddingValues.calculateTopPadding()
+            }
 
         when (state) {
             is SettingsSearchState.Default -> {
@@ -83,32 +83,20 @@ fun SettingsSearchScreen(
                     RecentSearchesContent(
                         store = store,
                         onResultItemClick = onResultItemClick,
-                        modifier = Modifier
-                            .padding(top = topPadding)
-                            .fillMaxSize(),
-                        )
-                } else {
-                    SettingsSearchMessageContent(
-                        modifier = Modifier
-                            .padding(top = topPadding)
-                            .fillMaxSize(),
+                        modifier = Modifier.padding(top = topPadding).fillMaxSize(),
                     )
+                } else {
+                    SettingsSearchMessageContent(modifier = Modifier.padding(top = topPadding).fillMaxSize())
                 }
             }
             is SettingsSearchState.NoSearchResults -> {
-                EmptySearchResultsView(
-                    modifier = Modifier
-                        .padding(top = topPadding)
-                        .fillMaxSize(),
-                )
+                EmptySearchResultsView(modifier = Modifier.padding(top = topPadding).fillMaxSize())
             }
             is SettingsSearchState.SearchInProgress -> {
                 SearchResults(
                     store = store,
                     onResultItemClick = onResultItemClick,
-                    modifier = Modifier
-                        .padding(top = topPadding)
-                        .fillMaxSize(),
+                    modifier = Modifier.padding(top = topPadding).fillMaxSize(),
                 )
             }
         }
@@ -116,9 +104,7 @@ fun SettingsSearchScreen(
 }
 
 @Composable
-private fun SettingsSearchMessageContent(
-    modifier: Modifier = Modifier,
-) {
+private fun SettingsSearchMessageContent(modifier: Modifier = Modifier) {
     val displayMessage = stringResource(R.string.settings_search_empty_query_placeholder)
     Box(
         modifier = modifier,
@@ -198,41 +184,27 @@ private fun RecentSearchesContent(
             }
     }
 
-    Column(
-        modifier = modifier,
-    ) {
+    Column(modifier = modifier) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 50.dp)
-                .padding(start = 16.dp, top = 12.dp, bottom = 6.dp),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp).padding(start = 16.dp, top = 12.dp, bottom = 6.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
                 text = stringResource(R.string.settings_search_recent_searches_section_header),
                 style = FirefoxTheme.typography.headline8,
-                color = colorResource(RECENT_SEARCHES_HEADER_TEXT_COLOR),
+                color = MaterialTheme.colorScheme.onSurface,
             )
             TextButton(
+                text = stringResource(R.string.settings_search_clear_recent_searches_message),
                 onClick = {
                     store.dispatch(SettingsSearchAction.ClearRecentSearchesClicked)
                 },
-                colors = ButtonDefaults.textButtonColors(),
                 modifier = Modifier.heightIn(min = 48.dp),
-                enabled = true,
-            ) {
-               Text(
-                   text = stringResource(R.string.settings_search_clear_recent_searches_message),
-                   color = colorResource(RECENT_SEARCHES_CLEAR_RECENTS_TEXT_COLOR),
-                   style = FirefoxTheme.typography.button,
-                   maxLines = 1,
-               )
-            }
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.secondary),
+            )
         }
-        LazyColumn(
-            state = listState,
-        ) {
+        LazyColumn(state = listState) {
             items(state.recentSearches.size) { index ->
                 val searchItem = state.recentSearches[index]
 
@@ -249,9 +221,7 @@ private fun RecentSearchesContent(
 }
 
 @Composable
-private fun EmptySearchResultsView(
-    modifier: Modifier = Modifier,
-) {
+private fun EmptySearchResultsView(modifier: Modifier = Modifier) {
     Box(
         modifier = modifier,
         contentAlignment = BiasAlignment(0f, VERTICAL_BIAS_OFFSET_IMAGE_MESSAGE),
@@ -280,9 +250,7 @@ private fun EmptySearchResultsView(
     }
 }
 
-/**
- * Preview for the settings search screen initial state.
- */
+/** Preview for the settings search screen initial state. */
 @PreviewLightDark
 @Composable
 private fun SettingsSearchScreenInitialStatePreview() {
@@ -297,32 +265,33 @@ private fun SettingsSearchScreenInitialStatePreview() {
     }
 }
 
-/**
- * Preview for the settings search screen displaying a list of recent searches.
- */
+/** Preview for the settings search screen displaying a list of recent searches. */
 @PreviewLightDark
 @Composable
 private fun SettingsSearchScreenWithRecentsPreview() {
-    val storeWithRecents = SettingsSearchStore(
-        initialState = SettingsSearchState.Default(
-            recentSearches = listOf(
-                SettingsSearchItem(
-                    "Search engine",
-                    "Choose your default",
-                    "search_engine",
-                    categoryHeader = "General",
-                    PreferenceFileInformation.SearchSettingsPreferences,
-                ),
-                SettingsSearchItem(
-                    "Delete browsing data",
-                    "Clear history, cookies, and more",
-                    "delete_browsing_data",
-                    categoryHeader = "Privacy",
-                    PreferenceFileInformation.PrivateBrowsingPreferences,
-                ),
-            ),
-        ),
-    )
+    val storeWithRecents =
+        SettingsSearchStore(
+            initialState =
+                SettingsSearchState.Default(
+                    recentSearches =
+                        listOf(
+                            SettingsSearchItem(
+                                "Search engine",
+                                "Choose your default",
+                                "search_engine",
+                                categoryHeader = "General",
+                                PreferenceFileInformation.SearchSettingsPreferences,
+                            ),
+                            SettingsSearchItem(
+                                "Delete browsing data",
+                                "Clear history, cookies, and more",
+                                "delete_browsing_data",
+                                categoryHeader = "Privacy",
+                                PreferenceFileInformation.PrivateBrowsingPreferences,
+                            ),
+                        )
+                )
+        )
     FirefoxTheme {
         SettingsSearchScreen(
             store = storeWithRecents,
@@ -334,55 +303,56 @@ private fun SettingsSearchScreenWithRecentsPreview() {
     }
 }
 
-/**
- * Preview for the settings search screen displaying search results.
- */
+/** Preview for the settings search screen displaying search results. */
 @PreviewLightDark
 @Composable
 private fun SettingsSearchScreenWithResultsPreview() {
-    val storeWithResults = SettingsSearchStore(
-        initialState = SettingsSearchState.SearchInProgress(
-            searchQuery = "privacy",
-            searchResults = listOf(
-                SettingsSearchItem(
-                    "Search engine",
-                    "Choose your default",
-                    "search_engine",
-                    categoryHeader = "General",
-                    PreferenceFileInformation.SearchSettingsPreferences,
-                ),
-                SettingsSearchItem(
-                    "Homepage",
-                    "Choose your homepage",
-                    "home_page",
-                    categoryHeader = "General",
-                    PreferenceFileInformation.SearchSettingsPreferences,
-                ),
-                SettingsSearchItem(
-                    "Tracking Protection",
-                    "Strict, Standard, or Custom",
-                    "tracking_protection",
-                    categoryHeader = "Privacy",
-                    PreferenceFileInformation.GeneralPreferences,
-                ),
-                SettingsSearchItem(
-                    "Delete browsing data",
-                    "Clear history, cookies, and more",
-                    "delete_browsing_data",
-                    categoryHeader = "Privacy",
-                    PreferenceFileInformation.GeneralPreferences,
-                ),
-                SettingsSearchItem(
-                    "HTTPS-Only Mode",
-                    "Enable in all tabs",
-                    "https_only_mode",
-                    categoryHeader = "Privacy",
-                    PreferenceFileInformation.GeneralPreferences,
-                ),
-            ),
-            recentSearches = emptyList(),
-        ),
-    )
+    val storeWithResults =
+        SettingsSearchStore(
+            initialState =
+                SettingsSearchState.SearchInProgress(
+                    searchQuery = "privacy",
+                    searchResults =
+                        listOf(
+                            SettingsSearchItem(
+                                "Search engine",
+                                "Choose your default",
+                                "search_engine",
+                                categoryHeader = "General",
+                                PreferenceFileInformation.SearchSettingsPreferences,
+                            ),
+                            SettingsSearchItem(
+                                "Homepage",
+                                "Choose your homepage",
+                                "home_page",
+                                categoryHeader = "General",
+                                PreferenceFileInformation.SearchSettingsPreferences,
+                            ),
+                            SettingsSearchItem(
+                                "Tracking Protection",
+                                "Strict, Standard, or Custom",
+                                "tracking_protection",
+                                categoryHeader = "Privacy",
+                                PreferenceFileInformation.GeneralPreferences,
+                            ),
+                            SettingsSearchItem(
+                                "Delete browsing data",
+                                "Clear history, cookies, and more",
+                                "delete_browsing_data",
+                                categoryHeader = "Privacy",
+                                PreferenceFileInformation.GeneralPreferences,
+                            ),
+                            SettingsSearchItem(
+                                "HTTPS-Only Mode",
+                                "Enable in all tabs",
+                                "https_only_mode",
+                                categoryHeader = "Privacy",
+                                PreferenceFileInformation.GeneralPreferences,
+                            ),
+                        ),
+                    recentSearches = emptyList(),
+                )
+        )
     FirefoxTheme {
         SettingsSearchScreen(
             store = storeWithResults,
@@ -394,18 +364,18 @@ private fun SettingsSearchScreenWithResultsPreview() {
     }
 }
 
-/**
- * Preview for the settings search screen when no results are found.
- */
+/** Preview for the settings search screen when no results are found. */
 @PreviewLightDark
 @Composable
 private fun SettingsSearchScreenNoResultsPreview() {
-    val storeWithNoResults = SettingsSearchStore(
-        initialState = SettingsSearchState.NoSearchResults(
-            searchQuery = "nonexistent query",
-            recentSearches = emptyList(),
-        ),
-    )
+    val storeWithNoResults =
+        SettingsSearchStore(
+            initialState =
+                SettingsSearchState.NoSearchResults(
+                    searchQuery = "nonexistent query",
+                    recentSearches = emptyList(),
+                )
+        )
     FirefoxTheme {
         SettingsSearchScreen(
             store = storeWithNoResults,
@@ -417,6 +387,4 @@ private fun SettingsSearchScreenNoResultsPreview() {
     }
 }
 
-private val RECENT_SEARCHES_HEADER_TEXT_COLOR = mozilla.components.ui.colors.R.color.photonLightGrey40
-private val RECENT_SEARCHES_CLEAR_RECENTS_TEXT_COLOR = mozilla.components.ui.colors.R.color.photonViolet70
 private const val VERTICAL_BIAS_OFFSET_IMAGE_MESSAGE = -0.33f

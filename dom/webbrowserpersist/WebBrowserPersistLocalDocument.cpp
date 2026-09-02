@@ -85,6 +85,9 @@ WebBrowserPersistLocalDocument::GetIsClosed(bool* aIsClosed) {
 }
 
 NS_IMETHODIMP
+WebBrowserPersistLocalDocument::Close() { return NS_OK; }
+
+NS_IMETHODIMP
 WebBrowserPersistLocalDocument::GetIsPrivate(bool* aIsPrivate) {
   nsCOMPtr<nsILoadContext> privacyContext = mDocument->GetLoadContext();
   *aIsPrivate = privacyContext && privacyContext->UsePrivateBrowsing();
@@ -127,7 +130,7 @@ NS_IMETHODIMP
 WebBrowserPersistLocalDocument::GetTitle(nsAString& aTitle) {
   nsAutoString titleBuffer;
   mDocument->GetTitle(titleBuffer);
-  aTitle = titleBuffer;
+  aTitle = std::move(titleBuffer);
   return NS_OK;
 }
 

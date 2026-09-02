@@ -23,62 +23,46 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.ComposeView
-import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.tooling.preview.PreviewParameter
-import androidx.preference.Preference
-import androidx.preference.PreferenceViewHolder
+import mozilla.components.compose.base.button.RadioButton
+import mozilla.components.compose.base.theme.PreviewThemeProvider
+import mozilla.components.compose.base.theme.Theme
 import org.mozilla.fenix.R
-import org.mozilla.fenix.compose.button.RadioButton
+import org.mozilla.fenix.settings.ComposePreference
 import org.mozilla.fenix.theme.FirefoxTheme
-import org.mozilla.fenix.theme.PreviewThemeProvider
-import org.mozilla.fenix.theme.Theme
 import org.mozilla.fenix.utils.Settings.DeleteDownloadBehavior
 
 /**
- * A custom [Preference] that uses Jetpack Compose to display a radio group for selecting
- * the user's preferred download deletion behavior.
+ * A custom [ComposePreference] that displays a radio group for selecting the user's preferred download deletion
+ * behavior.
  *
  * @param context The context in which this preference is operating.
  * @param attrs The attribute set provided by the XML layout.
  * @param defStyleAttr An attribute in the current theme that contains a reference to a style resource.
  */
-class DownloadDeleteBehaviorComposePreference @JvmOverloads constructor(
+class DownloadDeleteBehaviorComposePreference
+@JvmOverloads
+constructor(
     context: Context,
     attrs: AttributeSet? = null,
     defStyleAttr: Int = 0,
-) : Preference(context, attrs, defStyleAttr) {
+) : ComposePreference(context, attrs, defStyleAttr) {
 
-    var currentBehavior by mutableStateOf(DeleteDownloadBehavior.DELETE_FROM_DEVICE)
+    var currentBehavior by mutableStateOf(DeleteDownloadBehavior.ASK_WHEN_DELETING)
     var onBehaviorSelected: ((DeleteDownloadBehavior) -> Unit)? = null
 
-    init {
-        layoutResource = R.layout.download_settings_compose_delete_behavior
-    }
-
-    override fun onBindViewHolder(holder: PreferenceViewHolder) {
-        super.onBindViewHolder(holder)
-
-        val composeView = holder.itemView.findViewById<ComposeView>(R.id.compose_view) ?: return
-
-        composeView.setViewCompositionStrategy(
-            ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed,
+    @Composable
+    override fun Content() {
+        DeleteBehaviorRadioGroup(
+            selectedBehavior = currentBehavior,
+            onBehaviorSelected = { newBehavior ->
+                currentBehavior = newBehavior
+                onBehaviorSelected?.invoke(newBehavior)
+            },
         )
-
-        composeView.setContent {
-            FirefoxTheme {
-                DeleteBehaviorRadioGroup(
-                    selectedBehavior = currentBehavior,
-                    onBehaviorSelected = { newBehavior ->
-                        currentBehavior = newBehavior
-                        onBehaviorSelected?.invoke(newBehavior)
-                    },
-                )
-            }
-        }
     }
 }
 
@@ -123,13 +107,13 @@ private fun DeleteBehaviorRow(
     onClick: () -> Unit,
 ) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .selectable(selected = selected, onClick = onClick, role = Role.RadioButton)
-            .padding(
-                horizontal = FirefoxTheme.layout.space.dynamic200,
-                vertical = FirefoxTheme.layout.space.static150,
-            ),
+        modifier =
+            Modifier.fillMaxWidth()
+                .selectable(selected = selected, onClick = onClick, role = Role.RadioButton)
+                .padding(
+                    horizontal = FirefoxTheme.layout.space.dynamic200,
+                    vertical = FirefoxTheme.layout.space.static150,
+                ),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(FirefoxTheme.layout.space.static200, Alignment.Start),
     ) {
@@ -155,13 +139,11 @@ private fun DeleteBehaviorRow(
 
 @Preview
 @Composable
-private fun DeleteBehaviorRadioGroupPreview(
-    @PreviewParameter(PreviewThemeProvider::class) theme: Theme,
-) {
+private fun DeleteBehaviorRadioGroupPreview(@PreviewParameter(PreviewThemeProvider::class) theme: Theme) {
     FirefoxTheme(theme) {
         Box(modifier = Modifier.background(MaterialTheme.colorScheme.surface)) {
             var selectedBehavior by remember {
-                mutableStateOf(DeleteDownloadBehavior.DELETE_FROM_DEVICE)
+                mutableStateOf(DeleteDownloadBehavior.ASK_WHEN_DELETING)
             }
 
             DeleteBehaviorRadioGroup(

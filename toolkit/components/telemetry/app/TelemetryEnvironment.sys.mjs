@@ -15,7 +15,7 @@ const Utils = TelemetryUtils;
 
 import {
   AddonManager,
-  EnvironmentAddonBuilder,
+  TELEMETRY_ENVIRONMENT_ADDONS_CHANGED_TOPIC,
 } from "resource://gre/modules/AddonManager.sys.mjs";
 
 const lazy = {};
@@ -26,8 +26,6 @@ ChromeUtils.defineESModuleGetters(lazy, {
   ProfileAge: "resource://gre/modules/ProfileAge.sys.mjs",
   SearchService: "moz-src:///toolkit/components/search/SearchService.sys.mjs",
   WindowsRegistry: "resource://gre/modules/WindowsRegistry.sys.mjs",
-  WindowsVersionInfo:
-    "resource://gre/modules/components-utils/WindowsVersionInfo.sys.mjs",
 });
 
 ChromeUtils.defineLazyGetter(lazy, "fxAccounts", () => {
@@ -82,8 +80,8 @@ export var Policy = {
 var gActiveExperimentStartupBuffer = new Map();
 
 // For Powering arewegleanyet.com (See bug 1944592)
-// Legacy Count: 118
-// Glean Count: 118
+// Legacy Count: 113
+// Glean Count: 113
 
 var gGlobalEnvironment;
 function getGlobal() {
@@ -225,9 +223,6 @@ const DEFAULT_ENVIRONMENT_PREFS = new Map([
   ["app.support.baseURL", { what: RECORD_PREF_VALUE }],
   ["accessibility.browsewithcaret", { what: RECORD_PREF_VALUE }],
   ["accessibility.force_disabled", { what: RECORD_PREF_VALUE }],
-  ["app.normandy.test-prefs.bool", { what: RECORD_PREF_VALUE }],
-  ["app.normandy.test-prefs.integer", { what: RECORD_PREF_VALUE }],
-  ["app.normandy.test-prefs.string", { what: RECORD_PREF_VALUE }],
   ["app.shield.optoutstudies.enabled", { what: RECORD_PREF_VALUE }],
   ["app.update.interval", { what: RECORD_PREF_VALUE }],
   ["app.update.service.enabled", { what: RECORD_PREF_VALUE }],
@@ -602,14 +597,6 @@ function EnvironmentCache() {
 
   let p = [this._updateSettings()];
 
-  // NOTE: on mobile builds the EnvironmentAddonBuilder instance is directly
-  // created and managed from inside AddonManager.sys.mjs, whereas on Desktop
-  // TelemetryEnvironment is still expected to be collecting the activeAddons.
-  if (EnvironmentAddonBuilder.isTelemetryEnvironmentEnabled()) {
-    this._addonBuilder = new EnvironmentAddonBuilder(this);
-    p.push(this._addonBuilder.init());
-  }
-
   this._currentEnvironment.profile = {};
   p.push(this._updateProfile());
   if (AppConstants.MOZ_BUILD_APP == "browser") {
@@ -629,9 +616,6 @@ function EnvironmentCache() {
   let setup = () => {
     this._initTask = null;
     this._startWatchingPrefs();
-    // NOTE: on mobile builds the EnvironmentAddonBuilder instance is directly
-    // created and managed from inside AddonManager.sys.mjs.
-    this._addonBuilder?.watchForChanges();
     this._updateGraphicsFeatures();
     return this.currentEnvironment;
   };
@@ -979,6 +963,7 @@ EnvironmentCache.prototype = {
     Services.obs.addObserver(this, AUTO_UPDATE_PREF_CHANGE_TOPIC);
     Services.obs.addObserver(this, BACKGROUND_UPDATE_PREF_CHANGE_TOPIC);
     Services.obs.addObserver(this, SERVICES_INFO_CHANGE_TOPIC);
+    Services.obs.addObserver(this, TELEMETRY_ENVIRONMENT_ADDONS_CHANGED_TOPIC);
   },
 
   _removeObservers() {
@@ -997,6 +982,10 @@ EnvironmentCache.prototype = {
     Services.obs.removeObserver(this, AUTO_UPDATE_PREF_CHANGE_TOPIC);
     Services.obs.removeObserver(this, BACKGROUND_UPDATE_PREF_CHANGE_TOPIC);
     Services.obs.removeObserver(this, SERVICES_INFO_CHANGE_TOPIC);
+    Services.obs.removeObserver(
+      this,
+      TELEMETRY_ENVIRONMENT_ADDONS_CHANGED_TOPIC
+    );
   },
 
   observe(aSubject, aTopic, aData) {
@@ -1075,6 +1064,9 @@ EnvironmentCache.prototype = {
         break;
       case SERVICES_INFO_CHANGE_TOPIC:
         this._updateServicesInfo();
+        break;
+      case TELEMETRY_ENVIRONMENT_ADDONS_CHANGED_TOPIC:
+        this._onAddonsChanged();
         break;
     }
   },
@@ -1367,6 +1359,7 @@ EnvironmentCache.prototype = {
     let resetDate = await profileAccessor.reset;
     let firstUseDate = await profileAccessor.firstUse;
     let recoveredFromBackup = await profileAccessor.recoveredFromBackup;
+    let source = profileAccessor.source;
 
     this._currentEnvironment.profile.creationDate =
       Utils.millisecondsToDays(creationDate);
@@ -1391,6 +1384,9 @@ EnvironmentCache.prototype = {
       Glean.profiles.recoveredFromBackup.set(
         this._currentEnvironment.profile.recoveredFromBackup
       );
+    }
+    if (source) {
+      Glean.profiles.source.set(source);
     }
   },
 
@@ -1670,34 +1666,35 @@ EnvironmentCache.prototype = {
       Glean.systemOs.distroVersion.set(this._osData.distroVersion);
     } else if (AppConstants.platform === "win") {
       // The path to the "UBR" key, queried to get additional version details on Windows.
-      const WINDOWS_UBR_KEY_PATH =
+      const CURRENT_VERSION_PATH =
         "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion";
 
-      let versionInfo = lazy.WindowsVersionInfo.get({ throwOnError: false });
-      this._osData.servicePackMajor = versionInfo.servicePackMajor;
-      this._osData.servicePackMinor = versionInfo.servicePackMinor;
-      this._osData.windowsBuildNumber = versionInfo.buildNumber;
-      Glean.systemOs.servicePackMajor.set(this._osData.servicePackMajor);
-      Glean.systemOs.servicePackMinor.set(this._osData.servicePackMinor);
-      Glean.systemOs.windowsBuildNumber.set(this._osData.windowsBuildNumber);
-      // We only need the UBR if we're at or above Windows 10.
-      if (
-        typeof this._osData.version === "string" &&
-        Services.vc.compare(this._osData.version, "10") >= 0
-      ) {
-        // Query the UBR key and only add it to the environment if it's available.
-        // |readRegKey| doesn't throw, but rather returns 'undefined' on error.
-        let ubr = lazy.WindowsRegistry.readRegKey(
+      // To make sure the telemetry data is as accurate as possible, use the
+      // build number from the registry. This avoids a future compatibility shim
+      // giving us the wrong value, and we aren't changing behaviour depending
+      // on this so this doesn't circumvent any shim.
+      // See: https://randomascii.wordpress.com/2022/01/06/determinism-bugs-part-two/
+      // Its type is REG_SZ for some reason, so coerce it to a Number.
+      let build = Number(
+        lazy.WindowsRegistry.readRegKey(
           Ci.nsIWindowsRegKey.ROOT_KEY_LOCAL_MACHINE,
-          WINDOWS_UBR_KEY_PATH,
-          "UBR",
+          CURRENT_VERSION_PATH,
+          "CurrentBuild",
           Ci.nsIWindowsRegKey.WOW64_64
-        );
-        if (Number.isInteger(ubr)) {
-          Glean.systemOs.windowsUbr.set(ubr);
-        }
-        this._osData.windowsUBR = ubr !== undefined ? ubr : null;
-      }
+        )
+      );
+      this._osData.windowsBuildNumber = Number.isInteger(build) ? build : null;
+      Glean.systemOs.windowsBuildNumber.set(this._osData.windowsBuildNumber);
+
+      // The UBR value is already a REG_DWORD, so don't coerce it.
+      let ubr = lazy.WindowsRegistry.readRegKey(
+        Ci.nsIWindowsRegKey.ROOT_KEY_LOCAL_MACHINE,
+        CURRENT_VERSION_PATH,
+        "UBR",
+        Ci.nsIWindowsRegKey.WOW64_64
+      );
+      this._osData.windowsUBR = Number.isInteger(ubr) ? ubr : null;
+      Glean.systemOs.windowsUbr.set(ubr);
     }
 
     return this._osData;
@@ -1903,7 +1900,17 @@ EnvironmentCache.prototype = {
       return;
     }
 
-    if (ObjectUtils.deepEqual(this._currentEnvironment, oldEnvironment)) {
+    // `environment.addons` is not part of the environment data anymore
+    // and so ObjectUtils.deepEqual would be true and return earlier
+    // but we still want changes to the active addons to keep triggering
+    // `"environment-change"` main pings with the same frequence as before
+    // `environment.addons` was removed from the environment.
+    const forceNotifyListeners = what === "addons-changed";
+
+    if (
+      !forceNotifyListeners &&
+      ObjectUtils.deepEqual(this._currentEnvironment, oldEnvironment)
+    ) {
       this._log.trace("_onEnvironmentChange - Environment didn't change");
       return;
     }
@@ -1919,6 +1926,20 @@ EnvironmentCache.prototype = {
         );
       }
     }
+  },
+
+  /**
+   * Trigger an environment change for a change in the set of active addons.
+   *
+   * NOTE: `environment.addons` no longer exists (dropped as part of Bug 2055613),
+   * but we still need that addon installs/removals/updates keep triggering
+   * `"environment-change"` main pings, at the same frequency as before
+   * `environment.addons` data was removed from the environment.
+   */
+  _onAddonsChanged() {
+    this._log.trace("_onAddonsChanged");
+    let oldEnvironment = Cu.cloneInto(this._currentEnvironment, {});
+    this._onEnvironmentChange("addons-changed", oldEnvironment);
   },
 
   reset() {

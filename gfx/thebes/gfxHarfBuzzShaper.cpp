@@ -2,22 +2,22 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "nsString.h"
+#include "gfxHarfBuzzShaper.h"
+
+#include <algorithm>
+
 #include "gfxContext.h"
 #include "gfxFontConstants.h"
-#include "gfxHarfBuzzShaper.h"
 #include "gfxFontUtils.h"
 #include "gfxTextRun.h"
+#include "harfbuzz/hb-ot.h"
+#include "harfbuzz/hb.h"
 #include "mozilla/Sprintf.h"
 #include "mozilla/intl/String.h"
 #include "mozilla/intl/UnicodeProperties.h"
 #include "mozilla/intl/UnicodeScriptCodes.h"
+#include "nsString.h"
 #include "nsUnicodeProperties.h"
-
-#include "harfbuzz/hb.h"
-#include "harfbuzz/hb-ot.h"
-
-#include <algorithm>
 
 extern "C" {
 hb_unicode_funcs_t* mozilla_harfbuzz_glue_set_up_unicode_funcs();
@@ -179,8 +179,6 @@ hb_codepoint_t gfxHarfBuzzShaper::GetVariationGlyph(
     return mFont->GetGlyph(unicode, variation_selector);
   }
 
-  NS_ASSERTION(mFont->GetFontEntry()->HasCmapTable(),
-               "we cannot be using this font!");
   NS_ASSERTION(mCmapTable && (mCmapFormat > 0) && (mSubtableOffset > 0),
                "cmap data not correctly set up, expect disaster");
 
@@ -431,7 +429,10 @@ void gfxHarfBuzzShaper::GetGlyphHAdvances(unsigned int count,
 
 hb_position_t gfxHarfBuzzShaper::GetGlyphVAdvance(hb_codepoint_t glyph) {
   if (!mVerticalInitialized) {
-    InitializeVertical();
+    RecursiveMutexAutoLock lock(mMutex);
+    if (!mVerticalInitialized) {  // re-check in case we're racing another call
+      InitializeVertical();
+    }
   }
 
   if (!mVmtxTable) {
@@ -992,7 +993,8 @@ hb_position_t gfxHarfBuzzShaper::GetHKerning(uint16_t aFirstGlyph,
       const KernTableSubtableHeaderVersion0* st0 =
           reinterpret_cast<const KernTableSubtableHeaderVersion0*>(base + offs);
       uint16_t subtableLen = uint16_t(st0->length);
-      if (offs + subtableLen > len) {
+      if (subtableLen < sizeof(KernTableSubtableHeaderVersion0) ||
+          subtableLen > len - offs) {
         break;
       }
       offs += subtableLen;
@@ -1047,6 +1049,10 @@ hb_position_t gfxHarfBuzzShaper::GetHKerning(uint16_t aFirstGlyph,
             reinterpret_cast<const KernTableSubtableHeaderVersion1*>(base +
                                                                      offs);
         uint32_t subtableLen = uint32_t(st1->length);
+        if (subtableLen < sizeof(KernTableSubtableHeaderVersion1) ||
+            subtableLen > len - offs) {
+          break;
+        }
         offs += subtableLen;
         uint16_t coverage = st1->coverage;
         if (coverage & (KERN1_COVERAGE_VERTICAL | KERN1_COVERAGE_CROSS_STREAM |
@@ -1107,6 +1113,19 @@ hb_position_t gfxHarfBuzzShaper::GetHKerning(uint16_t aFirstGlyph,
   return shaper->GetHKerning(first_glyph, second_glyph);
 }
 
+/* static */ hb_bool_t gfxHarfBuzzShaper::HBGetHExtents(
+    hb_font_t* font, void* font_data, hb_font_extents_t* extents,
+    void* user_data) {
+  const gfxHarfBuzzShaper* shaper =
+      static_cast<const gfxHarfBuzzShaper*>(font_data);
+  const gfxFont::Metrics& metrics =
+      shaper->GetFont()->GetMetrics(nsFontMetrics::eHorizontal);
+  extents->ascender = FloatToFixed(metrics.maxAscent);
+  extents->descender = -FloatToFixed(metrics.maxDescent);
+  extents->line_gap = FloatToFixed(metrics.externalLeading);
+  return true;
+}
+
 static void AddOpenTypeFeature(uint32_t aTag, uint32_t aValue, void* aUserArg) {
   nsTArray<hb_feature_t>* features =
       static_cast<nsTArray<hb_feature_t>*>(aUserArg);
@@ -1153,6 +1172,8 @@ bool gfxHarfBuzzShaper::Initialize() {
                                                nullptr, nullptr);
     hb_font_funcs_set_glyph_h_kerning_func(funcs, HBGetHKerning, nullptr,
                                            nullptr);
+    hb_font_funcs_set_font_h_extents_func(funcs, HBGetHExtents, nullptr,
+                                          nullptr);
     hb_font_funcs_make_immutable(funcs);
     return funcs;
   }();
@@ -1161,6 +1182,8 @@ bool gfxHarfBuzzShaper::Initialize() {
     auto* funcs = hb_font_funcs_create();
     hb_font_funcs_set_nominal_glyph_func(funcs, HBGetNominalGlyph, nullptr,
                                          nullptr);
+    hb_font_funcs_set_font_h_extents_func(funcs, HBGetHExtents, nullptr,
+                                          nullptr);
     hb_font_funcs_make_immutable(funcs);
     return funcs;
   }();
@@ -1293,8 +1316,7 @@ bool gfxHarfBuzzShaper::LoadHmtxTable() {
 void gfxHarfBuzzShaper::InitializeVertical() {
   // We only do this once. If we don't have a mHmtxTable after that,
   // we'll be making up fallback metrics.
-  RecursiveMutexAutoLock lock(mMutex);
-
+  // The caller must be already holding mMutex.
   mVerticalInitialized = true;
 
   if (!mHmtxTable) {
@@ -1350,28 +1372,11 @@ void gfxHarfBuzzShaper::InitializeVertical() {
   }
 }
 
-bool gfxHarfBuzzShaper::ShapeText(DrawTarget* aDrawTarget,
-                                  const char16_t* aText, uint32_t aOffset,
+bool gfxHarfBuzzShaper::ShapeText(const char16_t* aText, uint32_t aOffset,
                                   uint32_t aLength, Script aScript,
                                   nsAtom* aLanguage, bool aVertical,
                                   RoundingFlags aRounding,
                                   gfxShapedText* aShapedText) {
-  // gfxFont (and hence this shaper) may be shared across threads via the
-  // global font cache; serialize ShapeText so that mBuffer and other mutable
-  // per-call state cannot be touched concurrently.
-  RecursiveMutexAutoLock lock(mMutex);
-
-  mUseVerticalPresentationForms = false;
-  if (aVertical) {
-    if (!mVerticalInitialized) {
-      InitializeVertical();
-    }
-    if (!mFont->GetFontEntry()->SupportsOpenTypeFeature(
-            aScript, HB_TAG('v', 'e', 'r', 't'))) {
-      mUseVerticalPresentationForms = true;
-    }
-  }
-
   const gfxFontStyle* style = mFont->GetStyle();
 
   // determine whether petite-caps falls back to small-caps
@@ -1429,6 +1434,21 @@ bool gfxHarfBuzzShaper::ShapeText(DrawTarget* aDrawTarget,
                                               HB_FEATURE_GLOBAL_END});
         }
       }
+    }
+  }
+
+  // gfxFont (and hence this shaper) may be shared across threads via the
+  // global font cache; serialize shaping so that mBuffer and other mutable
+  // per-call state cannot be touched concurrently.
+  RecursiveMutexAutoLock lock(mMutex);
+
+  mUseVerticalPresentationForms = false;
+  if (aVertical) {
+    if (!mVerticalInitialized) {
+      InitializeVertical();
+    }
+    if (!entry->SupportsOpenTypeFeature(aScript, HB_TAG('v', 'e', 'r', 't'))) {
+      mUseVerticalPresentationForms = true;
     }
   }
 
@@ -1694,7 +1714,7 @@ nsresult gfxHarfBuzzShaper::SetGlyphsFromRun(gfxShapedText* aShapedText,
       // there must be at least one in the clump, and we already measured
       // its advance, hence the placement of the loop-exit test and the
       // measurement of the next glyph.
-      while (1) {
+      while (true) {
         gfxTextRun::DetailedGlyph* details = detailedGlyphs.AppendElement();
         details->mGlyphID = ginfo[glyphStart].codepoint;
 

@@ -21,6 +21,7 @@ class nsIFragmentContentSink;
 class nsIFrame;
 class nsIURI;
 class nsListControlFrame;
+class nsTextControlFrame;
 class nsNodeInfoManager;
 class nsTableColFrame;
 namespace mozilla {
@@ -44,8 +45,7 @@ nsBlockFrame* NS_NewBlockFrame(mozilla::PresShell* aPresShell,
 // Special Generated Content Node. It contains text taken from an
 // attribute of its *grandparent* content node.
 nsresult NS_NewAttributeContent(nsNodeInfoManager* aNodeInfoManager,
-                                int32_t aNameSpaceID, nsAtom* aAttrName,
-                                nsAtom* aFallback, nsIContent** aResult);
+                                nsAtom* aAttrName, nsIContent** aResult);
 
 nsIFrame* NS_NewBRFrame(mozilla::PresShell* aPresShell,
                         mozilla::ComputedStyle* aStyle);
@@ -123,8 +123,8 @@ nsIFrame* NS_NewFileControlFrame(mozilla::PresShell* aPresShell,
                                  mozilla::ComputedStyle* aStyle);
 nsIFrame* NS_NewColorControlFrame(mozilla::PresShell* aPresShell,
                                   mozilla::ComputedStyle* aStyle);
-nsIFrame* NS_NewTextControlFrame(mozilla::PresShell* aPresShell,
-                                 mozilla::ComputedStyle* aStyle);
+nsTextControlFrame* NS_NewTextControlFrame(mozilla::PresShell* aPresShell,
+                                           mozilla::ComputedStyle* aStyle);
 nsListControlFrame* NS_NewListControlFrame(mozilla::PresShell* aPresShell,
                                            mozilla::ComputedStyle* aStyle);
 nsComboboxControlFrame* NS_NewComboboxControlFrame(

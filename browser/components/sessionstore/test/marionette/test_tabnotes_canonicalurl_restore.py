@@ -73,9 +73,9 @@ class TestCanonicalUrlRestore(SessionStoreTestCase):
                 await TabNotes.set(pendingTab, "Note for pending tab");
 
                 let {{ TabStateFlusher }} = ChromeUtils.importESModule(
-                    "resource:///modules/sessionstore/TabStateFlusher.sys.mjs"
+                    "moz-src:///browser/components/sessionstore/TabStateFlusher.sys.mjs"
                 );
-                await TabStateFlusher.flushWindow(gBrowser.ownerGlobal);
+                await TabStateFlusher.flushWindow(gBrowser.documentGlobal);
             }})().then(resolve);
             """
         )
@@ -151,9 +151,9 @@ class TestCanonicalUrlRestore(SessionStoreTestCase):
                 tab.canonicalUrl = "{CANONICAL_URL}";
 
                 let {{ TabStateFlusher }} = ChromeUtils.importESModule(
-                    "resource:///modules/sessionstore/TabStateFlusher.sys.mjs"
+                    "moz-src:///browser/components/sessionstore/TabStateFlusher.sys.mjs"
                 );
-                await TabStateFlusher.flushWindow(gBrowser.ownerGlobal);
+                await TabStateFlusher.flushWindow(gBrowser.documentGlobal);
             }})().then(resolve);
             """
         )

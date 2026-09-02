@@ -39,6 +39,8 @@ class JsepSessionCopyableStuff {
   bool mRemoteIsIceLite = false;
   std::vector<std::string> mIceOptions;
   JsepBundlePolicy mBundlePolicy = kBundleBalanced;
+  JsepRtcpMuxPolicy mRtcpMuxPolicy = kRtcpMuxNegotiate;
+  bool mAlwaysNegotiateDataChannels = false;
   std::vector<JsepDtlsFingerprint> mDtlsFingerprints;
   uint64_t mSessionId = 0;
   uint64_t mSessionVersion = 0;
@@ -47,7 +49,7 @@ class JsepSessionCopyableStuff {
   size_t mTransportIdCounter = 0;
   std::vector<JsepExtmapMediaType> mRtpExtensions;
   std::set<uint16_t> mExtmapEntriesEverUsed;
-  std::map<uint16_t, std::string> mExtmapEntriesEverNegotiated;
+  std::map<uint16_t, nsCString> mExtmapEntriesEverNegotiated;
   std::string mDefaultRemoteStreamId;
   std::string mCNAME;
   // Used to prevent duplicate local SSRCs. Not used to prevent local/remote or
@@ -70,16 +72,24 @@ class JsepSessionImpl : public JsepSession, public JsepSessionCopyableStuff {
       : JsepSession(name),
         mUuidGen(std::move(uuidgen)),
         mSdpHelper(&mLastError),
-        mParser(new HybridSdpParser()) {}
+        mParser(MakeUnique<HybridSdpParser>()) {}
 
   JsepSessionImpl(const JsepSessionImpl& aOrig);
 
-  JsepSession* Clone() const override { return new JsepSessionImpl(*this); }
+  UniquePtr<JsepSession> Clone() const override {
+    return MakeUnique<JsepSessionImpl>(*this);
+  }
 
   // Implement JsepSession methods.
   virtual nsresult Init() override;
 
   nsresult SetBundlePolicy(JsepBundlePolicy policy) override;
+  nsresult SetRtcpMuxPolicy(JsepRtcpMuxPolicy policy) override;
+  JsepRtcpMuxPolicy GetRtcpMuxPolicy() const override { return mRtcpMuxPolicy; }
+  void SetAlwaysNegotiateDataChannels(
+      bool aAlwaysNegotiateDataChannels) override {
+    mAlwaysNegotiateDataChannels = aAlwaysNegotiateDataChannels;
+  }
 
   virtual bool RemoteIsIceLite() const override { return mRemoteIsIceLite; }
 
@@ -91,25 +101,25 @@ class JsepSessionImpl : public JsepSession, public JsepSessionCopyableStuff {
       const nsACString& algorithm, const std::vector<uint8_t>& value) override;
 
   virtual nsresult AddRtpExtension(
-      JsepMediaType mediaType, const std::string& extensionName,
+      JsepMediaType mediaType, const nsACString& extensionName,
       SdpDirectionAttribute::Direction direction) override;
   virtual nsresult AddAudioRtpExtension(
-      const std::string& extensionName,
+      const nsACString& extensionName,
       SdpDirectionAttribute::Direction direction =
           SdpDirectionAttribute::Direction::kSendrecv) override;
 
   virtual nsresult AddVideoRtpExtension(
-      const std::string& extensionName,
+      const nsACString& extensionName,
       SdpDirectionAttribute::Direction direction =
           SdpDirectionAttribute::Direction::kSendrecv) override;
 
   virtual nsresult AddAudioVideoRtpExtension(
-      const std::string& extensionName,
+      const nsACString& extensionName,
       SdpDirectionAttribute::Direction direction =
           SdpDirectionAttribute::Direction::kSendrecv) override;
 
-  virtual std::vector<UniquePtr<JsepCodecDescription>>& Codecs() override {
-    return mSupportedCodecs;
+  virtual Span<UniquePtr<JsepCodecDescription>> Codecs() override {
+    return Span(mSupportedCodecs);
   }
 
   virtual Result CreateOffer(const JsepOfferOptions& options,
@@ -176,9 +186,8 @@ class JsepSessionImpl : public JsepSession, public JsepSessionCopyableStuff {
 
   virtual bool CheckNegotiationNeeded() const override;
 
-  virtual void SetDefaultCodecs(
-      const std::vector<UniquePtr<JsepCodecDescription>>& aPreferredCodecs)
-      override;
+  virtual void SetDefaultCodecs(const nsTArray<UniquePtr<JsepCodecDescription>>&
+                                    aPreferredCodecs) override;
 
  private:
   friend class JsepSessionTest;
@@ -203,15 +212,17 @@ class JsepSessionImpl : public JsepSession, public JsepSessionCopyableStuff {
   nsresult SetupIds();
   void SetState(JsepSignalingState state);
   // Non-const so it can set mLastError
-  nsresult ParseSdp(const std::string& sdp, UniquePtr<Sdp>* parsedp);
+  JsepSession::Result ParseSdp(const std::string& sdp, UniquePtr<Sdp>* parsedp);
   nsresult SetLocalDescriptionOffer(UniquePtr<Sdp> offer);
   nsresult SetLocalDescriptionAnswer(JsepSdpType type, UniquePtr<Sdp> answer);
   nsresult SetRemoteDescriptionOffer(UniquePtr<Sdp> offer);
   nsresult SetRemoteDescriptionAnswer(JsepSdpType type, UniquePtr<Sdp> answer);
-  nsresult ValidateLocalDescription(const Sdp& description, JsepSdpType type);
-  nsresult ValidateRemoteDescription(const Sdp& description);
-  nsresult ValidateOffer(const Sdp& offer);
-  nsresult ValidateAnswer(const Sdp& offer, const Sdp& answer);
+  JsepSession::Result ValidateLocalDescription(const Sdp& description,
+                                               JsepSdpType type);
+  JsepSession::Result ValidateRemoteDescription(const Sdp& description);
+  JsepSession::Result ValidateOffer(const Sdp& offer);
+  JsepSession::Result ValidateAnswer(const Sdp& offer, const Sdp& answer);
+  JsepSession::Result CheckRtcpMux(const Sdp& description);
   nsresult UpdateTransceiversFromRemoteDescription(const Sdp& remote);
   Maybe<JsepTransceiver> GetTransceiverForLevel(size_t level) const;
   Maybe<JsepTransceiver> GetTransceiverForMid(const std::string& mid) const;
@@ -222,7 +233,7 @@ class JsepSessionImpl : public JsepSession, public JsepSessionCopyableStuff {
       const std::string& transportId) const;
   // The w3c and IETF specs have a lot of "magical" behavior that happens when
   // addTrack is used. This was a deliberate design choice. Sadface.
-  Maybe<JsepTransceiver> FindUnassociatedTransceiver(
+  Maybe<JsepTransceiver> FindUnassociatedRtpTransceiver(
       SdpMediaSection::MediaType type, bool magic);
   // Called for rollback of local description
   void RollbackLocalOffer();
@@ -274,7 +285,7 @@ class JsepSessionImpl : public JsepSession, public JsepSessionCopyableStuff {
   UniquePtr<Sdp> mCurrentRemoteDescription;
   UniquePtr<Sdp> mPendingLocalDescription;
   UniquePtr<Sdp> mPendingRemoteDescription;
-  std::vector<UniquePtr<JsepCodecDescription>> mSupportedCodecs;
+  nsTArray<UniquePtr<JsepCodecDescription>> mSupportedCodecs;
   SdpHelper mSdpHelper;
   UniquePtr<SdpParser> mParser;
 };

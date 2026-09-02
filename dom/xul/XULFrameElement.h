@@ -27,7 +27,7 @@ class BrowsingContext;
 
 class XULFrameElement final : public nsXULElement, public nsFrameLoaderOwner {
  public:
-  explicit XULFrameElement(already_AddRefed<mozilla::dom::NodeInfo>&& aNodeInfo)
+  explicit XULFrameElement(already_AddRefed<mozilla::dom::NodeInfo> aNodeInfo)
       : nsXULElement(std::move(aNodeInfo)) {}
 
   NS_DECL_ISUPPORTS_INHERITED
@@ -42,12 +42,13 @@ class XULFrameElement final : public nsXULElement, public nsFrameLoaderOwner {
   nsIOpenWindowInfo* GetOpenWindowInfo() const;
   void SetOpenWindowInfo(nsIOpenWindowInfo* aInfo);
 
-  void SwapFrameLoaders(mozilla::dom::HTMLIFrameElement& aOtherLoaderOwner,
-                        mozilla::ErrorResult& rv);
-  void SwapFrameLoaders(XULFrameElement& aOtherLoaderOwner,
-                        mozilla::ErrorResult& rv);
-  void SwapFrameLoaders(nsFrameLoaderOwner* aOtherLoaderOwner,
-                        mozilla::ErrorResult& rv);
+  MOZ_CAN_RUN_SCRIPT void SwapFrameLoaders(
+      mozilla::dom::HTMLIFrameElement& aOtherLoaderOwner,
+      mozilla::ErrorResult& rv);
+  MOZ_CAN_RUN_SCRIPT void SwapFrameLoaders(XULFrameElement& aOtherLoaderOwner,
+                                           mozilla::ErrorResult& rv);
+  MOZ_CAN_RUN_SCRIPT void SwapFrameLoaders(
+      nsFrameLoaderOwner* aOtherLoaderOwner, mozilla::ErrorResult& rv);
 
   // nsIContent
   nsresult BindToTree(BindContext&, nsINode& aParent) override;

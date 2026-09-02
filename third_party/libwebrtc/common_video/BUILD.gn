@@ -64,7 +64,6 @@ rtc_library("common_video") {
   }
 
   deps = [
-    "../api:array_view",
     "../api:make_ref_counted",
     "../api:scoped_refptr",
     "../api/units:time_delta",
@@ -97,6 +96,10 @@ rtc_library("common_video") {
       "../rtc_base:compile_assert_c",
       "../rtc_base/containers:flat_map",
     ]
+  }
+
+  if (!is_ios) {
+    defines = [ "HAVE_LIBYUV_JPEG" ]
   }
 }
 
@@ -144,7 +147,6 @@ if (rtc_include_tests && !build_with_chromium) {
 
     deps = [
       ":common_video",
-      "../api:array_view",
       "../api:scoped_refptr",
       "../api/units:time_delta",
       "../api/units:timestamp",
@@ -167,9 +169,6 @@ if (rtc_include_tests && !build_with_chromium) {
     ]
 
     data = common_video_resources
-    if (is_android) {
-      shard_timeout = 900
-    }
 
     if (is_ios) {
       deps += [ ":common_video_unittests_bundle_data" ]

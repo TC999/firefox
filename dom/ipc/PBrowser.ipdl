@@ -4,9 +4,6 @@
 
 include protocol PColorPicker;
 include protocol PContent;
-#ifdef ACCESSIBILITY
-include protocol PDocAccessible;
-#endif
 include protocol PFilePicker;
 include protocol PRemotePrintJob;
 include protocol PPaymentRequest;
@@ -53,6 +50,7 @@ using mozilla::LayoutDeviceIntMargin from "Units.h";
 using mozilla::ScreenIntCoord from "Units.h";
 using mozilla::ScreenRect from "Units.h";
 using struct mozilla::layers::ScrollableLayerGuid from "mozilla/layers/ScrollableLayerGuid.h";
+using struct mozilla::layers::KeyboardScrollAction from "mozilla/layers/KeyboardScrollAction.h";
 using struct mozilla::layers::ZoomConstraints from "mozilla/layers/ZoomConstraints.h";
 using struct mozilla::layers::DoubleTapToZoomMetrics from "mozilla/layers/DoubleTapToZoom.h";
 using mozilla::layers::LayersId from "mozilla/layers/LayersTypes.h";
@@ -83,8 +81,12 @@ using mozilla::layers::CompositorOptions from "mozilla/layers/CompositorOptions.
 using mozilla::CSSToScreenScale from "Units.h";
 using mozilla::CommandInt from "mozilla/EventForwards.h";
 using mozilla::HapticFeedbackType from "nsIWidget.h";
+using nsIWidget::NativeMouseMessage from "nsIWidget.h";
+using nsIWidget::NativeModifiers from "nsIWidget.h";
+using nsIWidget::NativePointerLockMode from "nsIWidget.h";
 using nsIWidget::TouchPointerState from "nsIWidget.h";
 using nsIWidget::TouchpadGesturePhase from "nsIWidget.h";
+using mozilla::MouseButton from "mozilla/EventForwards.h";
 using nsCursor from "nsIWidget.h";
 using struct LookAndFeelInt from "mozilla/widget/WidgetMessageUtils.h";
 using struct mozilla::DimensionRequest from "mozilla/widget/WidgetMessageUtils.h";
@@ -98,7 +100,7 @@ using struct mozilla::FontRange from "ipc/nsGUIEventIPC.h";
 using mozilla::OriginAttributes from "mozilla/ipc/BackgroundUtils.h";
 using mozilla::dom::EffectsInfo from "mozilla/dom/EffectsInfo.h";
 using mozilla::dom::TabId from "mozilla/dom/ipc/IdType.h";
-using mozilla::ScrollAxis from "mozilla/PresShellForwards.h";
+using mozilla::AxisScrollParams from "mozilla/PresShellForwards.h";
 using mozilla::ScrollFlags from "mozilla/PresShellForwards.h";
 using struct InputFormData from "mozilla/dom/SessionStoreMessageUtils.h";
 using struct CollectedInputDataValue from "mozilla/dom/SessionStoreMessageUtils.h";
@@ -108,7 +110,7 @@ using mozilla::dom::CallerType from "mozilla/dom/BindingDeclarations.h";
 using mozilla::dom::EmbedderElementEventType from "mozilla/dom/TabMessageTypes.h";
 using mozilla::IntrinsicSize from "nsIFrame.h";
 using mozilla::AspectRatio from "mozilla/AspectRatio.h";
-using mozilla::NativeKeyBindingsType from "mozilla/NativeKeyBindingsType.h";
+using mozilla::NativeKeyBindingsType from "mozilla/widget/WidgetMessageUtils.h";
 using mozilla::StyleImageRendering from "mozilla/ServoStyleConsts.h";
 [MoveOnly] using class mozilla::ipc::BigBuffer from "mozilla/ipc/BigBuffer.h";
 using nsIFilePicker::Mode from "nsIFilePicker.h";
@@ -193,10 +195,6 @@ struct PrintPreviewResultInfo
 
     manages PColorPicker;
 
-#ifdef ACCESSIBILITY
-    manages PDocAccessible;
-#endif
-
     manages PFilePicker;
     manages PPaymentRequest;
     manages PSessionStore;
@@ -208,17 +206,6 @@ both:
     async AsyncMessage(nsString aMessage, StructuredCloneData aData);
 
 parent:
-#ifdef ACCESSIBILITY
-    /**
-     * Tell the parent process a new accessible document has been created.
-     * aParentDoc is the accessible document it was created in if any, and
-     * aParentAcc is the id of the accessible in that document the new document
-     * is a child of.
-     */
-    async PDocAccessible(nullable PDocAccessible aParentDoc, uint64_t aParentAcc,
-                         MaybeDiscardedBrowsingContext aBrowsingContext);
-#endif
-
     async PPaymentRequest();
 
     /**
@@ -459,19 +446,20 @@ parent:
      * @return            Array of edit commands which should be executed in
      *                    editor of native applications.
      */
-    sync RequestNativeKeyBindings(uint32_t aType, WidgetKeyboardEvent aEvent)
+    sync RequestNativeKeyBindings(NativeKeyBindingsType aType,
+                                  WidgetKeyboardEvent aEvent)
         returns (CommandInt[] commands);
 
     async SynthesizeNativeKeyEvent(int32_t aNativeKeyboardLayout,
                                    int32_t aNativeKeyCode,
-                                   uint32_t aModifierFlags,
+                                   NativeModifiers aModifierFlags,
                                    nsString aCharacters,
                                    nsString aUnmodifiedCharacters,
                                    uint64_t? aCallbackId);
     async SynthesizeNativeMouseEvent(LayoutDeviceIntPoint aPoint,
-                                     uint32_t aNativeMessage,
-                                     int16_t aButton,
-                                     uint32_t aModifierFlags,
+                                     NativeMouseMessage aNativeMessage,
+                                     MouseButton aButton,
+                                     NativeModifiers aModifierFlags,
                                      uint64_t? aCallbackId);
     async SynthesizeNativeMouseMove(LayoutDeviceIntPoint aPoint,
                                     uint64_t? aCallbackId);
@@ -480,7 +468,7 @@ parent:
                                            double aDeltaX,
                                            double aDeltaY,
                                            double aDeltaZ,
-                                           uint32_t aModifierFlags,
+                                           NativeModifiers aModifierFlags,
                                            uint32_t aAdditionalFlags,
                                            uint64_t? aCallbackId);
     async SynthesizeNativeTouchPoint(uint32_t aPointerId,
@@ -513,8 +501,9 @@ parent:
                                       int32_t aModifierFlags,
                                       uint64_t? aCallbackId);
 
-    async LockNativePointer();
+    async LockNativePointer(NativePointerLockMode aNativePointerLockMode);
     async UnlockNativePointer();
+    async SetNativePointerLockMode(NativePointerLockMode aNativePointerLockMode);
 
     async AccessKeyNotHandled(WidgetKeyboardEvent event);
 
@@ -564,7 +553,7 @@ parent:
     /**
      * Child informs the parent that a pointer lock has requested.
      */
-    async RequestPointerLock() returns (nsCString error);
+    async RequestPointerLock(bool aUnadjustedMovement) returns (nsCString error);
 
 both:
     /**
@@ -651,9 +640,17 @@ parent:
      */
     async MaybeFireEmbedderLoadEvents(EmbedderElementEventType aFireEventAtEmbeddingElement);
 
-    async ScrollRectIntoView(nsRect aRect, ScrollAxis aVertical,
-                             ScrollAxis aHorizontal, ScrollFlags aScrollFlags,
+    async ScrollRectIntoView(nsRect aRect, AxisScrollParams aVertical,
+                             AxisScrollParams aHorizontal, ScrollFlags aScrollFlags,
                              int32_t aAppUnitsPerDevPixel);
+
+    /**
+     * Continue a main-thread keyboard scroll in the embedder document when the
+     * embedded subframe could not scroll any further in the requested
+     * direction. The embedder resumes the search for a scroll container from
+     * its frame for this browser, handing off further up if needed.
+     */
+    async ScrollForKeyboard(KeyboardScrollAction aAction);
 
     async ShowDynamicToolbar();
 
@@ -724,19 +721,17 @@ child:
                                            uint64_t aInputBlockId);
 
     /**
-     * But don't compress mousemove events for tests since every event is
-     * important for the test since synthesizing various input events may
-     * be faster than what the user operates same things.  If you need to
-     * test the `Compress`, send mouse move events with setting `isSyntehsized`
-     * of `aEvent` of `EventUtils#syntehsizeMouse*()`.
+     * Don't compress mousemove events but events can still be coalesced.
+     * If you need to test the `Compress`, send mouse move events with setting
+     * `isSynthesized` of `aEvent` of `EventUtils#synthesizeMouse*()`.
      */
     [Priority=input]
-    async RealMouseMoveEventForTests(WidgetMouseEvent event,
-                                     ScrollableLayerGuid aGuid,
-                                     uint64_t aInputBlockId);
-    async NormalPriorityRealMouseMoveEventForTests(WidgetMouseEvent event,
-                                                   ScrollableLayerGuid aGuid,
-                                                   uint64_t aInputBlockId);
+    async RealMouseMoveEventNoCompress(WidgetMouseEvent event,
+                                       ScrollableLayerGuid aGuid,
+                                       uint64_t aInputBlockId);
+    async NormalPriorityRealMouseMoveEventNoCompress(WidgetMouseEvent event,
+                                                     ScrollableLayerGuid aGuid,
+                                                     uint64_t aInputBlockId);
 
     /**
      * Mouse move events with |reason == eSynthesized| are sent via a separate
@@ -950,6 +945,12 @@ child:
      *
      */
     async SafeAreaInsetsChanged(LayoutDeviceIntMargin aSafeAreaInsets);
+
+    /**
+     * Tell the child to init the supporting of unadjustedMovement.
+     *
+     */
+    async InitSupportsUnadjustedMovement(bool aSupportsUnadjustedMovement);
 
     /**
      * Tell the browser that its frame loader has been swapped

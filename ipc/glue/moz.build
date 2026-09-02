@@ -5,6 +5,7 @@ include("/dom/media/webrtc/third_party_build/webrtc.mozbuild")
 
 EXPORTS += [
     "nsIIPCSerializableInputStream.h",
+    "nsIIPCSerializableURI.h",
 ]
 
 EXPORTS.mozilla.ipc += [
@@ -322,6 +323,8 @@ TEST_DIRS += [
     "test/utility_process_xpcom",
     "test/browser",
 ]
+
+MARIONETTE_MANIFESTS += ["test/marionette/manifest.toml"]
 
 # Add libFuzzer configuration directives
 include("/tools/fuzzing/libfuzzer-config.mozbuild")

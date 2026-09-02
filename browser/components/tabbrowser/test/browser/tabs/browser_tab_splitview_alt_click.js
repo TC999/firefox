@@ -31,7 +31,7 @@ add_task(async function test_alt_click_creates_split_view() {
     tabContainer,
     { childList: true },
     () => tab1.splitview && tab2.splitview,
-    "Both tabs are in a split view"
+    { msg: "Both tabs are in a split view" }
   );
 
   Assert.ok(tab1.splitview, "tab1 is in a split view");
@@ -154,6 +154,28 @@ add_task(async function test_alt_click_when_pref_disabled_does_nothing() {
     "Alt+click with pref disabled does not create a split view"
   );
   Assert.ok(!tab2.splitview, "tab2 is not in a split view");
+
+  while (gBrowser.tabs.length > 1) {
+    BrowserTestUtils.removeTab(gBrowser.tabs.at(-1));
+  }
+
+  await SpecialPowers.popPrefEnv();
+});
+
+add_task(async function test_alt_click_when_pref_disabled_selects_tab() {
+  await SpecialPowers.pushPrefEnv({
+    set: [["browser.tabs.splitView.enabled", false]],
+  });
+
+  const tab1 = await addTabAndLoadBrowser();
+  const tab2 = await addTabAndLoadBrowser();
+
+  EventUtils.synthesizeMouseAtCenter(tab1, {});
+  Assert.ok(tab1.selected, "tab1 is selected");
+
+  EventUtils.synthesizeMouseAtCenter(tab2, { altKey: true });
+
+  Assert.ok(tab2.selected, "Alt+clicking tab2 with pref disabled selects tab2");
 
   while (gBrowser.tabs.length > 1) {
     BrowserTestUtils.removeTab(gBrowser.tabs.at(-1));

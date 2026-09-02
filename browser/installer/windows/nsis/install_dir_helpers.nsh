@@ -6,7 +6,7 @@
 !define INSTALL_DIR_HELPERS_NSH
 
 !macro GetRawCommandLine Result
-  System::Call 'kernel32::GetCommandLineW() w .${Result}'
+  System::Call 'kernel32::GetCommandLineW() w .r${Result}'
 !macroend
 !define GetRawCommandLine "!insertmacro GetRawCommandLine"
 
@@ -43,18 +43,31 @@
 
 !macro UseExistingInstallPathIfNoInstallDirArg Path
   Push $0
+  Push ${Path}
   ${GetInstallDirectoryPathArg} $0
   ${If} "$0" == ""
     ${GetInstallDirectoryNameArg} $0
     ${If} "$0" == ""
       ${GetDArg} $0
       ${If} "$0" == ""
-        StrCpy $INSTDIR "${Path}"
+        Exch $INSTDIR
       ${EndIf}
     ${EndIf}
   ${EndIf}
   Pop $0
+  Pop $0
 !macroend
 !define UseExistingInstallPathIfNoInstallDirArg "!insertmacro UseExistingInstallPathIfNoInstallDirArg"
+
+Function GetProfileDirExisted
+  Push $0
+  ${GetLocalAppDataFolder} $0
+  ${If} ${FileExists} "$0\Mozilla\Firefox"
+    StrCpy $0 "true"
+  ${Else}
+    StrCpy $0 "false"
+  ${EndIf}
+  Exch $0
+FunctionEnd
 
 !endif

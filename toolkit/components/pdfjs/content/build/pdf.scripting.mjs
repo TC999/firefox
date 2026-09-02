@@ -21,8 +21,8 @@
  */
 
 /**
- * pdfjsVersion = 5.7.85
- * pdfjsBuild = d6afffe8f
+ * pdfjsVersion = 6.3.280
+ * pdfjsBuild = c3257df8d
  */
 
 ;// ./src/scripting_api/constants.js
@@ -158,16 +158,15 @@ const FieldType = {
   date: 3,
   time: 4
 };
-function createActionsMap(actions) {
-  return new Map(actions ? Object.entries(actions) : null);
+function createMap(val) {
+  return val instanceof Map ? val : new Map(val ? Object.entries(val) : null);
 }
 function getFieldType(actions) {
   let format = actions.get("Format");
   if (!format) {
     return FieldType.none;
   }
-  format = format[0];
-  format = format.trim();
+  format = format[0].trim();
   if (format.startsWith("AFNumber_")) {
     return FieldType.number;
   }
@@ -182,6 +181,23 @@ function getFieldType(actions) {
   }
   return FieldType.none;
 }
+
+;// ./src/scripting_api/app_utils.js
+const VIEWER_TYPE = "PDF.js";
+const VIEWER_VARIATION = "Full";
+const VIEWER_VERSION = 21.00720099;
+const FORMS_VERSION = 21.00720099;
+const USERACTIVATION_CALLBACKID = 0;
+const USERACTIVATION_MAXTIME_VALIDITY = 5000;
+function serializeError(error) {
+  const value = `${error.toString()}\n${error.stack}`;
+  return {
+    command: "error",
+    value
+  };
+}
+const makeArr = () => [];
+const makeMap = () => new Map();
 
 ;// ./src/shared/math_clamp.js
 function MathClamp(v, min, max) {
@@ -347,23 +363,6 @@ class Color extends PDFObject {
   }
 }
 
-;// ./src/scripting_api/app_utils.js
-const VIEWER_TYPE = "PDF.js";
-const VIEWER_VARIATION = "Full";
-const VIEWER_VERSION = 21.00720099;
-const FORMS_VERSION = 21.00720099;
-const USERACTIVATION_CALLBACKID = 0;
-const USERACTIVATION_MAXTIME_VALIDITY = 5000;
-function serializeError(error) {
-  const value = `${error.toString()}\n${error.stack}`;
-  return {
-    command: "error",
-    value
-  };
-}
-const makeArr = () => [];
-const makeMap = () => new Map();
-
 ;// ./src/scripting_api/field.js
 
 
@@ -414,7 +413,7 @@ class Field extends PDFObject {
     this.textSize = data.textSize;
     this.type = data.type;
     this.userName = data.userName;
-    this._actions = createActionsMap(data.actions);
+    this._actions = createMap(data.actions);
     this._browseForFileToSubmit = data.browseForFileToSubmit || null;
     this._buttonCaption = null;
     this._buttonIcon = null;
@@ -443,10 +442,7 @@ class Field extends PDFObject {
     this.value = data.value || "";
   }
   get currentValueIndices() {
-    if (!this._isChoice) {
-      return 0;
-    }
-    return this._currentValueIndices;
+    return !this._isChoice ? 0 : this._currentValueIndices;
   }
   set currentValueIndices(indices) {
     if (!this._isChoice) {
@@ -455,7 +451,7 @@ class Field extends PDFObject {
     if (!Array.isArray(indices)) {
       indices = [indices];
     }
-    if (!indices.every(i => typeof i === "number" && Number.isInteger(i) && i >= 0 && i < this.numItems)) {
+    if (!indices.every(i => Number.isInteger(i) && i >= 0 && i < this.numItems)) {
       return;
     }
     indices.sort();
@@ -629,28 +625,18 @@ class Field extends PDFObject {
     }
   }
   buttonGetCaption(nFace = 0) {
-    if (this._buttonCaption) {
-      return this._buttonCaption[nFace];
-    }
-    return "";
+    return this._buttonCaption ? this._buttonCaption[nFace] : "";
   }
   buttonGetIcon(nFace = 0) {
-    if (this._buttonIcon) {
-      return this._buttonIcon[nFace];
-    }
-    return null;
+    return this._buttonIcon ? this._buttonIcon[nFace] : null;
   }
   buttonImportIcon(cPath = null, nPave = 0) {}
   buttonSetCaption(cCaption, nFace = 0) {
-    if (!this._buttonCaption) {
-      this._buttonCaption = ["", "", ""];
-    }
+    this._buttonCaption ??= ["", "", ""];
     this._buttonCaption[nFace] = cCaption;
   }
   buttonSetIcon(oIcon, nFace = 0) {
-    if (!this._buttonIcon) {
-      this._buttonIcon = [null, null, null];
-    }
+    this._buttonIcon ??= [null, null, null];
     this._buttonIcon[nFace] = oIcon;
   }
   checkThisBox(nWidget, bCheckIt = true) {}
@@ -785,10 +771,7 @@ class Field extends PDFObject {
     if (typeof cTrigger !== "string" || typeof cScript !== "string") {
       return;
     }
-    if (!(cTrigger in this._actions)) {
-      this._actions[cTrigger] = [];
-    }
-    this._actions[cTrigger].push(cScript);
+    this._actions.getOrInsertComputed(cTrigger, makeArr).push(cScript);
   }
   setFocus() {
     this._send({
@@ -860,7 +843,7 @@ class RadioButtonField extends Field {
     for (const radioData of otherButtons) {
       this.exportValues.push(radioData.exportValues);
       this._radioIds.push(radioData.id);
-      this._radioActions.push(createActionsMap(radioData.actions));
+      this._radioActions.push(createMap(radioData.actions));
       if (this._value === radioData.exportValues) {
         this._id = radioData.id;
       }
@@ -937,16 +920,10 @@ class CheckboxField extends RadioButtonField {
     return state ? super._getExportValue(state) : "Off";
   }
   isBoxChecked(nWidget) {
-    if (this._value === "Off") {
-      return false;
-    }
-    return super.isBoxChecked(nWidget);
+    return this._value === "Off" ? false : super.isBoxChecked(nWidget);
   }
   isDefaultChecked(nWidget) {
-    if (this.defaultValue === "Off") {
-      return this._value === "Off";
-    }
-    return super.isDefaultChecked(nWidget);
+    return this.defaultValue === "Off" ? this._value === "Off" : super.isDefaultChecked(nWidget);
   }
   checkThisBox(nWidget, bCheckIt = true) {
     if (nWidget < 0 || nWidget >= this._radioIds.length) {
@@ -971,7 +948,7 @@ class AForm {
     this._app = app;
     this._util = util;
     this._color = color;
-    this._emailRegex = new RegExp("^[a-zA-Z0-9.!#$%&'*+\\/=?^_`{|}~-]+" + "@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?" + "(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$");
+    this._emailRegex = new RegExp("^[\\w.!#$%&'*+/=?^`{|}~-]+" + "@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?" + "(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$");
   }
   _mkTargetName(event) {
     return event.target ? `[ ${event.target.name} ]` : "";
@@ -988,10 +965,7 @@ class AForm {
     return isNaN(date) ? null : new Date(date);
   }
   AFMergeChange(event = globalThis.event) {
-    if (event.willCommit) {
-      return event.value.toString();
-    }
-    return this._app._eventDispatcher.mergeChange(event);
+    return event.willCommit ? event.value.toString() : this._app._eventDispatcher.mergeChange(event);
   }
   AFParseDateEx(cString, cOrder) {
     return this._parseDate(cOrder, cString);
@@ -1028,10 +1002,7 @@ class AForm {
     return number;
   }
   AFMakeArrayFromList(string) {
-    if (typeof string === "string") {
-      return string.split(/, ?/g);
-    }
-    return string;
+    return typeof string === "string" ? string.split(/, ?/g) : string;
   }
   AFNumber_Format(nDec, sepStyle, negStyle, currStyle, strCurrency, bCurrencyPrepend) {
     const event = globalThis.event;
@@ -1079,9 +1050,9 @@ class AForm {
     value = value.trim();
     let pattern;
     if (sepStyle > 1) {
-      pattern = event.willCommit ? /^[+-]?(\d+(,\d*)?|,\d+)$/ : /^[+-]?\d*,?\d*$/;
+      pattern = event.willCommit ? /^[+-]?(\d+(,\d*)?|,\d+)$/ : /^[+-]?\d*(?:,\d*)?$/;
     } else {
-      pattern = event.willCommit ? /^[+-]?(\d+(\.\d*)?|\.\d+)$/ : /^[+-]?\d*\.?\d*$/;
+      pattern = event.willCommit ? /^[+-]?(\d+(\.\d*)?|\.\d+)$/ : /^[+-]?\d*(?:\.\d*)?$/;
     }
     if (!pattern.test(value)) {
       if (event.willCommit) {
@@ -1379,7 +1350,7 @@ class AForm {
       }
       event.rc = true;
     }
-    const re = /([-()]|\s)+/g;
+    const re = /[-()\s]+/g;
     value = value.replaceAll(re, "");
     for (const format of formats) {
       this.#AFSpecial_KeystrokeEx_helper(format.replaceAll(re, ""), value, false);
@@ -1408,10 +1379,7 @@ class AForm {
     return this._emailRegex.test(str);
   }
   AFExactMatch(rePatterns, str) {
-    if (rePatterns instanceof RegExp) {
-      return str.match(rePatterns)?.[0] === str || 0;
-    }
-    return rePatterns.findIndex(re => str.match(re)?.[0] === str) + 1;
+    return rePatterns instanceof RegExp ? str.match(rePatterns)?.[0] === str || 0 : rePatterns.findIndex(re => str.match(re)?.[0] === str) + 1;
   }
 }
 
@@ -1464,7 +1432,7 @@ class EventDispatcher {
   }
   userActivation() {
     this._document.obj._userActivation = true;
-    this._externalCall("setTimeout", [USERACTIVATION_CALLBACKID, USERACTIVATION_MAXTIME_VALIDITY]);
+    this._externalCall("setTimeout", [(/* inlined export .USERACTIVATION_CALLBACKID */0), (/* inlined export .USERACTIVATION_MAXTIME_VALIDITY */5000)]);
   }
   dispatch(baseEvent) {
     const id = baseEvent.id;
@@ -1599,10 +1567,7 @@ class EventDispatcher {
       source.obj.value = event.value;
       this.runCalculate(source, event);
       const savedValue = event.value = source.obj._getValue();
-      let formattedValue = null;
-      if (this.runActions(source, source, event, "Format")) {
-        formattedValue = event.value?.toString?.();
-      }
+      const formattedValue = this.runActions(source, source, event, "Format") ? event.value?.toString?.() : null;
       source.obj._send({
         id: source.obj._id,
         siblings: source.obj._siblings,
@@ -1674,10 +1639,7 @@ class EventDispatcher {
         event.value = target.obj._getValue();
       }
       savedValue = target.obj._getValue();
-      let formattedValue = null;
-      if (this.runActions(target, target, event, "Format")) {
-        formattedValue = event.value?.toString?.();
-      }
+      const formattedValue = this.runActions(target, target, event, "Format") ? event.value?.toString?.() : null;
       target.obj._send({
         id: target.obj._id,
         siblings: target.obj._siblings,
@@ -1812,7 +1774,7 @@ class App extends PDFObject {
     this._timeoutIds = new WeakMap();
     this._timeoutIdsRegistry = new FinalizationRegistry(this._cleanTimeout.bind(this));
     this._timeoutCallbackIds = new Map();
-    this._timeoutCallbackId = USERACTIVATION_CALLBACKID + 1;
+    this._timeoutCallbackId = (/* inlined export .USERACTIVATION_CALLBACKID */0) + 1;
     this._globalEval = data.globalEval;
     this._externalCall = data.externalCall;
   }
@@ -1832,7 +1794,7 @@ class App extends PDFObject {
     interval
   }) {
     const documentObj = this._document.obj;
-    if (callbackId === USERACTIVATION_CALLBACKID) {
+    if (callbackId === (/* inlined export .USERACTIVATION_CALLBACKID */0)) {
       documentObj._userActivation = false;
       return;
     }
@@ -2068,13 +2030,13 @@ class App extends PDFObject {
     this.toolbar = value;
   }
   get viewerType() {
-    return VIEWER_TYPE;
+    return (/* inlined export .VIEWER_TYPE */"PDF.js");
   }
   set viewerType(_) {
     throw new Error("app.viewerType is read-only");
   }
   get viewerVariation() {
-    return VIEWER_VARIATION;
+    return (/* inlined export .VIEWER_VARIATION */"Full");
   }
   set viewerVariation(_) {
     throw new Error("app.viewerVariation is read-only");
@@ -2321,7 +2283,7 @@ class PrintParams {
       suppressBG: 1 << 8,
       suppressCenter: 1 << 9,
       suppressCJKFontSubst: 1 << 10,
-      suppressCropClip: 1 << 1,
+      suppressCropClip: 1 << 11,
       suppressRotate: 1 << 12,
       suppressTransfer: 1 << 13,
       suppressUCR: 1 << 14,
@@ -2449,7 +2411,7 @@ class Doc extends PDFObject {
     }, InfoProxyHandler);
     this._zoomType = ZoomType.none;
     this._zoom = data.zoom || 100;
-    this._actions = createActionsMap(data.actions);
+    this._actions = createMap(data.actions);
     this._globalEval = data.globalEval;
     this._userActivation = false;
     this._disablePrinting = false;
@@ -2510,9 +2472,7 @@ class Doc extends PDFObject {
   _dispatchPageEvent(name, actions, pageNumber) {
     if (name === "PageOpen") {
       this.#pageActions ??= new Map();
-      if (!this.#pageActions.has(pageNumber)) {
-        this.#pageActions.set(pageNumber, createActionsMap(actions));
-      }
+      this.#pageActions.getOrInsertComputed(pageNumber, () => createMap(actions));
       this._pageNum = pageNumber - 1;
     }
     for (const acts of [this.#pageActions, this.#otherPageActions]) {
@@ -3267,11 +3227,9 @@ class ProxyHandler {
     return undefined;
   }
   set(obj, prop, value) {
-    if (obj._kidIds) {
-      obj._kidIds.forEach(id => {
-        obj._appObjects[id].wrapped[prop] = value;
-      });
-    }
+    obj._kidIds?.forEach(id => {
+      obj._appObjects[id].wrapped[prop] = value;
+    });
     if (typeof prop === "string" && !prop.startsWith("_") && prop in obj) {
       const old = obj[prop];
       obj[prop] = value;
@@ -3343,14 +3301,16 @@ class ProxyHandler {
 ;// ./src/scripting_api/util.js
 
 class Util extends PDFObject {
+  #createDateActionsBound = this.#createDateActions.bind(this);
+  #createScandDataBound = this.#createScandData.bind(this);
   #dateActionsCache = null;
+  #scandCache = null;
+  #months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  #days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  MILLISECONDS_IN_DAY = 86400000;
+  MILLISECONDS_IN_WEEK = 604800000;
   constructor(data) {
     super(data);
-    this._scandCache = new Map();
-    this._months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-    this._days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-    this.MILLISECONDS_IN_DAY = 86400000;
-    this.MILLISECONDS_IN_WEEK = 604800000;
     this._externalCall = data.externalCall;
   }
   printf(...args) {
@@ -3366,7 +3326,7 @@ class Util extends PDFObject {
     const ZERO = 4;
     const HASH = 8;
     let i = 0;
-    return args[0].replaceAll(pattern, function (match, nDecSep, cFlags, nWidth, nPrecision, cConvChar) {
+    return args[0].replaceAll(pattern, function (_, nDecSep, cFlags, nWidth, nPrecision, cConvChar) {
       if (cConvChar !== "d" && cConvChar !== "f" && cConvChar !== "s" && cConvChar !== "x") {
         const buf = ["%"];
         for (const str of [nDecSep, cFlags, nWidth, nPrecision, cConvChar]) {
@@ -3404,9 +3364,7 @@ class Util extends PDFObject {
         }
       }
       cFlags = flags;
-      if (nWidth) {
-        nWidth = parseInt(nWidth);
-      }
+      nWidth &&= parseInt(nWidth);
       let intPart = Math.trunc(arg);
       if (cConvChar === "x") {
         let hex = Math.abs(intPart).toString(16).toUpperCase();
@@ -3418,9 +3376,7 @@ class Util extends PDFObject {
         }
         return hex;
       }
-      if (nPrecision) {
-        nPrecision = parseInt(nPrecision.substring(1));
-      }
+      nPrecision &&= parseInt(nPrecision.substring(1));
       nDecSep = nDecSep ? nDecSep.substring(1) : "0";
       const separators = {
         0: [",", "."],
@@ -3488,12 +3444,12 @@ class Util extends PDFObject {
         return this.printd("m/d/yy h:MM:ss tt", oDate);
     }
     const handlers = {
-      mmmm: data => this._months[data.month],
-      mmm: data => this._months[data.month].substring(0, 3),
+      mmmm: data => this.#months[data.month],
+      mmm: data => this.#months[data.month].substring(0, 3),
       mm: data => (data.month + 1).toString().padStart(2, "0"),
       m: data => (data.month + 1).toString(),
-      dddd: data => this._days[data.dayOfWeek],
-      ddd: data => this._days[data.dayOfWeek].substring(0, 3),
+      dddd: data => this.#days[data.dayOfWeek],
+      ddd: data => this.#days[data.dayOfWeek].substring(0, 3),
       dd: data => data.day.toString().padStart(2, "0"),
       d: data => data.day.toString(),
       yyyy: data => data.year.toString().padStart(4, "0"),
@@ -3519,11 +3475,8 @@ class Util extends PDFObject {
       seconds: oDate.getSeconds()
     };
     const patterns = /(mmmm|mmm|mm|m|dddd|ddd|dd|d|yyyy|yy|HH|H|hh|h|MM|M|ss|s|tt|t|\\.)/g;
-    return cFormat.replaceAll(patterns, function (match, pattern) {
-      if (pattern in handlers) {
-        return handlers[pattern](data);
-      }
-      return pattern.charCodeAt(1);
+    return cFormat.replaceAll(patterns, function (_, pattern) {
+      return pattern in handlers ? handlers[pattern](data) : pattern.charCodeAt(1);
     });
   }
   printx(cFormat, cSource) {
@@ -3597,66 +3550,66 @@ class Util extends PDFObject {
     }
     return buf.join("");
   }
-  #tryToGuessDate(cFormat, cDate) {
-    let actions = (this.#dateActionsCache ||= new Map()).get(cFormat);
-    if (!actions) {
-      actions = [];
-      this.#dateActionsCache.set(cFormat, actions);
-      cFormat.replaceAll(/(d+)|(m+)|(y+)|(H+)|(M+)|(s+)/g, function (_match, d, m, y, H, M, s) {
-        if (d) {
-          actions.push((n, data) => {
-            if (n >= 1 && n <= 31) {
-              data.day = n;
-              return true;
-            }
-            return false;
-          });
-        } else if (m) {
-          actions.push((n, data) => {
-            if (n >= 1 && n <= 12) {
-              data.month = n - 1;
-              return true;
-            }
-            return false;
-          });
-        } else if (y) {
-          actions.push((n, data) => {
-            if (n < 50) {
-              n += 2000;
-            } else if (n < 100) {
-              n += 1900;
-            }
-            data.year = n;
+  #createDateActions(cFormat) {
+    const actions = [];
+    cFormat.replaceAll(/(d+)|(m+)|(y+)|(H+)|(M+)|(s+)/g, function (_, d, m, y, H, M, s) {
+      if (d) {
+        actions.push((n, data) => {
+          if (n >= 1 && n <= 31) {
+            data.day = n;
             return true;
-          });
-        } else if (H) {
-          actions.push((n, data) => {
-            if (n >= 0 && n <= 23) {
-              data.hours = n;
-              return true;
-            }
-            return false;
-          });
-        } else if (M) {
-          actions.push((n, data) => {
-            if (n >= 0 && n <= 59) {
-              data.minutes = n;
-              return true;
-            }
-            return false;
-          });
-        } else if (s) {
-          actions.push((n, data) => {
-            if (n >= 0 && n <= 59) {
-              data.seconds = n;
-              return true;
-            }
-            return false;
-          });
-        }
-        return "";
-      });
-    }
+          }
+          return false;
+        });
+      } else if (m) {
+        actions.push((n, data) => {
+          if (n >= 1 && n <= 12) {
+            data.month = n - 1;
+            return true;
+          }
+          return false;
+        });
+      } else if (y) {
+        actions.push((n, data) => {
+          if (n < 50) {
+            n += 2000;
+          } else if (n < 100) {
+            n += 1900;
+          }
+          data.year = n;
+          return true;
+        });
+      } else if (H) {
+        actions.push((n, data) => {
+          if (n >= 0 && n <= 23) {
+            data.hours = n;
+            return true;
+          }
+          return false;
+        });
+      } else if (M) {
+        actions.push((n, data) => {
+          if (n >= 0 && n <= 59) {
+            data.minutes = n;
+            return true;
+          }
+          return false;
+        });
+      } else if (s) {
+        actions.push((n, data) => {
+          if (n >= 0 && n <= 59) {
+            data.seconds = n;
+            return true;
+          }
+          return false;
+        });
+      }
+      return "";
+    });
+    return actions;
+  }
+  #tryToGuessDate(cFormat, cDate) {
+    const actions = (this.#dateActionsCache ??= new Map()).getOrInsertComputed(cFormat, this.#createDateActionsBound);
     const number = /\d+/g;
     let i = 0;
     let array;
@@ -3685,6 +3638,145 @@ class Util extends PDFObject {
   scand(cFormat, cDate) {
     return this._scand(cFormat, cDate);
   }
+  #createScandData(cFormat) {
+    const months = this.#months,
+      days = this.#days;
+    const handlers = {
+      mmmm: {
+        pattern: `(${months.join("|")})`,
+        action: (value, data) => {
+          data.month = months.indexOf(value);
+        }
+      },
+      mmm: {
+        pattern: `(${months.map(month => month.substring(0, 3)).join("|")})`,
+        action: (value, data) => {
+          data.month = months.findIndex(month => month.substring(0, 3) === value);
+        }
+      },
+      mm: {
+        pattern: `(\\d{2})`,
+        action: (value, data) => {
+          data.month = parseInt(value) - 1;
+        }
+      },
+      m: {
+        pattern: `(\\d{1,2})`,
+        action: (value, data) => {
+          data.month = parseInt(value) - 1;
+        }
+      },
+      dddd: {
+        pattern: `(${days.join("|")})`,
+        action: (value, data) => {
+          data.day = days.indexOf(value);
+        }
+      },
+      ddd: {
+        pattern: `(${days.map(day => day.substring(0, 3)).join("|")})`,
+        action: (value, data) => {
+          data.day = days.findIndex(day => day.substring(0, 3) === value);
+        }
+      },
+      dd: {
+        pattern: "(\\d{2})",
+        action: (value, data) => {
+          data.day = parseInt(value);
+        }
+      },
+      d: {
+        pattern: "(\\d{1,2})",
+        action: (value, data) => {
+          data.day = parseInt(value);
+        }
+      },
+      yyyy: {
+        pattern: "(\\d{4})",
+        action: (value, data) => {
+          data.year = parseInt(value);
+        }
+      },
+      yy: {
+        pattern: "(\\d{2})",
+        action: (value, data) => {
+          data.year = 2000 + parseInt(value);
+        }
+      },
+      HH: {
+        pattern: "(\\d{2})",
+        action: (value, data) => {
+          data.hours = parseInt(value);
+        }
+      },
+      H: {
+        pattern: "(\\d{1,2})",
+        action: (value, data) => {
+          data.hours = parseInt(value);
+        }
+      },
+      hh: {
+        pattern: "(\\d{2})",
+        action: (value, data) => {
+          data.hours = parseInt(value);
+        }
+      },
+      h: {
+        pattern: "(\\d{1,2})",
+        action: (value, data) => {
+          data.hours = parseInt(value);
+        }
+      },
+      MM: {
+        pattern: "(\\d{2})",
+        action: (value, data) => {
+          data.minutes = parseInt(value);
+        }
+      },
+      M: {
+        pattern: "(\\d{1,2})",
+        action: (value, data) => {
+          data.minutes = parseInt(value);
+        }
+      },
+      ss: {
+        pattern: "(\\d{2})",
+        action: (value, data) => {
+          data.seconds = parseInt(value);
+        }
+      },
+      s: {
+        pattern: "(\\d{1,2})",
+        action: (value, data) => {
+          data.seconds = parseInt(value);
+        }
+      },
+      tt: {
+        pattern: "([aApP][mM])",
+        action: (value, data) => {
+          const char = value.charAt(0);
+          data.am = char === "a" || char === "A";
+        }
+      },
+      t: {
+        pattern: "([aApP])",
+        action: (value, data) => {
+          data.am = value === "a" || value === "A";
+        }
+      }
+    };
+    const escapedFormat = cFormat.replaceAll(/[.*+\-?^${}()|[\]\\]/g, "\\$&");
+    const patterns = /(mmmm|mmm|mm|m|dddd|ddd|dd|d|yyyy|yy|HH|H|hh|h|MM|M|ss|s|tt|t)/g;
+    const actions = [];
+    const re = escapedFormat.replaceAll(patterns, function (_, patternElement) {
+      const {
+        pattern,
+        action
+      } = handlers[patternElement];
+      actions.push(action);
+      return pattern.includes(",") ? `(?=${pattern})\\${actions.length}` : pattern;
+    });
+    return [new RegExp(`^${re}$`, "g"), actions];
+  }
   _scand(cFormat, cDate, strict = false) {
     if (typeof cDate !== "string") {
       return new Date(cDate);
@@ -3700,147 +3792,8 @@ class Util extends PDFObject {
       case 2:
         return this.scand("m/d/yy h:MM:ss tt", cDate);
     }
-    if (!this._scandCache.has(cFormat)) {
-      const months = this._months;
-      const days = this._days;
-      const handlers = {
-        mmmm: {
-          pattern: `(${months.join("|")})`,
-          action: (value, data) => {
-            data.month = months.indexOf(value);
-          }
-        },
-        mmm: {
-          pattern: `(${months.map(month => month.substring(0, 3)).join("|")})`,
-          action: (value, data) => {
-            data.month = months.findIndex(month => month.substring(0, 3) === value);
-          }
-        },
-        mm: {
-          pattern: `(\\d{2})`,
-          action: (value, data) => {
-            data.month = parseInt(value) - 1;
-          }
-        },
-        m: {
-          pattern: `(\\d{1,2})`,
-          action: (value, data) => {
-            data.month = parseInt(value) - 1;
-          }
-        },
-        dddd: {
-          pattern: `(${days.join("|")})`,
-          action: (value, data) => {
-            data.day = days.indexOf(value);
-          }
-        },
-        ddd: {
-          pattern: `(${days.map(day => day.substring(0, 3)).join("|")})`,
-          action: (value, data) => {
-            data.day = days.findIndex(day => day.substring(0, 3) === value);
-          }
-        },
-        dd: {
-          pattern: "(\\d{2})",
-          action: (value, data) => {
-            data.day = parseInt(value);
-          }
-        },
-        d: {
-          pattern: "(\\d{1,2})",
-          action: (value, data) => {
-            data.day = parseInt(value);
-          }
-        },
-        yyyy: {
-          pattern: "(\\d{4})",
-          action: (value, data) => {
-            data.year = parseInt(value);
-          }
-        },
-        yy: {
-          pattern: "(\\d{2})",
-          action: (value, data) => {
-            data.year = 2000 + parseInt(value);
-          }
-        },
-        HH: {
-          pattern: "(\\d{2})",
-          action: (value, data) => {
-            data.hours = parseInt(value);
-          }
-        },
-        H: {
-          pattern: "(\\d{1,2})",
-          action: (value, data) => {
-            data.hours = parseInt(value);
-          }
-        },
-        hh: {
-          pattern: "(\\d{2})",
-          action: (value, data) => {
-            data.hours = parseInt(value);
-          }
-        },
-        h: {
-          pattern: "(\\d{1,2})",
-          action: (value, data) => {
-            data.hours = parseInt(value);
-          }
-        },
-        MM: {
-          pattern: "(\\d{2})",
-          action: (value, data) => {
-            data.minutes = parseInt(value);
-          }
-        },
-        M: {
-          pattern: "(\\d{1,2})",
-          action: (value, data) => {
-            data.minutes = parseInt(value);
-          }
-        },
-        ss: {
-          pattern: "(\\d{2})",
-          action: (value, data) => {
-            data.seconds = parseInt(value);
-          }
-        },
-        s: {
-          pattern: "(\\d{1,2})",
-          action: (value, data) => {
-            data.seconds = parseInt(value);
-          }
-        },
-        tt: {
-          pattern: "([aApP][mM])",
-          action: (value, data) => {
-            const char = value.charAt(0);
-            data.am = char === "a" || char === "A";
-          }
-        },
-        t: {
-          pattern: "([aApP])",
-          action: (value, data) => {
-            data.am = value === "a" || value === "A";
-          }
-        }
-      };
-      const escapedFormat = cFormat.replaceAll(/[.*+\-?^${}()|[\]\\]/g, "\\$&");
-      const patterns = /(mmmm|mmm|mm|m|dddd|ddd|dd|d|yyyy|yy|HH|H|hh|h|MM|M|ss|s|tt|t)/g;
-      const actions = [];
-      const re = escapedFormat.replaceAll(patterns, function (match, patternElement) {
-        const {
-          pattern,
-          action
-        } = handlers[patternElement];
-        actions.push(action);
-        return pattern;
-      });
-      this._scandCache.set(cFormat, [re, actions]);
-    }
-    const [re, actions] = this._scandCache.get(cFormat);
-    const matches = new RegExp(`^${re}$`, "g").exec(cDate);
+    const [regex, actions] = (this.#scandCache ??= new Map()).getOrInsertComputed(cFormat, this.#createScandDataBound);
+    const matches = regex.exec(cDate);
     if (!matches || matches.length !== actions.length + 1) {
       return strict ? null : this.#tryToGuessDate(cFormat, cDate);
     }
@@ -3865,6 +3818,7 @@ class Util extends PDFObject {
 }
 
 ;// ./src/scripting_api/initialization.js
+
 
 
 
@@ -3907,59 +3861,56 @@ function initSandbox(params) {
     externalCall
   });
   const appObjects = app._objects;
-  if (data.objects) {
+  for (const [name, objs] of createMap(data.objects)) {
     const annotations = [];
-    for (const [name, objs] of Object.entries(data.objects)) {
-      annotations.length = 0;
-      let container = null;
-      for (const obj of objs) {
-        if (obj.type !== "") {
-          annotations.push(obj);
-        } else {
-          container = obj;
+    let container = null;
+    for (const obj of objs) {
+      if (obj.type !== "") {
+        annotations.push(obj);
+      } else {
+        container = obj;
+      }
+    }
+    let obj = container;
+    if (annotations.length > 0) {
+      obj = annotations[0];
+      obj.send = send;
+    }
+    obj.globalEval = globalEval;
+    obj.doc = _document;
+    obj.fieldPath = name;
+    obj.appObjects = appObjects;
+    obj.util = util;
+    const otherFields = annotations.slice(1);
+    let field;
+    switch (obj.type) {
+      case "radiobutton":
+        {
+          field = new RadioButtonField(otherFields, obj);
+          break;
         }
-      }
-      let obj = container;
-      if (annotations.length > 0) {
-        obj = annotations[0];
-        obj.send = send;
-      }
-      obj.globalEval = globalEval;
-      obj.doc = _document;
-      obj.fieldPath = name;
-      obj.appObjects = appObjects;
-      obj.util = util;
-      const otherFields = annotations.slice(1);
-      let field;
-      switch (obj.type) {
-        case "radiobutton":
-          {
-            field = new RadioButtonField(otherFields, obj);
-            break;
-          }
-        case "checkbox":
-          {
-            field = new CheckboxField(otherFields, obj);
-            break;
-          }
-        default:
-          if (otherFields.length > 0) {
-            obj.siblings = otherFields.map(x => x.id);
-          }
-          field = new Field(obj);
-      }
-      const wrapped = new Proxy(field, proxyHandler);
-      const _object = {
-        obj: field,
-        wrapped
-      };
-      doc._addField(name, _object);
-      for (const object of objs) {
-        appObjects[object.id] = _object;
-      }
-      if (container) {
-        appObjects[container.id] = _object;
-      }
+      case "checkbox":
+        {
+          field = new CheckboxField(otherFields, obj);
+          break;
+        }
+      default:
+        if (otherFields.length > 0) {
+          obj.siblings = otherFields.map(x => x.id);
+        }
+        field = new Field(obj);
+    }
+    const wrapped = new Proxy(field, proxyHandler);
+    const _object = {
+      obj: field,
+      wrapped
+    };
+    doc._addField(name, _object);
+    for (const object of objs) {
+      appObjects[object.id] = _object;
+    }
+    if (container) {
+      appObjects[container.id] = _object;
     }
   }
   const color = new Color();

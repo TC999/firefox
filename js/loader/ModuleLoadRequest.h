@@ -5,15 +5,17 @@
 #ifndef js_loader_ModuleLoadRequest_h
 #define js_loader_ModuleLoadRequest_h
 
-#include "LoadContextBase.h"
-#include "ScriptLoadRequest.h"
-#include "ModuleLoaderBase.h"
 #include "mozilla/Assertions.h"
 #include "mozilla/HoldDropJSObjects.h"
+
+#include "LoadContextBase.h"
+#include "ModuleLoaderBase.h"
+#include "nsTHashtable.h"
+#include "nsURIHashKey.h"
+#include "ScriptLoadRequest.h"
+
 #include "js/RootingAPI.h"
 #include "js/Value.h"
-#include "nsURIHashKey.h"
-#include "nsTHashtable.h"
 
 namespace JS::loader {
 
@@ -27,9 +29,6 @@ class ModuleLoaderBase;
 
 class ModuleLoadRequest final : public ScriptLoadRequest {
   ~ModuleLoadRequest();
-
-  ModuleLoadRequest(const ModuleLoadRequest& aOther) = delete;
-  ModuleLoadRequest(ModuleLoadRequest&& aOther) = delete;
 
  public:
   NS_DECL_ISUPPORTS_INHERITED
@@ -51,10 +50,14 @@ class ModuleLoadRequest final : public ScriptLoadRequest {
   ModuleLoadRequest(ModuleType aModuleType, const SRIMetadata& aIntegrity,
                     nsIURI* aReferrer, LoadContextBase* aContext, Kind aKind,
                     ModuleLoaderBase* aLoader, ModuleLoadRequest* aRootModule);
+  ModuleLoadRequest(const ModuleLoadRequest& aOther) = delete;
+  ModuleLoadRequest(ModuleLoadRequest&& aOther) = delete;
 
   bool IsTopLevel() const override { return mKind == Kind::TopLevel; }
   bool IsStaticImport() const { return mKind == Kind::StaticImport; }
   bool IsDynamicImport() const { return mKind == Kind::DynamicImport; }
+
+  bool IsSourcePhaseRequest(JSContext* aCx) const;
 
   bool IsErrored() const;
 
@@ -70,6 +73,11 @@ class ModuleLoadRequest final : public ScriptLoadRequest {
   void ModuleLoaded();
   void ModuleErrored();
   void LoadFailed();
+
+  // Tells the load context that this request stopped waiting on an in-progress
+  // fetch of the same URL. Must be called whenever that happens, whether the
+  // fetch resolved or was canceled.
+  void NotifyModuleWaitFinished();
 
   ModuleLoadRequest* GetRootModule() {
     if (!mRootModule) {
@@ -112,6 +120,12 @@ class ModuleLoadRequest final : public ScriptLoadRequest {
     MOZ_ASSERT(IsDynamicImport());
     MOZ_ASSERT(IsFetching() || IsCompiling());
     mErroredLoadingImports = true;
+  }
+
+  bool IsErroredLoadingImports() const { return mErroredLoadingImports; }
+
+  void UpdateReferrerPolicy(mozilla::dom::ReferrerPolicy aReferrerPolicy) {
+    FetchInfo()->UpdateReferrerPolicy(aReferrerPolicy);
   }
 
  public:

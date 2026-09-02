@@ -4,6 +4,7 @@
 
 package org.mozilla.fenix.browser.relay
 
+import kotlin.test.assertIs
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import mozilla.components.service.fxrelay.EmailMask
@@ -15,7 +16,6 @@ import mozilla.components.service.fxrelay.eligibility.RelayEligibilityStore
 import mozilla.components.service.fxrelay.eligibility.RelayState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.mozilla.fenix.components.AppStore
@@ -24,10 +24,11 @@ import org.mozilla.fenix.components.appstate.snackbar.SnackbarState
 class EmailMaskInfoPrompterTest {
     private val testDispatcher = StandardTestDispatcher()
     private lateinit var appStore: AppStore
-    private val errorMessages = ErrorMessages(
-        maxMasksReached = "Max masks reached",
-        errorRetrievingMasks = "Error retrieving masks",
-    )
+    private val errorMessages =
+        ErrorMessages(
+            maxMasksReached = "Max masks reached",
+            errorRetrievingMasks = "Error retrieving masks",
+        )
 
     @Before
     fun setup() {
@@ -38,95 +39,73 @@ class EmailMaskInfoPrompterTest {
     fun `GIVEN free user with FREE_TIER_LIMIT mask WHEN lastUsed updates THEN shows max masks reached snackbar`() =
         runTest(testDispatcher) {
             val mask = EmailMask("test@relay.firefox.com", MaskSource.FREE_TIER_LIMIT)
-            val relayStore = RelayEligibilityStore(
-                initialState = RelayState(
-                    eligibilityState = Eligible.Free(totalMasksUsed = 5),
-                ),
-            )
+            val relayStore =
+                RelayEligibilityStore(initialState = RelayState(eligibilityState = Eligible.Free(totalMasksUsed = 5)))
             val prompter = EmailMaskInfoPrompter(relayStore, appStore, errorMessages, testDispatcher)
 
             prompter.start()
             testDispatcher.scheduler.advanceUntilIdle()
 
-            relayStore.dispatch(
-                RelayEligibilityAction.UpdateLastUsed(mask),
-            )
+            relayStore.dispatch(RelayEligibilityAction.UpdateLastUsed(mask))
             testDispatcher.scheduler.advanceUntilIdle()
 
             val snackbarState = appStore.state.snackbarState
-            assertTrue(snackbarState is SnackbarState.ShowSnackbar)
-            assertEquals(errorMessages.maxMasksReached, (snackbarState as SnackbarState.ShowSnackbar).title)
+            assertIs<SnackbarState.ShowSnackbar>(snackbarState)
+            assertEquals(errorMessages.maxMasksReached, snackbarState.title)
         }
 
     @Test
     fun `GIVEN free user with GENERATED mask WHEN lastUsed updates THEN no snackbar shown`() =
         runTest(testDispatcher) {
             val mask = EmailMask("test@relay.firefox.com", MaskSource.GENERATED)
-            val relayStore = RelayEligibilityStore(
-                initialState = RelayState(
-                    eligibilityState = Eligible.Free(totalMasksUsed = 5),
-                ),
-            )
+            val relayStore =
+                RelayEligibilityStore(initialState = RelayState(eligibilityState = Eligible.Free(totalMasksUsed = 5)))
             val prompter = EmailMaskInfoPrompter(relayStore, appStore, errorMessages, testDispatcher)
 
             prompter.start()
             testDispatcher.scheduler.advanceUntilIdle()
 
-            relayStore.dispatch(
-                RelayEligibilityAction.UpdateLastUsed(mask),
-            )
+            relayStore.dispatch(RelayEligibilityAction.UpdateLastUsed(mask))
             testDispatcher.scheduler.advanceUntilIdle()
 
-            assertTrue(appStore.state.snackbarState is SnackbarState.None)
+            assertIs<SnackbarState.None>(appStore.state.snackbarState)
         }
 
     @Test
     fun `GIVEN ineligible user WHEN lastUsed updates THEN shows error retrieving masks snackbar`() =
         runTest(testDispatcher) {
             val mask = EmailMask("test@relay.firefox.com", MaskSource.GENERATED)
-            val relayStore = RelayEligibilityStore(
-                initialState = RelayState(
-                    eligibilityState = Ineligible.FirefoxAccountNotLoggedIn,
-                ),
-            )
+            val relayStore =
+                RelayEligibilityStore(
+                    initialState = RelayState(eligibilityState = Ineligible.FirefoxAccountNotLoggedIn)
+                )
             val prompter = EmailMaskInfoPrompter(relayStore, appStore, errorMessages, testDispatcher)
 
             prompter.start()
             testDispatcher.scheduler.advanceUntilIdle()
 
-            relayStore.dispatch(
-                RelayEligibilityAction.UpdateLastUsed(mask),
-            )
+            relayStore.dispatch(RelayEligibilityAction.UpdateLastUsed(mask))
             testDispatcher.scheduler.advanceUntilIdle()
 
             val snackbarState = appStore.state.snackbarState
-            assertTrue(snackbarState is SnackbarState.ShowSnackbar)
-            assertEquals(
-                errorMessages.errorRetrievingMasks,
-                (snackbarState as SnackbarState.ShowSnackbar).title,
-            )
+            assertIs<SnackbarState.ShowSnackbar>(snackbarState)
+            assertEquals(errorMessages.errorRetrievingMasks, snackbarState.title)
         }
 
     @Test
     fun `GIVEN premium user WHEN lastUsed updates THEN no snackbar shown`() =
         runTest(testDispatcher) {
             val mask = EmailMask("test@relay.firefox.com", MaskSource.GENERATED)
-            val relayStore = RelayEligibilityStore(
-                initialState = RelayState(
-                    eligibilityState = Eligible.Premium,
-                ),
-            )
+            val relayStore = RelayEligibilityStore(initialState = RelayState(eligibilityState = Eligible.Premium))
             val prompter = EmailMaskInfoPrompter(relayStore, appStore, errorMessages, testDispatcher)
 
             prompter.start()
             testDispatcher.scheduler.advanceUntilIdle()
 
-            relayStore.dispatch(
-                RelayEligibilityAction.UpdateLastUsed(mask),
-            )
+            relayStore.dispatch(RelayEligibilityAction.UpdateLastUsed(mask))
             testDispatcher.scheduler.advanceUntilIdle()
 
-            assertTrue(appStore.state.snackbarState is SnackbarState.None)
+            assertIs<SnackbarState.None>(appStore.state.snackbarState)
         }
 
     @Test

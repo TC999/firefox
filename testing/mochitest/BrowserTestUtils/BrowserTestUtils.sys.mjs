@@ -14,6 +14,7 @@
 
 import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
 import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
+import { clearTimeout, setTimeout } from "resource://gre/modules/Timer.sys.mjs";
 import { TestUtils } from "resource://testing-common/TestUtils.sys.mjs";
 
 const lazy = {};
@@ -24,6 +25,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
 });
 
 XPCOMUtils.defineLazyServiceGetters(lazy, {
+  gfxInfo: ["@mozilla.org/gfx/info;1", Ci.nsIGfxInfo],
   ProtocolProxyService: [
     "@mozilla.org/network/protocol-proxy-service;1",
     Ci.nsIProtocolProxyService,
@@ -34,8 +36,53 @@ let gListenerId = 0;
 
 const DISABLE_CONTENT_PROCESS_REUSE_PREF = "dom.ipc.disableContentProcessReuse";
 
+// Upper bound on the tabs BrowserTestUtils.overflowTabs opens.
+const MAX_TABS_FOR_OVERFLOW = 200;
+
+// Default bound on BrowserTestUtils.waitForMutationCondition, past the point
+// where a wait is plausibly still going to pass.
+const DEFAULT_MUTATION_TIMEOUT_MS = 10000;
+
 const kAboutPageRegistrationContentScript =
   "chrome://mochikit/content/tests/BrowserTestUtils/content-about-page-utils.js";
+
+/**
+ * Names a mutation wait whose caller passed no message, so that a wait which
+ * fails can still say which one it was.
+ *
+ * @param {function} checkFn  The condition the wait is testing.
+ * @param {nsIStackFrame} frame  The frame that started the wait.
+ * @returns {string}
+ */
+function describeMutationWait(checkFn, frame) {
+  let source = checkFn.toString().replace(/\s+/g, " ");
+  if (source.length > 100) {
+    source = source.slice(0, 100) + "...";
+  }
+  if (!frame) {
+    return source;
+  }
+  return `${frame.filename.replace(/.*\//, "")}:${frame.lineNumber} - ${source}`;
+}
+
+/**
+ * Gives a lazy tab the browser it was created without.
+ *
+ * @backward-compat { version 156 }
+ * `insertBrowser()` is new in 156, but the newtab train-hop jobs run these
+ * tests against Beta and Release builds, whose tabbrowser only has the
+ * underscored predecessor. Call it directly once 156 reaches Release.
+ *
+ * @param {object} tabbrowser
+ * @param {MozTabbrowserTab} tab
+ */
+function insertBrowser(tabbrowser, tab) {
+  if (tabbrowser.insertBrowser) {
+    tabbrowser.insertBrowser(tab);
+  } else {
+    tabbrowser._insertBrowser(tab);
+  }
+}
 
 /**
  * Create and register the BrowserTestUtils and ContentEventListener window
@@ -55,6 +102,7 @@ function registerActors() {
     },
     allFrames: true,
     includeChrome: true,
+    safeForUntrustedWebProcess: true,
   });
 
   ChromeUtils.registerWindowActor("ContentEventListener", {
@@ -72,6 +120,7 @@ function registerActors() {
       },
     },
     allFrames: true,
+    safeForUntrustedWebProcess: true,
   });
 }
 
@@ -87,6 +136,21 @@ registerActors();
  * @class
  */
 export var BrowserTestUtils = {
+  /**
+   * Whether minimizing a window has any observable effect on this platform.
+   * Wayland offers no way to tell that a window was minimized, so neither a
+   * sizemodechange event nor the window's deactivation follows
+   * ``window.minimize()`` there. See bug 2063202.
+   *
+   * @returns {boolean}
+   */
+  get canMinimize() {
+    return !(
+      AppConstants.platform == "linux" &&
+      lazy.gfxInfo.windowProtocol == "wayland"
+    );
+  },
+
   // We define the function separately, rather than using an arrow function
   // inline due to https://github.com/jsdoc/jsdoc/issues/2143.
   /**
@@ -124,12 +188,12 @@ export var BrowserTestUtils = {
       };
     }
     let tab = await BrowserTestUtils.openNewForegroundTab(options);
-    let originalWindow = tab.ownerGlobal;
+    let originalWindow = tab.documentGlobal;
     let result;
     try {
       result = await taskFn(tab.linkedBrowser);
     } finally {
-      let finalWindow = tab.ownerGlobal;
+      let finalWindow = tab.documentGlobal;
       if (originalWindow == finalWindow && !tab.closing && tab.linkedBrowser) {
         // taskFn may resolve within a tick after opening a new tab.
         // We shouldn't remove the newly opened tab in the same tick.
@@ -174,10 +238,8 @@ export var BrowserTestUtils = {
   openNewForegroundTab(tabbrowser, ...args) {
     let startTime = ChromeUtils.now();
     let options;
-    if (
-      tabbrowser.ownerGlobal &&
-      tabbrowser === tabbrowser.ownerGlobal.gBrowser
-    ) {
+    let win = tabbrowser.documentGlobal;
+    if (win && tabbrowser === win.gBrowser) {
       // tabbrowser is a tabbrowser, read the rest of the arguments from args.
       let [
         opening = "about:blank",
@@ -201,6 +263,7 @@ export var BrowserTestUtils = {
 
       tabbrowser = tabbrowser.gBrowser;
       options = { opening, waitForLoad, waitForStateStop, forceNewProcess };
+      win = tabbrowser.documentGlobal;
     }
 
     let {
@@ -250,7 +313,7 @@ export var BrowserTestUtils = {
       }
     }
     return Promise.all(promises).then(() => {
-      let { innerWindowId } = tabbrowser.ownerGlobal.windowGlobalChild;
+      let { innerWindowId } = win.windowGlobalChild;
       ChromeUtils.addProfilerMarker(
         "BrowserTestUtils",
         { startTime, category: "Test", innerWindowId },
@@ -287,7 +350,7 @@ export var BrowserTestUtils = {
       return BrowserTestUtils.isHidden(element.getRootNode().host);
     }
 
-    let win = element.ownerGlobal;
+    let win = element.documentGlobal;
     let style = win.getComputedStyle(element);
     if (style.display == "none") {
       return true;
@@ -323,7 +386,7 @@ export var BrowserTestUtils = {
       return BrowserTestUtils.isVisible(element.getRootNode().host);
     }
 
-    let win = element.ownerGlobal;
+    let win = element.documentGlobal;
     let style = win.getComputedStyle(element);
     if (style.display == "none") {
       return false;
@@ -368,7 +431,8 @@ export var BrowserTestUtils = {
    */
   switchTab(tabbrowser, tab) {
     let startTime = ChromeUtils.now();
-    let { innerWindowId } = tabbrowser.ownerGlobal.windowGlobalChild;
+    let win = tabbrowser.documentGlobal;
+    let { innerWindowId } = win.windowGlobalChild;
 
     // Some tests depend on the delay and TabSwitched only fires if the browser is visible.
     // Bug 1977993 tracks always dispatching TabSwitched.
@@ -451,7 +515,8 @@ export var BrowserTestUtils = {
       maybeErrorPage = false,
     } = options;
     let startTime = ChromeUtils.now();
-    let { innerWindowId } = browser.ownerGlobal.windowGlobalChild;
+    let win = browser.documentGlobal;
+    let { innerWindowId } = win.windowGlobalChild;
 
     // Passing a url as second argument is a common mistake we should prevent.
     if (includeSubFrames && typeof includeSubFrames != "boolean") {
@@ -467,11 +532,11 @@ export var BrowserTestUtils = {
 
     // If browser belongs to tabbrowser-tab, ensure it has been
     // inserted into the document.
-    let tabbrowser = browser.ownerGlobal.gBrowser;
+    let tabbrowser = win.gBrowser;
     if (tabbrowser && tabbrowser.getTabForBrowser) {
       let tab = tabbrowser.getTabForBrowser(browser);
       if (tab) {
-        tabbrowser._insertBrowser(tab);
+        insertBrowser(tabbrowser, tab);
       }
     }
 
@@ -552,11 +617,11 @@ export var BrowserTestUtils = {
         }
 
         browser.removeEventListener(eventName, listener, true);
-        browser.ownerGlobal.removeEventListener("unload", listener);
+        win.removeEventListener("unload", listener);
       }
 
       browser.addEventListener(eventName, listener, true);
-      browser.ownerGlobal.addEventListener("unload", listener);
+      win.addEventListener("unload", listener);
     });
   },
 
@@ -897,12 +962,7 @@ export var BrowserTestUtils = {
             Services.ww.unregisterNotification(observe);
           }
 
-          // Add these event listeners now since they may fire before the
-          // DOMContentLoaded event down below.
-          let promises = [
-            this.waitForEvent(win, "focus", true),
-            this.waitForEvent(win, "activate"),
-          ];
+          let promises = [];
 
           if (url || waitForAnyURLLoaded) {
             await this.waitForEvent(win, "DOMContentLoaded");
@@ -931,6 +991,8 @@ export var BrowserTestUtils = {
           }
 
           await Promise.all(promises);
+
+          await this.ensureWindowActivated(win);
 
           if (anyWindow) {
             Services.ww.unregisterNotification(observe);
@@ -994,7 +1056,7 @@ export var BrowserTestUtils = {
    *        The tabbrowser in which to preload a browser.
    */
   async maybeCreatePreloadedBrowser(gBrowser) {
-    let win = gBrowser.ownerGlobal;
+    let win = gBrowser.documentGlobal;
     win.NewTabPagePreloading.maybeCreatePreloadedBrowser(win);
 
     // We cannot use the regular BrowserTestUtils helper for waiting here, since that
@@ -1068,6 +1130,25 @@ export var BrowserTestUtils = {
   },
 
   /**
+   * Ensures a chrome window is activated. On Windows, new windows may be shown
+   * without OS activation (SW_SHOWNOACTIVATE) when another process has the
+   * foreground, so focus/activate events never fire. This checks whether
+   * activation already occurred and forces it if not.
+   *
+   * @param {ChromeWindow} win
+   */
+  async ensureWindowActivated(win) {
+    if (Services.focus.activeWindow !== win) {
+      let activatePromise = Promise.all([
+        this.waitForEvent(win, "focus", true),
+        this.waitForEvent(win, "activate"),
+      ]);
+      win.focus();
+      await activatePromise;
+    }
+  },
+
+  /**
    * @param win (optional)
    *        The window we should wait to have "domwindowclosed" sent through
    *        the observer service for. If this is not supplied, we'll just
@@ -1095,7 +1176,7 @@ export var BrowserTestUtils = {
    *
    * @param {object} [options]
    *        Options to pass to OpenBrowserWindow. Additionally, supports:
-   * @param {bool} [options.waitForTabURL]
+   * @param {string} [options.waitForTabURL]
    *        Forces the initial browserLoaded check to wait for the tab to
    *        load the given URL (instead of about:blank)
    *
@@ -1113,31 +1194,25 @@ export var BrowserTestUtils = {
       ...options,
     });
 
-    let promises = [
-      this.waitForEvent(win, "focus", true),
-      this.waitForEvent(win, "activate"),
-    ];
-
     // Wait for browser-delayed-startup-finished notification, it indicates
     // that the window has loaded completely and is ready to be used for
     // testing.
-    promises.push(
+    let promises = [
       TestUtils.topicObserved(
         "browser-delayed-startup-finished",
         subject => subject == win
-      ).then(() => win)
-    );
-
-    promises.push(
+      ).then(() => win),
       this.firstBrowserLoaded(win, !options.waitForTabURL, browser => {
         return (
           !options.waitForTabURL ||
           options.waitForTabURL == browser.currentURI.spec
         );
-      })
-    );
+      }),
+    ];
 
     await Promise.all(promises);
+
+    await this.ensureWindowActivated(win);
     ChromeUtils.addProfilerMarker(
       "BrowserTestUtils",
       { startTime, category: "Test" },
@@ -1187,7 +1262,7 @@ export var BrowserTestUtils = {
         // Ensure all browsers have been inserted or we won't get
         // messages back from them.
         browserSet.forEach(browser => {
-          win.gBrowser._insertBrowser(win.gBrowser.getTabForBrowser(browser));
+          insertBrowser(win.gBrowser, win.gBrowser.getTabForBrowser(browser));
         });
 
         let observer = subject => {
@@ -1304,7 +1379,16 @@ export var BrowserTestUtils = {
    */
   waitForEvent(subject, eventName, capture, checkFn, wantsUntrusted) {
     let startTime = ChromeUtils.now();
-    let innerWindowId = subject.ownerGlobal?.windowGlobalChild.innerWindowId;
+    let innerWindowId = (() => {
+      if (subject.windowGlobalChild) {
+        return subject.windowGlobalChild.innerWindowId;
+      }
+      if ("ownerDocument" in subject) {
+        let win = subject.documentGlobal;
+        return win.windowGlobalChild.innerWindowId;
+      }
+      return null;
+    })();
 
     return new Promise((resolve, reject) => {
       let removed = false;
@@ -1427,6 +1511,40 @@ export var BrowserTestUtils = {
       return Promise.resolve();
     }
     return this.waitForEvent(popup, "popup" + eventSuffix);
+  },
+
+  /**
+   * Activate a menu item the way a user would, and wait for the menu to close.
+   *
+   * Activating an item dismisses the menu it is in, which is what this waits
+   * for. The menu has to be open already, as activateItem() throws
+   * "Popup is not open" otherwise. Prefer this over clicking the item: while
+   * the menu is still opening, its items are not focusable and not exposed to
+   * the accessibility APIs, so the click activates nothing.
+   *
+   * @param {Element} item
+   *        The menuitem to activate, in a menupopup that is already open.
+   */
+  async activateMenuItem(item) {
+    let popup = item.closest("menupopup");
+    let hidden = this.waitForPopupEvent(popup, "hidden");
+    popup.activateItem(item);
+    await hidden;
+  },
+
+  /**
+   * Open the menulist a menu item belongs to and activate the item, the way a
+   * user would, waiting for the dropdown to open first and to close afterwards.
+   *
+   * @param {Element} item
+   *        The menuitem to activate.
+   */
+  async selectMenulistItem(item) {
+    let menulist = item.closest("menulist");
+    let shown = this.waitForPopupEvent(menulist.menupopup, "shown");
+    menulist.open = true;
+    await shown;
+    await this.activateMenuItem(item);
   },
 
   /**
@@ -1666,24 +1784,109 @@ export var BrowserTestUtils = {
    * @param {object}  options   The options to pass to MutationObserver.observe();
    * @param {function} checkFn  Function that returns true when it wants the promise to be
    * resolved.
+   * @param {object} [waitOptions]
+   * @param {string} [waitOptions.msg]
+   *        Describes what's being waited for. Used in the rejection message and
+   *        to label the profiler marker. Defaults to the call site and the
+   *        source of `checkFn`.
+   * @param {number} [waitOptions.timeout=DEFAULT_MUTATION_TIMEOUT_MS]
+   *        Milliseconds to wait before rejecting. Pass Infinity to wait
+   *        indefinitely, in which case the wait still rejects if the test
+   *        finishes while it's pending.
+   * @returns {Promise<any>}    The value returned by `checkFn`.
    */
-  waitForMutationCondition(target, options, checkFn) {
-    if (checkFn()) {
-      return Promise.resolve();
+  waitForMutationCondition(
+    target,
+    options,
+    checkFn,
+    { msg, timeout = DEFAULT_MUTATION_TIMEOUT_MS } = {}
+  ) {
+    let retVal;
+    if ((retVal = checkFn())) {
+      return Promise.resolve(retVal);
     }
-    return new Promise(resolve => {
-      let obs = new target.ownerGlobal.MutationObserver(function () {
-        if (checkFn()) {
-          obs.disconnect();
-          resolve();
+    let startTime = ChromeUtils.now();
+    let label = `waitForMutationCondition - ${
+      msg ?? describeMutationWait(checkFn, Components.stack.caller)
+    }`;
+
+    return new Promise((resolve, reject) => {
+      let win = target.documentGlobal;
+      let timer = 0;
+      let settled = false;
+      let obs = new win.MutationObserver(() => {
+        if ((retVal = checkFn())) {
+          stop();
+          resolve(retVal);
         }
       });
+
+      // Don't chain the returned promise (no .then()/.finally()): the extra
+      // microtask defers when an awaiting caller resumes, and tests that drive
+      // the UI right after a wait are sensitive to that. Clean up and record
+      // the wait here instead, before settling.
+      function stop() {
+        settled = true;
+        obs.disconnect();
+        clearTimeout(timer);
+        ChromeUtils.addProfilerMarker(
+          "BrowserTestUtils",
+          { startTime, category: "Test" },
+          label
+        );
+      }
+
       obs.observe(target, options);
+
+      if (timeout !== Infinity) {
+        timer = setTimeout(() => {
+          label += ` - timed out after ${timeout}ms`;
+          stop();
+          reject(label);
+        }, timeout);
+      }
+
+      TestUtils.promiseTestFinished?.then(() => {
+        if (settled) {
+          return;
+        }
+        label += " - still pending at the end of the test";
+        stop();
+        reject(label);
+      });
     });
   },
 
   /**
+   * Waits until painting is no longer suppressed in a browsing context.
+   *
+   * This is needed before synthesizing a mouse event on a freshly loaded
+   * document, because hit testing ignores content while painting is
+   * suppressed: the click resolves to the document root and fires no event.
+   *
+   * @param {BrowsingContext} browsingContext
+   *        The browsing context to wait for. Note that painting is suppressed
+   *        per document, so for content in an iframe this needs to be the
+   *        iframe's browsing context rather than the top level one.
+   */
+  async waitForPaintingUnsuppressed(browsingContext) {
+    try {
+      await this.sendQuery(
+        browsingContext,
+        "BrowserTestUtils:WaitForPaintingUnsuppressed"
+      );
+    } catch (ex) {
+      // The document may have gone away while we were waiting, eg. because the
+      // error page was only transient. There is nothing left to paint then.
+      console.warn(`waitForPaintingUnsuppressed: ${ex}`);
+    }
+  },
+
+  /**
    * Like browserLoaded, but waits for an error page to appear.
+   *
+   * Also waits for painting to be unsuppressed in the browser, so that clicks
+   * synthesized on the error page actually hit test to its content.
    *
    * @param {xul:browser} browser
    *        A xul:browser.
@@ -1692,14 +1895,18 @@ export var BrowserTestUtils = {
    *   Resolves when an error page has been loaded in the browser, with the name
    *   of the event.
    */
-  waitForErrorPage(browser) {
-    return this.waitForContentEvent(
+  async waitForErrorPage(browser) {
+    let eventName = await this.waitForContentEvent(
       browser,
       "AboutNetErrorLoad",
       false,
       null,
       true
     );
+
+    await this.waitForPaintingUnsuppressed(browser.browsingContext);
+
+    return eventName;
   },
 
   /**
@@ -1937,7 +2144,8 @@ export var BrowserTestUtils = {
    *        Extra options to pass to tabbrowser's removeTab method.
    */
   removeTab(tab, options = {}) {
-    tab.ownerGlobal.gBrowser.removeTab(tab, options);
+    let win = tab.documentGlobal;
+    win.gBrowser.removeTab(tab, options);
   },
 
   /**
@@ -1977,7 +2185,8 @@ export var BrowserTestUtils = {
         Ci.nsIWebNavigation.LOAD_FLAGS_BYPASS_CACHE
       );
     } else {
-      tab.ownerGlobal.gBrowser.reloadTab(tab);
+      let win = tab.documentGlobal;
+      win.gBrowser.reloadTab(tab);
     }
     return finished;
   },
@@ -1998,7 +2207,12 @@ export var BrowserTestUtils = {
    *          Determines whether the new tabs are added at the beginning of the
    *          URL bar or at the end of it.
    *        overflowTabFactor: 3 | 1.1
-   *          Factor that helps in determining the tab count for overflow.
+   *          Factor that helps in determining the tab count for overflow. More
+   *          tabs are opened if that count doesn't overflow the tab strip.
+   *        overflowBy: number
+   *          How far the tab strip's content has to exceed its scrollport, in
+   *          tabs. Use this when the test depends on how much room there is to
+   *          scroll, since the tab count above only approximates it.
    */
   async overflowTabs(registerCleanupFunction, win, params = {}) {
     if (!params.hasOwnProperty("overflowAtStart")) {
@@ -2013,18 +2227,21 @@ export var BrowserTestUtils = {
       : "width";
     let tabIndex = params.overflowAtStart ? 0 : undefined;
     let arrowScrollbox = gBrowser.tabContainer.arrowScrollbox;
-    if (arrowScrollbox.hasAttribute("overflowing")) {
+    let overflowAmount = () =>
+      arrowScrollbox.scrollSize - arrowScrollbox.scrollClientSize;
+
+    let size = ele => ele.getBoundingClientRect()[overflowDirection];
+    let tabMinSize = gBrowser.tabContainer.verticalMode
+      ? size(gBrowser.selectedTab)
+      : parseInt(win.getComputedStyle(gBrowser.selectedTab).minWidth);
+    let overflowTarget = (params.overflowBy ?? 0) * tabMinSize;
+
+    if (
+      arrowScrollbox.hasAttribute("overflowing") &&
+      overflowAmount() > overflowTarget
+    ) {
       return;
     }
-    let promises = [];
-    promises.push(
-      BrowserTestUtils.waitForEvent(
-        arrowScrollbox,
-        "overflow",
-        false,
-        e => e.target == arrowScrollbox
-      )
-    );
     const originalSmoothScroll = arrowScrollbox.smoothScroll;
     arrowScrollbox.smoothScroll = false;
     if (registerCleanupFunction) {
@@ -2033,22 +2250,45 @@ export var BrowserTestUtils = {
       });
     }
 
-    let size = ele => ele.getBoundingClientRect()[overflowDirection];
-    let tabMinSize = gBrowser.tabContainer.verticalMode
-      ? size(gBrowser.selectedTab)
-      : parseInt(win.getComputedStyle(gBrowser.selectedTab).minWidth);
-    let tabCountForOverflow = Math.ceil(
-      (size(arrowScrollbox) / tabMinSize) * params.overflowTabFactor
+    let addTab = () =>
+      BrowserTestUtils.addTab(gBrowser, "about:blank", {
+        skipAnimation: true,
+        tabIndex,
+      });
+
+    let tabCountForOverflow = Math.min(
+      MAX_TABS_FOR_OVERFLOW,
+      Math.ceil((size(arrowScrollbox) / tabMinSize) * params.overflowTabFactor)
     );
     while (gBrowser.tabs.length < tabCountForOverflow) {
-      promises.push(
-        BrowserTestUtils.addTab(gBrowser, "about:blank", {
-          skipAnimation: true,
-          tabIndex,
-        })
-      );
+      addTab();
     }
-    await Promise.all(promises);
+
+    // The tabs share the scrollport with other elements, so the estimate above
+    // can fall short. Top it up until the content really doesn't fit, keeping
+    // a lid on the tab count in case something else stops the strip from
+    // overflowing. A tab only takes up its share of the scrollport once it is
+    // fully open, so measuring before then would badly overshoot.
+    while (gBrowser.tabs.length < MAX_TABS_FOR_OVERFLOW) {
+      await TestUtils.waitForCondition(
+        () => Array.from(gBrowser.tabs).every(tab => tab._fullyOpen),
+        "Tabs are fully open"
+      );
+      let missingSpace = overflowTarget - overflowAmount();
+      if (missingSpace < 0) {
+        break;
+      }
+      for (let i = Math.max(1, Math.ceil(missingSpace / tabMinSize)); i; i--) {
+        addTab();
+      }
+    }
+
+    await BrowserTestUtils.waitForMutationCondition(
+      arrowScrollbox,
+      { attributes: true, attributeFilter: ["overflowing"] },
+      () => arrowScrollbox.hasAttribute("overflowing"),
+      { msg: `Tab strip overflows with ${gBrowser.tabs.length} tabs` }
+    );
   },
 
   /**
@@ -2218,7 +2458,7 @@ export var BrowserTestUtils = {
     await Promise.all(expectedPromises);
 
     if (shouldShowTabCrashPage) {
-      let gBrowser = browser.ownerGlobal.gBrowser;
+      let gBrowser = browser.documentGlobal.gBrowser;
       let tab = gBrowser.getTabForBrowser(browser);
       if (tab.getAttribute("crashed") != "true") {
         throw new Error("Tab should be marked as crashed");
@@ -2262,7 +2502,7 @@ export var BrowserTestUtils = {
       ? "oop-browser-buildid-mismatch"
       : "oop-browser-crashed";
 
-    let event = new browser.ownerGlobal.CustomEvent(eventType, {
+    let event = new browser.documentGlobal.CustomEvent(eventType, {
       bubbles: true,
     });
     event.isTopFrame = true;
@@ -2285,16 +2525,19 @@ export var BrowserTestUtils = {
    *        The attribute to wait for
    * @param {Element} element
    *        The element which should gain the attribute
-   * @param {string} value (optional)
-   *        Optional, the value the attribute should have.
+   * @param {string|boolean} value (optional)
+   *        Optional, the value the attribute should have. Pass a boolean to
+   *        wait for a boolean attribute to be present (true) or absent (false).
    *
    * @returns {Promise}
    */
   waitForAttribute(attr, element, value) {
-    let MutationObserver = element.ownerGlobal.MutationObserver;
+    let win = element.documentGlobal;
+    let MutationObserver = win.MutationObserver;
     return new Promise(resolve => {
       let mut = new MutationObserver(() => {
         if (
+          (typeof value == "boolean" && element.hasAttribute(attr) == value) ||
           (!value && element.hasAttribute(attr)) ||
           (value && element.getAttribute(attr) === value)
         ) {
@@ -2322,7 +2565,8 @@ export var BrowserTestUtils = {
       return Promise.resolve();
     }
 
-    let MutationObserver = element.ownerGlobal.MutationObserver;
+    let win = element.documentGlobal;
+    let MutationObserver = win.MutationObserver;
     return new Promise(resolve => {
       dump("Waiting for removal\n");
       let mut = new MutationObserver(() => {
@@ -2419,9 +2663,6 @@ export var BrowserTestUtils = {
     });
   },
 
-  // TODO: Fix consumers and remove me.
-  waitForCondition: TestUtils.waitForCondition,
-
   /**
    * Waits for a <xul:notification> with a particular value to appear
    * for the <xul:notificationbox> of the passed in browser.
@@ -2506,7 +2747,7 @@ export var BrowserTestUtils = {
         element.removeEventListener("transitionend", listener);
       };
 
-      let timer = element.ownerGlobal.setTimeout(() => {
+      let timer = element.documentGlobal.setTimeout(() => {
         cleanup();
         reject();
       }, timeout);
@@ -2520,7 +2761,7 @@ export var BrowserTestUtils = {
           transitionCount--;
           if (transitionCount == 0) {
             cleanup();
-            element.ownerGlobal.clearTimeout(timer);
+            element.documentGlobal.clearTimeout(timer);
             resolve();
           }
         }
@@ -2734,8 +2975,8 @@ export var BrowserTestUtils = {
         Services.scriptSecurityManager.getSystemPrincipal();
     }
     if (beforeLoadFunc) {
-      let window = tabbrowser.ownerGlobal;
-      window.addEventListener(
+      let win = tabbrowser.documentGlobal;
+      win.addEventListener(
         "TabOpen",
         function (e) {
           beforeLoadFunc(e.target);
@@ -2900,6 +3141,42 @@ export var BrowserTestUtils = {
     await wizardReady;
 
     return wizardTab;
+  },
+
+  /**
+   * Run a query selector that pierces into open and closed Shadow DOM roots.
+   *
+   * @param {Document | ShadowRoot | Element} root
+   * @param {string} selector
+   * @returns {Element | null}
+   */
+  querySelectorDeep(root, selector) {
+    if (!root) {
+      return null;
+    }
+
+    const direct = root.querySelector?.(selector);
+    if (direct) {
+      return direct;
+    }
+
+    const doc = root.ownerDocument ?? root;
+    const treeWalker = doc.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+
+    // Walk child elements to find other shadow roots.
+    let current = treeWalker.currentNode;
+    while (current) {
+      const shadow = current.openOrClosedShadowRoot;
+      if (shadow) {
+        const match = BrowserTestUtils.querySelectorDeep(shadow, selector);
+        if (match) {
+          return match;
+        }
+      }
+      current = treeWalker.nextNode();
+    }
+
+    return null;
   },
 
   /**

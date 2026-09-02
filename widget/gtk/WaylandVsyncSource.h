@@ -5,16 +5,16 @@
 #ifndef WaylandVsyncSource_h_
 #define WaylandVsyncSource_h_
 
-#include "base/thread.h"
-#include "mozilla/RefPtr.h"
-#include "mozilla/Maybe.h"
-#include "mozilla/Mutex.h"
-#include "mozilla/Monitor.h"
-#include "mozilla/layers/NativeLayerWayland.h"
 #include "MozContainer.h"
-#include "nsWaylandDisplay.h"
 #include "VsyncSource.h"
 #include "WaylandSurface.h"
+#include "base/thread.h"
+#include "mozilla/Maybe.h"
+#include "mozilla/Monitor.h"
+#include "mozilla/Mutex.h"
+#include "mozilla/RefPtr.h"
+#include "mozilla/layers/NativeLayerWayland.h"
+#include "nsWaylandDisplay.h"
 
 namespace mozilla {
 
@@ -98,7 +98,8 @@ class WaylandVsyncSource final : public gfx::VsyncSource {
 
   TimeDuration mVsyncRate MOZ_GUARDED_BY(mMutex);
   TimeStamp mLastVsyncTimeStamp MOZ_GUARDED_BY(mMutex);
-  uint32_t mLastFrameTime MOZ_GUARDED_BY(mMutex) = 0;
+  uint32_t mLastTime MOZ_GUARDED_BY(mMutex) = 0;
+  bool mLastTimeEmulated MOZ_GUARDED_BY(mMutex) = false;
 
   guint mHiddenWindowTimerID = 0;    // Main thread only.
   const guint mHiddenWindowTimeout;  // Main thread only.

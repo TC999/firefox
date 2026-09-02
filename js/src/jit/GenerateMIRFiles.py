@@ -52,6 +52,7 @@ def load_yaml(yaml_path):
 type_policies = {
     "Object": "ObjectPolicy",
     "Value": "BoxPolicy",
+    "ValueOrObject": "BoxExceptObjectPolicy",
     "Int32": "UnboxedInt32Policy",
     "BigInt": "BigIntPolicy",
     "IntPtr": "IntPtrPolicy",
@@ -114,6 +115,7 @@ alias_set_flags = {
     "WasmArrayDataArea",
     "GlobalGenerationCounter",
     "SharedArrayRawBufferLength",
+    "GeneratorResumeState",
     "Any",
 }
 

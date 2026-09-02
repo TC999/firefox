@@ -1,42 +1,30 @@
-From: Andreas Pehrson <apehrson@mozilla.com>
-Date: Mon, 6 May 2024 07:28:00 +0000
-Subject: Bug 1892329 - Invert _captureThread check in
- VideoCaptureModuleV4L2::StartCapture. r=webrtc-reviewers,mjf
+From: Byron Campen <docfaraday@gmail.com>
+Date: Thu, 25 Jul 2024 10:07:00 -0500
+Subject: Bug 1909234 - (fix-4fec6f9c67dc) Hollow out the new ssl_adapter lib.
+ r?mjf
 
-Differential Revision: https://phabricator.services.mozilla.com/D208186
-Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/6ed6737b8214bf664642eb17cbf66a8c8450e569
+Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/ee2f06666bcc6d22c4d7c93b78fb52d28452d055
 ---
- .../video_capture/linux/video_capture_v4l2.cc | 19 +++++++++++--------
- 1 file changed, 11 insertions(+), 8 deletions(-)
+ rtc_base/BUILD.gn | 2 ++
+ 1 file changed, 2 insertions(+)
 
-diff --git a/modules/video_capture/linux/video_capture_v4l2.cc b/modules/video_capture/linux/video_capture_v4l2.cc
-index 0693b96bea..7e4901b566 100644
---- a/modules/video_capture/linux/video_capture_v4l2.cc
-+++ b/modules/video_capture/linux/video_capture_v4l2.cc
-@@ -306,15 +306,18 @@ int32_t VideoCaptureModuleV4L2::StartCapture(
-   }
- 
-   // start capture thread;
--  if (_captureThread.empty()) {
--    quit_ = false;
--    _captureThread = PlatformThread::SpawnJoinable(
--        [self = scoped_refptr(this)] {
--          while (self->CaptureProcess()) {
--          }
--        },
--        "CaptureThread", ThreadAttributes().SetPriority(ThreadPriority::kHigh));
-+  if (!_captureThread.empty()) {
-+    return 0;
-   }
-+
-+  quit_ = false;
-+
-+  _captureThread = PlatformThread::SpawnJoinable(
-+      [self = scoped_refptr(this)] {
-+        while (self->CaptureProcess()) {
-+        }
-+      },
-+      "CaptureThread", ThreadAttributes().SetPriority(ThreadPriority::kHigh));
-   return 0;
+diff --git a/rtc_base/BUILD.gn b/rtc_base/BUILD.gn
+index fb65482ba9..2dc57b0d97 100644
+--- a/rtc_base/BUILD.gn
++++ b/rtc_base/BUILD.gn
+@@ -1777,6 +1777,7 @@ if (!build_with_mozilla) {
  }
  
+ rtc_library("ssl_adapter") {
++if (!build_with_mozilla) {
+   visibility = [ "*" ]
+   sources = [
+     "openssl_adapter.cc",
+@@ -1833,6 +1834,7 @@ rtc_library("ssl_adapter") {
+     configs += [ "..:external_ssl_library" ]
+   }
+ }
++}
+ 
+ rtc_source_set("gtest_prod") {
+   sources = [ "gtest_prod_util.h" ]

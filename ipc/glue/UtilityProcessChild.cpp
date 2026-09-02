@@ -86,7 +86,7 @@ RefPtr<UtilityProcessChild> UtilityProcessChild::Get() {
 
 bool UtilityProcessChild::Init(mozilla::ipc::UntypedEndpoint&& aEndpoint,
                                const nsCString& aParentBuildID,
-                               uint64_t aSandboxingKind) {
+                               SandboxingKind aSandboxingKind) {
   MOZ_ASSERT(NS_IsMainThread());
 
   // Initialize the thread manager before starting IPC. Otherwise, messages
@@ -117,7 +117,7 @@ bool UtilityProcessChild::Init(mozilla::ipc::UntypedEndpoint&& aEndpoint,
     return false;
   }
 
-  mSandbox = (SandboxingKind)aSandboxingKind;
+  mSandbox = aSandboxingKind;
 
   // At the moment, only ORB uses JSContext in the
   // Utility Process and ORB uses GENERIC_UTILITY
@@ -306,6 +306,21 @@ mozilla::ipc::IPCResult UtilityProcessChild::RecvStartJSOracleService(
   mJSOracleInstance->Start(std::move(aEndpoint));
   return IPC_OK();
 }
+
+#ifndef ANDROID
+mozilla::ipc::IPCResult UtilityProcessChild::RecvStartHWInferenceService(
+    Endpoint<PHWInferenceChild>&& aEndpoint) {
+  PROFILER_MARKER_UNTYPED(
+      "UtilityProcessChild::RecvStartHWInferenceService", OTHER,
+      MarkerOptions(MarkerTiming::IntervalUntilNowFrom(mChildStartTime)));
+
+  mHWInferenceInstance = MakeRefPtr<hwinference::HWInferenceChild>();
+  if (!aEndpoint.Bind(mHWInferenceInstance)) {
+    return IPC_FAIL(this, "Invalid endpoint");
+  }
+  return IPC_OK();
+}
+#endif  // !ANDROID
 
 #if defined(XP_WIN)
 mozilla::ipc::IPCResult UtilityProcessChild::RecvStartWindowsUtilsService(

@@ -48,7 +48,8 @@ class DialogCloseWatcherListener : public nsIDOMEventListener {
   }
 
   // https://html.spec.whatwg.org/#set-the-dialog-close-watcher
-  NS_IMETHODIMP HandleEvent(Event* aEvent) override {
+  MOZ_CAN_RUN_SCRIPT_BOUNDARY NS_IMETHODIMP
+  HandleEvent(Event* aEvent) override {
     RefPtr<nsINode> node = do_QueryReferent(mDialog);
     if (HTMLDialogElement* dialog = HTMLDialogElement::FromNodeOrNull(node)) {
       nsAutoString eventType;
@@ -60,7 +61,7 @@ class DialogCloseWatcherListener : public nsIDOMEventListener {
         bool defaultAction = true;
         auto cancelable =
             aEvent->Cancelable() ? Cancelable::eYes : Cancelable::eNo;
-        nsContentUtils::DispatchTrustedEvent(dialog->OwnerDoc(), dialog,
+        nsContentUtils::DispatchTrustedEvent(MOZ_KnownLive(dialog),
                                              u"cancel"_ns, CanBubble::eNo,
                                              cancelable, &defaultAction);
         if (!defaultAction) {
@@ -332,27 +333,14 @@ void HTMLDialogElement::Show(ErrorResult& aError) {
   // 8. Let document be this's node document.
 
   // 9. Let hideUntil be the result of running topmost popover ancestor given
-  // this, document's showing hint popover list, null, and false.
-  RefPtr<nsINode> hideUntil =
-      GetTopmostPopoverAncestor(PopoverAttributeState::Hint, nullptr, false);
+  // this, null, and false.
+  RefPtr<Element> hideUntil = GetTopmostPopoverAncestor(nullptr, false);
 
-  // 10. If hideUntil is null, then set hideUntil to the result of running
-  // topmost popover ancestor given this, document's showing auto popover list,
-  // null, and false.
-  if (!hideUntil) {
-    hideUntil =
-        GetTopmostPopoverAncestor(PopoverAttributeState::Auto, nullptr, false);
-  }
+  // 10. Run hide popovers until given document, hideUntil, false, and true.
+  RefPtr<Document> doc = OwnerDoc();
+  doc->HidePopoversUntil(hideUntil, false, true);
 
-  // 11. If hideUntil is null, then set hideUntil to document.
-  if (!hideUntil) {
-    hideUntil = OwnerDoc();
-  }
-
-  // 12. Run hide all popovers until given hideUntil, false, and true.
-  OwnerDoc()->HideAllPopoversUntil(*hideUntil, false, true);
-
-  // 13. Run the dialog focusing steps given this.
+  // 11. Run the dialog focusing steps given this.
   FocusDialog();
 }
 
@@ -514,27 +502,14 @@ void HTMLDialogElement::ShowModal(Element* aSource, ErrorResult& aError) {
   // 17. Let document be subject's node document.
 
   // 18. Let hideUntil be the result of running topmost popover ancestor given
-  // subject, document's showing hint popover list, null, and false.
-  RefPtr<nsINode> hideUntil =
-      GetTopmostPopoverAncestor(PopoverAttributeState::Hint, nullptr, false);
+  // subject, null, and false.
+  RefPtr<Element> hideUntil = GetTopmostPopoverAncestor(nullptr, false);
 
-  // 19. If hideUntil is null, then set hideUntil to the result of running
-  // topmost popover ancestor given subject, document's showing auto popover
-  // list, null, and false.
-  if (!hideUntil) {
-    hideUntil =
-        GetTopmostPopoverAncestor(PopoverAttributeState::Auto, nullptr, false);
-  }
+  // 19. Run hide popovers until given document, hideUntil, false, and true.
+  RefPtr<Document> doc = OwnerDoc();
+  doc->HidePopoversUntil(hideUntil, false, true);
 
-  // 20. If hideUntil is null, then set hideUntil to document.
-  if (!hideUntil) {
-    hideUntil = OwnerDoc();
-  }
-
-  // 21. Run hide all popovers until given hideUntil, false, and true.
-  OwnerDoc()->HideAllPopoversUntil(*hideUntil, false, true);
-
-  // 22. Run the dialog focusing steps given subject.
+  // 20. Run the dialog focusing steps given subject.
   FocusDialog();
 
   aError.SuppressException();
@@ -638,9 +613,8 @@ void HTMLDialogElement::RunCancelDialogSteps() {
   // 1) Let close be the result of firing an event named cancel at dialog,
   // with the cancelable attribute initialized to true.
   bool defaultAction = true;
-  nsContentUtils::DispatchTrustedEvent(OwnerDoc(), this, u"cancel"_ns,
-                                       CanBubble::eNo, Cancelable::eYes,
-                                       &defaultAction);
+  nsContentUtils::DispatchTrustedEvent(this, u"cancel"_ns, CanBubble::eNo,
+                                       Cancelable::eYes, &defaultAction);
 
   // 2) If close is true and dialog has an open attribute, then close the
   // dialog with ~~no return value.~~

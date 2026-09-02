@@ -8,22 +8,27 @@ use std::sync::atomic::{AtomicPtr, AtomicU32, Ordering};
 use std::sync::Mutex;
 
 use skrifa::charmap::Charmap;
-use skrifa::charmap::MapVariant::Variant;
-use skrifa::color::{
-    Brush, ColorGlyphCollection, ColorPainter, ColorStop, CompositeMode, Extend, Transform,
-};
+use skrifa::charmap::MapVariant::{UseDefault, Variant};
+use skrifa::color::ColorGlyphCollection;
 use skrifa::font::FontRef;
 use skrifa::instance::{Location, NormalizedCoord, Size};
-use skrifa::metrics::{BoundingBox, GlyphMetrics};
-use skrifa::outline::pen::OutlinePen;
-use skrifa::outline::DrawSettings;
-use skrifa::raw::tables::cpal::ColorRecord;
+use skrifa::metrics::GlyphMetrics;
 use skrifa::raw::tables::vmtx::Vmtx;
 use skrifa::raw::tables::vorg::Vorg;
 use skrifa::raw::tables::vvar::Vvar;
 use skrifa::raw::TableProvider;
 use skrifa::OutlineGlyphCollection;
 use skrifa::{GlyphId, GlyphNames, MetadataProvider};
+
+#[cfg(feature = "draw")]
+use skrifa::outline::{pen::OutlinePen, DrawSettings};
+
+#[cfg(feature = "paint")]
+use skrifa::{
+    color::{Brush, ColorPainter, ColorStop, CompositeMode, Extend, Transform},
+    metrics::BoundingBox,
+    raw::tables::cpal::ColorRecord,
+};
 
 // A struct for storing your “fontations” data
 #[repr(C)]
@@ -54,11 +59,11 @@ impl FontationsData<'_> {
         let face_index = hb_face_get_index(hb_font_get_face(font));
         let face_blob = hb_face_reference_blob(hb_font_get_face(font));
         let blob_length = hb_blob_get_length(face_blob);
-        let blob_data = hb_blob_get_data(face_blob, null_mut());
+        let blob_data: *const u8 = hb_blob_get_data(face_blob, null_mut()).cast();
         if blob_data.is_null() {
             return None;
         }
-        let face_data = std::slice::from_raw_parts(blob_data as *const u8, blob_length as usize);
+        let face_data = std::slice::from_raw_parts(blob_data, blob_length as usize);
 
         let font_ref = FontRef::from_index(face_data, face_index);
         let font_ref = match font_ref {
@@ -212,6 +217,13 @@ extern "C" fn _hb_fontations_get_variation_glyph(
             unsafe { *glyph = glyph_id.to_u32() as hb_codepoint_t };
             true as hb_bool_t
         }
+        Some(UseDefault) => match char_map.map(unicode) {
+            Some(glyph_id) => {
+                unsafe { *glyph = glyph_id.to_u32() as hb_codepoint_t };
+                true as hb_bool_t
+            }
+            None => false as hb_bool_t,
+        },
         _ => false as hb_bool_t,
     }
 }
@@ -268,7 +280,7 @@ extern "C" fn _hb_fontations_get_glyph_v_advances(
                         .to_f32();
                 }
             }
-            let scaled = -(advance * data.y_mult).round() as hb_position_t;
+            let scaled = ((advance * data.y_mult).round() as hb_position_t).saturating_neg();
             *struct_at_offset_mut(first_advance, i, advance_stride) = scaled;
         }
     } else {
@@ -280,7 +292,10 @@ extern "C" fn _hb_fontations_get_glyph_v_advances(
                 &mut font_extents,
             );
         }
-        let advance: hb_position_t = -(font_extents.ascender - font_extents.descender);
+        let advance = font_extents
+            .ascender
+            .saturating_sub(font_extents.descender)
+            .saturating_neg();
 
         for i in 0..count {
             *struct_at_offset_mut(first_advance, i, advance_stride) = advance;
@@ -341,7 +356,9 @@ extern "C" fn _hb_fontations_get_glyph_v_origin(
                 }
             }
             unsafe {
-                *y = extents.y_bearing + (tsb * data.y_mult).round() as hb_position_t;
+                *y = extents
+                    .y_bearing
+                    .saturating_add((tsb * data.y_mult).round() as hb_position_t);
             }
             return true as hb_bool_t;
         }
@@ -354,10 +371,12 @@ extern "C" fn _hb_fontations_get_glyph_v_origin(
                 &mut font_extents,
             );
         }
-        let advance: hb_position_t = font_extents.ascender - font_extents.descender;
-        let diff: hb_position_t = advance - -extents.height;
+        let advance = font_extents.ascender as i64 - font_extents.descender as i64;
+        let diff = advance + extents.height as i64;
         unsafe {
-            *y = extents.y_bearing + (diff >> 1);
+            *y = (extents.y_bearing as i64 + (diff >> 1))
+                .clamp(hb_position_t::MIN as i64, hb_position_t::MAX as i64)
+                as hb_position_t;
         }
         return true as hb_bool_t;
     }
@@ -397,9 +416,11 @@ extern "C" fn _hb_fontations_get_glyph_extents(
     };
 
     let x_bearing = (glyph_extents.x_min * data.x_mult).round() as hb_position_t;
-    let width = (glyph_extents.x_max * data.x_mult).round() as hb_position_t - x_bearing;
+    let width =
+        ((glyph_extents.x_max * data.x_mult).round() as hb_position_t).saturating_sub(x_bearing);
     let y_bearing = (glyph_extents.y_max * data.y_mult).round() as hb_position_t;
-    let height = (glyph_extents.y_min * data.y_mult).round() as hb_position_t - y_bearing;
+    let height =
+        ((glyph_extents.y_min * data.y_mult).round() as hb_position_t).saturating_sub(y_bearing);
 
     unsafe {
         *extents = hb_glyph_extents_t {
@@ -436,6 +457,7 @@ extern "C" fn _hb_fontations_get_font_h_extents(
     true as hb_bool_t
 }
 
+#[cfg(feature = "draw")]
 struct HbPen {
     x_mult: f32,
     y_mult: f32,
@@ -444,6 +466,7 @@ struct HbPen {
     draw_data: *mut c_void,
 }
 
+#[cfg(feature = "draw")]
 impl OutlinePen for HbPen {
     fn move_to(&mut self, x: f32, y: f32) {
         unsafe {
@@ -502,6 +525,7 @@ impl OutlinePen for HbPen {
     }
 }
 
+#[cfg(feature = "draw")]
 extern "C" fn _hb_fontations_draw_glyph_or_fail(
     _font: *mut hb_font_t,
     font_data: *mut ::std::os::raw::c_void,
@@ -537,6 +561,7 @@ extern "C" fn _hb_fontations_draw_glyph_or_fail(
     true as hb_bool_t
 }
 
+#[cfg(feature = "paint")]
 struct HbColorPainter<'a> {
     font: *mut hb_font_t,
     paint_funcs: *mut hb_paint_funcs_t,
@@ -547,6 +572,7 @@ struct HbColorPainter<'a> {
     clip_depth: u32,
 }
 
+#[cfg(feature = "paint")]
 impl HbColorPainter<'_> {
     fn lookup_color(&self, color_index: u16, alpha: f32) -> hb_color_t {
         if color_index == 0xFFFF {
@@ -576,11 +602,13 @@ impl HbColorPainter<'_> {
     }
 }
 
+#[cfg(feature = "paint")]
 struct ColorLineData<'a> {
     painter: &'a HbColorPainter<'a>,
     color_stops: &'a [ColorStop],
     extend: Extend,
 }
+#[cfg(feature = "paint")]
 extern "C" fn _hb_fontations_get_color_stops(
     _color_line: *mut hb_color_line_t,
     color_line_data: *mut ::std::os::raw::c_void,
@@ -614,6 +642,7 @@ extern "C" fn _hb_fontations_get_color_stops(
     }
     color_stops.len() as u32
 }
+#[cfg(feature = "paint")]
 extern "C" fn _hb_fontations_get_extend(
     _color_line: *mut hb_color_line_t,
     color_line_data: *mut ::std::os::raw::c_void,
@@ -623,6 +652,7 @@ extern "C" fn _hb_fontations_get_extend(
     color_line_data.extend as hb_paint_extend_t // They are the same
 }
 
+#[cfg(feature = "paint")]
 pub fn _hb_fontations_unreduce_anchors(
     x0: f32,
     y0: f32,
@@ -651,6 +681,7 @@ pub fn _hb_fontations_unreduce_anchors(
     (x0, y0, x1, y1, x0 + dy, y0 - dx)
 }
 
+#[cfg(feature = "paint")]
 impl ColorPainter for HbColorPainter<'_> {
     fn push_transform(&mut self, transform: Transform) {
         unsafe {
@@ -679,6 +710,32 @@ impl ColorPainter for HbColorPainter<'_> {
     ) {
         unsafe {
             hb_paint_push_inverse_font_transform(self.paint_funcs, self.paint_data, self.font);
+        }
+
+        if brush_transform.is_none() {
+            if let Brush::Solid {
+                palette_index: color_index,
+                alpha,
+            } = brush
+            {
+                let is_foreground = color_index == 0xFFFF;
+                let color = self.lookup_color(color_index, alpha);
+                unsafe {
+                    hb_paint_fill_glyph(
+                        self.paint_funcs,
+                        self.paint_data,
+                        glyph_id.to_u32() as hb_codepoint_t,
+                        self.font,
+                        is_foreground as hb_bool_t,
+                        color,
+                    );
+                }
+                self.pop_transform();
+                return;
+            }
+        }
+
+        unsafe {
             hb_paint_push_clip_glyph(
                 self.paint_funcs,
                 self.paint_data,
@@ -864,9 +921,10 @@ impl ColorPainter for HbColorPainter<'_> {
             }
         }
     }
-    fn push_layer(&mut self, _mode: CompositeMode) {
+    fn push_layer(&mut self, mode: CompositeMode) {
+        let mode = mode as hb_paint_composite_mode_t;
         unsafe {
-            hb_paint_push_group(self.paint_funcs, self.paint_data);
+            hb_paint_push_group_for(self.paint_funcs, self.paint_data, mode);
         }
     }
     fn pop_layer_with_mode(&mut self, mode: CompositeMode) {
@@ -877,6 +935,7 @@ impl ColorPainter for HbColorPainter<'_> {
     }
 }
 
+#[cfg(feature = "paint")]
 extern "C" fn _hb_fontations_paint_glyph_or_fail(
     font: *mut hb_font_t,
     font_data: *mut ::std::os::raw::c_void,
@@ -964,11 +1023,15 @@ extern "C" fn _hb_fontations_glyph_name(
     let data = unsafe { &mut *(font_data as *mut FontationsData) };
 
     if let Some(glyph_name) = data.glyph_names.get(GlyphId::new(glyph)) {
+        if size == 0 {
+            return true as hb_bool_t;
+        }
         let glyph_name = glyph_name.as_str();
         // Copy the glyph name into the buffer, up to size-1 bytes
-        let len = glyph_name.len().min(size as usize - 1);
+        let len = glyph_name.len().min((size as usize) - 1);
+        let name: *mut u8 = name.cast();
         unsafe {
-            std::slice::from_raw_parts_mut(name as *mut u8, len)
+            std::slice::from_raw_parts_mut(name, len)
                 .copy_from_slice(&glyph_name.as_bytes()[..len]);
             *name.add(len) = 0;
         }
@@ -994,8 +1057,9 @@ extern "C" fn _hb_fontations_glyph_from_name(
 ) -> hb_bool_t {
     let data = unsafe { &*(font_data as *const FontationsData) };
 
+    let name: *const u8 = name.cast();
     // SAFETY: HarfBuzz guarantees the string is valid memory for `len` bytes.
-    let name_bytes = unsafe { std::slice::from_raw_parts(name as *const u8, len as usize) };
+    let name_bytes = unsafe { std::slice::from_raw_parts(name, len as usize) };
     let name_str = match std::str::from_utf8(name_bytes) {
         Ok(s) => s,
         Err(_) => return false as hb_bool_t,
@@ -1106,12 +1170,14 @@ fn _hb_fontations_font_funcs_get() -> *mut hb_font_funcs_t {
                 null_mut(),
                 None,
             );
+            #[cfg(feature = "draw")]
             hb_font_funcs_set_draw_glyph_or_fail_func(
                 ffuncs,
                 Some(_hb_fontations_draw_glyph_or_fail),
                 null_mut(),
                 None,
             );
+            #[cfg(feature = "paint")]
             hb_font_funcs_set_paint_glyph_or_fail_func(
                 ffuncs,
                 Some(_hb_fontations_paint_glyph_or_fail),
@@ -1147,7 +1213,7 @@ fn _hb_fontations_font_funcs_get() -> *mut hb_font_funcs_t {
 /// # Safety
 ///
 /// This function is unsafe because it connects with the HarfBuzz API.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn hb_fontations_font_set_funcs(font: *mut hb_font_t) {
     let ffuncs = _hb_fontations_font_funcs_get();
 

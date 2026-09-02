@@ -16,8 +16,10 @@ import org.mozilla.fenix.home.bookmarks.Bookmark
 import org.mozilla.fenix.home.bookmarks.controller.BookmarksController
 import org.mozilla.fenix.home.interactor.HomepageInteractor
 import org.mozilla.fenix.home.logo.LogoController
+import org.mozilla.fenix.home.logo.TrackingProtectionController
 import org.mozilla.fenix.home.pocket.PocketRecommendedStoriesCategory
 import org.mozilla.fenix.home.pocket.controller.PocketStoriesController
+import org.mozilla.fenix.home.pocket.controller.StoriesImpressionSource
 import org.mozilla.fenix.home.privatebrowsing.controller.PrivateBrowsingController
 import org.mozilla.fenix.home.recentsyncedtabs.RecentSyncedTab
 import org.mozilla.fenix.home.recentsyncedtabs.controller.RecentSyncedTabController
@@ -29,14 +31,12 @@ import org.mozilla.fenix.home.recentvisits.controller.RecentVisitsController
 import org.mozilla.fenix.home.search.HomeSearchController
 import org.mozilla.fenix.home.termsofuse.PrivacyNoticeBannerController
 import org.mozilla.fenix.home.toolbar.ToolbarController
+import org.mozilla.fenix.home.topsites.AddShortcutEntryPoint
+import org.mozilla.fenix.home.topsites.AddShortcutSource
 import org.mozilla.fenix.home.topsites.controller.TopSiteController
-import org.mozilla.fenix.search.toolbar.SearchSelectorController
-import org.mozilla.fenix.search.toolbar.SearchSelectorMenu
 import org.mozilla.fenix.wallpapers.WallpaperState
 
-/**
- * Interface for tab related actions in the [SessionControlInteractor].
- */
+/** Interface for tab related actions in the [SessionControlInteractor]. */
 interface TabSessionInteractor {
     /**
      * Called when there is an update to the session state and updated metrics need to be reported
@@ -46,14 +46,12 @@ interface TabSessionInteractor {
     fun reportSessionMetrics(state: AppState)
 }
 
-/**
- * Interface for collection related actions in the [SessionControlInteractor].
- */
+/** Interface for collection related actions in the [SessionControlInteractor]. */
 @SuppressWarnings("TooManyFunctions")
 interface CollectionInteractor {
     /**
-     * Shows the Collection Creation fragment for selecting the tabs to add to the given tab
-     * collection. Called when a user taps on the "Add tab" collection menu item.
+     * Shows the Collection Creation fragment for selecting the tabs to add to the given tab collection. Called when a
+     * user taps on the "Add tab" collection menu item.
      *
      * @param collection The collection of tabs that will be modified.
      */
@@ -67,16 +65,15 @@ interface CollectionInteractor {
     fun onCollectionOpenTabClicked(tab: Tab)
 
     /**
-     * Opens all the tabs in a given tab collection. Called when a user taps on the "Open tabs"
-     * collection menu item.
+     * Opens all the tabs in a given tab collection. Called when a user taps on the "Open tabs" collection menu item.
      *
      * @param collection The collection of tabs to open.
      */
     fun onCollectionOpenTabsTapped(collection: TabCollection)
 
     /**
-     * Removes the given tab from the given tab collection. Called when a user swipes to remove a
-     * tab or clicks on the tab close button.
+     * Removes the given tab from the given tab collection. Called when a user swipes to remove a tab or clicks on the
+     * tab close button.
      *
      * @param collection The collection of tabs that will be modified.
      * @param tab The tab to remove from the tab collection.
@@ -84,68 +81,53 @@ interface CollectionInteractor {
     fun onCollectionRemoveTab(collection: TabCollection, tab: Tab)
 
     /**
-     * Shares the tabs in the given tab collection. Called when a user clicks on the Collection
-     * Share button.
+     * Shares the tabs in the given tab collection. Called when a user clicks on the Collection Share button.
      *
      * @param collection The collection of tabs to share.
      */
     fun onCollectionShareTabsClicked(collection: TabCollection)
 
     /**
-     * Shows a prompt for deleting the given tab collection. Called when a user taps on the
-     * "Delete collection" collection menu item.
+     * Shows a prompt for deleting the given tab collection. Called when a user taps on the "Delete collection"
+     * collection menu item.
      *
      * @param collection The collection of tabs to delete.
      */
     fun onDeleteCollectionTapped(collection: TabCollection)
 
     /**
-     * Shows the Collection Creation fragment for renaming the given tab collection. Called when a
-     * user taps on the "Rename collection" collection menu item.
+     * Shows the Collection Creation fragment for renaming the given tab collection. Called when a user taps on the
+     * "Rename collection" collection menu item.
      *
      * @param collection The collection of tabs to rename.
      */
     fun onRenameCollectionTapped(collection: TabCollection)
 
     /**
-     * Toggles expanding or collapsing the given tab collection. Called when a user clicks on a
-     * [CollectionViewHolder].
+     * Toggles expanding or collapsing the given tab collection. Called when a user clicks on a [CollectionViewHolder].
      *
      * @param collection The collection of tabs that will be collapsed.
      * @param expand True if the given tab collection should be expanded or collapse if false.
      */
     fun onToggleCollectionExpanded(collection: TabCollection, expand: Boolean)
 
-    /**
-     * Opens the collection creator
-     */
+    /** Opens the collection creator */
     fun onAddTabsToCollectionTapped()
-
-    /**
-     * User has removed the collections placeholder from home.
-     */
-    fun onRemoveCollectionsPlaceholder()
 }
 
 interface MessageCardInteractor {
-    /**
-     * Called when a [Message]'s button is clicked
-     */
+    /** Called when a [Message]'s button is clicked */
     fun onMessageClicked(message: Message)
 
-    /**
-     * Called when close button on a [Message] card.
-     */
+    /** Called when close button on a [Message] card. */
     fun onMessageClosedClicked(message: Message)
 }
 
-/**
- * Interface for wallpaper related actions.
- */
+/** Interface for wallpaper related actions. */
 interface WallpaperInteractor {
     /**
-     * Show Wallpapers onboarding dialog to onboard users about the feature if conditions are met.
-     * Returns true if the call has been passed down to the controller.
+     * Show Wallpapers onboarding dialog to onboard users about the feature if conditions are met. Returns true if the
+     * call has been passed down to the controller.
      *
      * @param state The wallpaper state.
      * @return Whether the onboarding dialog is currently shown.
@@ -153,26 +135,31 @@ interface WallpaperInteractor {
     fun showWallpapersOnboardingDialog(state: WallpaperState): Boolean
 }
 
-/**
- * Interface for setup checklist feature related actions.
- */
+/** Interface for setup checklist feature related actions. */
 interface SetupChecklistInteractor {
-    /**
-     * Gets invoked when the user clicks a check list item.
-     */
+    /** Gets invoked when the user clicks a check list item. */
     fun onChecklistItemClicked(item: ChecklistItem)
 
-    /**
-     * Invoked when the remove button is clicked.
-     */
+    /** Invoked when the remove button is clicked. */
     fun onRemoveChecklistButtonClicked()
 }
 
+/** Interface for tracking protection related actions on the homepage. */
+interface TrackingProtectionInteractor {
+    /** Invoked when the privacy report card is tapped. */
+    fun onPrivacyReportTapped()
+
+    /** Invoked when the longfox entry point text is clicked. */
+    fun onLongfoxEntryPointClicked()
+
+    /** Invoked when the longfox entry point is shown. */
+    fun onLongfoxEntryPointShown()
+}
+
 /**
- * Interactor for the Home screen. Provides implementations for the CollectionInteractor,
- * OnboardingInteractor, TopSiteInteractor, TabSessionInteractor, ToolbarInteractor,
- * ExperimentCardInteractor, RecentTabInteractor, RecentBookmarksInteractor
- * and others.
+ * Interactor for the Home screen. Provides implementations for the CollectionInteractor, OnboardingInteractor,
+ * TopSiteInteractor, TabSessionInteractor, ToolbarInteractor, ExperimentCardInteractor, RecentTabInteractor,
+ * RecentBookmarksInteractor and others.
  */
 @SuppressWarnings("TooManyFunctions", "LongParameterList")
 class SessionControlInteractor(
@@ -183,17 +170,13 @@ class SessionControlInteractor(
     private val recentVisitsController: RecentVisitsController,
     private val pocketStoriesController: PocketStoriesController,
     private val privateBrowsingController: PrivateBrowsingController,
-    private val searchSelectorController: SearchSelectorController,
     private val toolbarController: ToolbarController,
     private val homeSearchController: HomeSearchController,
     private val topSiteController: TopSiteController,
     private val privacyNoticeBannerController: PrivacyNoticeBannerController,
+    private val trackingProtectionController: TrackingProtectionController,
     private val logoController: LogoController,
 ) : HomepageInteractor {
-
-    override fun onLogoClicked() {
-        logoController.handleLogoClicked()
-    }
 
     override fun onCollectionAddTabTapped(collection: TabCollection) {
         controller.handleCollectionAddTabTapped(collection)
@@ -259,8 +242,26 @@ class SessionControlInteractor(
         topSiteController.handleShowAllTopSitesClicked()
     }
 
+    override fun onExpandToggleClicked(isExpanded: Boolean) {
+        topSiteController.handleExpandToggleClicked(isExpanded)
+    }
+
     override fun onShortcutsLibraryViewed() {
         topSiteController.handleShortcutsLibraryViewed()
+    }
+
+    override fun onSaveShortcut(
+        title: String,
+        url: String,
+        source: AddShortcutSource,
+        entryPoint: AddShortcutEntryPoint,
+    ) {
+        topSiteController.handleSaveShortcut(
+            title = title,
+            url = url,
+            source = source,
+            entryPoint = entryPoint,
+        )
     }
 
     override fun showWallpapersOnboardingDialog(state: WallpaperState): Boolean {
@@ -299,16 +300,8 @@ class SessionControlInteractor(
         homeSearchController.handleHomeContentFocusedWhileSearchIsActive()
     }
 
-    override fun onRemoveCollectionsPlaceholder() {
-        controller.handleRemoveCollectionsPlaceholder()
-    }
-
     override fun onRecentTabClicked(tabId: String) {
         recentTabController.handleRecentTabClicked(tabId)
-    }
-
-    override fun onRecentTabShowAllClicked() {
-        recentTabController.handleRecentTabShowAllClicked()
     }
 
     override fun onRemoveRecentTab(tab: RecentTab.Tab) {
@@ -344,9 +337,7 @@ class SessionControlInteractor(
     }
 
     override fun onRecentHistoryGroupClicked(recentHistoryGroup: RecentHistoryGroup) {
-        recentVisitsController.handleRecentHistoryGroupClicked(
-            recentHistoryGroup,
-        )
+        recentVisitsController.handleRecentHistoryGroupClicked(recentHistoryGroup)
     }
 
     override fun onRemoveRecentHistoryGroup(groupTitle: String) {
@@ -365,16 +356,20 @@ class SessionControlInteractor(
         pocketStoriesController.handleStoryShown(storyShown, storyPosition)
     }
 
-    override fun onStoriesShown(storiesShown: List<PocketStory>) {
-        pocketStoriesController.handleStoriesShown(storiesShown)
+    override fun onStoriesShown(storiesShown: List<PocketStory>, source: StoriesImpressionSource) {
+        pocketStoriesController.handleStoriesShown(storiesShown, source)
     }
 
     override fun onCategoryClicked(categoryClicked: PocketRecommendedStoriesCategory) {
         pocketStoriesController.handleCategoryClick(categoryClicked)
     }
 
-    override fun onStoryClicked(storyClicked: PocketStory, storyPosition: Triple<Int, Int, Int>) {
-        pocketStoriesController.handleStoryClicked(storyClicked, storyPosition)
+    override fun onStoryClicked(
+        storyClicked: PocketStory,
+        storyPosition: Triple<Int, Int, Int>,
+        source: StoriesImpressionSource,
+    ) {
+        pocketStoriesController.handleStoryClicked(storyClicked, storyPosition, source)
     }
 
     override fun onDiscoverMoreClicked() {
@@ -397,10 +392,6 @@ class SessionControlInteractor(
         controller.handleMessageClosed(message)
     }
 
-    override fun onMenuItemTapped(item: SearchSelectorMenu.Item) {
-        searchSelectorController.handleMenuItemTapped(item)
-    }
-
     override fun onPrivacyNoticeBannerCloseClicked() {
         privacyNoticeBannerController.onBannerCloseClicked()
     }
@@ -415,5 +406,17 @@ class SessionControlInteractor(
 
     override fun onPrivacyNoticeBannerDisplayed() {
         privacyNoticeBannerController.onBannerDisplayed()
+    }
+
+    override fun onPrivacyReportTapped() {
+        trackingProtectionController.handleProtectionStatusPillClicked()
+    }
+
+    override fun onLongfoxEntryPointClicked() {
+        logoController.handleLongfoxEntryPointClicked()
+    }
+
+    override fun onLongfoxEntryPointShown() {
+        logoController.handleLongfoxEntryPointShown()
     }
 }

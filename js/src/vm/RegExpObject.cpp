@@ -66,8 +66,8 @@ static_assert(RegExpFlag::Sticky == REGEXP_STICKY_FLAG,
  */
 RegExpObject* js::RegExpAlloc(JSContext* cx, NewObjectKind newKind,
                               HandleObject proto, HandleObject newTarget) {
-  Rooted<RegExpObject*> regexp(
-      cx, NewObjectWithClassProtoAndKind<RegExpObject>(cx, proto, newKind));
+  Rooted<RegExpObject*> regexp(cx, NewObjectWithClassProto<RegExpObject>(
+                                       cx, proto, {.newKind = newKind}));
   if (!regexp) {
     return nullptr;
   }
@@ -93,6 +93,10 @@ RegExpObject* js::RegExpAlloc(JSContext* cx, NewObjectKind newKind,
     // internal slot to true. Step 5. Else, Step 5.i. Set the value of obj’s
     // [[LegacyFeaturesEnabled]] internal slot to false.
     legacyFeaturesEnabled = (!newTarget || newTarget == thisRealmRegExp);
+    if (!legacyFeaturesEnabled &&
+        !JSObject::setLegacyFeaturesDisabled(cx, regexp)) {
+      return nullptr;
+    }
   }
   regexp->setLegacyFeaturesEnabled(legacyFeaturesEnabled);
 
@@ -643,15 +647,12 @@ RegExpShared::RegExpShared(JSAtom* source, RegExpFlags flags)
     : CellWithTenuredGCPointer(source), pairCount_(0), flags(flags) {}
 
 void RegExpShared::traceChildren(JSTracer* trc) {
-  TraceNullableCellHeaderEdge(trc, this, "RegExpShared source");
-  if (kind() == RegExpShared::Kind::Atom) {
-    TraceNullableEdge(trc, &patternAtom_, "RegExpShared pattern atom");
-  } else {
-    for (auto& comp : compilationArray) {
-      TraceNullableEdge(trc, &comp.jitCode, "RegExpShared code");
-    }
-    TraceNullableEdge(trc, &groupsTemplate_, "RegExpShared groups template");
+  TraceCellHeaderEdge(trc, this, "RegExpShared source");
+  TraceEdge(trc, &patternAtom_, "RegExpShared pattern atom");
+  for (auto& comp : compilationArray) {
+    TraceEdge(trc, &comp.jitCode, "RegExpShared code");
   }
+  TraceEdge(trc, &groupsTemplate_, "RegExpShared groups template");
 }
 
 void RegExpShared::discardJitCode() {
@@ -742,15 +743,6 @@ RegExpRunStatus RegExpShared::execute(JSContext* cx,
 
   if (re->kind() == RegExpShared::Kind::Atom) {
     return RegExpShared::executeAtom(re, input, start, matches);
-  }
-
-  /*
-   * Ensure sufficient memory for output vector.
-   * No need to initialize it. The RegExp engine fills them in on a match.
-   */
-  if (!matches->allocOrExpandArray(re->pairCount())) {
-    ReportOutOfMemory(cx);
-    return RegExpRunStatus::Error;
   }
 
   uint32_t interruptRetries = 0;
@@ -1066,7 +1058,7 @@ void RegExpRealm::trace(JSTracer* trc) {
   }
 
   for (auto& shape : matchResultShapes_) {
-    TraceNullableEdge(trc, &shape, "RegExpRealm::matchResultShapes_");
+    TraceEdge(trc, &shape, "RegExpRealm::matchResultShapes_");
   }
 }
 
@@ -1338,7 +1330,7 @@ JS_PUBLIC_API bool JS::CheckRegExpSyntax(JSContext* cx, const char16_t* chars,
   bool success = irregexp::CheckPatternSyntax(
       cx->tempLifoAlloc(), cx->stackLimitForCurrentPrincipal(),
       dummyTokenStream, source, flags);
-  error.set(UndefinedValue());
+  error.setUndefined();
   if (!success) {
     if (!fc.convertToRuntimeErrorAndClear()) {
       return false;

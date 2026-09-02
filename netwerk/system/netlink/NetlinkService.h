@@ -6,19 +6,20 @@
 
 #include <netinet/in.h>
 
-#include "nsIRunnable.h"
-#include "nsThreadUtils.h"
-#include "nsCOMPtr.h"
 #include "mozilla/Mutex.h"
-#include "mozilla/TimeStamp.h"
-#include "nsClassHashtable.h"
 #include "mozilla/SHA1.h"
+#include "mozilla/TimeStamp.h"
 #include "mozilla/UniquePtr.h"
-#include "nsTArray.h"
 #include "mozilla/net/DNS.h"
+#include "nsCOMPtr.h"
+#include "nsClassHashtable.h"
+#include "nsIRunnable.h"
+#include "nsTArray.h"
+#include "nsThreadUtils.h"
 
-namespace mozilla {
-namespace net {
+struct nlmsghdr;
+
+namespace mozilla::net {
 
 class NetlinkAddress;
 class NetlinkNeighbor;
@@ -61,7 +62,7 @@ class NetlinkService : public nsIRunnable {
   void EnqueueRtMsg(uint8_t aFamily, void* aAddress);
   void RemovePendingMsg();
 
-  mozilla::Mutex mMutex MOZ_UNANNOTATED{"NetlinkService::mMutex"};
+  mozilla::Mutex mMutex{"NetlinkService::mMutex"};
 
   void OnNetlinkMessage(int aNetlinkSocket);
   void OnLinkMessage(struct nlmsghdr* aNlh);
@@ -108,9 +109,9 @@ class NetlinkService : public nsIRunnable {
   // Time stamp of setting mRecalculateNetworkId to true
   mozilla::TimeStamp mTriggerTime;
 
-  nsCString mNetworkId;
-  nsTArray<nsCString> mDNSSuffixList;
-  nsTArray<NetAddr> mDNSResolvers;
+  nsCString mNetworkId MOZ_GUARDED_BY(mMutex);
+  nsTArray<nsCString> mDNSSuffixList MOZ_GUARDED_BY(mMutex);
+  nsTArray<NetAddr> mDNSResolvers MOZ_GUARDED_BY(mMutex);
 
   class LinkInfo {
    public:
@@ -159,10 +160,9 @@ class NetlinkService : public nsIRunnable {
 
   nsTArray<UniquePtr<NetlinkMsg>> mOutgoingMessages;
 
-  RefPtr<NetlinkServiceListener> mListener;
+  RefPtr<NetlinkServiceListener> mListener MOZ_GUARDED_BY(mMutex);
 };
 
-}  // namespace net
-}  // namespace mozilla
+}  // namespace mozilla::net
 
 #endif /* NETLINKSERVICE_H_ */

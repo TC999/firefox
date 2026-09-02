@@ -8,6 +8,7 @@ import android.animation.ValueAnimator
 import android.view.View
 import android.view.animation.DecelerateInterpolator
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import kotlin.test.assertIs
 import mozilla.components.support.test.any
 import mozilla.components.support.test.mock
 import mozilla.components.support.test.robolectric.testContext
@@ -28,7 +29,7 @@ class ViewYTranslationStrategyTest {
     fun `snapAnimator should use a DecelerateInterpolator with SNAP_ANIMATION_DURATION for bottom toolbar translations`() {
         val strategy = BottomViewBehaviorStrategy()
 
-        assertTrue(strategy.animator.interpolator is DecelerateInterpolator)
+        assertIs<DecelerateInterpolator>(strategy.animator.interpolator)
         assertEquals(SNAP_ANIMATION_DURATION, strategy.animator.duration)
     }
 
@@ -36,7 +37,7 @@ class ViewYTranslationStrategyTest {
     fun `snapAnimator should use a DecelerateInterpolator with SNAP_ANIMATION_DURATION for top toolbar translations`() {
         val strategy = TopViewBehaviorStrategy()
 
-        assertTrue(strategy.animator.interpolator is DecelerateInterpolator)
+        assertIs<DecelerateInterpolator>(strategy.animator.interpolator)
         assertEquals(SNAP_ANIMATION_DURATION, strategy.animator.duration)
     }
 

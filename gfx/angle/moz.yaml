@@ -11,36 +11,35 @@ origin:
 
   url: https://chromium.googlesource.com/angle/angle
 
-  # Note that while the vendoring information here, including revision,
-  # release, and upstream repo locations refer to the third party upstream,
-  # Angle is vendored from a mozilla git repository that pulls from
-  # upstream and mainntains local patches there.
-  release: commit ceec659ac60b0c8ee9d9c602ca1a878ec1d3a88f Fri Nov 4 13:35:51 2022 +0000
-  revision: ceec659ac60b0c8ee9d9c602ca1a878ec1d3a88f
+  release: 464fd3e879d6bb72fe8210b3e58b59836f711951 (Wed Aug 05 16:04:50 2026).
+  revision: 464fd3e879d6bb72fe8210b3e58b59836f711951
 
   license: BSD-3-Clause
 
 updatebot:
-  maintainer-phab: jgilbert
-  maintainer-bz: jgilbert@mozilla.com
+  maintainer-phab: ahale
+  maintainer-bz: ahale@mozilla.com
   tasks:
     - type: commit-alert
       enabled: True
-      branch: chromium/5359
-      needinfo: ["jgilbert@mozilla.com"]
+      branch: chromium/7778
+      needinfo: ["ahale@mozilla.com"]
 
 vendoring:
   url: https://chromium.googlesource.com/angle/angle
-  # Technically we aren't tracking 'tags', we're tracking branches but Angle has a
-  # special setup and tag is the most analogous without needing to create a whole
-  # new thing just for it.
-  tracking: tag
   source-hosting: angle
-  vendor-directory: gfx/angle/checkout
-  skip-vendoring-steps: ["fetch", "update-moz-build"]
+  vendor-directory: third_party/angle
+  skip-vendoring-steps:
+    - move-contents
+    - update-moz-build
 
   update-actions:
-    - action: run-script
-      script: '{yaml_dir}/auto-update-angle.sh'
-      args: ['{revision}']
-      cwd: '{cwd}'
+    - action: run-command
+      command: ./mach
+      args:
+        - python
+        - --
+        - '{yaml_dir}/update-angle.py'
+        - '{tmpextractdir}'
+        - '{vendor_dir}'
+      cwd: '{topsrcdir}'

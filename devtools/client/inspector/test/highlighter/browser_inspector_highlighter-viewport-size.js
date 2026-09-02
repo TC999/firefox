@@ -66,9 +66,7 @@ add_task(async function () {
   );
   rulersToggleButton.click();
   // wait until we get the highlighter
-  const rulersHighlighterFront = await waitFor(() =>
-    front.getKnownHighlighter(TYPES.RULERS)
-  );
+  const rulersHighlighterFront = await front.getHighlighterByType(TYPES.RULERS);
   await waitFor(async () => {
     const hidden = await isRulersHighlighterHidden(
       rulersHighlighterFront,
@@ -157,8 +155,8 @@ async function hasRightLabelsContent(highlighterFront, highlighterTestFront) {
         return getWindowDimensions(content);
       }
     );
-    const windowHeight = Math.round(windowDimensions.height);
-    const windowWidth = Math.round(windowDimensions.width);
+    const windowHeight = windowDimensions.height.toFixed(1);
+    const windowWidth = windowDimensions.width.toFixed(1);
     const windowText = `${windowWidth}px \u00D7 ${windowHeight}px`;
 
     const dimensionText =

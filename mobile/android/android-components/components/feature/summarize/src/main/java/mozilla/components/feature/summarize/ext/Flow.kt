@@ -4,6 +4,8 @@
 
 package mozilla.components.feature.summarize.ext
 
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -13,16 +15,19 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.transform
 import mozilla.components.ui.richtext.ir.RichDocument
 import mozilla.components.ui.richtext.parsing.Parser
-import kotlin.time.Duration
-import kotlin.time.Duration.Companion.milliseconds
 
-internal fun Flow<String>.mapToRichDocument(dispatcher: CoroutineDispatcher): Flow<RichDocument> {
+internal fun Flow<String>.mapToRichDocument(
+    pageTitle: String,
+    dispatcher: CoroutineDispatcher,
+): Flow<RichDocument> {
     val parser = Parser()
     val responseBuilder = StringBuilder()
 
-    return map { responseBuilder.append(it) }
-        .sampledMap { parser.parse(it.toString()) }
-        .flowOn(dispatcher)
+    if (pageTitle.isNotEmpty()) {
+        responseBuilder.append("# $pageTitle\n")
+    }
+
+    return map { responseBuilder.append(it) }.sampledMap { parser.parse(it.toString()) }.flowOn(dispatcher)
 }
 
 private val PARSE_THROTTLE = 120.milliseconds
@@ -39,9 +44,8 @@ private fun <T, R> Flow<T>.sampledMap(
     period: Duration = PARSE_THROTTLE,
     transform: (T) -> R,
 ): Flow<R> {
-    return conflate()
-        .transform {
-            emit(transform(it))
-            delay(period)
-        }
+    return conflate().transform {
+        emit(transform(it))
+        delay(period)
+    }
 }

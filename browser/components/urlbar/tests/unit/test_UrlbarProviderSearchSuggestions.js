@@ -10,6 +10,7 @@ const { UrlbarProviderSearchSuggestions } = ChromeUtils.importESModule(
 const KEYWORD_ENABLED = "keyword.enabled";
 const SUGGEST_ENABLED = "browser.search.suggest.enabled";
 const URLBAR_SUGGEST = "browser.urlbar.suggest.searches";
+const SEARCH_BAR_SAPS = ["searchbar", "newtab_searchbar"];
 
 add_setup(async function () {
   await SearchService.init();
@@ -21,7 +22,7 @@ add_task(async function test_allowRemoteSuggestions() {
   let context = createContext("bacon", {
     isPrivate: false,
     sapName: "urlbar",
-    sources: [UrlbarUtils.RESULT_SOURCE.SEARCH],
+    sources: [UrlbarShared.RESULT_SOURCE.SEARCH],
   });
   Assert.ok(
     suggestionsProvider._allowRemoteSuggestions(context),
@@ -34,7 +35,7 @@ add_task(async function test_allowRemoteSuggestions() {
   context = createContext("bacon", {
     isPrivate: false,
     sapName: "urlbar",
-    sources: [UrlbarUtils.RESULT_SOURCE.SEARCH],
+    sources: [UrlbarShared.RESULT_SOURCE.SEARCH],
   });
   Assert.ok(
     !suggestionsProvider._allowRemoteSuggestions(context),
@@ -44,7 +45,7 @@ add_task(async function test_allowRemoteSuggestions() {
   context = createContext("bacon", {
     isPrivate: false,
     sapName: "searchbar",
-    sources: [UrlbarUtils.RESULT_SOURCE.SEARCH],
+    sources: [UrlbarShared.RESULT_SOURCE.SEARCH],
   });
   Assert.ok(
     suggestionsProvider._allowRemoteSuggestions(context),
@@ -60,22 +61,24 @@ add_task(async function test_allowSuggestions() {
   let context = createContext("bacon eggs", {
     isPrivate: false,
     sapName: "urlbar",
-    sources: [UrlbarUtils.RESULT_SOURCE.SEARCH],
+    sources: [UrlbarShared.RESULT_SOURCE.SEARCH],
   });
   Assert.ok(
     suggestionsProvider._allowSuggestions(context),
     "Suggestions in the urlbar should be enabled by default"
   );
 
-  context = createContext("bacon eggs", {
-    isPrivate: false,
-    sapName: "searchbar",
-    sources: [UrlbarUtils.RESULT_SOURCE.SEARCH],
-  });
-  Assert.ok(
-    suggestionsProvider._allowSuggestions(context),
-    "Suggestions in the searchbar should be enabled by default"
-  );
+  for (let sapName of SEARCH_BAR_SAPS) {
+    context = createContext("bacon eggs", {
+      isPrivate: false,
+      sapName,
+      sources: [UrlbarShared.RESULT_SOURCE.SEARCH],
+    });
+    Assert.ok(
+      suggestionsProvider._allowSuggestions(context),
+      `Suggestions in the ${sapName} should be enabled by default`
+    );
+  }
 
   info("Setting " + URLBAR_SUGGEST + "=false");
   Services.prefs.setBoolPref(URLBAR_SUGGEST, false);
@@ -83,22 +86,24 @@ add_task(async function test_allowSuggestions() {
   context = createContext("bacon eggs", {
     isPrivate: false,
     sapName: "urlbar",
-    sources: [UrlbarUtils.RESULT_SOURCE.SEARCH],
+    sources: [UrlbarShared.RESULT_SOURCE.SEARCH],
   });
   Assert.ok(
     !suggestionsProvider._allowSuggestions(context),
     "Suggestions in the urlbar should be disabled"
   );
 
-  context = createContext("bacon eggs", {
-    isPrivate: false,
-    sapName: "searchbar",
-    sources: [UrlbarUtils.RESULT_SOURCE.SEARCH],
-  });
-  Assert.ok(
-    suggestionsProvider._allowSuggestions(context),
-    "Suggestions in the searchbar should still be enabled"
-  );
+  for (let sapName of SEARCH_BAR_SAPS) {
+    context = createContext("bacon eggs", {
+      isPrivate: false,
+      sapName,
+      sources: [UrlbarShared.RESULT_SOURCE.SEARCH],
+    });
+    Assert.ok(
+      suggestionsProvider._allowSuggestions(context),
+      `Suggestions in the ${sapName} should still be enabled`
+    );
+  }
 
   info("Setting " + SUGGEST_ENABLED + "=false");
   Services.prefs.setBoolPref(SUGGEST_ENABLED, false);
@@ -106,22 +111,34 @@ add_task(async function test_allowSuggestions() {
   context = createContext("bacon eggs", {
     isPrivate: false,
     sapName: "urlbar",
-    sources: [UrlbarUtils.RESULT_SOURCE.SEARCH],
+    sources: [UrlbarShared.RESULT_SOURCE.SEARCH],
   });
   Assert.ok(
     !suggestionsProvider._allowSuggestions(context),
     "Suggestions in the urlbar should be disabled"
   );
 
-  context = createContext("bacon eggs", {
-    isPrivate: false,
-    sapName: "searchbar",
-    sources: [UrlbarUtils.RESULT_SOURCE.SEARCH],
-  });
-  Assert.ok(
-    !suggestionsProvider._allowSuggestions(context),
-    "Suggestions in the urlbar should be disabled"
-  );
+  for (let sapName of SEARCH_BAR_SAPS) {
+    context = createContext("bacon eggs", {
+      isPrivate: false,
+      sapName,
+      sources: [UrlbarShared.RESULT_SOURCE.SEARCH],
+    });
+    Assert.ok(
+      suggestionsProvider._allowSuggestions(context),
+      `Form history in the ${sapName} should still be enabled`
+    );
+
+    context = createContext("bacon eggs", {
+      isPrivate: true,
+      sapName,
+      sources: [UrlbarShared.RESULT_SOURCE.SEARCH],
+    });
+    Assert.ok(
+      suggestionsProvider._allowSuggestions(context),
+      `Form history in the ${sapName} should still be enabled in private windows`
+    );
+  }
 
   Services.prefs.clearUserPref(SUGGEST_ENABLED);
   Services.prefs.clearUserPref(URLBAR_SUGGEST);

@@ -2,8 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "vm/NativeObject-inl.h"
-
 #include "mozilla/CheckedInt.h"
 #include "mozilla/Maybe.h"
 
@@ -18,12 +16,16 @@
 #include "vm/EqualityOperations.h"  // js::SameValue
 #include "vm/GetterSetter.h"        // js::GetterSetter
 #include "vm/Interpreter.h"         // js::CallGetter, js::CallSetter
+#include "vm/Iteration.h"           // js::ClassCanHaveExtraEnumeratedProperties
 #include "vm/JSONPrinter.h"         // js::JSONPrinter
 #include "vm/PlainObject.h"         // js::PlainObject
+#include "vm/Realm.h"               // js::PlainObjectCopyPropsCache
 #include "vm/TypedArrayObject.h"
 #include "vm/Watchtower.h"
+
 #include "gc/Nursery-inl.h"
 #include "vm/JSObject-inl.h"
+#include "vm/NativeObject-inl.h"
 #include "vm/Shape-inl.h"
 
 using namespace js;
@@ -135,7 +137,9 @@ bool ObjectElements::FreezeOrSeal(JSContext* cx, Handle<NativeObject*> obj,
   }
 
   if (level == IntegrityLevel::Frozen) {
-    if (!JSObject::setFlag(cx, obj, ObjectFlag::FrozenElements)) {
+    ObjectFlags flags = {ObjectFlag::FrozenElements,
+                         ObjectFlag::NeedsProxyGetSetResultValidation};
+    if (!JSObject::setFlags(cx, obj, flags)) {
       return false;
     }
   }
@@ -215,8 +219,8 @@ void ObjectElements::dumpStringContent(js::GenericPrinter& out) const {
       });
   out.put("]");
 
-  out.printf(", init=%u, capacity=%u, length=%u>", initializedLength, capacity,
-             length);
+  out.printf(", init=%u, capacity=%u, length=%u>", initializedLength.get(),
+             capacity, length);
 }
 #endif
 
@@ -297,16 +301,6 @@ bool NativeObject::setUniqueId(JSRuntime* runtime, uint64_t uid) {
 
   Nursery& nursery = runtime->gc.nursery();
   if (!hasDynamicSlots() && !allocateSlots(nursery, 0)) {
-    return false;
-  }
-
-  getSlotsHeader()->setUniqueId(uid);
-  return true;
-}
-
-bool NativeObject::setOrUpdateUniqueId(JSContext* cx, uint64_t uid) {
-  if (!hasDynamicSlots() && !allocateSlots(cx->nursery(), 0)) {
-    ReportOutOfMemory(cx);
     return false;
   }
 
@@ -1208,29 +1202,40 @@ static bool CallJSAddPropertyOp(JSContext* cx, JSAddPropertyOp op,
   return op(cx, obj, id, v);
 }
 
-static MOZ_ALWAYS_INLINE bool PreserveAnyUnpreservedWrapper(
-    JSContext* cx, Handle<NativeObject*> obj) {
+bool js::PreserveAnyUnpreservedWrapper(JSContext* cx,
+                                       Handle<NativeObject*> obj) {
   if (MOZ_LIKELY(!obj->hasUnpreservedWrapper())) {
     return true;
   }
 
-  JS::Value objectWrapperSlot =
-      JS::GetReservedSlot(obj, JS_OBJECT_WRAPPER_SLOT);
+  JS::Value objectWrapperSlot = obj->getReservedSlot(JS_OBJECT_WRAPPER_SLOT);
   if (objectWrapperSlot.isUndefined() || !objectWrapperSlot.toPrivate()) {
     return true;
   }
 
+  MaybePreserveDOMWrapper(cx, obj);
+
   // The flag is used to guard against having a wrapper that needs to be
   // preserved but isn't so it's OK if we preserve the wrapper but fail to set
   // the flag.
-  return MaybePreserveDOMWrapper(cx, obj) &&
-         JSObject::setFlag(cx, obj, ObjectFlag::HasPreservedWrapper);
+  return JSObject::setFlag(cx, obj, ObjectFlag::HasPreservedWrapper);
 }
 
 static MOZ_ALWAYS_INLINE bool CallAddPropertyHook(JSContext* cx,
                                                   Handle<NativeObject*> obj,
                                                   HandleId id,
                                                   HandleValue value) {
+  // Inline addProperty for array objects.
+  if (obj->is<ArrayObject>()) {
+    ArrayObject* arr = &obj->as<ArrayObject>();
+    uint32_t length = arr->length();
+    uint32_t index;
+    if (IdIsIndex(id, &index) && index >= length) {
+      arr->setLength(cx, index + 1);
+    }
+    return true;
+  }
+
   // Ensure any wrapper is preserved first.
   if (!PreserveAnyUnpreservedWrapper(cx, obj)) {
     return false;
@@ -1398,8 +1403,10 @@ static MOZ_ALWAYS_INLINE bool AddOrChangeProperty(
     }
     if (edResult == DenseElementResult::Success) {
       obj->setDenseElement(index, desc.value());
-      if (!CallAddPropertyHookDense(cx, obj, index, desc.value())) {
-        return false;
+      if constexpr (AddOrChange == IsAddOrChange::Add) {
+        if (!CallAddPropertyHookDense(cx, obj, index, desc.value())) {
+          return false;
+        }
       }
       return true;
     }
@@ -1475,16 +1482,29 @@ static MOZ_ALWAYS_INLINE bool AddOrChangeProperty(
       }
       if (edResult == DenseElementResult::Success) {
         MOZ_ASSERT(!desc.isAccessorDescriptor());
-        return CallAddPropertyHookDense(cx, obj, index, desc.value());
+        if constexpr (AddOrChange == IsAddOrChange::Add) {
+          if (!CallAddPropertyHookDense(cx, obj, index, desc.value())) {
+            return false;
+          }
+        }
+        return true;
       }
     }
   }
 
-  if (desc.isDataDescriptor()) {
-    return CallAddPropertyHook(cx, obj, id, desc.value());
+  if constexpr (AddOrChange == IsAddOrChange::Add) {
+    if (desc.isDataDescriptor()) {
+      if (!CallAddPropertyHook(cx, obj, id, desc.value())) {
+        return false;
+      }
+    } else {
+      if (!CallAddPropertyHook(cx, obj, id, UndefinedHandleValue)) {
+        return false;
+      }
+    }
   }
 
-  return CallAddPropertyHook(cx, obj, id, UndefinedHandleValue);
+  return true;
 }
 
 // Versions of AddOrChangeProperty optimized for adding a plain data property.
@@ -2028,6 +2048,7 @@ bool js::AddOrUpdateSparseElementHelper(JSContext* cx,
   // At this point we're updating a property: See SetExistingProperty.
   PropertyInfo prop = map->getPropertyInfo(index);
   if (prop.isDataProperty() && prop.writable()) {
+    Watchtower::watchPropertyValueChange<AllowGC::CanGC>(cx, obj, id, v, prop);
     obj->setSlot(prop.slot(), v);
     return true;
   }
@@ -2903,6 +2924,32 @@ bool js::NativeDeleteProperty(JSContext* cx, Handle<NativeObject*> obj,
   return SuppressDeletedProperty(cx, obj, id);
 }
 
+#ifdef DEBUG
+void NativeObject::assertHasNoNonWritableOrAccessorPropExclProto() const {
+  // Check the most recent MaxCount properties to not slow down debug builds too
+  // much.
+  static constexpr size_t MaxCount = 8;
+
+  size_t count = 0;
+  PropertyName* protoName = runtimeFromMainThread()->commonNames->proto_;
+
+  for (ShapePropertyIter<NoGC> iter(shape()); !iter.done(); iter++) {
+    // __proto__ is always allowed.
+    if (iter->key().isAtom(protoName)) {
+      continue;
+    }
+
+    MOZ_ASSERT(iter->isDataProperty());
+    MOZ_ASSERT(iter->writable());
+
+    count++;
+    if (count > MaxCount) {
+      return;
+    }
+  }
+}
+#endif
+
 bool js::CopyDataPropertiesNative(JSContext* cx, Handle<PlainObject*> target,
                                   Handle<NativeObject*> from,
                                   Handle<PlainObject*> excludedItems,
@@ -2911,21 +2958,48 @@ bool js::CopyDataPropertiesNative(JSContext* cx, Handle<PlainObject*> target,
 
   // Don't use the fast path if |from| may have extra indexed or lazy
   // properties.
-  if (from->getDenseInitializedLength() > 0 || from->isIndexed() ||
-      from->is<TypedArrayObject>() || from->getClass()->getNewEnumerate() ||
-      from->getClass()->getEnumerate()) {
+  if (from->getDenseInitializedLength() > 0 || from->isIndexed()) {
     return true;
   }
+  const bool fromIsPlain = from->is<PlainObject>();
+  if (fromIsPlain) {
+    MOZ_ASSERT(!ClassCanHaveExtraEnumeratedProperties(from->getClass()));
+  } else {
+    if (ClassCanHaveExtraEnumeratedProperties(from->getClass())) {
+      return true;
+    }
+  }
+
+  // Check the plainObjectSpreadCache.
+  if (!excludedItems) {
+    const PlainObjectCopyPropsCache& cache =
+        cx->realm()->plainObjectSpreadCache;
+    if (SharedShape* newShape = cache.lookup(target->shape(), from->shape())) {
+      *optimized = true;
+      return CopyPropertiesWithNewShape(cx, target, &from->as<PlainObject>(),
+                                        newShape, newShape->slotSpan());
+    }
+  }
+
+  // If |target| contains no own properties, we can directly call
+  // AddDataPropertyToNativeObjectNoHooks.
+  const bool targetHadNoOwnProperties = target->empty();
+
+  // If |target| is empty and every property of |from| is a plain enumerable
+  // data property, we try to reuse |from|'s Shape or PropMap.
+  bool canReuseFromShape = !excludedItems && targetHadNoOwnProperties &&
+                           fromIsPlain &&
+                           !Watchtower::watchesPropertyAdd(target);
 
   // Collect all enumerable data properties.
   Rooted<PropertyInfoWithKeyVector> props(cx, PropertyInfoWithKeyVector(cx));
 
-  Rooted<NativeShape*> fromShape(cx, from->shape());
-  for (ShapePropertyIter<NoGC> iter(fromShape); !iter.done(); iter++) {
+  for (ShapePropertyIter<NoGC> iter(from->shape()); !iter.done(); iter++) {
     jsid id = iter->key();
     MOZ_ASSERT(!id.isInt());
 
     if (!iter->enumerable()) {
+      canReuseFromShape = false;
       continue;
     }
     if (excludedItems && excludedItems->contains(cx, id)) {
@@ -2941,6 +3015,10 @@ bool js::CopyDataPropertiesNative(JSContext* cx, Handle<PlainObject*> target,
       return true;
     }
 
+    if (iter->flags() != PropertyFlags::defaultDataPropFlags) {
+      canReuseFromShape = false;
+    }
+
     if (!props.append(*iter)) {
       return false;
     }
@@ -2948,12 +3026,27 @@ bool js::CopyDataPropertiesNative(JSContext* cx, Handle<PlainObject*> target,
 
   *optimized = true;
 
-  // If |target| contains no own properties, we can directly call
-  // AddDataPropertyNonPrototype.
-  const bool targetHadNoOwnProperties = target->empty();
+  if (canReuseFromShape && !props.empty()) {
+    Rooted<Shape*> origTargetShape(cx, target->shape());
+    Handle<PlainObject*> fromPlain = Handle<JSObject*>(from).as<PlainObject>();
+    bool copied;
+    if (!TryCopyPropertiesReusingShapeOrPropMap(cx, target, fromPlain,
+                                                props.length(), &copied)) {
+      return false;
+    }
+    if (copied) {
+      cx->realm()->plainObjectSpreadCache.fill(&origTargetShape->asShared(),
+                                               fromPlain->sharedShape(),
+                                               target->sharedShape());
+      return true;
+    }
+  }
 
   RootedId key(cx);
   RootedValue value(cx);
+#ifdef DEBUG
+  Rooted<NativeShape*> fromShape(cx, from->shape());
+#endif
   for (size_t i = props.length(); i > 0; i--) {
     PropertyInfoWithKey prop = props[i - 1];
     MOZ_ASSERT(prop.isDataProperty());
@@ -2970,7 +3063,7 @@ bool js::CopyDataPropertiesNative(JSContext* cx, Handle<PlainObject*> target,
       MOZ_ASSERT(!target->containsPure(key),
                  "didn't expect to find an existing property");
 
-      if (!AddDataPropertyToPlainObject(cx, target, key, value)) {
+      if (!AddDataPropertyToNativeObjectNoHooks(cx, target, key, value)) {
         return false;
       }
     } else {

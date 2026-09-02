@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -30,7 +29,7 @@ import androidx.compose.ui.unit.dp
 import mozilla.components.compose.base.annotation.FlexibleWindowLightDarkPreview
 import mozilla.components.compose.base.button.FilledButton
 import mozilla.components.compose.base.theme.layout.AcornElevation
-import mozilla.components.compose.base.theme.layout.AcornLayout
+import mozilla.components.ui.icons.R as iconsR
 import org.mozilla.fenix.R
 import org.mozilla.fenix.components.appstate.setup.checklist.ChecklistItem
 import org.mozilla.fenix.components.appstate.setup.checklist.SetupChecklistState
@@ -39,10 +38,8 @@ import org.mozilla.fenix.components.appstate.setup.checklist.getSetupChecklistSu
 import org.mozilla.fenix.components.appstate.setup.checklist.getSetupChecklistTitle
 import org.mozilla.fenix.home.sessioncontrol.SetupChecklistInteractor
 import org.mozilla.fenix.theme.FirefoxTheme
-import mozilla.components.ui.icons.R as iconsR
 
 private val elevation = AcornElevation.level4
-private val shapeChecklist = RoundedCornerShape(size = AcornLayout.AcornCorner.large)
 
 /**
  * The Setup checklist displayed on homepage that contains onboarding tasks.
@@ -54,8 +51,8 @@ private val shapeChecklist = RoundedCornerShape(size = AcornLayout.AcornCorner.l
 fun SetupChecklist(setupChecklistState: SetupChecklistState, interactor: SetupChecklistInteractor) {
     Card(
         modifier = Modifier.padding(16.dp),
-        shape = shapeChecklist,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
+        shape = MaterialTheme.shapes.small,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceBright),
         elevation = CardDefaults.cardElevation(defaultElevation = elevation),
     ) {
         Column(
@@ -78,9 +75,7 @@ fun SetupChecklist(setupChecklistState: SetupChecklistState, interactor: SetupCh
     }
 }
 
-/**
- * The header for setup checklist that contains the title, the subtitle and the progress bar.
- */
+/** The header for setup checklist that contains the title, the subtitle and the progress bar. */
 @Composable
 private fun Header(state: SetupChecklistState) {
     val context = LocalContext.current
@@ -92,19 +87,20 @@ private fun Header(state: SetupChecklistState) {
         val progress = state.progress
 
         Text(
-            text = getSetupChecklistTitle(
-                context = context,
-                allTasksCompleted = progress.allTasksCompleted(),
-            ),
+            text =
+                getSetupChecklistTitle(
+                    context = context,
+                    allTasksCompleted = progress.allTasksCompleted(),
+                ),
             style = FirefoxTheme.typography.headline7,
             modifier = Modifier.semantics { heading() },
         )
 
         getSetupChecklistSubtitle(
-            context = context,
-            progress = progress,
-            isGroups = state.checklistItems.checklistItemsAreGroups(),
-        )
+                context = context,
+                progress = progress,
+                isGroups = state.checklistItems.checklistItemsAreGroups(),
+            )
             ?.let {
                 Text(
                     text = it,
@@ -116,9 +112,7 @@ private fun Header(state: SetupChecklistState) {
     }
 }
 
-/**
- * The button that will remove the setup checklist from homepage.
- */
+/** The button that will remove the setup checklist from homepage. */
 @Composable
 private fun RemoveChecklistButton(interactor: SetupChecklistInteractor) {
     Column(
@@ -139,99 +133,112 @@ private fun RemoveChecklistButton(interactor: SetupChecklistInteractor) {
     }
 }
 
-private class SetupChecklistPreviewParameterProvider :
-    PreviewParameterProvider<SetupChecklistState> {
+private class SetupChecklistPreviewParameterProvider : PreviewParameterProvider<SetupChecklistState> {
     override val values: Sequence<SetupChecklistState>
-        get() = sequenceOf(
-            SetupChecklistState(checklistItems = createPreviewTasks()),
-            SetupChecklistState(checklistItems = createPreviewGroups()),
-        )
+        get() =
+            sequenceOf(
+                SetupChecklistState(checklistItems = createPreviewTasks()),
+                SetupChecklistState(checklistItems = createPreviewGroups()),
+            )
 }
 
-private fun createPreviewTasks() = listOf(
-    setAsDefaultTaskPreview(),
-    webExtensionTaskPreview(),
-    signInTaskPreview(),
-)
+private fun createPreviewTasks() =
+    listOf(
+        setAsDefaultTaskPreview(),
+        webExtensionTaskPreview(),
+        signInTaskPreview(),
+    )
 
-private fun setAsDefaultTaskPreview() = ChecklistItem.Task(
-    type = ChecklistItem.Task.Type.SET_AS_DEFAULT,
-    title = R.string.setup_checklist_task_default_browser,
-    icon = iconsR.drawable.mozac_ic_android_robot_fill_24,
-    isCompleted = false,
-)
+private fun setAsDefaultTaskPreview() =
+    ChecklistItem.Task(
+        type = ChecklistItem.Task.Type.SET_AS_DEFAULT,
+        title = R.string.setup_checklist_task_default_browser,
+        icon = iconsR.drawable.mozac_ic_globe_24,
+        isCompleted = false,
+    )
 
-private fun webExtensionTaskPreview() = ChecklistItem.Task(
-    type = ChecklistItem.Task.Type.EXPLORE_EXTENSION,
-    title = R.string.setup_checklist_task_explore_extensions,
-    icon = iconsR.drawable.mozac_ic_extension_fill_24,
-    isCompleted = false,
-)
+private fun webExtensionTaskPreview() =
+    ChecklistItem.Task(
+        type = ChecklistItem.Task.Type.EXPLORE_EXTENSION,
+        title = R.string.setup_checklist_task_explore_extensions,
+        icon = iconsR.drawable.mozac_ic_extension_fill_24,
+        isCompleted = false,
+    )
 
-private fun signInTaskPreview() = ChecklistItem.Task(
-    type = ChecklistItem.Task.Type.SIGN_IN,
-    title = R.string.setup_checklist_task_account_sync,
-    icon = iconsR.drawable.mozac_ic_android_robot_fill_24,
-    isCompleted = true,
-)
+private fun signInTaskPreview() =
+    ChecklistItem.Task(
+        type = ChecklistItem.Task.Type.SIGN_IN,
+        title = R.string.setup_checklist_task_account_sync,
+        icon = iconsR.drawable.mozac_ic_globe_24,
+        isCompleted = true,
+    )
 
-private fun createPreviewGroups() = listOf(
-    ChecklistItem.Group(
-        title = R.string.setup_checklist_group_essentials,
-        tasks = listOf(setAsDefaultTaskPreview(), signInTaskPreview()),
-        isExpanded = true,
-    ),
-    ChecklistItem.Group(
-        title = R.string.setup_checklist_group_customize,
-        tasks = listOf(
-            ChecklistItem.Task(
-                type = ChecklistItem.Task.Type.SELECT_THEME,
-                title = R.string.setup_checklist_task_toolbar_selection,
-                icon = iconsR.drawable.mozac_ic_android_robot_fill_24,
-                isCompleted = false,
-            ),
-            ChecklistItem.Task(
-                type = ChecklistItem.Task.Type.CHANGE_TOOLBAR_PLACEMENT,
-                title = R.string.setup_checklist_task_theme_selection,
-                icon = iconsR.drawable.mozac_ic_android_robot_fill_24,
-                isCompleted = false,
-            ),
+private fun createPreviewGroups() =
+    listOf(
+        ChecklistItem.Group(
+            title = R.string.setup_checklist_group_essentials,
+            tasks = listOf(setAsDefaultTaskPreview(), signInTaskPreview()),
+            isExpanded = true,
         ),
-        isExpanded = false,
-    ),
-    ChecklistItem.Group(
-        title = R.string.setup_checklist_group_helpful_tools,
-        tasks = listOf(
-            ChecklistItem.Task(
-                type = ChecklistItem.Task.Type.INSTALL_SEARCH_WIDGET,
-                title = R.string.setup_checklist_task_search_widget_2,
-                icon = iconsR.drawable.mozac_ic_android_robot_fill_24,
-                isCompleted = false,
-            ),
-            ChecklistItem.Task(
-                type = ChecklistItem.Task.Type.EXPLORE_EXTENSION,
-                title = R.string.setup_checklist_task_explore_extensions,
-                icon = iconsR.drawable.mozac_ic_extension_fill_24,
-                isCompleted = false,
-            ),
+        ChecklistItem.Group(
+            title = R.string.setup_checklist_group_customize,
+            tasks =
+                listOf(
+                    ChecklistItem.Task(
+                        type = ChecklistItem.Task.Type.SELECT_THEME,
+                        title = R.string.setup_checklist_task_toolbar_selection,
+                        icon = iconsR.drawable.mozac_ic_globe_24,
+                        isCompleted = false,
+                    ),
+                    ChecklistItem.Task(
+                        type = ChecklistItem.Task.Type.CHANGE_TOOLBAR_PLACEMENT,
+                        title = R.string.setup_checklist_task_theme_selection,
+                        icon = iconsR.drawable.mozac_ic_globe_24,
+                        isCompleted = false,
+                    ),
+                ),
+            isExpanded = false,
         ),
-        isExpanded = false,
-    ),
-)
+        ChecklistItem.Group(
+            title = R.string.setup_checklist_group_helpful_tools,
+            tasks =
+                listOf(
+                    ChecklistItem.Task(
+                        type = ChecklistItem.Task.Type.INSTALL_SEARCH_WIDGET,
+                        title = R.string.setup_checklist_task_search_widget_2,
+                        icon = iconsR.drawable.mozac_ic_globe_24,
+                        isCompleted = false,
+                    ),
+                    ChecklistItem.Task(
+                        type = ChecklistItem.Task.Type.EXPLORE_EXTENSION,
+                        title = R.string.setup_checklist_task_explore_extensions,
+                        icon = iconsR.drawable.mozac_ic_extension_fill_24,
+                        isCompleted = false,
+                    ),
+                ),
+            isExpanded = false,
+        ),
+    )
 
 @FlexibleWindowLightDarkPreview
 @Composable
 private fun SetupChecklistPreview(
-    @PreviewParameter(SetupChecklistPreviewParameterProvider::class) initialState: SetupChecklistState,
+    @PreviewParameter(SetupChecklistPreviewParameterProvider::class) initialState: SetupChecklistState
 ) {
     FirefoxTheme {
         Surface {
             SetupChecklist(
                 setupChecklistState = initialState,
-                interactor = object : SetupChecklistInteractor {
-                    override fun onChecklistItemClicked(item: ChecklistItem) { /* no op */ }
-                    override fun onRemoveChecklistButtonClicked() { /* no op */ }
-                },
+                interactor =
+                    object : SetupChecklistInteractor {
+                        override fun onChecklistItemClicked(item: ChecklistItem) {
+                            /* no op */
+                        }
+
+                        override fun onRemoveChecklistButtonClicked() {
+                            /* no op */
+                        }
+                    },
             )
         }
     }

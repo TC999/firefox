@@ -4,7 +4,6 @@
 
 const lazy = {};
 ChromeUtils.defineESModuleGetters(lazy, {
-  BasePromiseWorker: "resource://gre/modules/PromiseWorker.sys.mjs",
   RemoteSettings: "resource://services-settings/remote-settings.sys.mjs",
   Utils: "resource://services-settings/Utils.sys.mjs",
 });
@@ -31,8 +30,12 @@ const PREF_WALLPAPERS_CUSTOM_WALLPAPER_UUID =
 const PREF_SELECTED_WALLPAPER =
   "browser.newtabpage.activity-stream.newtabWallpapers.wallpaper";
 
-const RS_FALLBACK_BASE_URL =
-  "https://firefox-settings-attachments.cdn.mozilla.net/";
+const PREF_WALLPAPERS_USER_ENABLED_MIGRATED =
+  "browser.newtabpage.activity-stream.newtabWallpapers.user.enabled.migrated";
+
+// Used by every operation that changes <profile>/wallpaper/ or the uuid pref,
+// so an upload and a reset can never overlap.
+const WALLPAPER_FILE_LOCK = "newtab-wallpaper-file";
 
 export class WallpaperFeed {
   constructor() {
@@ -63,11 +66,10 @@ export class WallpaperFeed {
   }
 
   /**
-   * This thin wrapper around lazy.BasePromiseWorker makes it easier for us to write
-   * automated tests
+   * This thin wrapper around IOUtils.write lets tests simulate write failures.
    */
-  BasePromiseWorker(...args) {
-    return new lazy.BasePromiseWorker(...args);
+  writeFile(...args) {
+    return IOUtils.write(...args);
   }
 
   async wallpaperSetup(isStartup = false) {
@@ -76,6 +78,39 @@ export class WallpaperFeed {
     );
 
     if (wallpapersEnabled) {
+      // newtabWallpapers.user.enabled defaults to false, but users who already
+      // had a wallpaper selected before this pref was introduced should have
+      // it set to true so their wallpaper remains visible after updating.
+      //
+      // PREF_WALLPAPERS_USER_ENABLED_MIGRATED tracks whether this one-time
+      // check has already run. Without it, wallpaperSetup (which is called on
+      // startup and on Remote Settings sync) would re-run the check every time,
+      // undoing any explicit toggle-off the user makes.
+      //
+      // This is a one-time data migration, not a train-hop compatibility shim,
+      // so it is intentionally not gated on a release version: a profile can
+      // update directly from a pre-migration version to a much later one
+      // (Firefox updates may skip intermediate major versions), and must still
+      // run this check the first time the new code executes.
+      if (
+        !Services.prefs.getBoolPref(
+          PREF_WALLPAPERS_USER_ENABLED_MIGRATED,
+          false
+        )
+      ) {
+        // Mark as done immediately so subsequent wallpaperSetup calls skip this.
+        Services.prefs.setBoolPref(PREF_WALLPAPERS_USER_ENABLED_MIGRATED, true);
+        const selectedWallpaper = Services.prefs.getStringPref(
+          PREF_SELECTED_WALLPAPER,
+          ""
+        );
+        if (selectedWallpaper) {
+          this.store.dispatch(
+            ac.SetPref("newtabWallpapers.user.enabled", true)
+          );
+        }
+      }
+
       if (!this.wallpaperClient) {
         // getting collection
         this.wallpaperClient = this.RemoteSettings(
@@ -131,23 +166,25 @@ export class WallpaperFeed {
     }
 
     // retrieving all records in collection
-    const records = await this.wallpaperClient.get();
-    if (!records?.length) {
-      return;
+    let records;
+    try {
+      records = await this.wallpaperClient.get();
+    } catch (error) {
+      // Fall through so the custom-wallpaper upload entry is still surfaced.
+      console.error(
+        "Error fetching wallpaper records from remote settings",
+        error
+      );
+      records = [];
     }
 
     const customWallpaperEnabled = Services.prefs.getBoolPref(
       PREF_WALLPAPERS_CUSTOM_WALLPAPER_ENABLED
     );
 
-    let baseAttachmentURL = RS_FALLBACK_BASE_URL;
-    try {
+    let baseAttachmentURL = "";
+    if (records.length) {
       baseAttachmentURL = await lazy.Utils.baseAttachmentsURL();
-    } catch (error) {
-      console.error(
-        `Error fetching remote settings base url from CDN. Falling back to ${RS_FALLBACK_BASE_URL}`,
-        error
-      );
     }
 
     const wallpapers = [
@@ -167,12 +204,27 @@ export class WallpaperFeed {
       }),
     ];
 
+    const CATEGORY_ORDER = [
+      "custom-wallpaper",
+      "firefox",
+      "abstracts",
+      "celestial",
+      "photographs",
+      "solid-colors",
+    ];
+
     const categories = [
       ...new Set(
         wallpapers.map(wallpaper => wallpaper.category).filter(Boolean)
       ),
       ...(customWallpaperEnabled ? ["custom-wallpaper"] : []), // Conditionally add custom wallpaper input
-    ];
+    ].sort((a, b) => {
+      const aIndex = CATEGORY_ORDER.indexOf(a);
+      const bIndex = CATEGORY_ORDER.indexOf(b);
+      const aOrder = aIndex === -1 ? CATEGORY_ORDER.length : aIndex;
+      const bOrder = bIndex === -1 ? CATEGORY_ORDER.length : bIndex;
+      return aOrder - bOrder;
+    });
 
     this.store.dispatch(
       ac.BroadcastToContent({
@@ -237,32 +289,54 @@ export class WallpaperFeed {
     );
   }
 
-  async wallpaperUpload(file) {
+  async wallpaperUpload(file, wallpaperTheme) {
+    if (!Blob.isInstance(file)) {
+      console.error("wallpaperUpload: file is not a Blob");
+      return null;
+    }
+    if (wallpaperTheme !== "dark" && wallpaperTheme !== "light") {
+      console.error("wallpaperUpload: invalid theme");
+      return null;
+    }
     try {
-      const customWallpaperThemeWorker = this.BasePromiseWorker(
-        "resource://newtab/lib/Wallpapers/WallpaperTheme.worker.mjs",
-        { type: "module" }
+      return await locks.request(WALLPAPER_FILE_LOCK, () =>
+        this.#writeWallpaper(file, wallpaperTheme)
       );
-      const wallpaperTheme = await customWallpaperThemeWorker.post(
-        "calculateTheme",
-        [file]
-      );
-      customWallpaperThemeWorker.terminate();
+    } catch (error) {
+      console.error("Could not take the wallpaper file lock:", error);
+      return null;
+    }
+  }
+
+  async #writeWallpaper(file, wallpaperTheme) {
+    try {
       const wallpaperDir = PathUtils.join(PathUtils.profileDir, "wallpaper");
 
       // create wallpaper directory if it does not exist
       await IOUtils.makeDirectory(wallpaperDir, { ignoreExisting: true });
 
-      let uuid = Services.uuid.generateUUID().toString().slice(1, -1);
-      Services.prefs.setStringPref(PREF_WALLPAPERS_CUSTOM_WALLPAPER_UUID, uuid);
+      // Clear out anything left by an earlier version or an interrupted write.
+      await this.#sweepWallpaperDirectory();
 
+      const previousUuid = Services.prefs.getStringPref(
+        PREF_WALLPAPERS_CUSTOM_WALLPAPER_UUID,
+        ""
+      );
+
+      const uuid = Services.uuid.generateUUID().toString().slice(1, -1);
       const filePath = PathUtils.join(wallpaperDir, uuid);
 
       // convert to Uint8Array for IOUtils
       const arrayBuffer = await file.arrayBuffer();
       const uint8Array = new Uint8Array(arrayBuffer);
 
-      await IOUtils.write(filePath, uint8Array, { tmpPath: `${filePath}.tmp` });
+      await this.writeFile(filePath, uint8Array, {
+        tmpPath: `${filePath}.tmp`,
+      });
+
+      // Point the pref at the new file only once it exists, so a failed write
+      // leaves the previous upload referenced and on disk.
+      Services.prefs.setStringPref(PREF_WALLPAPERS_CUSTOM_WALLPAPER_UUID, uuid);
 
       const wallpaperURI = this.getWallpaperURL(uuid);
 
@@ -277,6 +351,18 @@ export class WallpaperFeed {
         ac.SetPref("newtabWallpapers.customWallpaper.theme", wallpaperTheme)
       );
 
+      // Delete the file this upload replaced. A failure only leaves it for the
+      // next sweep, and must not fail the upload that already succeeded.
+      if (previousUuid) {
+        try {
+          await IOUtils.remove(PathUtils.join(wallpaperDir, previousUuid), {
+            ignoreAbsent: true,
+          });
+        } catch (error) {
+          console.error("Failed to remove replaced wallpaper:", error);
+        }
+      }
+
       return filePath;
     } catch (error) {
       console.error("Error saving wallpaper:", error);
@@ -284,7 +370,54 @@ export class WallpaperFeed {
     }
   }
 
+  /**
+   * Deletes files in the wallpaper directory that the uuid pref does not name:
+   * wallpapers replaced before this cleanup existed, and .tmp files left by an
+   * interrupted write. Runs before each upload. Callers must already hold
+   * WALLPAPER_FILE_LOCK.
+   */
+  async #sweepWallpaperDirectory() {
+    try {
+      const wallpaperDir = PathUtils.join(PathUtils.profileDir, "wallpaper");
+      const children = await IOUtils.getChildren(wallpaperDir, {
+        ignoreAbsent: true,
+      });
+
+      const uuid = Services.prefs.getStringPref(
+        PREF_WALLPAPERS_CUSTOM_WALLPAPER_UUID,
+        ""
+      );
+
+      for (const path of children) {
+        if (uuid && PathUtils.filename(path) === uuid) {
+          continue;
+        }
+        // Per file, so one bad entry does not stop the rest of the sweep.
+        try {
+          const { type } = await IOUtils.stat(path);
+          if (type === "regular") {
+            await IOUtils.remove(path, { ignoreAbsent: true });
+          }
+        } catch (error) {
+          console.error("Failed to remove an orphaned wallpaper:", error);
+        }
+      }
+    } catch (error) {
+      console.error("Failed to clean up the wallpaper directory:", error);
+    }
+  }
+
   async removeCustomWallpaper() {
+    try {
+      await locks.request(WALLPAPER_FILE_LOCK, () =>
+        this.#deleteCustomWallpaper()
+      );
+    } catch (error) {
+      console.error("Could not take the wallpaper file lock:", error);
+    }
+  }
+
+  async #deleteCustomWallpaper() {
     try {
       let uuid = Services.prefs.getStringPref(
         PREF_WALLPAPERS_CUSTOM_WALLPAPER_UUID,
@@ -327,7 +460,10 @@ export class WallpaperFeed {
         if (
           action.data.name === "newtabWallpapers.customColor.enabled" ||
           action.data.name === "newtabWallpapers.customWallpaper.enabled" ||
-          action.data.name === "newtabWallpapers.enabled"
+          action.data.name === "newtabWallpapers.enabled" ||
+          // @nova-cleanup(remove-conditional): Drop this case; the wallpaper
+          // setup no longer depends on the pref.
+          action.data.name === "nova.enabled"
         ) {
           this.wallpaperTeardown();
           await this.wallpaperSetup(false /* isStartup */);
@@ -343,7 +479,7 @@ export class WallpaperFeed {
         this.wallpaperSeenEvent();
         break;
       case at.WALLPAPER_UPLOAD:
-        this.wallpaperUpload(action.data.file);
+        this.wallpaperUpload(action.data.file, action.data.theme);
         break;
       case at.WALLPAPER_REMOVE_UPLOAD:
         await this.removeCustomWallpaper();

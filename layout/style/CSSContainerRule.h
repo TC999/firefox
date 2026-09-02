@@ -43,6 +43,8 @@ class CSSContainerRule final : public css::ConditionRule {
                        JS::Handle<JSObject*> aGivenProto) override;
 
   Element* QueryContainerFor(const Element&, size_t aConditionIndex) const;
+  bool QueryConditionMatchesElement(const Element&,
+                                    size_t aConditionIndex) const;
 
  private:
   virtual ~CSSContainerRule();

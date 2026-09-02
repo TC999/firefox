@@ -14,17 +14,18 @@ import androidx.core.content.withStyledAttributes
 import androidx.preference.Preference
 import androidx.preference.PreferenceViewHolder
 import org.mozilla.fenix.R
-import org.mozilla.fenix.ext.settings
+import org.mozilla.fenix.ext.components
 
 /**
- * A custom [Preference] that displays two mutually exclusive radio button options within a single
- * preference item. This preference stores a single [Boolean] value in [SharedPreferences] based on
- * which radio button is selected:
+ * A custom [Preference] that displays two mutually exclusive radio button options within a single preference item. This
+ * preference stores a single [Boolean] value in [SharedPreferences] based on which radio button is selected:
  *
  * @param context The [Context] this is associated with.
  * @param attrs Optional attribute set used to configure the preference.
  */
-class ToggleRadioButtonPreference @JvmOverloads constructor(
+class ToggleRadioButtonPreference
+@JvmOverloads
+constructor(
     context: Context,
     attrs: AttributeSet? = null,
 ) : Preference(context, attrs) {
@@ -37,9 +38,7 @@ class ToggleRadioButtonPreference @JvmOverloads constructor(
 
     private var onToggleChanged: ((Boolean) -> Unit)? = null
 
-    /**
-     * Registers a listener that is invoked whenever the toggle selection changes.
-     */
+    /** Registers a listener that is invoked whenever the toggle selection changes. */
     fun setOnToggleChanged(listener: (Boolean) -> Unit) {
         onToggleChanged = listener
     }
@@ -60,7 +59,7 @@ class ToggleRadioButtonPreference @JvmOverloads constructor(
     override fun onBindViewHolder(holder: PreferenceViewHolder) {
         super.onBindViewHolder(holder)
 
-        val preferences = context.settings().preferences
+        val preferences = context.components.settings.preferences
         val selected = preferences.getBoolean(sharedKey, false)
 
         val optionTrueView = holder.findViewById(R.id.option_true)

@@ -6,13 +6,13 @@ package mozilla.components.browser.icons.generator
 
 import android.graphics.Bitmap
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import kotlin.test.assertNotNull
 import mozilla.components.browser.icons.Icon
 import mozilla.components.browser.icons.IconRequest
 import mozilla.components.support.ktx.android.util.dpToPx
 import mozilla.components.support.test.robolectric.testContext
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -27,7 +27,7 @@ class DefaultIconGeneratorTest {
         val color = generator.pickColor(res, "http://m.facebook.com")
 
         // Color does not change
-        for (i in 0..99) {
+        repeat(100) {
             assertEquals(color, generator.pickColor(res, "http://m.facebook.com"))
         }
 
@@ -45,12 +45,11 @@ class DefaultIconGeneratorTest {
     fun generate() {
         val generator = DefaultIconGenerator()
 
-        val icon = generator.generate(
-            testContext,
-            IconRequest(
-                url = "https://m.facebook.com",
-            ),
-        )
+        val icon =
+            generator.generate(
+                testContext,
+                IconRequest(url = "https://m.facebook.com"),
+            )
 
         assertNotNull(icon.bitmap)
         assertNotNull(icon.color)

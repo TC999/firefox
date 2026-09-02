@@ -57,6 +57,20 @@ tls_GetSignatureAlgorithmId(PLArenaPool *arena, SSLSignatureScheme scheme,
             algTag = SEC_OID_ANSIX962_ECDSA_SHA512_SIGNATURE;
             hashAlgTag = SEC_OID_SHA512;
             break;
+        /* ML-DSA fully defines the hash and sign algorithm,
+         * we set the hash alg to the same as the sign alg. */
+        case ssl_sig_mldsa44:
+            algTag = SEC_OID_ML_DSA_44;
+            hashAlgTag = SEC_OID_ML_DSA_44;
+            break;
+        case ssl_sig_mldsa65:
+            algTag = SEC_OID_ML_DSA_65;
+            hashAlgTag = SEC_OID_ML_DSA_65;
+            break;
+        case ssl_sig_mldsa87:
+            algTag = SEC_OID_ML_DSA_87;
+            hashAlgTag = SEC_OID_ML_DSA_87;
+            break;
 
         /* the following is unsupported in tls 1.3 and greater, just break.
          * We include them here explicitly so we get the compiler warning about
@@ -158,7 +172,7 @@ tls_CreateSignOrVerifyContext(SECKEYPrivateKey *privKey,
     return newCtx;
 
 loser:
-    tls_DestroySignOrVerifyContext(newCtx);
+    tls_DestroySignOrVerifyContext(&newCtx);
     if (arena) {
         PORT_FreeArena(arena, PR_FALSE);
     }
@@ -190,21 +204,28 @@ tls_SignOrVerifyEnd(tlsSignOrVerifyContext ctx, SECItem *sig)
     }
     /* destroy the context on success */
     if (rv == SECSuccess) {
-        tls_DestroySignOrVerifyContext(ctx);
+        tls_DestroySignOrVerifyContext(&ctx);
     }
     return rv;
 }
 
+/* Take ctx by pointer so we can NULL the freed pointer in the caller's
+ * struct; tls_CreateSignOrVerifyContext relies on this to return a
+ * NULL-ptr context on failure rather than a dangling one. */
 void
-tls_DestroySignOrVerifyContext(tlsSignOrVerifyContext ctx)
+tls_DestroySignOrVerifyContext(tlsSignOrVerifyContext *ctx)
 {
-    if (ctx.type == sig_sign) {
-        if (ctx.u.sig) {
-            SGN_DestroyContext(ctx.u.sig, PR_TRUE);
+    if (!ctx) {
+        return;
+    }
+    if (ctx->type == sig_sign) {
+        if (ctx->u.sig) {
+            SGN_DestroyContext(ctx->u.sig, PR_TRUE);
         }
     } else {
-        if (ctx.u.vfy) {
-            VFY_DestroyContext(ctx.u.vfy, PR_TRUE);
+        if (ctx->u.vfy) {
+            VFY_DestroyContext(ctx->u.vfy, PR_TRUE);
         }
     }
+    ctx->u.ptr = NULL;
 }

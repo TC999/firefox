@@ -86,4 +86,74 @@ describe("SmartWindowMetricsTelemetry", () => {
     );
     await SpecialPowers.popPrefEnv();
   });
+
+  it("records setDefaultOptin as true", async () => {
+    await SpecialPowers.pushPrefEnv({
+      set: [["browser.smartwindow.isDefaultWindow", true]],
+    });
+    SmartWindowTelemetry.updateSetDefaultOptinMetric();
+
+    Assert.strictEqual(
+      Glean.smartWindow.setDefaultOptin.testGetValue(),
+      true,
+      "setDefaultOptin should be true"
+    );
+    await SpecialPowers.popPrefEnv();
+  });
+
+  it("records setDefaultOptin as false", async () => {
+    await SpecialPowers.pushPrefEnv({
+      set: [["browser.smartwindow.isDefaultWindow", false]],
+    });
+    SmartWindowTelemetry.updateSetDefaultOptinMetric();
+
+    Assert.strictEqual(
+      Glean.smartWindow.setDefaultOptin.testGetValue(),
+      false,
+      "setDefaultOptin should be false"
+    );
+    await SpecialPowers.popPrefEnv();
+  });
+
+  it("records enabled as true", async () => {
+    await SpecialPowers.pushPrefEnv({
+      set: [["browser.smartwindow.enabled", true]],
+    });
+    SmartWindowTelemetry.updateEnabledMetric();
+
+    Assert.strictEqual(
+      Glean.smartWindow.enabled.testGetValue(),
+      true,
+      "enabled should be true"
+    );
+    await SpecialPowers.popPrefEnv();
+  });
+
+  it("records enabled as false", async () => {
+    await SpecialPowers.pushPrefEnv({
+      set: [["browser.smartwindow.enabled", false]],
+    });
+    SmartWindowTelemetry.updateEnabledMetric();
+
+    Assert.strictEqual(
+      Glean.smartWindow.enabled.testGetValue(),
+      false,
+      "enabled should be false"
+    );
+    await SpecialPowers.popPrefEnv();
+  });
+
+  it("records enabled when the pref flips to true", async () => {
+    SmartWindowTelemetry.init();
+    await SpecialPowers.pushPrefEnv({
+      set: [["browser.smartwindow.enabled", true]],
+    });
+
+    Assert.strictEqual(
+      Glean.smartWindow.enabled.testGetValue(),
+      true,
+      "enabled should be updated by the pref observer"
+    );
+    await SpecialPowers.popPrefEnv();
+  });
 });

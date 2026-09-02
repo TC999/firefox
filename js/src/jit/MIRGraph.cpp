@@ -84,7 +84,7 @@ void MIRGenerator::spewBeginFunction(JSScript* function) {
     graphSpewer_->beginFunction(function);
   }
 #endif
-  perfSpewer().startRecording();
+  perfSpewer().startRecording(runtime);
 }
 
 void MIRGenerator::spewBeginWasmFunction(unsigned funcIndex) {
@@ -95,7 +95,7 @@ void MIRGenerator::spewBeginWasmFunction(unsigned funcIndex) {
     graphSpewer_->beginWasmFunction(funcIndex);
   }
 #endif
-  perfSpewer().startRecording(wasmCodeMeta_);
+  perfSpewer().startRecording(/* runtime = */ nullptr, wasmCodeMeta_);
 }
 
 void MIRGenerator::spewPass(const char* name, BacktrackingAllocator* ra) {
@@ -1654,6 +1654,7 @@ void jit::AssertBasicGraphCoherency(MIRGraph& graph, bool force) {
     for (MPhiIterator phi(block->phisBegin()); phi != block->phisEnd(); phi++) {
       MOZ_ASSERT(phi->numOperands() == block->numPredecessors());
       MOZ_ASSERT(!phi->isRecoveredOnBailout());
+      MOZ_ASSERT(!phi->isInWorklist());
       MOZ_ASSERT(phi->type() != MIRType::None);
       MOZ_ASSERT(phi->dependency() == nullptr);
     }
@@ -1661,6 +1662,7 @@ void jit::AssertBasicGraphCoherency(MIRGraph& graph, bool force) {
       MOZ_ASSERT(iter->block() == *block);
       MOZ_ASSERT_IF(iter->hasUses(), iter->type() != MIRType::None);
       MOZ_ASSERT(!iter->isDiscarded());
+      MOZ_ASSERT(!iter->isInWorklist());
       MOZ_ASSERT_IF(iter->isStart(),
                     *block == graph.entryBlock() || *block == graph.osrBlock());
       MOZ_ASSERT_IF(iter->isParameter(),

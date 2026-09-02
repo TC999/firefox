@@ -21,7 +21,14 @@ import { Prefs } from "resource://newtab/lib/ActivityStreamPrefs.sys.mjs";
 import {
   PREF_DEFAULT_VALUE_TOPSTORIES_ENABLED,
   PREF_DEFAULT_VALUE_TOPSITES_ENABLED,
+  PREFS_CONFIG,
 } from "resource://newtab/lib/ActivityStream.sys.mjs";
+import { WIDGET_REGISTRY } from "resource://newtab/common/WidgetsRegistry.mjs";
+import {
+  isSpacesAssigned,
+  PREF_PAGE_LAYOUT_VARIANT,
+  SPACE_CONFIG,
+} from "resource://newtab/common/PageLayoutVariants.mjs";
 
 // eslint-disable-next-line mozilla/use-static-import
 const { AppConstants } = ChromeUtils.importESModule(
@@ -49,6 +56,40 @@ const TOP_SITES_USER_VALUE_TEMP_PREF =
   "activationWindow.temp.topSitesUserValue";
 const TOP_STORIES_USER_VALUE_TEMP_PREF =
   "activationWindow.temp.topStoriesUserValue";
+// Browser-wide Nova gate. Lives off the activity-stream branch, so it is read
+// and observed directly here (not via the branch observer) and broadcast to
+// content to gate the theme picker in the customize panel.
+const BROWSER_NOVA_ENABLED_PREF = "browser.nova.enabled";
+// Whether this profile records browsing history, broadcast as the synthetic
+// `recordsHistory` value to hide history-dependent widgets. Deliberately not
+// named after places.history.enabled: it derives from that pref AND permanent
+// private browsing. Two prefs because "Never remember history" sets autostart,
+// while the custom-mode "Remember browsing and download history" checkbox sets
+// places.history.enabled.
+const RECORDS_HISTORY_PREFS = [
+  "places.history.enabled",
+  "browser.privatebrowsing.autostart",
+];
+
+function recordsHistory() {
+  return (
+    !lazy.PrivateBrowsingUtils.permanentPrivateBrowsing &&
+    Services.prefs.getBoolPref("places.history.enabled", true)
+  );
+}
+
+/**
+ * @backward-compat { version 155 }
+ * The New Tab theme picker depends on the toolkit `theme-picker` custom element,
+ * its JSWindowActor pair (bug 2050531), and `toolkit/global/theme-picker.ftl` —
+ * all of which only exist in Firefox 155+. When newtab train-hops onto an older
+ * host these are absent (the element never upgrades, the actor is unregistered,
+ * and the ftl resource fails to load), so gate the whole feature off there.
+ * Remove this guard once 155 reaches Release.
+ */
+function isThemePickerHostSupported() {
+  return Services.vc.compare(AppConstants.MOZ_APP_VERSION, "155.0a1") >= 0;
+}
 const PREF_DEFAULTS = [
   { type: "bool", key: "logowordmark.alwaysVisible", defaultValue: false },
   { type: "bool", key: "feeds.section.topstories", defaultValue: false },
@@ -88,6 +129,10 @@ export class PrefsFeed {
   constructor(prefMap) {
     this._prefMap = prefMap;
     this._prefs = new Prefs();
+    // Buffers broadcast prefs during a SET_MULTIPLE_PREFS transaction; null otherwise.
+    this._prefsTransaction = null;
+    // Mirrors what was last broadcast as `lockedPrefs`.
+    this._lockedPrefs = new Set();
     this.onExperimentUpdated = this.onExperimentUpdated.bind(this);
     this.onTrainhopExperimentUpdated =
       this.onTrainhopExperimentUpdated.bind(this);
@@ -119,8 +164,11 @@ export class PrefsFeed {
    *   changes are tracked during the activation window.
    */
   onPrefChanged(name, value, isUserChange = true) {
+    this._mirrorSpaceOptOut(name, value);
     const prefItem = this._prefMap.get(name);
     if (prefItem) {
+      this.updateLockedPref(name);
+
       let action = "BroadcastToContent";
       if (prefItem.skipBroadcast) {
         action = "OnlyToMain";
@@ -129,17 +177,54 @@ export class PrefsFeed {
         }
       }
 
-      this.store.dispatch(
-        ac[action]({
-          type: at.PREF_CHANGED,
-          data: { name, value },
-        })
-      );
+      // Buffer broadcast prefs into one MULTIPLE_PREFS_CHANGED for content, but still
+      // emit a main-only PREF_CHANGED so feeds (e.g. WeatherFeed) react per pref.
+      // skipBroadcast prefs keep their individual routing.
+      if (this._prefsTransaction && action === "BroadcastToContent") {
+        this._prefsTransaction[name] = value;
+        this.store.dispatch(
+          ac.OnlyToMain({ type: at.PREF_CHANGED, data: { name, value } })
+        );
+      } else {
+        this.store.dispatch(
+          ac[action]({
+            type: at.PREF_CHANGED,
+            data: { name, value },
+          })
+        );
+      }
     }
 
     if (isUserChange && this.inActivationWindowState) {
       this.trackActivationWindowPrefChange(name, value);
     }
+  }
+
+  /**
+   * Locking and unlocking a pref notifies its observers (see
+   * `Preferences::Lock`), so this runs for lock changes even when the value
+   * itself is unchanged.
+   *
+   * @param {string} name - The branch-relative pref name that changed.
+   */
+  updateLockedPref(name) {
+    const locked = this._prefs.locked(name);
+    if (locked === this._lockedPrefs.has(name)) {
+      return;
+    }
+
+    if (locked) {
+      this._lockedPrefs.add(name);
+    } else {
+      this._lockedPrefs.delete(name);
+    }
+
+    this.store.dispatch(
+      ac.BroadcastToContent({
+        type: at.PREF_CHANGED,
+        data: { name: "lockedPrefs", value: [...this._lockedPrefs] },
+      })
+    );
   }
 
   /**
@@ -248,6 +333,12 @@ export class PrefsFeed {
       return accumulator;
     }, {});
 
+    // Before any pref write below. Those fire the branch observer
+    // synchronously, and its handler reads this to decide whether spaces is
+    // still assigned -- a stale value makes an unenrollment revert look like a
+    // user turning the space off.
+    this._trainhopConfig = valueObj;
+
     // Bug 2021055: Write weather.display to the default branch so Nimbus sets
     // the initial value without overriding an explicit user choice (user branch
     // always takes precedence over the default branch).
@@ -257,6 +348,18 @@ export class PrefsFeed {
         .setStringPref("weather.display", valueObj.weather.display);
     }
 
+    // Write widgets.weather.size to the default branch so trainhop overrides
+    // the migration default computed by getWeatherWidgetSize() while a user's
+    // explicit size pick (user branch) still wins.
+    if (
+      typeof valueObj.widgets?.weatherSize === "string" &&
+      valueObj.widgets.weatherSize
+    ) {
+      Services.prefs
+        .getDefaultBranch(this._prefs._branchStr)
+        .setStringPref("widgets.weather.size", valueObj.widgets.weatherSize);
+    }
+
     // Write topSitesRows to the default branch to enable experiments with
     // the default row count without overriding an explicit user choice.
     if (valueObj.topSites?.topSitesRows) {
@@ -264,6 +367,8 @@ export class PrefsFeed {
         .getDefaultBranch(this._prefs._branchStr)
         .setIntPref("topSitesRows", valueObj.topSites.topSitesRows);
     }
+
+    this._applySpacePrefDefaults(valueObj);
 
     // Write initialWallpaper to the user branch so it persists after the
     // experiment ends. The guard prevents overwriting an existing value or a
@@ -276,6 +381,43 @@ export class PrefsFeed {
         "newtabWallpapers.initialWallpaper",
         valueObj.wallpaper.initialWallpaper
       );
+    }
+
+    // Override per-widget default enabled values from widgetsSettings. Writing
+    // to the default branch lets a trainhop flip a widget's default (e.g. ship
+    // it off) while an explicit user toggle (user branch) still wins. Toggle
+    // VISIBILITY is handled separately by the widgetsSettings.*Visible terms in
+    // WidgetsRegistry — this only affects the on/off default value.
+    if (valueObj.widgetsSettings) {
+      const defaultBranch = Services.prefs.getDefaultBranch(
+        this._prefs._branchStr
+      );
+      for (const widget of WIDGET_REGISTRY) {
+        const value =
+          valueObj.widgetsSettings[widget.widgetsSettingsEnabledKey];
+        if (typeof value === "boolean") {
+          defaultBranch.setBoolPref(widget.enabledPref, value);
+        }
+      }
+    }
+
+    // A widget with a dedicated trainhop namespace ships its whole config in one
+    // object (trainhopConfig.<namespace>). Its `enabled` overrides the default
+    // value of the widget's user-facing enabled pref on the default branch (an
+    // explicit user toggle still wins), the same effect widgetsSettings.*Enabled
+    // has but isolated to this widget's payload. Revealing the widget is a
+    // separate concern handled by the `visible` field in isWidgetAddable; the
+    // remaining fields are read directly from trainhopConfig by their consumers.
+    // Adding another widget only takes a trainhopNamespace on its registry entry.
+    for (const widget of WIDGET_REGISTRY) {
+      const enabled = widget.trainhopNamespace
+        ? valueObj[widget.trainhopNamespace]?.enabled
+        : undefined;
+      if (typeof enabled === "boolean") {
+        Services.prefs
+          .getDefaultBranch(this._prefs._branchStr)
+          .setBoolPref(widget.enabledPref, enabled);
+      }
     }
 
     return valueObj;
@@ -308,6 +450,82 @@ export class PrefsFeed {
     }, {});
 
     return valueObj;
+  }
+
+  /**
+   * What isSpacesAssigned needs, from prefs rather than the store so this works
+   * before the store has state.
+   *
+   * @returns {object}
+   */
+  _spacesVariantPrefs(trainhopConfig = this._trainhopConfig) {
+    return {
+      [PREF_PAGE_LAYOUT_VARIANT]: this._prefs.get(PREF_PAGE_LAYOUT_VARIANT),
+      trainhopConfig,
+    };
+  }
+
+  /**
+   * Mirrors a space's pref into its opt-out pref, so the experiment stops
+   * overriding a space the user has just turned off. Driven by the branch
+   * observer, so it sees the newtab customize menu, about:preferences and
+   * about:config alike.
+   *
+   * A mirror, not a judgement: whoever wrote the pref, its new value is the
+   * answer. Enrollment fires no change, so the value a profile arrived with is
+   * left alone -- that is the population being turned back on.
+   *
+   * @param {string} name - the pref that changed
+   * @param {*} value - its new value
+   */
+  _mirrorSpaceOptOut(name, value) {
+    const space = Object.values(SPACE_CONFIG).find(s => s.userPref === name);
+    if (!space || !isSpacesAssigned(this._spacesVariantPrefs())) {
+      return;
+    }
+    if (this._prefs.get(space.optOutPref) !== !value) {
+      this._prefs.set(space.optOutPref, !value);
+    }
+  }
+
+  /**
+   * Writes the pref default for the spaces that need one, which is Recent
+   * Activity alone: its pref gates HighlightsFeed, so overriding the reads
+   * would show a space with nothing to render. The default branch, so a user
+   * value still wins, and reverted on unenrollment rather than at the next
+   * restart -- but only for a profile this has written, so an unrelated
+   * train-hop config does not touch it.
+   *
+   * Enterprise profiles are excluded by the recipe's
+   * `!hasActiveEnterprisePolicies` targeting rather than checked here.
+   *
+   * @param {object} valueObj - the freshly computed train-hop config
+   */
+  _applySpacePrefDefaults(valueObj) {
+    // Only the write is scoped to the experiment. The revert must still run
+    // once the variant is gone, which is exactly when unenrolling needs it.
+    const assigned = isSpacesAssigned(this._spacesVariantPrefs(valueObj));
+    this._wroteSpaceDefaults ??= new Set();
+    for (const space of Object.values(SPACE_CONFIG)) {
+      if (!space.feedGated) {
+        continue;
+      }
+      const { trainhopKey, userPref } = space;
+      const enabled = valueObj[trainhopKey]?.enabled;
+      if (assigned && typeof enabled === "boolean") {
+        Services.prefs
+          .getDefaultBranch(this._prefs._branchStr)
+          .setBoolPref(userPref, enabled);
+        this._wroteSpaceDefaults.add(userPref);
+      } else if (this._wroteSpaceDefaults.has(userPref)) {
+        // The Set is the safety here, not the variant: only a pref this
+        // profile was actually given gets put back.
+        Services.prefs
+          .getDefaultBranch(this._prefs._branchStr)
+          .setBoolPref(userPref, PREFS_CONFIG.get(userPref).value);
+        this._wroteSpaceDefaults.delete(userPref);
+      }
+    }
   }
 
   /**
@@ -508,6 +726,21 @@ export class PrefsFeed {
       "browser.topsites.useRemoteSetting"
     );
 
+    // Read the browser-wide Nova gate and observe it so later changes are
+    // broadcast to content (see observe()).
+    values.browserNovaEnabled =
+      isThemePickerHostSupported() &&
+      Services.prefs.getBoolPref(BROWSER_NOVA_ENABLED_PREF, false);
+    Services.prefs.addObserver(BROWSER_NOVA_ENABLED_PREF, this);
+
+    // Seed the tracked value so observe() can tell a real flip from a pref
+    // write that leaves it alone.
+    this._recordsHistory = recordsHistory();
+    values.recordsHistory = this._recordsHistory;
+    for (const pref of RECORDS_HISTORY_PREFS) {
+      Services.prefs.addObserver(pref, this);
+    }
+
     // Add experiment values and default values
     values.featureConfig = lazy.NimbusFeatures.newtab.getAllVariables() || {};
     values.pocketConfig =
@@ -526,6 +759,10 @@ export class PrefsFeed {
     values.widgetsConfig =
       lazy.NimbusFeatures.newtabWidgets.getAllVariables() || {};
     values.trainhopConfig = this._getTrainhopConfig();
+    values.trainhopVersion =
+      globalThis.WebExtensionPolicy?.getByID("newtab@mozilla.org")?.version ??
+      null;
+    values.nimbusDebug = Services.prefs.getBoolPref("nimbus.debug", false);
     values.adsBackendConfig = this._getAdsBackendFeatures();
     for (const { type, key, defaultValue } of PREF_DEFAULTS) {
       if (type === "bool") {
@@ -534,6 +771,12 @@ export class PrefsFeed {
         this._setStringPref(values, key, defaultValue);
       }
     }
+
+    // Last, so it covers the prefs added to _prefMap above.
+    values.lockedPrefs = [...this._prefMap.keys()].filter(name =>
+      this._prefs.locked(name)
+    );
+    this._lockedPrefs = new Set(values.lockedPrefs);
 
     // Set the initial state of all prefs in redux
     this.store.dispatch(
@@ -572,6 +815,10 @@ export class PrefsFeed {
 
     if (this.geo === "") {
       Services.obs.removeObserver(this, lazy.Region.REGION_TOPIC);
+    }
+    Services.prefs.removeObserver(BROWSER_NOVA_ENABLED_PREF, this);
+    for (const pref of RECORDS_HISTORY_PREFS) {
+      Services.prefs.removeObserver(pref, this);
     }
   }
 
@@ -835,7 +1082,7 @@ export class PrefsFeed {
     lazy.logConsole.log("Activation window exit complete");
   }
 
-  observe(subject, topic) {
+  observe(subject, topic, data) {
     switch (topic) {
       case lazy.Region.REGION_TOPIC:
         this.store.dispatch(
@@ -844,6 +1091,38 @@ export class PrefsFeed {
             data: { name: "region", value: lazy.Region.home },
           })
         );
+        break;
+      case "nsPref:changed":
+        if (data === BROWSER_NOVA_ENABLED_PREF) {
+          this.store.dispatch(
+            ac.BroadcastToContent({
+              type: at.PREF_CHANGED,
+              data: {
+                name: "browserNovaEnabled",
+                value:
+                  isThemePickerHostSupported() &&
+                  Services.prefs.getBoolPref(BROWSER_NOVA_ENABLED_PREF, false),
+              },
+            })
+          );
+        } else if (RECORDS_HISTORY_PREFS.includes(data)) {
+          // Track the derived value, not the writes: two prefs collapse into one
+          // boolean, so a write that leaves it unchanged (e.g. autostart moving
+          // while places.history.enabled is already false) must not act.
+          const nextRecordsHistory = recordsHistory();
+          if (nextRecordsHistory !== this._recordsHistory) {
+            this._recordsHistory = nextRecordsHistory;
+            // No explicit about:home cache handling: broadcasting re-arms the
+            // cache task via onPreloadedNewTabMessage, so the next write already
+            // captures the updated page.
+            this.store.dispatch(
+              ac.BroadcastToContent({
+                type: at.PREF_CHANGED,
+                data: { name: "recordsHistory", value: nextRecordsHistory },
+              })
+            );
+          }
+        }
         break;
     }
   }
@@ -862,6 +1141,29 @@ export class PrefsFeed {
       case at.SET_PREF:
         this._prefs.set(action.data.name, action.data.value);
         break;
+      case at.SET_MULTIPLE_PREFS: {
+        // Set all prefs in a transaction, then flush one combined MULTIPLE_PREFS_CHANGED.
+        this._prefsTransaction = {};
+        try {
+          for (const [name, value] of Object.entries(
+            action.data.values ?? {}
+          )) {
+            this._prefs.set(name, value);
+          }
+        } finally {
+          const values = this._prefsTransaction;
+          this._prefsTransaction = null;
+          if (Object.keys(values).length) {
+            this.store.dispatch(
+              ac.BroadcastToContent({
+                type: at.MULTIPLE_PREFS_CHANGED,
+                data: { values },
+              })
+            );
+          }
+        }
+        break;
+      }
       case at.NEW_TAB_STATE_REQUEST: {
         this.checkForActivationWindow();
         break;

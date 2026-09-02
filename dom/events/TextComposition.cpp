@@ -19,6 +19,7 @@
 #include "mozilla/StaticPrefs_intl.h"
 #include "mozilla/TextEvents.h"
 #include "mozilla/dom/BrowserParent.h"
+#include "mozilla/dom/EditContext.h"
 #include "nsContentUtils.h"
 #include "nsIContent.h"
 #include "nsIMutationObserver.h"
@@ -260,6 +261,21 @@ void TextComposition::DispatchEvent(
   }
   RefPtr<nsINode> node = mNode;
   RefPtr<nsPresContext> presContext = mPresContext;
+  if (auto* element = nsGenericHTMLElement::FromNode(node)) {
+    if (RefPtr<dom::EditContext> editContext = element->GetEditContext()) {
+      // Only compositionstart and compositionend are sent to EditContext
+      if (aDispatchEvent->mMessage == eCompositionStart) {
+        editContext->StartComposition(*aDispatchEvent);
+      } else if (aDispatchEvent->mMessage == eCompositionEnd) {
+        editContext->EndComposition(*aDispatchEvent);
+      }
+      // Internally, we want to dispatch this event to the EditContext's
+      // associated element, since that is what the EditorEventListener is
+      // listening to. But according to the spec, composition events should only
+      // be dispatched to the EditContext.
+      aDispatchEvent->mFlags.mOnlySystemGroupDispatch = true;
+    }
+  }
   EventDispatcher::Dispatch(node, presContext, aDispatchEvent, nullptr, aStatus,
                             aCallBack);
 
@@ -368,7 +384,12 @@ void TextComposition::DispatchCompositionEvent(
   // told it to web apps.  Therefore, we should ignore the delayed events.
   if (mRequestedToCommitOrCancel && !aIsSynthesized) {
     *aStatus = nsEventStatus_eConsumeNoDefault;
-    return;
+    // If this composition is handled in a content process, we need to send the
+    // delayed commit event to the remote process because the content process's
+    // TextEventDispatcher needs to manage its composing state with the event.
+    if (!mBrowserParent) {
+      return;
+    }
   }
 
   // If the content is a container of BrowserParent, composition should be in
@@ -514,7 +535,12 @@ void TextComposition::DispatchCompositionEvent(
 
   // Emulate editor behavior of compositionchange event (DOM text event) handler
   // if no editor handles composition events.
-  if (dispatchDOMTextEvent && !HasEditor()) {
+  // However, if we have received a commit, but not from aCompositionEvent (e.g.
+  // an event listener called above caused the composition to end by removing
+  // the editor), then we don't want to overwrite the data from the commit.
+  if (dispatchDOMTextEvent && !HasEditor() &&
+      (!mHasReceivedCommitEvent ||
+       aCompositionEvent->IsFollowedByCompositionEnd())) {
     EditorWillHandleCompositionChangeEvent(aCompositionEvent);
     EditorDidHandleCompositionChangeEvent();
   }
@@ -523,6 +549,22 @@ void TextComposition::DispatchCompositionEvent(
     // Dispatch a compositionend event if it's necessary.
     if (aCompositionEvent->mMessage != eCompositionEnd) {
       CloneAndDispatchAs(aCompositionEvent, eCompositionEnd);
+    }
+    if (RefPtr<EditorBase> editor = GetEditorBase()) {
+      // If the editable element is removed during a composition
+      // (or is adopted to a different document) then we immediately fire
+      // compositionend but the event never reaches the EditorEventListener,
+      // since it's now targeting an element that's not in the document.
+      // So we need to tell the editor that the composition has ended here.
+      MOZ_ASSERT(mNode);
+      MOZ_ASSERT(
+          editor->GetDocument() != mNode->GetComposedDoc(),
+          "Should only happen if event target node is disconnected or moved to "
+          "a different document");
+      editor->OnCompositionEnd(*aCompositionEvent);
+      // We don't necessarily get a eCompositionChange event with
+      // IsComposing() = false in these cases.
+      mIsComposing = false;
     }
     MOZ_ASSERT(!mIsComposing, "Why is the editor still composing?");
     MOZ_ASSERT(!HasEditor(), "Why does the editor still keep to hold this?");
@@ -660,7 +702,8 @@ void TextComposition::MaybeNotifyIMEOfCompositionEventHandled(
   //     destroying IMEContentObserver notifies IME of blur.  So, native IME
   //     handler can treat it as this notification too.
   if (contentObserver && contentObserver->IsObserving(*this)) {
-    contentObserver->MaybeNotifyCompositionEventHandled();
+    contentObserver->MaybeNotifyCompositionEventHandled(
+        aCompositionEvent->mMessage);
     return;
   }
   // Otherwise, e.g., this composition is in non-active window, we should
@@ -671,7 +714,7 @@ void TextComposition::MaybeNotifyIMEOfCompositionEventHandled(
 void TextComposition::DispatchCompositionEventRunnable(
     EventMessage aEventMessage, const nsAString& aData,
     bool aIsSynthesizingCommit) {
-  nsContentUtils::AddScriptRunner(new CompositionEventDispatcher(
+  nsContentUtils::AddScriptRunner(MakeAndAddRef<CompositionEventDispatcher>(
       this, mNode, aEventMessage, aData, aIsSynthesizingCommit));
 }
 
@@ -700,6 +743,16 @@ nsresult TextComposition::RequestToCommit(nsIWidget* aWidget, bool aDiscard) {
       mIsRequestingCancel = false;
       mIsRequestingCommit = true;
     }
+    // Request native IME to commit or cancel composition synchronously. Note
+    // that even if we're in a content process, we use synchronous IPC to
+    // request it. Therefore, if native IME handles the request synchronously,
+    // DispatchCompositionEvent() is called with eCompositionCommit or
+    // eCompositionCommitAsIs with setting aIsSynthesized to `false` during this
+    // call.
+    //
+    // If the native IME does not handle the request synchronously, the
+    // corresponding commit event must come later.
+    //
     // FYI: CompositionEvents caused by a call of NotifyIME() may be
     //      discarded by PresShell if it's not safe to dispatch the event.
     nsresult rv = aWidget->NotifyIME(
@@ -712,12 +765,25 @@ nsresult TextComposition::RequestToCommit(nsIWidget* aWidget, bool aDiscard) {
 
   mRequestedToCommitOrCancel = true;
 
-  // If the request is performed synchronously, this must be already destroyed.
+  // If the request is handled by IME synchronously, this has already been
+  // destroyed so that we do nothing anymore.
   if (Destroyed()) {
     return NS_OK;
   }
 
-  // Otherwise, synthesize the commit in content.
+  // If the composition is handled in a content process and the IME does not
+  // commit composition synchronously, we should wait the commit event from IME
+  // and we need to send it later.
+  if (mBrowserParent) {
+    return NS_OK;
+  }
+
+  // Otherwise, synthesize the commit in content because most web apps must
+  // assume that committing composition is handled synchronously. This will
+  // call DispatchCompositionEvent() with eCompositionCommit or
+  // eCompositionCommitAsIs event with setting aIsSynthesized to `true` before
+  // receiving eCompositionCommit or eCompositionCommitAsIs coming from native
+  // IME handler.
   nsAutoString data(aDiscard ? EmptyString() : lastData);
   if (data == mLastData) {
     DispatchCompositionEventRunnable(eCompositionCommitAsIs, u""_ns, true);
@@ -844,8 +910,10 @@ RawRangeBoundary TextComposition::FirstIMESelectionStartRef() const {
       }
       // Unfortunately, really slow path.
       // The ranges should always have a common ancestor, hence, be comparable.
-      if (*nsContentUtils::ComparePoints(range->StartRef(),
-                                         firstRange->StartRef()) == -1) {
+      // XXX Should use TreeKind::DOM? Editable state won't cross shadow DOM
+      // boundaries.
+      if (*nsContentUtils::ComparePoints<TreeKind::ShadowIncludingDOM>(
+              range->StartRef(), firstRange->StartRef()) == -1) {
         firstRange = range;
       }
     }
@@ -905,8 +973,10 @@ RawRangeBoundary TextComposition::LastIMESelectionEndRef() const {
       }
       // Unfortunately, really slow path.
       // The ranges should always have a common ancestor, hence, be comparable.
-      if (*nsContentUtils::ComparePoints(lastRange->EndRef(),
-                                         range->EndRef()) == -1) {
+      // XXX Should use TreeKind::DOM? Editable state won't cross shadow DOM
+      // boundaries.
+      if (*nsContentUtils::ComparePoints<TreeKind::ShadowIncludingDOM>(
+              lastRange->EndRef(), range->EndRef()) == -1) {
         lastRange = range;
       }
     }

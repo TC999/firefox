@@ -3,12 +3,13 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "mozilla/SchedulerGroup.h"
+
 #include "nsThreadUtils.h"
 
 namespace mozilla {
 
 /* static */
-nsresult SchedulerGroup::Dispatch(already_AddRefed<nsIRunnable>&& aRunnable,
+nsresult SchedulerGroup::Dispatch(already_AddRefed<nsIRunnable> aRunnable,
                                   nsIEventTarget::DispatchFlags aFlags) {
   if (NS_IsMainThread()) {
     // NOTE: NS_DispatchToCurrentThread always specifies `NS_DISPATCH_FALLIBLE`.

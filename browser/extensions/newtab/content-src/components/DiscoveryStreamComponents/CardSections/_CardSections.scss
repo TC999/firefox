@@ -1,19 +1,5 @@
 // Bug 1964453: Some styles here may appear duplicative — due to @includes, @container and media queries, certain rules are intentionally overwritten rather than relying on cascade behavior.
 
-@mixin nova-card-stp-controls {
-  .card-stp-button-hover-background .card-stp-button-position-wrapper {
-    inset-inline-end: var(--nova-stp-inset);
-    inset-block-end: var(--nova-stp-inset);
-  }
-
-  .context-menu-position-container .context-menu-button {
-    width: var(--size-item-medium);
-    height: var(--size-item-medium);
-    border-radius: var(--border-radius-circle);
-    background-size: var(--icon-size);
-  }
-}
-
 @mixin section-card-small {
   grid-row: span 1;
   grid-column: span 1;
@@ -21,12 +7,10 @@
 
   &.ds-card.sections-card-ui {
     padding: unset;
-    // @backward-compat { version 150 } D281466/D283723 renamed design tokens; remove once Firefox 150 is on Release.
-    box-shadow: var(--card-box-shadow, var(--box-shadow-card));
+    box-shadow: var(--card-box-shadow);
 
     &:hover {
-      // @backward-compat { version 150 } D281466/D283723 renamed design tokens; remove once Firefox 150 is on Release.
-      box-shadow: var(--card-box-shadow-hover, var(--box-shadow-card-hover));
+      box-shadow: var(--card-box-shadow-hover);
     }
 
     &:not(.placeholder) .img-wrapper>.ds-image.img>img {
@@ -111,62 +95,6 @@
     padding-block-start: unset;
   }
 
-  &.ds-card.sections-card-ui.nova-card-ui {
-    --nova-small-card-image-width: 132px;
-    --nova-small-card-image-height: 108px;
-
-    &:not(.placeholder) {
-      box-shadow: var(--card-box-shadow);
-    }
-
-    &:hover,
-    &:active,
-    &:focus-within,
-    &.active {
-      box-shadow: var(--card-box-shadow-hover);
-
-      .meta .sections-card-footer {
-        padding-inline-end: var(--space-xlarge);
-      }
-    }
-
-    .ds-card-link {
-      align-items: flex-start;
-      gap: var(--space-small);
-      padding: var(--space-medium);
-    }
-
-    .img-wrapper {
-      width: var(--nova-small-card-image-width);
-      height: var(--nova-small-card-image-height);
-    }
-
-    .img-wrapper > .ds-image.img > img {
-      border-radius: calc(var(--border-radius-small) + var(--space-xxsmall));
-    }
-
-    .meta {
-      // space-xxsmall is used to align small card publisher title with medium card
-      height: calc(var(--nova-small-card-image-height) + var(--space-xxsmall));
-      min-height: 0;
-
-      .info-wrap {
-        margin-block-start: 0;
-        max-width: none;
-      }
-
-      .sections-card-footer {
-        margin-block-end: 0;
-        min-height: var(--size-item-medium);
-        max-width: none;
-      }
-    }
-
-    --nova-stp-inset: var(--space-medium);
-
-    @include nova-card-stp-controls;
-  }
-
 }
 
 @mixin section-card-medium {
@@ -179,12 +107,10 @@
 
   &.ds-card.sections-card-ui {
     height: unset;
-    // @backward-compat { version 150 } D281466/D283723 renamed design tokens; remove once Firefox 150 is on Release.
-    box-shadow: var(--card-box-shadow, var(--box-shadow-card));
+    box-shadow: var(--card-box-shadow);
 
     &:hover {
-      // @backward-compat { version 150 } D281466/D283723 renamed design tokens; remove once Firefox 150 is on Release.
-      box-shadow: var(--card-box-shadow-hover, var(--box-shadow-card-hover));
+      box-shadow: var(--card-box-shadow-hover);
     }
   }
 
@@ -275,50 +201,6 @@
     }
   }
 
-  &.ds-card.sections-card-ui.nova-card-ui:not(.ds-spoc-rectangle) {
-    &:not(.placeholder) {
-      box-shadow: var(--card-box-shadow);
-
-      .img-wrapper > .ds-image.img > img {
-        border-radius: var(--border-radius-medium);
-      }
-    }
-
-    &:hover,
-    &:active,
-    &:focus-within,
-    &.active {
-      box-shadow: var(--card-box-shadow-hover);
-    }
-
-    .ds-card-link {
-      gap: var(--space-medium);
-      padding: var(--space-large) var(--space-large) var(--space-medium);
-    }
-
-    .meta {
-      padding: 0;
-      min-height: 79px;
-
-      .info-wrap .title {
-        font-size: var(--font-size-small);
-        margin-block-end: 0;
-      }
-
-      .info-wrap .excerpt {
-        display: none;
-      }
-
-      .sections-card-footer {
-        min-height: var(--size-item-medium);
-      }
-    }
-
-    --nova-stp-inset: var(--space-large);
-
-    @include nova-card-stp-controls;
-  }
-
   .ds-card-link {
     display: flex;
     flex-direction: column;
@@ -326,7 +208,7 @@
     padding: 0;
   }
 
-  &:not(.placeholder) {
+  &:not(.placeholder, .ds-spoc-rectangle) {
     .img-wrapper>.ds-image.img>img {
       border-radius: var(--border-radius-large) var(--border-radius-large) 0 0;
     }
@@ -338,8 +220,7 @@
   grid-column: span 2;
 
   &.ds-card.sections-card-ui {
-    // @backward-compat { version 150 } D281466/D283723 renamed design tokens; remove once Firefox 150 is on Release.
-    box-shadow: var(--card-box-shadow, var(--box-shadow-card));
+    box-shadow: var(--card-box-shadow);
 
     @media ($break-point-layout-variant <=width < $break-point-widest),
       (min-width: $break-point-sections-variant) {
@@ -381,8 +262,7 @@
     }
 
     &:hover {
-      // @backward-compat { version 150 } D281466/D283723 renamed design tokens; remove once Firefox 150 is on Release.
-      box-shadow: var(--card-box-shadow-hover, var(--box-shadow-card-hover));
+      box-shadow: var(--card-box-shadow-hover);
     }
   }
 
@@ -420,8 +300,7 @@
         .title {
           -webkit-line-clamp: 3;
           font-size: var(--font-size-large);
-          // @backward-compat { version 150 } D281466/D283723 renamed design tokens; remove once Firefox 150 is on Release.
-          font-weight: var(--font-weight-heading, var(--heading-font-weight));
+          font-weight: var(--font-weight-heading);
           margin-block: 0 var(--space-small);
         }
 
@@ -450,67 +329,6 @@
     }
   }
 
-  &.ds-card.sections-card-ui.nova-card-ui {
-    &:not(.placeholder) {
-      box-shadow: var(--card-box-shadow);
-    }
-
-    &:hover,
-    &:active,
-    &:focus-within,
-    &.active {
-      box-shadow: var(--card-box-shadow-hover);
-    }
-
-    // @nova-cleanup(remove-conditional): Replace with container query to match nova breakpoints.
-    // Currently prevents classic @media rules from bleeding through.
-    @media (min-width: $break-point-layout-variant) {
-      --nova-large-card-image-width: 240px;
-      --nova-large-card-image-height: 200px;
-
-      .ds-card-link {
-        flex-wrap: wrap;
-        gap: var(--space-large);
-        padding: var(--space-xlarge) var(--space-xlarge) var(--space-large);
-      }
-
-      .img-wrapper {
-        width: var(--nova-large-card-image-width);
-        height: var(--nova-large-card-image-height);
-      }
-
-      .meta {
-        display: contents;
-
-        .info-wrap {
-          flex: 1;
-          margin-inline-start: var(--space-small);
-        }
-
-        .info-wrap .title {
-          margin-block: 0;
-        }
-
-        .info-wrap .excerpt {
-          display: block;
-          -webkit-line-clamp: 6;
-          margin-block: var(--space-medium) 0;
-          color: var(--newtab-text-primary-color);
-        }
-
-        .sections-card-footer {
-          flex-basis: 100%;
-          margin-block-start: 0;
-          margin-block-end: 0;
-          min-height: var(--size-item-medium);
-        }
-      }
-
-      --nova-stp-inset: var(--space-large);
-
-      @include nova-card-stp-controls;
-    }
-  }
 }
 
 .has-sections-grid .ds-outer-wrapper-breakpoint-override {
@@ -606,15 +424,13 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-block: var(--space-small) var(--space-medium);
-
+      margin-block: var(--space-small) var(--space-large);
     }
 
     .section-title {
       @include wallpaper-contrast-fix;
 
-      // @backward-compat { version 150 } D281466/D283723 renamed design tokens; remove once Firefox 150 is on Release.
-      font-weight: var(--font-weight-heading, var(--heading-font-weight));
+      font-weight: var(--font-weight-heading);
       font-size: var(--font-size-xlarge);
       color: var(--newtab-contextual-text-primary-color);
       margin-block: 0;
@@ -687,11 +503,7 @@
   grid-column: 1 / -1;
 
   .section-title {
-    font-size: var(--font-size-heading-large);
-
-    @include at-content-cols(12) {
-      font-size: var(--font-size-heading-xlarge);
-    }
+    font-size: var(--font-size-heading-medium);
   }
 }
 
@@ -702,7 +514,8 @@
   .ds-image {
     &.image-2,
     &.image-3,
-    &.image-4 {
+    &.image-4,
+    &.image-5 {
       display: none;
     }
 
@@ -717,6 +530,10 @@
         .col-1-position-#{$i} {
           order: $i;
         }
+      }
+
+      .col-1-hidden {
+        display: none;
       }
 
       .col-1-small {
@@ -755,6 +572,10 @@
         }
       }
 
+      .col-2-hidden {
+        display: none;
+      }
+
       .col-2-small {
         @include section-card-small;
       }
@@ -782,7 +603,8 @@
       .ds-image {
         &.image-1,
         &.image-3,
-        &.image-4 {
+        &.image-4,
+        &.image-5 {
           display: none;
         }
 
@@ -819,6 +641,10 @@
         }
       }
 
+      .col-3-hidden {
+        display: none;
+      }
+
       .col-3-small {
         @include section-card-small;
       }
@@ -846,7 +672,8 @@
       .ds-image {
         &.image-1,
         &.image-2,
-        &.image-4 {
+        &.image-4,
+        &.image-5 {
           display: none;
         }
 
@@ -883,6 +710,10 @@
         }
       }
 
+      .col-4-hidden {
+        display: none;
+      }
+
       .col-4-small {
         @include section-card-small;
       }
@@ -910,7 +741,8 @@
       .ds-image {
         &.image-1,
         &.image-2,
-        &.image-3 {
+        &.image-3,
+        &.image-5 {
           display: none;
         }
 
@@ -953,6 +785,8 @@
         .col-1-position-#{$i} { order: $i; }
       }
 
+      .col-1-hidden { display: none; }
+
       .col-1-small {
         @include section-card-small;
       }
@@ -979,6 +813,8 @@
         .col-2-position-#{$i} { order: $i; }
       }
 
+      .col-2-hidden { display: none; }
+
       .col-2-small {
         @include section-card-small;
       }
@@ -1000,7 +836,7 @@
         grid-column: span 2;
       }
 
-      .ds-image.image-1, .ds-image.image-3, .ds-image.image-4 { display: none; }
+      .ds-image.image-1, .ds-image.image-3, .ds-image.image-4, .ds-image.image-5 { display: none; }
       .ds-image.image-2 { display: block; }
     }
 
@@ -1010,6 +846,8 @@
       @for $i from 0 through 16 {
         .col-3-position-#{$i} { order: $i; }
       }
+
+      .col-3-hidden { display: none; }
 
       .col-3-small {
         @include section-card-small;
@@ -1032,16 +870,18 @@
         grid-column: span 2;
       }
 
-      .ds-image.image-1, .ds-image.image-2, .ds-image.image-4 { display: none; }
+      .ds-image.image-1, .ds-image.image-2, .ds-image.image-4, .ds-image.image-5 { display: none; }
       .ds-image.image-3 { display: block; }
     }
 
-    @include at-content-cols(16) {
+    @include at-content-cols-range(16, 20) {
       --sections-col-count: 4;
 
       @for $i from 0 through 16 {
         .col-4-position-#{$i} { order: $i; }
       }
+
+      .col-4-hidden { display: none; }
 
       .col-4-small {
         @include section-card-small;
@@ -1064,8 +904,42 @@
         grid-column: span 2;
       }
 
-      .ds-image.image-1, .ds-image.image-2, .ds-image.image-3 { display: none; }
+      .ds-image.image-1, .ds-image.image-2, .ds-image.image-3, .ds-image.image-5 { display: none; }
       .ds-image.image-4 { display: block; }
+    }
+
+    @include at-content-cols(20) {
+      --sections-col-count: 5;
+
+      @for $i from 0 through 16 {
+        .col-5-position-#{$i} { order: $i; }
+      }
+
+      .col-5-hidden { display: none; }
+
+      .col-5-small {
+        @include section-card-small;
+      }
+
+      .col-5-medium {
+        @include section-card-medium;
+      }
+
+      .col-5-large {
+        @include section-card-large;
+      }
+
+      .col-5-small,
+      .col-5-medium {
+        grid-column: span 1;
+      }
+
+      .col-5-large {
+        grid-column: span 2;
+      }
+
+      .ds-image.image-1, .ds-image.image-2, .ds-image.image-3, .ds-image.image-4 { display: none; }
+      .ds-image.image-5 { display: block; }
     }
   }
 

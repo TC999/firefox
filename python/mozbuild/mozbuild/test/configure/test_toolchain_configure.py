@@ -177,22 +177,12 @@ def XCODE(compiler):
 
 CLANG_14 = CLANG("14.0.0") + DEFAULT_C17
 CLANGXX_14 = CLANGXX("14.0.0") + DEFAULT_CXX_14
-CLANG_17 = CLANG("17.0.0") + DEFAULT_C17
-CLANGXX_17 = CLANGXX("17.0.0") + DEFAULT_CXX_17 + SUPPORTS_CXX20 + SUPPORTS_GNUXX20
 CLANG_19 = CLANG("19.1.7") + DEFAULT_C17
 CLANGXX_19 = CLANGXX("19.1.7") + DEFAULT_CXX_17 + SUPPORTS_CXX20 + SUPPORTS_GNUXX20
 
 XCODE_CLANG_14 = XCODE(CLANG("14.0.0") + DEFAULT_C17)
 XCODE_CLANGXX_14 = XCODE(
     CLANGXX("14.0.0")
-    + SUPPORTS_GNUXX17
-    + SUPPORTS_CXX17
-    + SUPPORTS_GNUXX20
-    + SUPPORTS_CXX20
-)
-XCODE_CLANG_17 = XCODE(CLANG("16.0.0") + DEFAULT_C17)
-XCODE_CLANGXX_17 = XCODE(
-    CLANGXX("16.0.0")
     + SUPPORTS_GNUXX17
     + SUPPORTS_CXX17
     + SUPPORTS_GNUXX20
@@ -441,8 +431,6 @@ class LinuxToolchainTest(BaseToolchainTest):
         "/usr/bin/clang++": DEFAULT_CLANGXX + CLANG_PLATFORM_X86_64_LINUX,
         "/usr/bin/clang-14": CLANG_14 + CLANG_PLATFORM_X86_64_LINUX,
         "/usr/bin/clang++-14": CLANGXX_14 + CLANG_PLATFORM_X86_64_LINUX,
-        "/usr/bin/clang-17": CLANG_17 + CLANG_PLATFORM_X86_64_LINUX,
-        "/usr/bin/clang++-17": CLANGXX_17 + CLANG_PLATFORM_X86_64_LINUX,
         "/usr/bin/clang-19": CLANG_19 + CLANG_PLATFORM_X86_64_LINUX,
         "/usr/bin/clang++-19": CLANGXX_19 + CLANG_PLATFORM_X86_64_LINUX,
     }
@@ -475,33 +463,25 @@ class LinuxToolchainTest(BaseToolchainTest):
     DEFAULT_GXX_RESULT = GXX_14_RESULT + {"compiler": "/usr/bin/g++"}
 
     CLANG_14_RESULT = (
-        "Only clang/llvm 17.0 or newer is supported (found version 14.0.0)."
+        "Only clang/llvm 19.0 or newer is supported (found version 14.0.0)."
     )
     CLANGXX_14_RESULT = (
-        "Only clang/llvm 17.0 or newer is supported (found version 14.0.0)."
+        "Only clang/llvm 19.0 or newer is supported (found version 14.0.0)."
     )
-    CLANG_17_RESULT = CompilerResult(
+    CLANG_19_RESULT = CompilerResult(
         flags=[],
-        version="17.0.0",
+        version="19.1.7",
         type="clang",
-        compiler="/usr/bin/clang-17",
+        compiler="/usr/bin/clang-19",
         language="C",
     )
-    CLANGXX_17_RESULT = CompilerResult(
+    CLANGXX_19_RESULT = CompilerResult(
         flags=["-std=gnu++20"],
-        version="17.0.0",
+        version="19.1.7",
         type="clang",
-        compiler="/usr/bin/clang++-17",
+        compiler="/usr/bin/clang++-19",
         language="C++",
     )
-    CLANG_19_RESULT = CLANG_17_RESULT + {
-        "compiler": "/usr/bin/clang-19",
-        "version": "19.1.7",
-    }
-    CLANGXX_19_RESULT = CLANGXX_17_RESULT + {
-        "compiler": "/usr/bin/clang++-19",
-        "version": "19.1.7",
-    }
     DEFAULT_CLANG_RESULT = CLANG_19_RESULT + {"compiler": "/usr/bin/clang"}
     DEFAULT_CLANGXX_RESULT = CLANGXX_19_RESULT + {"compiler": "/usr/bin/clang++"}
 
@@ -653,10 +633,10 @@ class LinuxToolchainTest(BaseToolchainTest):
         self.do_toolchain_test(
             self.PATHS,
             {
-                "c_compiler": self.CLANG_17_RESULT,
-                "cxx_compiler": self.CLANGXX_17_RESULT,
+                "c_compiler": self.CLANG_19_RESULT,
+                "cxx_compiler": self.CLANGXX_19_RESULT,
             },
-            environ={"CC": "clang-17"},
+            environ={"CC": "clang-19"},
         )
 
     def test_unsupported_clang(self):
@@ -836,10 +816,10 @@ class OSXToolchainTest(BaseToolchainTest):
         "/usr/bin/xcrun": xcrun,
     }
     CLANG_14_RESULT = (
-        "Only clang/llvm 17.0 or newer is supported (found version 14.0.0)."
+        "Only clang/llvm 19.0 or newer is supported (found version 14.0.0)."
     )
     CLANGXX_14_RESULT = (
-        "Only clang/llvm 17.0 or newer is supported (found version 14.0.0)."
+        "Only clang/llvm 19.0 or newer is supported (found version 14.0.0)."
     )
     DEFAULT_CLANG_RESULT = CompilerResult(
         flags=[],
@@ -934,15 +914,13 @@ class WindowsToolchainTest(BaseToolchainTest):
         "/usr/bin/g++-10": GXX_10 + GCC_PLATFORM_X86_WIN + MINGW32,
         "/usr/bin/clang": DEFAULT_CLANG + CLANG_PLATFORM_X86_WIN,
         "/usr/bin/clang++": DEFAULT_CLANGXX + CLANG_PLATFORM_X86_WIN,
-        "/usr/bin/clang-17": CLANG_17 + CLANG_PLATFORM_X86_WIN,
-        "/usr/bin/clang++-17": CLANGXX_17 + CLANG_PLATFORM_X86_WIN,
         "/usr/bin/clang-14": CLANG_14 + CLANG_PLATFORM_X86_WIN,
         "/usr/bin/clang++-14": CLANGXX_14 + CLANG_PLATFORM_X86_WIN,
     }
     CLANG_14_RESULT = LinuxToolchainTest.CLANG_14_RESULT
     CLANGXX_14_RESULT = LinuxToolchainTest.CLANGXX_14_RESULT
     CLANG_CL_14_RESULT = (
-        "Only clang-cl 17.0 or newer is supported (found version 14.0.0)."
+        "Only clang-cl 19.0 or newer is supported (found version 14.0.0)."
     )
     CLANG_CL_19_RESULT = CompilerResult(
         version="19.1.7",
@@ -1034,8 +1012,6 @@ class Windows64ToolchainTest(WindowsToolchainTest):
         "/usr/bin/g++-10": GXX_10 + GCC_PLATFORM_X86_64_WIN + MINGW32,
         "/usr/bin/clang": DEFAULT_CLANG + CLANG_PLATFORM_X86_64_WIN,
         "/usr/bin/clang++": DEFAULT_CLANGXX + CLANG_PLATFORM_X86_64_WIN,
-        "/usr/bin/clang-17": CLANG_17 + CLANG_PLATFORM_X86_64_WIN,
-        "/usr/bin/clang++-17": CLANGXX_17 + CLANG_PLATFORM_X86_64_WIN,
         "/usr/bin/clang-14": CLANG_14 + CLANG_PLATFORM_X86_64_WIN,
         "/usr/bin/clang++-14": CLANGXX_14 + CLANG_PLATFORM_X86_64_WIN,
     }
@@ -1394,19 +1370,19 @@ class OSXCrossToolchainTest(BaseToolchainTest):
     TARGET = "i686-apple-darwin11.2.0"
     PATHS = dict(LinuxToolchainTest.PATHS)
     PATHS.update({
-        "/usr/bin/clang": CLANG_17 + CLANG_PLATFORM_X86_64_LINUX,
-        "/usr/bin/clang++": CLANGXX_17 + CLANG_PLATFORM_X86_64_LINUX,
+        "/usr/bin/clang": CLANG_19 + CLANG_PLATFORM_X86_64_LINUX,
+        "/usr/bin/clang++": CLANGXX_19 + CLANG_PLATFORM_X86_64_LINUX,
     })
     DEFAULT_CLANG_RESULT = CompilerResult(
         flags=[],
-        version="17.0.0",
+        version="19.1.7",
         type="clang",
         compiler="/usr/bin/clang",
         language="C",
     )
     DEFAULT_CLANGXX_RESULT = CompilerResult(
         flags=["-std=gnu++20"],
-        version="17.0.0",
+        version="19.1.7",
         type="clang",
         compiler="/usr/bin/clang++",
         language="C++",
@@ -1803,6 +1779,15 @@ def gen_invoke_rustc(version, rustup_wrapper=False):
                 "xtensa-esp32s3-espidf",
                 "xtensa-esp32s3-none-elf",
             ]
+            # Additional targets from 1.98
+            if Version(version) >= "1.98.0":
+                rust_targets += [
+                    "aarch64-oe-linux-gnu",
+                    "armv7-oe-linux-gnueabihf",
+                    "i686-oe-linux-gnu",
+                    "riscv64-oe-linux-gnu",
+                    "x86_64-oe-linux-gnu",
+                ]
             return 0, "\n".join(sorted(rust_targets)), ""
         if (
             len(args) == 6
@@ -1893,6 +1878,7 @@ class RustTest(BaseConfigureTest):
             ("x86_64-unknown-linux-android", "x86_64-linux-android"),
             ("x86_64-unknown-linux-android21", "x86_64-linux-android"),
             ("x86_64-pc-linux-gnu", "x86_64-unknown-linux-gnu"),
+            ("riscv64-unknown-linux-gnu", "riscv64gc-unknown-linux-gnu"),
             ("sparcv9-sun-solaris2", "sparcv9-sun-solaris"),
             ("x86_64-sun-solaris2", "x86_64-pc-solaris"),
             ("x86_64-apple-darwin23.3.0", "x86_64-apple-darwin"),
@@ -1992,6 +1978,11 @@ class RustTest(BaseConfigureTest):
 
     def test_rust_wasi_target(self):
         self.assertEqual(self.get_rust_target("wasm32-unknown-wasi"), "wasm32-wasip1")
+
+
+# Exercises the vendor-specific *-oe-linux-* targets added in rust 1.98.
+class Rust198Test(RustTest):
+    VERSION = "1.98.0"
 
 
 if __name__ == "__main__":

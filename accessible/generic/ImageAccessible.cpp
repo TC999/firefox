@@ -4,23 +4,22 @@
 
 #include "ImageAccessible.h"
 
-#include "DocAccessible-inl.h"
-#include "LocalAccessible-inl.h"
-#include "nsAccUtils.h"
-#include "mozilla/a11y/Role.h"
 #include "AccAttributes.h"
 #include "AccIterator.h"
 #include "CacheConstants.h"
+#include "DocAccessible-inl.h"
+#include "LocalAccessible-inl.h"
 #include "States.h"
-
 #include "imgIRequest.h"
-#include "nsGenericHTMLElement.h"
+#include "mozilla/a11y/Role.h"
 #include "mozilla/dom/BrowsingContext.h"
 #include "mozilla/dom/Document.h"
+#include "nsAccUtils.h"
 #include "nsContentUtils.h"
+#include "nsGenericHTMLElement.h"
 #include "nsIImageLoadingContent.h"
-#include "nsPIDOMWindow.h"
 #include "nsIURI.h"
+#include "nsPIDOMWindow.h"
 
 namespace mozilla::a11y {
 
@@ -238,7 +237,7 @@ void ImageAccessible::Notify(imgIRequest* aRequest, int32_t aType,
   if ((status ^ mImageRequestStatus) & imgIRequest::STATUS_SIZE_AVAILABLE) {
     nsIFrame* frame = GetFrame();
     if (frame && !frame->HasAnyStateBits(IMAGE_SIZECONSTRAINED)) {
-      RefPtr<AccEvent> event = new AccStateChangeEvent(
+      auto event = MakeRefPtr<AccStateChangeEvent>(
           this, states::INVISIBLE,
           !(status & imgIRequest::STATUS_SIZE_AVAILABLE));
       mDoc->FireDelayedEvent(event);
@@ -246,7 +245,7 @@ void ImageAccessible::Notify(imgIRequest* aRequest, int32_t aType,
   }
 
   if ((status ^ mImageRequestStatus) & imgIRequest::STATUS_IS_ANIMATED) {
-    RefPtr<AccEvent> event = new AccStateChangeEvent(
+    auto event = MakeRefPtr<AccStateChangeEvent>(
         this, states::ANIMATED, (status & imgIRequest::STATUS_IS_ANIMATED));
     mDoc->FireDelayedEvent(event);
   }

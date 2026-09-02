@@ -15,13 +15,12 @@ from taskgraph.util.attributes import keymatch
 from taskgraph.util.keyed_by import evaluate_keyed_by
 from taskgraph.util.readonlydict import ReadOnlyDict
 from taskgraph.util.schema import Schema, resolve_keyed_by
-from taskgraph.util.taskcluster import get_artifact_path
+from taskgraph.util.taskcluster import get_artifact_path, get_index_url
 from taskgraph.util.templates import merge
 
 from gecko_taskgraph.transforms.test.variant import TEST_VARIANTS
 from gecko_taskgraph.util.perftest import is_external_browser
 from gecko_taskgraph.util.platforms import platform_family
-from gecko_taskgraph.util.taskcluster import get_index_url
 
 transforms = TransformSequence()
 
@@ -182,7 +181,7 @@ def set_treeherder_machine_platform(config, tasks):
         "macosx1400-64-shippable/opt": "osx-1400-shippable/opt",
         "macosx1500-64/opt": "osx-1500/opt",
         "macosx1500-64-shippable/opt": "osx-1500-shippable/opt",
-        "win64-asan/opt": "windows11-64-24h2/asan",
+        "win64-asan/opt": "windows11-64-25h2/asan",
     }
     for task in tasks:
         # For most desktop platforms, the above table is not used for "regular"
@@ -243,6 +242,8 @@ def handle_keyed_by(config, tasks):
         "virtualization",
         "fetches.fetch",
         "fetches.toolchain",
+        "fetches.openh264-plugin",
+        "dependencies.openh264-plugin",
         "target",
         "webrender-run-on-projects",
         "mozharness.extra-options",
@@ -337,7 +338,16 @@ def setup_browsertime(config, tasks):
 
         ts = {
             "by-test-platform": {
-                "android.*": ["browsertime", "linux64-geckodriver", "linux64-node"],
+                "android-em-14-arm64.*": [
+                    "browsertime",
+                    "macosx64-geckodriver",
+                    "macosx64-aarch64-node",
+                ],
+                "android-(?!em-14-arm64).*": [
+                    "browsertime",
+                    "linux64-geckodriver",
+                    "linux64-node",
+                ],
                 "linux.*": ["browsertime", "linux64-geckodriver", "linux64-node"],
                 "macosx1470.*": [
                     "browsertime",
@@ -346,12 +356,12 @@ def setup_browsertime(config, tasks):
                 ],
                 "macosx1400.*": [
                     "browsertime",
-                    "macosx64-aarch64-geckodriver",
+                    "macosx64-geckodriver",
                     "macosx64-aarch64-node",
                 ],
                 "macosx1500.*": [
                     "browsertime",
-                    "macosx64-aarch64-geckodriver",
+                    "macosx64-geckodriver",
                     "macosx64-aarch64-node",
                 ],
                 "windows.*aarch64.*": [
@@ -369,7 +379,8 @@ def setup_browsertime(config, tasks):
 
         fs = {
             "by-test-platform": {
-                "android.*": ["linux64-ffmpeg-7.1"],
+                "android-em-14-arm64.*": ["mac64-ffmpeg-7.1"],
+                "android-(?!em-14-arm64).*": ["linux64-ffmpeg-7.1"],
                 "linux.*": ["linux64-ffmpeg-7.1"],
                 "macosx1470.*": ["mac64-ffmpeg-7.1"],
                 "macosx1400.*": ["mac64-ffmpeg-7.1"],
@@ -380,7 +391,12 @@ def setup_browsertime(config, tasks):
         }
 
         cd_fetches = {
-            "android.*": [
+            "android-em-14-arm64.*": [
+                "mac-cft-cd-arm-backup",
+                "mac-cft-cd-arm-stable",
+                "mac-cft-cd-arm-beta",
+            ],
+            "android-(?!em-14-arm64).*": [
                 "linux64-cft-cd-backup",
                 "linux64-cft-cd-stable",
                 "linux64-cft-cd-beta",
@@ -414,11 +430,10 @@ def setup_browsertime(config, tasks):
 
         chromium_fetches = {
             "linux.*": ["linux64-cft-cd-canary"],
-            "macosx1400.*": ["mac-cft-cd-arm-canary"],
-            "macosx1470.*": ["mac-cft-cd-canary"],
             "macosx1500.*": ["mac-cft-cd-arm-canary"],
             "windows.*-64.*": ["win64-cft-cd-canary"],
-            "android.*": ["linux64-cft-cd-canary"],
+            "android-em-14-arm64.*": ["mac-cft-cd-arm-canary"],
+            "android-(?!em-14-arm64).*": ["linux64-cft-cd-canary"],
         }
 
         cd_extracted_name = {
@@ -470,6 +485,16 @@ def setup_browsertime(config, tasks):
                     "$MOZ_FETCHES_DIR/ffmpeg-n7.1-latest-win64-gpl-shared-7.1/bin/ffmpeg.exe",
                 ],
                 "macosx.*": [
+                    "--browsertime-node",
+                    "$MOZ_FETCHES_DIR/node/bin/node",
+                    "--browsertime-geckodriver",
+                    "$MOZ_FETCHES_DIR/geckodriver",
+                    "--browsertime-chromedriver",
+                    "$MOZ_FETCHES_DIR/" + cd_extracted_name["mac"],
+                    "--browsertime-ffmpeg",
+                    "$MOZ_FETCHES_DIR/ffmpeg-7.1/bin/ffmpeg",
+                ],
+                "android-em-14-arm64.*": [
                     "--browsertime-node",
                     "$MOZ_FETCHES_DIR/node/bin/node",
                     "--browsertime-geckodriver",
@@ -667,16 +692,18 @@ def handle_tier(config, tasks):
                 "linux2404-64-devedition/opt",
                 "linux2404-64-asan/opt",
                 "linux2404-64-tsan/opt",
-                "windows11-32-24h2/debug",
-                "windows11-32-24h2/opt",
-                "windows11-32-24h2-shippable/opt",
+                "windows11-32-25h2/debug",
+                "windows11-32-25h2/opt",
+                "windows11-32-25h2-shippable/opt",
                 "windows11-64-24h2-hw-ref/opt",
                 "windows11-64-24h2-hw-ref-shippable/opt",
                 "windows11-64-24h2/opt",
-                "windows11-64-24h2/debug",
                 "windows11-64-24h2-shippable/opt",
-                "windows11-64-24h2-devedition/opt",
-                "windows11-64-24h2-asan/opt",
+                "windows11-64-25h2/opt",
+                "windows11-64-25h2/debug",
+                "windows11-64-25h2-shippable/opt",
+                "windows11-64-25h2-devedition/opt",
+                "windows11-64-25h2-asan/opt",
                 "macosx1015-64/opt",
                 "macosx1015-64/debug",
                 "macosx1015-64-shippable/opt",
@@ -689,10 +716,10 @@ def handle_tier(config, tasks):
                 "macosx1470-64/debug",
                 "macosx1470-64-shippable/opt",
                 "macosx1470-64-devedition/opt",
-                "macosx1400-64-shippable-qr/opt",
-                "macosx1400-64-qr/debug",
-                "macosx1500-64-shippable/opt",
-                "macosx1500-64/debug",
+                "macosx1500-aarch64/opt",
+                "macosx1500-aarch64/debug",
+                "macosx1500-aarch64-shippable/opt",
+                "macosx1500-aarch64-devedition/opt",
                 "android-em-14-x86_64-shippable/opt",
                 "android-em-14-x86_64/opt",
                 "android-em-14-x86_64-shippable-lite/opt",
@@ -706,6 +733,18 @@ def handle_tier(config, tasks):
             else:
                 task["tier"] = 2
 
+        yield task
+
+
+@transforms.add
+def apply_artifact_build_settings(config, tasks):
+    """Artifact build tests are tier 2. On Linux and Windows they run on
+    all mozilla-central pushes; on other platforms they are try-only."""
+    for task in tasks:
+        if "-artifact/" in task["test-platform"]:
+            task["tier"] = 2
+            if not task["test-platform"].startswith(("linux", "windows")):
+                task["run-on-projects"] = []
         yield task
 
 
@@ -728,6 +767,33 @@ def apply_raptor_tier_optimization(config, tasks):
 
         if task["attributes"].get("unittest_variant"):
             task["tier"] = max(task["tier"], 2)
+        yield task
+
+
+@transforms.add
+def apply_bug2043540_optimization(config, tasks):
+    """Bug 2043540 - reduce mochitest-browser-chrome cadence on macosx1015-64
+    (Catalina) to relieve the backed-up 10.15 ESR pool.
+
+    Applied as a transform (rather than YAML `optimization:`) because the test
+    schema declares `optimization` and `schedules-component` as mutually
+    exclusive; mochitest-browser-chrome has schedules-component set. The
+    transform runs after schema validation, so setting task["optimization"]
+    here is safe.
+
+    skip-unless-backstop preserves coverage on m-c, beta, release, and ESR
+    branches (params["backstop"] is True for non-integration projects) and
+    only skips on regular autoland pushes (~95% of Catalina mbc cycles).
+    Applied to both opt and debug builds; the standalone debug variants
+    already carry skip-unless-backstop, so re-applying it is idempotent.
+    """
+    for task in tasks:
+        test_platform = task.get("test-platform", "")
+        if (
+            task.get("test-name") == "mochitest-browser-chrome"
+            and "macosx1015-64" in test_platform
+        ):
+            task["optimization"] = {"test-backstop": None}
         yield task
 
 
@@ -906,7 +972,7 @@ def set_test_setting(config, tasks):
 
         else:
             arch = parts.pop(0)
-            if parts and (parts[0].isdigit() or parts[0] in ["24h2"]):
+            if parts and (parts[0].isdigit() or parts[0] in ["24h2", "25h2"]):
                 os_build = parts.pop(0)
 
             if parts and parts[0] == "hw-ref":
@@ -1060,7 +1126,6 @@ def add_gecko_profile_symbolication_deps(config, tasks):
 
     try_task_config = config.params.get("try_task_config", {})
     gecko_profile_from_try = try_task_config.get("gecko-profile", False)
-    startup_profile = try_task_config.get("env", {}).get("MOZ_PROFILER_STARTUP") == "1"
 
     for task in tasks:
         extra_options = task.get("mozharness", {}).get("extra-options", [])
@@ -1069,26 +1134,29 @@ def add_gecko_profile_symbolication_deps(config, tasks):
         )
         gecko_profile = gecko_profile_from_try or has_gecko_profile_option
 
-        if (gecko_profile and task["suite"] in ["talos", "raptor"]) or (
-            startup_profile and "mochitest" in task["suite"]
-        ):
+        if gecko_profile and task["suite"] in ["talos", "raptor"]:
             fetches = task.setdefault("fetches", {})
             fetch_toolchains = fetches.setdefault("toolchain", [])
-            fetch_toolchains.append("symbolicator-cli")
+
+            if "profiler-node-tools" not in fetch_toolchains:
+                fetch_toolchains.append("profiler-node-tools")
 
             test_platform = task["test-platform"]
 
             if "macosx" in test_platform and "aarch64" in test_platform:
-                fetch_toolchains.append("macosx64-aarch64-samply")
+                samply_toolchain = "macosx64-aarch64-samply"
             elif "macosx" in test_platform:
-                fetch_toolchains.append("macosx64-samply")
+                samply_toolchain = "macosx64-samply"
             elif "win" in test_platform:
-                fetch_toolchains.append("win64-samply")
+                samply_toolchain = "win64-samply"
             else:
-                fetch_toolchains.append("linux64-samply")
+                samply_toolchain = "linux64-samply"
+
+            if samply_toolchain not in fetch_toolchains:
+                fetch_toolchains.append(samply_toolchain)
 
             # Add node as a dependency for talos and mochitest tasks if needed.
-            # node is used to run symbolicator-cli, our profile symbolication tool
+            # node is used to run profiler-edit, our profile symbolication tool
             if task["suite"] == "talos" or "mochitest" in task["suite"]:
                 if "macosx" in test_platform and "aarch64" in test_platform:
                     node_toolchain = "macosx64-aarch64-node"
@@ -1183,4 +1251,42 @@ def set_webgpu_ignore_blocklist(config, tasks):
             extra_options = task["mozharness"].setdefault("extra-options", [])
             extra_options.append("--setpref=gfx.webgpu.ignore-blocklist=true")
 
+        yield task
+
+
+@transforms.add
+def add_symbols_to_xpcshell_mochitest(config, tests):
+    for test in tests:
+        name = test.get("test-name", "").lower()
+        if "xpcshell" in name or "mochitest" in name:
+            test_platform = test.get("test-platform", "")
+            if not any(san in test_platform for san in ("asan", "tsan")):
+                fetches = test.setdefault("fetches", {})
+                fetches.setdefault("build", []).append({
+                    "artifact": "target.crashreporter-symbols.zip",
+                    "extract": False,
+                })
+        yield test
+
+
+@transforms.add
+def resolve_openh264_version(config, tasks):
+    """Substitute the OpenH264 version into openh264-plugin fetch paths.
+
+    The version lives on the fetch-openh264-source task, so the artifact
+    names do not have to be updated by hand when it changes.
+    """
+    version = None
+    for task in tasks:
+        fetches = task.get("fetches", {}).get("openh264-plugin")
+        if fetches:
+            if version is None:
+                dep = config.kind_dependencies_tasks.get("fetch-openh264-source")
+                if not dep:
+                    raise Exception("fetch-openh264-source not in kind dependencies")
+                version = dep.attributes["openh264_version"]
+            for fetch in fetches:
+                for key in ("artifact", "dest"):
+                    if key in fetch:
+                        fetch[key] = fetch[key].format(openh264_version=version)
         yield task

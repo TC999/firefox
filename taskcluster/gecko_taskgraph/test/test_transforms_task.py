@@ -11,6 +11,7 @@ from gecko_taskgraph.transforms.task import (
     TREEHERDER_ROOT_URL,
     get_treeherder_link,
     get_treeherder_project,
+    try_task_config_env,
 )
 
 
@@ -168,6 +169,91 @@ def test_get_treeherder_link():
     link = get_treeherder_link(config)
     expected_link = f"{TREEHERDER_ROOT_URL}/#/jobs?repo={repo}&revision={params['head_rev']}&selectedTaskRun=<self>"
     assert link == expected_link
+
+
+@pytest.mark.parametrize(
+    "implementation",
+    ("docker-worker", "generic-worker"),
+)
+def test_try_task_config_env_applies(run_transform, implementation):
+    """Env vars from try_task_config are applied to workers that have an env field.
+
+    This covers both voluptuous (LegacySchema) and msgspec Struct payload
+    builder schemas, since docker-worker and generic-worker were converted to
+    msgspec in the upstream taskgraph library.
+    """
+    task = {
+        "worker": {
+            "implementation": implementation,
+            "env": {"EXISTING": "value"},
+        }
+    }
+    params = FakeParameters({"try_task_config": {"env": {"NEW_VAR": "new_value"}}})
+    result = list(run_transform(try_task_config_env, task, params=params))[0]
+    assert result["worker"]["env"] == {"EXISTING": "value", "NEW_VAR": "new_value"}
+
+
+def test_try_task_config_env_skips_no_env_impl(run_transform):
+    """Env vars are not applied to implementations without an env field."""
+    task = {
+        "worker": {
+            "implementation": "bouncer-aliases",
+        }
+    }
+    params = FakeParameters({"try_task_config": {"env": {"NEW_VAR": "new_value"}}})
+    result = list(run_transform(try_task_config_env, task, params=params))[0]
+    assert "env" not in result["worker"]
+
+
+def test_try_task_config_env_no_env_config(run_transform):
+    """Transform is a no-op when try_task_config has no env key."""
+    task = {
+        "worker": {
+            "implementation": "docker-worker",
+            "env": {"EXISTING": "value"},
+        }
+    }
+    params = FakeParameters({"try_task_config": {}})
+    result = list(run_transform(try_task_config_env, task, params=params))[0]
+    assert result["worker"]["env"] == {"EXISTING": "value"}
+
+
+def _test_paths_task(**attributes):
+    return {
+        "attributes": attributes,
+        "worker": {
+            "implementation": "docker-worker",
+            "env": {"MOZHARNESS_TEST_PATHS": '{"suite": ["dir/manifest.toml"]}'},
+        },
+    }
+
+
+def test_try_task_config_env_keeps_restricted_test_paths(run_transform):
+    """A task whose manifests were restricted to what try asked for keeps the
+    share of the request that its own chunk runs."""
+    task = _test_paths_task(**{"test-manifests-restricted": True})
+    params = FakeParameters({
+        "try_task_config": {"env": {"MOZHARNESS_TEST_PATHS": '{"suite": ["dir"]}'}}
+    })
+
+    result = list(run_transform(try_task_config_env, task, params=params))[0]
+
+    assert result["worker"]["env"]["MOZHARNESS_TEST_PATHS"] == (
+        '{"suite": ["dir/manifest.toml"]}'
+    )
+
+
+def test_try_task_config_env_overrides_unrestricted_test_paths(run_transform):
+    """A task that kept the whole suite needs what try asked for, since the
+    harness is what filters the suite down for it."""
+    task = _test_paths_task()
+    params = FakeParameters({
+        "try_task_config": {"env": {"MOZHARNESS_TEST_PATHS": '{"suite": ["dir"]}'}}
+    })
+
+    result = list(run_transform(try_task_config_env, task, params=params))[0]
+
+    assert result["worker"]["env"]["MOZHARNESS_TEST_PATHS"] == '{"suite": ["dir"]}'
 
 
 if __name__ == "__main__":

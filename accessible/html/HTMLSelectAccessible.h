@@ -65,7 +65,7 @@ class HTMLSelectOptionAccessible : public HyperTextAccessible {
   enum { eAction_Select = 0 };
 
   HTMLSelectOptionAccessible(nsIContent* aContent, DocAccessible* aDoc);
-  virtual ~HTMLSelectOptionAccessible() {}
+  virtual ~HTMLSelectOptionAccessible() = default;
 
   // LocalAccessible
   virtual a11y::role NativeRole() const override;
@@ -135,7 +135,7 @@ class HTMLSelectOptGroupAccessible : public HTMLSelectOptionAccessible {
       : HTMLSelectOptionAccessible(aContent, aDoc) {
     mType = eHTMLOptGroupType;
   }
-  virtual ~HTMLSelectOptGroupAccessible() {}
+  virtual ~HTMLSelectOptGroupAccessible() = default;
 
   // LocalAccessible
   virtual a11y::role NativeRole() const override;
@@ -160,16 +160,14 @@ class HTMLComboboxAccessible final : public AccessibleWrap {
   enum { eAction_Click = 0 };
 
   HTMLComboboxAccessible(nsIContent* aContent, DocAccessible* aDoc);
-  virtual ~HTMLComboboxAccessible() {}
+  virtual ~HTMLComboboxAccessible() = default;
 
   // LocalAccessible
-  virtual void Shutdown() override;
   virtual EDescriptionValueFlag Description(
       nsString& aDescription) const override;
   virtual void Value(nsString& aValue) const override;
   virtual a11y::role NativeRole() const override;
   virtual uint64_t NativeState() const override;
-  virtual bool RemoveChild(LocalAccessible* aChild) override;
   virtual bool IsAcceptableChild(nsIContent* aEl) const override;
 
   // ActionAccessible
@@ -183,15 +181,12 @@ class HTMLComboboxAccessible final : public AccessibleWrap {
   virtual LocalAccessible* CurrentItem() const override;
   virtual void SetCurrentItem(const LocalAccessible* aItem) override;
 
-  HTMLComboboxListAccessible* List() const { return mListAccessible; }
+  HTMLComboboxListAccessible* List() const;
 
   /**
    * Return selected option.
    */
   LocalAccessible* SelectedOption() const;
-
- private:
-  RefPtr<HTMLComboboxListAccessible> mListAccessible;
 };
 
 /*
@@ -201,9 +196,9 @@ class HTMLComboboxAccessible final : public AccessibleWrap {
  */
 class HTMLComboboxListAccessible : public HTMLSelectListAccessible {
  public:
-  HTMLComboboxListAccessible(LocalAccessible* aParent, nsIContent* aContent,
-                             DocAccessible* aDoc);
-  virtual ~HTMLComboboxListAccessible() {}
+  HTMLComboboxListAccessible(nsIContent* aContent, DocAccessible* aDoc)
+      : HTMLSelectListAccessible(aContent, aDoc) {}
+  virtual ~HTMLComboboxListAccessible() = default;
 
   // LocalAccessible
   virtual a11y::role NativeRole() const override;

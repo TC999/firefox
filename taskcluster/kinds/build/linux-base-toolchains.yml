@@ -9,6 +9,7 @@
 task-defaults:
     worker-type: b-linux-docker-amd
     run:
+        clone-with: hg
         extra-config:
             extra_mozconfig_content:
                 # Builds on automation don't normally build geckodriver,

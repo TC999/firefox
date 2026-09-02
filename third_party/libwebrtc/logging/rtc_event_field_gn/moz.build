@@ -34,10 +34,13 @@ LOCAL_INCLUDES += [
     "/tools/profiler/public"
 ]
 
+SOURCES += [
+    "/third_party/libwebrtc/logging/rtc_event_log/events/rtc_event_field_encoding_parser.cc"
+]
+
 UNIFIED_SOURCES += [
     "/third_party/libwebrtc/logging/rtc_event_log/events/fixed_length_encoding_parameters_v3.cc",
     "/third_party/libwebrtc/logging/rtc_event_log/events/rtc_event_field_encoding.cc",
-    "/third_party/libwebrtc/logging/rtc_event_log/events/rtc_event_field_encoding_parser.cc",
     "/third_party/libwebrtc/logging/rtc_event_log/events/rtc_event_field_extraction.cc"
 ]
 
@@ -75,6 +78,10 @@ if CONFIG["OS_TARGET"] == "Darwin":
     DEFINES["WEBRTC_POSIX"] = True
     DEFINES["__STDC_CONSTANT_MACROS"] = True
     DEFINES["__STDC_FORMAT_MACROS"] = True
+
+    OS_LIBS += [
+        "-framework Foundation"
+    ]
 
 if CONFIG["OS_TARGET"] == "Linux":
 

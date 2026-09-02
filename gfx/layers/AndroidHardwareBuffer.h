@@ -6,17 +6,17 @@
 #define MOZILLA_LAYERS_ANDROID_HARDWARE_BUFFER
 
 #include <android/hardware_buffer.h>
-#include <atomic>
+
 #include <unordered_map>
 
-#include "mozilla/layers/TextureClient.h"
-#include "mozilla/gfx/Types.h"
-#include "mozilla/gfx/2D.h"
 #include "mozilla/Monitor.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/StaticPtr.h"
 #include "mozilla/ThreadSafeWeakPtr.h"
 #include "mozilla/UniquePtrExtensions.h"
+#include "mozilla/gfx/2D.h"
+#include "mozilla/gfx/Types.h"
+#include "mozilla/layers/TextureClient.h"
 
 namespace mozilla {
 namespace layers {
@@ -67,6 +67,8 @@ class AndroidHardwareBuffer
 
   UniqueFileHandle GetAndResetAcquireFence();
 
+  UniqueFileHandle GetAndResetAllFencesMerged();
+
   UniqueFileHandle GetAcquireFence() const;
 
   const gfx::IntSize mSize;
@@ -77,6 +79,9 @@ class AndroidHardwareBuffer
  protected:
   AndroidHardwareBuffer(AHardwareBuffer* aNativeBuffer, gfx::IntSize aSize,
                         uint32_t aStride, gfx::SurfaceFormat aFormat);
+
+  static UniqueFileHandle MergeFences(UniqueFileHandle&& aFence1,
+                                      UniqueFileHandle&& aFence2);
 
   AHardwareBuffer* mNativeBuffer;
 

@@ -2,7 +2,7 @@
 {
   const g = newGlobal({newCompartment: true});
   const dbg = new Debugger(g);
-  g.evaluate("(() => 1)()", { lineNumber: 0xFFFFFFFE });
+  g.evaluate("var f = () => 1;", { lineNumber: 0xFFFFFFFE });
   const s = dbg.findScripts().filter(s => s.isFunction)[0];
   const loc = s.getOffsetLocation(1);
   assertEq(loc.lineNumber, 0xFFFFFFFE);
@@ -12,7 +12,7 @@
 {
   const g = newGlobal({newCompartment: true});
   const dbg = new Debugger(g);
-  g.evaluate("(() => 1)()", { lineNumber: 0xFFFFFFFF });
+  g.evaluate("var f = () => 1;", { lineNumber: 0xFFFFFFFF });
   const s = dbg.findScripts().filter(s => s.isFunction)[0];
   let caught = false;
   try {
@@ -28,7 +28,7 @@
 {
   const g = newGlobal({newCompartment: true});
   const dbg = new Debugger(g);
-  g.evaluate("\n(() => 1)()", { lineNumber: 0xFFFFFFFE });
+  g.evaluate("\nvar f = () => 1;", { lineNumber: 0xFFFFFFFE });
   const s = dbg.findScripts().filter(s => s.isFunction)[0];
   let caught = false;
   try {
@@ -45,7 +45,7 @@
 {
   const g = newGlobal({newCompartment: true});
   const dbg = new Debugger(g);
-  g.evaluate("1;\n(() => 1)()", { lineNumber: 0xFFFFFFFE });
+  g.evaluate("1;\nvar f = () => 1;", { lineNumber: 0xFFFFFFFE });
   const s = dbg.findScripts().filter(s => s.isFunction)[0];
   let caught = false;
   try {
@@ -61,7 +61,7 @@
 {
   const g = newGlobal({newCompartment: true});
   const dbg = new Debugger(g);
-  g.evaluate("\n\n(() => 1)()", { lineNumber: 0xFFFFFFFD });
+  g.evaluate("\n\nvar f = () => 1;", { lineNumber: 0xFFFFFFFD });
   const s = dbg.findScripts().filter(s => s.isFunction)[0];
   let caught = false;
   try {
@@ -78,7 +78,7 @@
 {
   const g = newGlobal({newCompartment: true});
   const dbg = new Debugger(g);
-  g.evaluate("1;\n\n(() => 1)()", { lineNumber: 0xFFFFFFFD });
+  g.evaluate("1;\n\nvar f = () => 1;", { lineNumber: 0xFFFFFFFD });
   const s = dbg.findScripts().filter(s => s.isFunction)[0];
   let caught = false;
   try {
@@ -96,7 +96,7 @@
   const dbg = new Debugger(g);
   let caught = false;
   try {
-    g.evaluate("\n\n\n(() => 1)()", { lineNumber: 0xFFFFFFFD });
+    g.evaluate("\n\n\nvar f = () => 1", { lineNumber: 0xFFFFFFFD });
   } catch (e) {
     caught = true;
     assertEq(e.message, "line number out of range");

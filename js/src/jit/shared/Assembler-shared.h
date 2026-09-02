@@ -19,6 +19,7 @@
 #include "jit/JitAllocPolicy.h"
 #include "jit/JitCode.h"
 #include "jit/JitContext.h"
+#include "jit/JitSpewer.h"
 #include "jit/Label.h"
 #include "jit/Registers.h"
 #include "jit/RegisterSets.h"
@@ -42,7 +43,7 @@
 #  define JS_CODELABEL_LINKMODE
 #endif
 
-using js::wasm::FaultingCodeOffset;
+using js::wasm::FaultingCodeRange;
 
 namespace js {
 namespace jit {
@@ -254,7 +255,7 @@ class ImmGCPtr {
   explicit ImmGCPtr(const JSOffThreadAtom* atom) : ImmGCPtr(atom->raw()) {}
 
  private:
-  ImmGCPtr() : value(0) {}
+  ImmGCPtr() : value(nullptr) {}
 };
 
 // Pointer to trampoline code. Trampoline code is kept alive until the runtime
@@ -538,7 +539,7 @@ struct SymbolicAccess {
 
 using SymbolicAccessVector = Vector<SymbolicAccess, 0, SystemAllocPolicy>;
 
-// Describes a single wasm or asm.js memory access for the purpose of generating
+// Describes a single wasm memory access for the purpose of generating
 // code and metadata.
 
 class MemoryAccessDesc {
@@ -639,6 +640,14 @@ class MemoryAccessDesc {
   }
 };
 
+// Zero-extend an index from signed Int32 to Int64.
+//
+// Describes when an index register must be zero-extended to 64-bit before
+// performing memory accesses. Used for architectures which implicitly
+// sign-extend registers to 64-bit when performing 32-bit operations, e.g.
+// MIPS64/LOONG64/RISCV64.
+enum class ZeroExtendIndex : bool { No, Yes };
+
 }  // namespace wasm
 
 namespace jit {
@@ -708,13 +717,19 @@ class AssemblerShared {
     enoughMemory_ &= callSites_.append(desc, retAddr.offset());
     enoughMemory_ &= callSiteTargets_.emplaceBack(std::forward<Args>(args)...);
   }
-  void append(wasm::Trap trap, wasm::TrapMachineInsn insn, uint32_t pcOffset,
-              const wasm::TrapSiteDesc& desc) {
-    enoughMemory_ &= trapSites_.append(trap, insn, pcOffset, desc);
-  }
-  void append(const wasm::MemoryAccessDesc& access, wasm::TrapMachineInsn insn,
-              FaultingCodeOffset pcOffset) {
-    append(wasm::Trap::OutOfBounds, insn, pcOffset.get(), access.trapDesc());
+  // Append the specified trap to our collection thereof; make no attempt to
+  // verify that `fcr` or `insn` is correct.  Don't call this directly; use
+  // MacroAssembler::appendAndVerify instead.
+  void appendNoVerify(wasm::Trap trap, wasm::TrapMachineInsn insn,
+                      FaultingCodeRange fcr, const wasm::TrapSiteDesc& desc) {
+    enoughMemory_ &= trapSites_.append(trap, insn, fcr, desc);
+#ifdef JS_JITSPEW
+    if (JitSpewEnabled(JitSpew_Codegen)) {
+      JitSpew(
+          jit::JitSpew_Codegen, "%06x,%06x  # <-- @ w::TrapSiteDesc, kind = %s",
+          fcr.offsetUnchecked(), fcr.resumeOffsetUnchecked(), NameOfTrap(trap));
+    }
+#endif
   }
   void append(wasm::SymbolicAccess access) {
     enoughMemory_ &= symbolicAccesses_.append(access);
@@ -745,6 +760,7 @@ class AssemblerShared {
   wasm::CallSites& callSites() { return callSites_; }
   wasm::CallSiteTargetVector& callSiteTargets() { return callSiteTargets_; }
   wasm::TrapSites& trapSites() { return trapSites_; }
+  const wasm::TrapSites& trapSites() const { return trapSites_; }
   wasm::SymbolicAccessVector& symbolicAccesses() { return symbolicAccesses_; }
   wasm::TryNoteVector& tryNotes() { return tryNotes_; }
   wasm::CodeRangeUnwindInfoVector& codeRangeUnwindInfos() {
@@ -779,7 +795,7 @@ class MOZ_RAII AutoCreatedBy {
   inline AutoCreatedBy(AssemblerShared& ash, const char* who) {}
   // A user-defined constructor is necessary to stop some compilers from
   // complaining about unused variables.
-  inline ~AutoCreatedBy() {}
+  inline ~AutoCreatedBy() = default;
 };
 #endif
 

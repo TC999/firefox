@@ -10,15 +10,15 @@
 
 namespace mozilla {
 
-#define LOG(msg, ...)                           \
-  MOZ_LOG(gMFMediaEngineLog, LogLevel::Debug,   \
-          ("MFMediaStream=%p (%s), " msg, this, \
-           this->GetDescriptionName().get(), ##__VA_ARGS__))
+#define LOG(msg, ...)                                        \
+  MOZ_LOG_FMT(gMFMediaEngineLog, LogLevel::Debug,            \
+              "MFMediaStream={} ({}), " msg, fmt::ptr(this), \
+              this->GetDescriptionName().get(), ##__VA_ARGS__)
 
-#define LOGV(msg, ...)                          \
-  MOZ_LOG(gMFMediaEngineLog, LogLevel::Verbose, \
-          ("MFMediaStream=%p (%s), " msg, this, \
-           this->GetDescriptionName().get(), ##__VA_ARGS__))
+#define LOGV(msg, ...)                                       \
+  MOZ_LOG_FMT(gMFMediaEngineLog, LogLevel::Verbose,          \
+              "MFMediaStream={} ({}), " msg, fmt::ptr(this), \
+              this->GetDescriptionName().get(), ##__VA_ARGS__)
 
 using Microsoft::WRL::ComPtr;
 using Microsoft::WRL::MakeAndInitialize;
@@ -51,8 +51,17 @@ void MFMediaEngineVideoStream::SetKnowsCompositor(
       [self, knowCompositor = RefPtr<layers::KnowsCompositor>{aKnowsCompositor},
        this]() {
         mKnowsCompositor = knowCompositor;
-        LOG("Set SetKnowsCompositor=%p", mKnowsCompositor.get());
+        LOG("Set SetKnowsCompositor={}", fmt::ptr(mKnowsCompositor.get()));
         ResolvePendingPromisesIfNeeded();
+      }));
+}
+
+void MFMediaEngineVideoStream::SetFrameServerMode() {
+  ComPtr<MFMediaEngineVideoStream> self = this;
+  (void)mTaskQueue->Dispatch(NS_NewRunnableFunction(
+      "MFMediaEngineVideoStream::SetFrameServerMode", [self, this]() {
+        mFrameServerMode = true;
+        LOG("Set frame server mode");
       }));
 }
 
@@ -71,12 +80,12 @@ void MFMediaEngineVideoStream::SetDCompSurfaceHandle(HANDLE aDCompSurfaceHandle,
           MutexAutoLock lock(mMutex);
           if (aDCompSurfaceHandle != INVALID_HANDLE_VALUE &&
               aDisplay != mDisplay) {
-            LOG("Update display [%dx%d] -> [%dx%d]", mDisplay.Width(),
+            LOG("Update display [{}x{}] -> [{}x{}]", mDisplay.Width(),
                 mDisplay.Height(), aDisplay.Width(), aDisplay.Height());
             mDisplay = aDisplay;
           }
         }
-        LOG("Set DCompSurfaceHandle, handle=%p", mDCompSurfaceHandle);
+        LOG("Set DCompSurfaceHandle, handle={}", fmt::ptr(mDCompSurfaceHandle));
         ResolvePendingPromisesIfNeeded();
       }));
 }
@@ -148,26 +157,7 @@ HRESULT MFMediaEngineVideoStream::CreateMediaType(const TrackInfo& aInfo,
   const auto rotation = ToMFVideoRotationFormat(videoInfo.mRotation);
   RETURN_IF_FAILED(mediaType->SetUINT32(MF_MT_VIDEO_ROTATION, rotation));
 
-  static const auto ToMFVideoTransFunc =
-      [](const Maybe<gfx::YUVColorSpace>& aColorSpace) {
-        using YUVColorSpace = gfx::YUVColorSpace;
-        if (!aColorSpace) {
-          return MFVideoTransFunc_Unknown;
-        }
-        // https://docs.microsoft.com/en-us/windows/win32/api/mfobjects/ne-mfobjects-mfvideotransferfunction
-        switch (*aColorSpace) {
-          case YUVColorSpace::BT601:
-          case YUVColorSpace::BT709:
-            return MFVideoTransFunc_709;
-          case YUVColorSpace::BT2020:
-            return MFVideoTransFunc_2020;
-          case YUVColorSpace::Identity:
-            return MFVideoTransFunc_sRGB;
-          default:
-            return MFVideoTransFunc_Unknown;
-        }
-      };
-  const auto transFunc = ToMFVideoTransFunc(videoInfo.mColorSpace);
+  const auto transFunc = ToMFVideoTransFunc(videoInfo.mTransferFunction);
   RETURN_IF_FAILED(mediaType->SetUINT32(MF_MT_TRANSFER_FUNCTION, transFunc));
 
   static const auto ToMFVideoPrimaries =
@@ -193,8 +183,8 @@ HRESULT MFMediaEngineVideoStream::CreateMediaType(const TrackInfo& aInfo,
   const auto videoPrimaries = ToMFVideoPrimaries(videoInfo.mColorSpace);
   RETURN_IF_FAILED(mediaType->SetUINT32(MF_MT_VIDEO_PRIMARIES, videoPrimaries));
 
-  LOG("Created video type, subtype=%s, image=[%ux%u], display=[%ux%u], "
-      "rotation=%s, tranFuns=%s, primaries=%s, encrypted=%d",
+  LOG("Created video type, subtype={}, image=[{}x{}], display=[{}x{}], "
+      "rotation={}, tranFuns={}, primaries={}, encrypted={}",
       GUIDToStr(subType), imageWidth, imageHeight, displayWidth, displayHeight,
       MFVideoRotationFormatToStr(rotation),
       MFVideoTransferFunctionToStr(transFunc),
@@ -240,8 +230,8 @@ bool MFMediaEngineVideoStream::IsDCompImageReady() {
         mDCompSurfaceHandle, mDisplay, gfx::SurfaceFormat::B8G8R8A8,
         mKnowsCompositor);
     mNeedRecreateImage = false;
-    LOG("Created dcomp surface image, handle=%p, size=[%u,%u]",
-        mDCompSurfaceHandle, mDisplay.Width(), mDisplay.Height());
+    LOG("Created dcomp surface image, handle={}, size=[{},{}]",
+        fmt::ptr(mDCompSurfaceHandle), mDisplay.Width(), mDisplay.Height());
   }
   return true;
 }
@@ -249,9 +239,11 @@ bool MFMediaEngineVideoStream::IsDCompImageReady() {
 RefPtr<MediaDataDecoder::DecodePromise> MFMediaEngineVideoStream::OutputData(
     RefPtr<MediaRawData> aSample) {
   if (IsShutdown()) {
+    mVideoDecodeBeforeDcompPromise.RejectIfExists(NS_ERROR_DOM_MEDIA_CANCELED,
+                                                  __func__);
     return MediaDataDecoder::DecodePromise::CreateAndReject(
         MediaResult(NS_ERROR_FAILURE,
-                    RESULT_DETAIL("MFMediaEngineStream is shutdown")),
+                    RESULT_DETAIL("MFMediaEngineVideoStream is shutdown")),
         __func__);
   }
   AssertOnTaskQueue();
@@ -259,8 +251,7 @@ RefPtr<MediaDataDecoder::DecodePromise> MFMediaEngineVideoStream::OutputData(
   MediaDataDecoder::DecodedData outputs;
   if (RefPtr<MediaData> outputData = OutputDataInternal()) {
     outputs.AppendElement(outputData);
-    LOGV("Output data [%" PRId64 ",%" PRId64 "]",
-         outputData->mTime.ToMicroseconds(),
+    LOGV("Output data [{},{}]", outputData->mTime.ToMicroseconds(),
          outputData->GetEndTime().ToMicroseconds());
   }
   if (ShouldDelayVideoDecodeBeforeDcompReady()) {
@@ -274,7 +265,15 @@ RefPtr<MediaDataDecoder::DecodePromise> MFMediaEngineVideoStream::OutputData(
 
 already_AddRefed<MediaData> MFMediaEngineVideoStream::OutputDataInternal() {
   AssertOnTaskQueue();
-  if (mRawDataQueueForGeneratingOutput.GetSize() == 0 || !IsDCompImageReady()) {
+  if (mRawDataQueueForGeneratingOutput.GetSize() == 0) {
+    return nullptr;
+  }
+  if (mFrameServerMode) {
+    RefPtr<MediaRawData> discarded =
+        mRawDataQueueForGeneratingOutput.PopFront();
+    return nullptr;
+  }
+  if (!IsDCompImageReady()) {
     return nullptr;
   }
   RefPtr<MediaRawData> sample = mRawDataQueueForGeneratingOutput.PopFront();
@@ -289,8 +288,26 @@ already_AddRefed<MediaData> MFMediaEngineVideoStream::OutputDataInternal() {
 }
 
 RefPtr<MediaDataDecoder::DecodePromise> MFMediaEngineVideoStream::Drain() {
+  if (IsShutdown()) {
+    mPendingDrainPromise.RejectIfExists(NS_ERROR_DOM_MEDIA_CANCELED, __func__);
+    mVideoDecodeBeforeDcompPromise.RejectIfExists(NS_ERROR_DOM_MEDIA_CANCELED,
+                                                  __func__);
+    return MediaDataDecoder::DecodePromise::CreateAndReject(
+        MediaResult(NS_ERROR_FAILURE,
+                    RESULT_DETAIL("MFMediaEngineVideoStream is shutdown")),
+        __func__);
+  }
   AssertOnTaskQueue();
   MediaDataDecoder::DecodedData outputs;
+  if (mFrameServerMode) {
+    mRawDataQueueForGeneratingOutput.Reset();
+    if (!mSampleRequestTokens.empty() &&
+        mRawDataQueueForFeedingEngine.GetSize() == 0) {
+      NotifyEndEvent();
+    }
+    return MediaDataDecoder::DecodePromise::CreateAndResolve(std::move(outputs),
+                                                             __func__);
+  }
   if (!IsDCompImageReady()) {
     LOGV("Waiting for dcomp image for draining");
     // A workaround for a special case where we have sent all input data to the
@@ -309,6 +326,15 @@ RefPtr<MediaDataDecoder::DecodePromise> MFMediaEngineVideoStream::Drain() {
 }
 
 RefPtr<MediaDataDecoder::FlushPromise> MFMediaEngineVideoStream::Flush() {
+  if (IsShutdown()) {
+    mPendingDrainPromise.RejectIfExists(NS_ERROR_DOM_MEDIA_CANCELED, __func__);
+    mVideoDecodeBeforeDcompPromise.RejectIfExists(NS_ERROR_DOM_MEDIA_CANCELED,
+                                                  __func__);
+    return MediaDataDecoder::FlushPromise::CreateAndReject(
+        MediaResult(NS_ERROR_FAILURE,
+                    RESULT_DETAIL("MFMediaEngineVideoStream is shutdown")),
+        __func__);
+  }
   AssertOnTaskQueue();
   auto promise = MFMediaEngineStream::Flush();
   mPendingDrainPromise.RejectIfExists(NS_ERROR_DOM_MEDIA_CANCELED, __func__);
@@ -328,8 +354,7 @@ void MFMediaEngineVideoStream::ResolvePendingPromisesIfNeeded() {
     MediaDataDecoder::DecodedData outputs;
     while (RefPtr<MediaData> outputData = OutputDataInternal()) {
       outputs.AppendElement(outputData);
-      LOGV("Output data [%" PRId64 ",%" PRId64 "]",
-           outputData->mTime.ToMicroseconds(),
+      LOGV("Output data [{},{}]", outputData->mTime.ToMicroseconds(),
            outputData->GetEndTime().ToMicroseconds());
     }
     mVideoDecodeBeforeDcompPromise.Resolve(std::move(outputs), __func__);
@@ -342,8 +367,7 @@ void MFMediaEngineVideoStream::ResolvePendingPromisesIfNeeded() {
     MediaDataDecoder::DecodedData outputs;
     while (RefPtr<MediaData> outputData = OutputDataInternal()) {
       outputs.AppendElement(outputData);
-      LOGV("Output data [%" PRId64 ",%" PRId64 "]",
-           outputData->mTime.ToMicroseconds(),
+      LOGV("Output data [{},{}]", outputData->mTime.ToMicroseconds(),
            outputData->GetEndTime().ToMicroseconds());
     }
     mPendingDrainPromise.Resolve(std::move(outputs), __func__);
@@ -440,7 +464,7 @@ bool MFMediaEngineVideoStream::IsEncrypted() const {
 }
 
 bool MFMediaEngineVideoStream::ShouldDelayVideoDecodeBeforeDcompReady() {
-  return HasEnoughRawData() && !IsDCompImageReady();
+  return !mFrameServerMode && HasEnoughRawData() && !IsDCompImageReady();
 }
 
 nsCString MFMediaEngineVideoStream::GetCodecName() const {

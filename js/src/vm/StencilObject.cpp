@@ -10,7 +10,8 @@
 #include <stddef.h>  // size_t
 #include <stdint.h>  // uint8_t, INT32_MAX
 
-#include "jsapi.h"           // JS_NewObject
+#include "jsapi.h"  // JS_NewObject
+
 #include "js/Class.h"        // JSClassOps, JSClass, JSCLASS_*
 #include "js/ErrorReport.h"  // JS_ReportErrorASCII
 #include "js/experimental/JSStencil.h"  // JS::Stencil, JS::StencilAddRef, JS::StencilRelease
@@ -23,16 +24,7 @@
 using namespace js;
 
 /*static */ const JSClassOps StencilObject::classOps_ = {
-    nullptr,                  // addProperty
-    nullptr,                  // delProperty
-    nullptr,                  // enumerate
-    nullptr,                  // newEnumerate
-    nullptr,                  // resolve
-    nullptr,                  // mayResolve
-    StencilObject::finalize,  // finalize
-    nullptr,                  // call
-    nullptr,                  // construct
-    nullptr,                  // trace
+    .finalize = StencilObject::finalize,
 };
 
 /*static */ const JSClass StencilObject::class_ = {
@@ -72,16 +64,7 @@ JS::Stencil* StencilObject::stencil() const {
 }
 
 /*static */ const JSClassOps StencilXDRBufferObject::classOps_ = {
-    nullptr,                           // addProperty
-    nullptr,                           // delProperty
-    nullptr,                           // enumerate
-    nullptr,                           // newEnumerate
-    nullptr,                           // resolve
-    nullptr,                           // mayResolve
-    StencilXDRBufferObject::finalize,  // finalize
-    nullptr,                           // call
-    nullptr,                           // construct
-    nullptr,                           // trace
+    .finalize = StencilXDRBufferObject::finalize,
 };
 
 /*static */ const JSClass StencilXDRBufferObject::class_ = {

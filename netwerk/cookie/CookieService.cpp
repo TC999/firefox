@@ -2,22 +2,27 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include "CookieService.h"
+
 #include "CookieCommons.h"
 #include "CookieDummyStorage.h"
 #include "CookieLogging.h"
 #include "CookieParser.h"
-#include "CookieService.h"
 #include "CookieValidation.h"
+#include "ThirdPartyUtil.h"
+#include "mozIThirdPartyUtil.h"
 #include "mozilla/AppShutdown.h"
 #include "mozilla/ClearOnShutdown.h"
 #include "mozilla/Components.h"
 #include "mozilla/ConsoleReportCollector.h"
 #include "mozilla/ContentBlockingNotifier.h"
 #include "mozilla/RefPtr.h"
+#include "mozilla/StaticPrefs_network.h"
+#include "mozilla/StoragePrincipalHelper.h"
 #include "mozilla/dom/Document.h"
-#include "mozilla/dom/nsMixedContentBlocker.h"
-#include "mozilla/dom/Promise.h"
 #include "mozilla/dom/Promise-inl.h"
+#include "mozilla/dom/Promise.h"
+#include "mozilla/dom/nsMixedContentBlocker.h"
 #include "mozilla/net/CookieJarSettings.h"
 #include "mozilla/net/CookiePersistentStorage.h"
 #include "mozilla/net/CookiePrivateStorage.h"
@@ -25,18 +30,15 @@
 #include "mozilla/net/CookieServiceChild.h"
 #include "mozilla/net/HttpBaseChannel.h"
 #include "mozilla/net/NeckoCommon.h"
-#include "mozilla/StaticPrefs_network.h"
-#include "mozilla/StoragePrincipalHelper.h"
-#include "mozIThirdPartyUtil.h"
-#include "nsICookiePermission.h"
 #include "nsIConsoleReportCollector.h"
+#include "nsICookiePermission.h"
 #include "nsIEffectiveTLDService.h"
 #include "nsIScriptError.h"
 #include "nsIScriptSecurityManager.h"
 #include "nsIURI.h"
 #include "nsIWebProgressListener.h"
 #include "nsNetUtil.h"
-#include "ThirdPartyUtil.h"
+#include "xpcpublic.h"
 
 using namespace mozilla::dom;
 
@@ -46,8 +48,7 @@ uint32_t MakeCookieBehavior(uint32_t aCookieBehavior) {
   bool isFirstPartyIsolated = OriginAttributes::IsFirstPartyEnabled();
 
   if (isFirstPartyIsolated &&
-      aCookieBehavior ==
-          nsICookieService::BEHAVIOR_REJECT_TRACKER_AND_PARTITION_FOREIGN) {
+      aCookieBehavior == nsICookieService::BEHAVIOR_PARTITION_FOREIGN) {
     return nsICookieService::BEHAVIOR_REJECT_TRACKER;
   }
   return aCookieBehavior;
@@ -259,6 +260,10 @@ nsresult CookieService::Init() {
   os->AddObserver(this, "last-pb-context-exited", true);
   os->AddObserver(this, "browser-delayed-startup-finished", true);
 
+  RunOnShutdown(
+      [self = RefPtr{this}] { self->RetirePersistentStorageForShutdown(); },
+      ShutdownPhase::AppShutdown);
+
   return NS_OK;
 }
 
@@ -266,16 +271,23 @@ void CookieService::InitCookieStorages() {
   NS_ASSERTION(!mPersistentStorage, "already have a default CookieStorage");
   NS_ASSERTION(!mPrivateStorage, "already have a private CookieStorage");
 
-  // Create two new CookieStorages. If we are in or beyond our observed
-  // shutdown phase, just be non-persistent.
-  if (MOZ_UNLIKELY(StaticPrefs::network_cookie_noPersistentStorage() ||
-                   AppShutdown::IsInOrBeyond(ShutdownPhase::AppShutdown))) {
+  if (MOZ_UNLIKELY(AppShutdown::IsInOrBeyond(ShutdownPhase::AppShutdown))) {
+    mPersistentStorage = new CookieDummyStorage();
+  } else if (MOZ_UNLIKELY(StaticPrefs::network_cookie_noPersistentStorage())) {
     mPersistentStorage = CookiePrivateStorage::Create();
   } else {
     mPersistentStorage = CookiePersistentStorage::Create();
   }
 
   mPrivateStorage = CookiePrivateStorage::Create();
+}
+
+void CookieService::RetirePersistentStorageForShutdown() {
+  MOZ_ASSERT(NS_IsMainThread());
+  if (mPersistentStorage) {
+    mRetiredStorage = std::move(mPersistentStorage);
+    mPersistentStorage = new CookieDummyStorage();
+  }
 }
 
 void CookieService::CloseCookieStorages() {
@@ -291,8 +303,14 @@ void CookieService::CloseCookieStorages() {
   RefPtr<CookieStorage> persistentStorage;
   persistentStorage.swap(mPersistentStorage);
 
+  RefPtr<CookieStorage> retiredStorage;
+  retiredStorage.swap(mRetiredStorage);
+
   privateStorage->Close();
   persistentStorage->Close();
+  if (retiredStorage) {
+    retiredStorage->Close();
+  }
 }
 
 CookieService::~CookieService() {
@@ -325,6 +343,10 @@ CookieService::Observe(nsISupports* /*aSubject*/, const char* aTopic,
 
 NS_IMETHODIMP
 CookieService::TestCloseCookieDB() {
+  if (!xpc::IsInAutomation()) {
+    return NS_ERROR_NOT_AVAILABLE;
+  }
+
   CloseCookieStorages();
   return NS_OK;
 }
@@ -548,7 +570,7 @@ CookieService::SetCookieStringFromHttp(nsIURI* aHostURI,
   bool mustBePartitioned =
       isForeignAndNotAddon &&
       cookieJarSettings->GetCookieBehavior() ==
-          nsICookieService::BEHAVIOR_REJECT_TRACKER_AND_PARTITION_FOREIGN &&
+          nsICookieService::BEHAVIOR_PARTITION_FOREIGN &&
       !result.contains(ThirdPartyAnalysis::IsStorageAccessPermissionGranted);
 
   nsCString cookieHeader(aCookieHeader);
@@ -1121,7 +1143,7 @@ nsresult CookieService::NormalizeHost(nsCString& aHost) {
     if (NS_FAILED(rv)) {
       return rv;
     }
-    aHost = host;
+    aHost = std::move(host);
   }
 
   return NS_OK;
@@ -1190,19 +1212,9 @@ CookieStatus CookieService::CheckPrefs(
   if (aIsForeign && aIsThirdPartyTrackingResource &&
       !aStorageAccessPermissionGranted &&
       aCookieJarSettings->GetRejectThirdPartyContexts()) {
-    // Set the reject reason to partitioned tracker if we are not blocking
-    // tracker cookie.
-    uint32_t rejectReason =
-        aCookieJarSettings->GetPartitionForeign() &&
-                !StaticPrefs::
-                    network_cookie_cookieBehavior_trackerCookieBlocking()
-            ? nsIWebProgressListener::STATE_COOKIES_PARTITIONED_FOREIGN
-            : nsIWebProgressListener::STATE_COOKIES_BLOCKED_TRACKER;
-    if (StoragePartitioningEnabled(rejectReason, aCookieJarSettings)) {
+    if (aCookieJarSettings->GetPartitionForeign()) {
       MOZ_ASSERT(!aOriginAttrs.mPartitionKey.IsEmpty(),
                  "We must have a StoragePrincipal here!");
-      // Set the reject reason to partitioned tracker if the resource to reflect
-      // that we are partitioning tracker cookies.
       *aRejectedReason =
           nsIWebProgressListener::STATE_COOKIES_PARTITIONED_TRACKER;
       return STATUS_ACCEPTED;
@@ -1354,6 +1366,36 @@ CookieService::CountCookiesFromHost(const nsACString& aHost,
 
   *aCountFromHost = mPersistentStorage->CountCookiesFromHost(baseDomain, 0);
 
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+CookieService::HasCookiesForSite(const nsACString& aHost,
+                                 const nsAString& aPattern, bool* aResult) {
+  NS_ENSURE_ARG_POINTER(aResult);
+  *aResult = false;
+
+  OriginAttributesPattern pattern;
+  if (!pattern.Init(aPattern)) {
+    return NS_ERROR_INVALID_ARG;
+  }
+
+  nsAutoCString host(aHost);
+  nsresult rv = NormalizeHost(host);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  nsAutoCString baseDomain;
+  rv = CookieCommons::GetBaseDomainFromHost(mTLDService, host, baseDomain);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  if (!IsInitialized()) {
+    return NS_ERROR_NOT_AVAILABLE;
+  }
+
+  CookieStorage* storage = PickStorage(pattern);
+  storage->EnsureInitialized();
+
+  *aResult = storage->HasCookiesForSite(baseDomain, pattern);
   return NS_OK;
 }
 
@@ -1664,11 +1706,6 @@ bool CookieService::IsInitialized() const {
 CookieStorage* CookieService::PickStorage(const OriginAttributes& aAttrs) {
   MOZ_ASSERT(IsInitialized());
 
-  // We just want to avoid hanging in EnsureInitialized during shutdown.
-  if (AppShutdown::IsInOrBeyond(ShutdownPhase::AppShutdown)) {
-    return MaybeCreateDummyStorage();
-  }
-
   if (aAttrs.IsPrivateBrowsing()) {
     return mPrivateStorage;
   }
@@ -1677,21 +1714,9 @@ CookieStorage* CookieService::PickStorage(const OriginAttributes& aAttrs) {
   return mPersistentStorage;
 }
 
-CookieStorage* CookieService::MaybeCreateDummyStorage() {
-  if (!mDummyStorage) {
-    mDummyStorage = new CookieDummyStorage();
-  }
-  return mDummyStorage;
-}
-
 CookieStorage* CookieService::PickStorage(
     const OriginAttributesPattern& aAttrs) {
   MOZ_ASSERT(IsInitialized());
-
-  // We just want to avoid hanging in EnsureInitialized during shutdown.
-  if (AppShutdown::IsInOrBeyond(ShutdownPhase::AppShutdown)) {
-    return MaybeCreateDummyStorage();
-  }
 
   if (aAttrs.mPrivateBrowsingId.WasPassed() &&
       aAttrs.mPrivateBrowsingId.Value() > 0) {

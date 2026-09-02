@@ -112,7 +112,7 @@ class BrowserChildMessageManager : public ContentFrameMessageManager,
   }
 
   // Dispatch a runnable related to the global.
-  nsresult Dispatch(already_AddRefed<nsIRunnable>&& aRunnable) const;
+  nsresult Dispatch(already_AddRefed<nsIRunnable> aRunnable) const;
 
   RefPtr<BrowserChild> mBrowserChild;
 
@@ -183,7 +183,7 @@ class BrowserChild final : public nsMessageManagerScriptExecutor,
   }
 
   NS_INLINE_DECL_STATIC_IID(DOM_BROWSERCHILD_IID)
-  NS_DECL_CYCLE_COLLECTING_ISUPPORTS
+  NS_DECL_CYCLE_COLLECTING_ISUPPORTS_FINAL
   NS_DECL_NSIWEBBROWSERCHROME
   NS_DECL_NSIINTERFACEREQUESTOR
   NS_DECL_NSIWINDOWPROVIDER
@@ -235,8 +235,9 @@ class BrowserChild final : public nsMessageManagerScriptExecutor,
   mozilla::ipc::IPCResult RecvLoadURL(nsDocShellLoadState* aLoadState,
                                       const ParentShowInfo& aInfo);
 
-  mozilla::ipc::IPCResult RecvCreateAboutBlankDocumentViewer(
-      nsIPrincipal* aPrincipal, nsIPrincipal* aPartitionedPrincipal);
+  MOZ_CAN_RUN_SCRIPT_BOUNDARY mozilla::ipc::IPCResult
+  RecvCreateAboutBlankDocumentViewer(nsIPrincipal* aPrincipal,
+                                     nsIPrincipal* aPartitionedPrincipal);
 
   mozilla::ipc::IPCResult RecvResumeLoad(const uint64_t& aPendingSwitchID,
                                          const ParentShowInfo&);
@@ -281,52 +282,53 @@ class BrowserChild final : public nsMessageManagerScriptExecutor,
   mozilla::ipc::IPCResult RecvKeyboardHeightChanged(
       const mozilla::ScreenIntCoord& aHeight);
 
-  mozilla::ipc::IPCResult RecvAndroidPipModeChanged(bool aPipMode);
+  MOZ_CAN_RUN_SCRIPT_BOUNDARY mozilla::ipc::IPCResult RecvAndroidPipModeChanged(
+      bool aPipMode);
 
   mozilla::ipc::IPCResult RecvActivate(uint64_t aActionId);
 
   mozilla::ipc::IPCResult RecvDeactivate(uint64_t aActionId);
 
   mozilla::ipc::IPCResult RecvRealMouseMoveEvent(
-      const mozilla::WidgetMouseEvent& aEvent, const ScrollableLayerGuid& aGuid,
-      const uint64_t& aInputBlockId);
+      const mozilla::WidgetMouseEvent& aMouseEvent,
+      const ScrollableLayerGuid& aGuid, const uint64_t& aInputBlockId);
   mozilla::ipc::IPCResult RecvNormalPriorityRealMouseMoveEvent(
-      const mozilla::WidgetMouseEvent& aEvent, const ScrollableLayerGuid& aGuid,
-      const uint64_t& aInputBlockId);
-  mozilla::ipc::IPCResult RecvRealMouseMoveEventForTests(
-      const mozilla::WidgetMouseEvent& aEvent, const ScrollableLayerGuid& aGuid,
-      const uint64_t& aInputBlockId);
-  mozilla::ipc::IPCResult RecvNormalPriorityRealMouseMoveEventForTests(
-      const mozilla::WidgetMouseEvent& aEvent, const ScrollableLayerGuid& aGuid,
-      const uint64_t& aInputBlockId);
+      const mozilla::WidgetMouseEvent& aMouseEvent,
+      const ScrollableLayerGuid& aGuid, const uint64_t& aInputBlockId);
+  mozilla::ipc::IPCResult RecvRealMouseMoveEventNoCompress(
+      const mozilla::WidgetMouseEvent& aMouseEvent,
+      const ScrollableLayerGuid& aGuid, const uint64_t& aInputBlockId);
+  mozilla::ipc::IPCResult RecvNormalPriorityRealMouseMoveEventNoCompress(
+      const mozilla::WidgetMouseEvent& aMouseEvent,
+      const ScrollableLayerGuid& aGuid, const uint64_t& aInputBlockId);
 
   mozilla::ipc::IPCResult RecvSynthMouseMoveEvent(
-      const mozilla::WidgetMouseEvent& aEvent, const ScrollableLayerGuid& aGuid,
-      const uint64_t& aInputBlockId);
+      const mozilla::WidgetMouseEvent& aMouseEvent,
+      const ScrollableLayerGuid& aGuid, const uint64_t& aInputBlockId);
   mozilla::ipc::IPCResult RecvNormalPrioritySynthMouseMoveEvent(
-      const mozilla::WidgetMouseEvent& aEvent, const ScrollableLayerGuid& aGuid,
-      const uint64_t& aInputBlockId);
+      const mozilla::WidgetMouseEvent& aMouseEvent,
+      const ScrollableLayerGuid& aGuid, const uint64_t& aInputBlockId);
 
   mozilla::ipc::IPCResult RecvRealMouseButtonEvent(
-      const mozilla::WidgetMouseEvent& aEvent, const ScrollableLayerGuid& aGuid,
-      const uint64_t& aInputBlockId);
+      const mozilla::WidgetMouseEvent& aMouseOrPointerEvent,
+      const ScrollableLayerGuid& aGuid, const uint64_t& aInputBlockId);
   mozilla::ipc::IPCResult RecvNormalPriorityRealMouseButtonEvent(
-      const mozilla::WidgetMouseEvent& aEvent, const ScrollableLayerGuid& aGuid,
-      const uint64_t& aInputBlockId);
+      const mozilla::WidgetMouseEvent& aMouseOrPointerEvent,
+      const ScrollableLayerGuid& aGuid, const uint64_t& aInputBlockId);
 
   mozilla::ipc::IPCResult RecvRealPointerButtonEvent(
-      const mozilla::WidgetPointerEvent& aEvent,
+      const mozilla::WidgetPointerEvent& aPointerEvent,
       const ScrollableLayerGuid& aGuid, const uint64_t& aInputBlockId);
   mozilla::ipc::IPCResult RecvNormalPriorityRealPointerButtonEvent(
-      const mozilla::WidgetPointerEvent& aEvent,
+      const mozilla::WidgetPointerEvent& aPointerEvent,
       const ScrollableLayerGuid& aGuid, const uint64_t& aInputBlockId);
 
   mozilla::ipc::IPCResult RecvRealMouseEnterExitWidgetEvent(
-      const mozilla::WidgetMouseEvent& aEvent, const ScrollableLayerGuid& aGuid,
-      const uint64_t& aInputBlockId);
+      const mozilla::WidgetMouseEvent& aMouseEvent,
+      const ScrollableLayerGuid& aGuid, const uint64_t& aInputBlockId);
   mozilla::ipc::IPCResult RecvNormalPriorityRealMouseEnterExitWidgetEvent(
-      const mozilla::WidgetMouseEvent& aEvent, const ScrollableLayerGuid& aGuid,
-      const uint64_t& aInputBlockId);
+      const mozilla::WidgetMouseEvent& aMouseEvent,
+      const ScrollableLayerGuid& aGuid, const uint64_t& aInputBlockId);
 
   MOZ_CAN_RUN_SCRIPT_BOUNDARY
   mozilla::ipc::IPCResult RecvRealDragEvent(
@@ -425,20 +427,16 @@ class BrowserChild final : public nsMessageManagerScriptExecutor,
   mozilla::ipc::IPCResult RecvLoadRemoteScript(const nsAString& aURL,
                                                const bool& aRunInGlobalScope);
 
-  mozilla::ipc::IPCResult RecvAsyncMessage(const nsAString& aMessage,
-                                           NotNull<StructuredCloneData*> aData);
-  mozilla::ipc::IPCResult RecvSwappedWithOtherRemoteLoader(
-      const IPCTabContext& aContext);
+  MOZ_CAN_RUN_SCRIPT_BOUNDARY mozilla::ipc::IPCResult RecvAsyncMessage(
+      const nsAString& aMessage, NotNull<StructuredCloneData*> aData);
+  MOZ_CAN_RUN_SCRIPT_BOUNDARY mozilla::ipc::IPCResult
+  RecvSwappedWithOtherRemoteLoader(const IPCTabContext& aContext);
 
   mozilla::ipc::IPCResult RecvSafeAreaInsetsChanged(
       const mozilla::LayoutDeviceIntMargin& aSafeAreaInsets);
 
-#ifdef ACCESSIBILITY
-  PDocAccessibleChild* AllocPDocAccessibleChild(
-      PDocAccessibleChild*, const uint64_t&,
-      const MaybeDiscardedBrowsingContext&);
-  bool DeallocPDocAccessibleChild(PDocAccessibleChild*);
-#endif
+  mozilla::ipc::IPCResult RecvInitSupportsUnadjustedMovement(
+      const bool& aSupportsUnadjustedMovement);
 
   RefPtr<VsyncMainChild> GetVsyncChild();
 
@@ -541,7 +539,7 @@ class BrowserChild final : public nsMessageManagerScriptExecutor,
       const MaybeDiscardedBrowsingContext&, const PrintData&,
       const MaybeDiscardedBrowsingContext&);
 
-  mozilla::ipc::IPCResult RecvDestroyPrintClone(
+  MOZ_CAN_RUN_SCRIPT_BOUNDARY mozilla::ipc::IPCResult RecvDestroyPrintClone(
       const MaybeDiscardedBrowsingContext&);
 
   mozilla::ipc::IPCResult RecvUpdateNativeWindowHandle(
@@ -580,6 +578,12 @@ class BrowserChild final : public nsMessageManagerScriptExecutor,
   void SetTargetAPZC(
       uint64_t aInputBlockId,
       const nsTArray<layers::ScrollableLayerGuid>& aTargets) const;
+  // Fast-path notification from EventListenerManager that a non-passive
+  // APZ-aware event listener has been registered. |aScrollId| identifies the
+  // nearest scroll container ancestor of the listener target (or the
+  // document's root scroll container for document/window listeners).
+  void NotifyApzAwareListenerAdded(
+      layers::ScrollableLayerGuid::ViewID aScrollId) const;
   MOZ_CAN_RUN_SCRIPT_BOUNDARY
   mozilla::ipc::IPCResult RecvHandleTap(
       const layers::GeckoContentController_TapType& aType,
@@ -654,7 +658,7 @@ class BrowserChild final : public nsMessageManagerScriptExecutor,
                                  const ScrollableLayerGuid& aGuid,
                                  const uint64_t& aInputBlockId);
 
-  void HandleRealMouseButtonEvent(const WidgetMouseEvent& aEvent,
+  void HandleRealMouseButtonEvent(const WidgetMouseEvent& aMouseOrPointerEvent,
                                   const ScrollableLayerGuid& aGuid,
                                   const uint64_t& aInputBlockId);
 

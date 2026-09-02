@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -29,6 +28,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import mozilla.components.compose.base.button.FilledButton
 
 typealias DismissAction = () -> Unit
 
@@ -38,12 +38,12 @@ typealias DismissAction = () -> Unit
  * @param showCFR Whether to display the CFR.
  * @param properties [CFRPopupProperties] allowing to customize the popup appearance and behavior.
  * @param onCFRShown Invoked when the CFR is displayed.
- * @param onDismiss Invoked when the CFR is dismissed. Returns true if the dismissal was
- * explicit (e.g. clicked via the "X" button).
+ * @param onDismiss Invoked when the CFR is dismissed. Returns true if the dismissal was explicit (e.g. clicked via the
+ *   "X" button).
  * @param title Optional [Text] composable to show just above the popup text.
  * @param text [Text] block containing the CFR's message.
- * @param action Optional Composable displayed below [text]. Provides a [DismissAction] if the CFR needs
- * to be dismissed after the action is invoked.
+ * @param action Optional Composable displayed below [text]. Provides a [DismissAction] if the CFR needs to be dismissed
+ *   after the action is invoked.
  * @param anchorContent The Composable to anchor the CFR to.
  */
 @Composable
@@ -59,9 +59,7 @@ fun CFRPopupLayout(
 ) {
     var hasDismissedCFR by rememberSaveable { mutableStateOf(false) }
 
-    Box(
-        modifier = Modifier.height(intrinsicSize = IntrinsicSize.Min),
-    ) {
+    Box(modifier = Modifier.height(intrinsicSize = IntrinsicSize.Min)) {
         if (showCFR && !hasDismissedCFR) {
             LaunchedEffect(Unit) {
                 onCFRShown()
@@ -80,19 +78,20 @@ fun CFRPopupLayout(
                 modifier = Modifier.fillMaxSize(),
                 factory = { context ->
                     View(context).also {
-                        popup = CFRPopup(
-                            anchor = it,
-                            properties = properties,
-                            onDismiss = { dismissFromButton ->
-                                onDismiss(dismissFromButton)
-                                hasDismissedCFR = true
-                            },
-                            title = title,
-                            text = text,
-                            action = {
-                                action(invokeDismiss)
-                            },
-                        )
+                        popup =
+                            CFRPopup(
+                                anchor = it,
+                                properties = properties,
+                                onDismiss = { dismissFromButton ->
+                                    onDismiss(dismissFromButton)
+                                    hasDismissedCFR = true
+                                },
+                                title = title,
+                                text = text,
+                                action = {
+                                    action(invokeDismiss)
+                                },
+                            )
                     }
                 },
                 onRelease = {
@@ -110,19 +109,15 @@ fun CFRPopupLayout(
 }
 
 /**
- * This is to validate the sizing of the underlying AndroidView. The current implementation of CFRs
- * via [CFRPopupFullscreenLayout] do not render in previews.
+ * This is to validate the sizing of the underlying AndroidView. The current implementation of CFRs via
+ * [CFRPopupFullscreenLayout] do not render in previews.
  */
 @Preview
 @Composable
 private fun CFRPopupLayoutPreview() {
     var cfrVisible by remember { mutableStateOf(true) }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(color = Color.LightGray),
-    ) {
+    Column(modifier = Modifier.fillMaxSize().background(color = Color.LightGray)) {
         CFRPopupLayout(
             showCFR = cfrVisible,
             properties = CFRPopupProperties(),
@@ -156,8 +151,9 @@ private fun CFRPopupLayoutPreview() {
 
         Spacer(modifier = Modifier.height(60.dp))
 
-        Button(onClick = { cfrVisible = true }) {
-            Text(text = "Show CFR")
-        }
+        FilledButton(
+            text = "Show CFR",
+            onClick = { cfrVisible = true },
+        )
     }
 }

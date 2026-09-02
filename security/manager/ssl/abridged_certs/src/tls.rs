@@ -7,15 +7,14 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use log::trace;
 use std::io::Cursor;
 use std::io::Write;
-use std::u8;
 
 /// Parses a TLS vector as defined in https://datatracker.ietf.org/doc/html/rfc8446#section-3.4
 /// The length prefix is specified as WIDTH within 1..4 inclusive.
 /// The result either indicates an error or produces the body of the vec
 /// and any remaining data.
-fn read_tls_vec<'a, const WIDTH: u8>(
-    value: &'a [u8],
-) -> Result<(&'a [u8], &'a [u8]), AbridgedError> {
+fn read_tls_vec<const WIDTH: u8>(
+    value: &[u8],
+) -> Result<(&[u8], &[u8]), AbridgedError> {
     debug_assert!(WIDTH <= 4, "Invalid width specified");
 
     let Some((len_bytes, remainder)) = value.split_at_checked(usize::from(WIDTH)) else {

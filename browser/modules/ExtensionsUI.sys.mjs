@@ -46,10 +46,12 @@ const DEFAULT_EXTENSION_ICON =
   "chrome://mozapps/skin/extensions/extensionGeneric.svg";
 
 function getTabBrowser(browser) {
-  while (browser.ownerGlobal.docShell.itemType !== Ci.nsIDocShell.typeChrome) {
-    browser = browser.ownerGlobal.docShell.chromeEventHandler;
+  while (
+    browser.documentGlobal.docShell.itemType !== Ci.nsIDocShell.typeChrome
+  ) {
+    browser = browser.documentGlobal.docShell.chromeEventHandler;
   }
-  let window = browser.ownerGlobal;
+  let window = browser.documentGlobal;
   let viewType = browser.getAttribute("webextension-view-type");
   if (viewType == "sidebar") {
     window = window.browsingContext.topChromeWindow;
@@ -142,7 +144,7 @@ export var ExtensionsUI = {
       shouldShowTechnicalAndInteractionCheckbox = false,
     } = {}
   ) {
-    let global = tabbrowser.selectedBrowser.ownerGlobal;
+    let global = tabbrowser.selectedBrowser.documentGlobal;
     return global.BrowserAddonUI.openAddonsMgr("addons://list/extension").then(
       aomWin => {
         let aomBrowser = aomWin.docShell.chromeEventHandler;
@@ -499,6 +501,11 @@ export var ExtensionsUI = {
         persistent: true,
         eventCallback,
         removeOnDismissal: true,
+        // Autofocus the panel on open, so users using keyboard navigation can
+        // reach it more easily (Bug 2059855). This flag does not focus yet
+        // any specific control inside it (so that a user pressing Enter
+        // right after the panel opens can't accidentally grant permissions).
+        autofocus: true,
         popupOptions: {
           position: "bottomright topright",
         },
@@ -556,7 +563,7 @@ export var ExtensionsUI = {
         browser,
         "addon-webext-permissions",
         strings.header,
-        browser.ownerGlobal.gUnifiedExtensions.getPopupAnchorID(
+        browser.documentGlobal.gUnifiedExtensions.getPopupAnchorID(
           browser,
           window
         ),
@@ -788,7 +795,7 @@ export var ExtensionsUI = {
   originControlsMenu(popup, extensionId) {
     let policy = WebExtensionPolicy.getByID(extensionId);
 
-    let win = popup.ownerGlobal;
+    let win = popup.documentGlobal;
     let doc = popup.ownerDocument;
     let tab = win.gBrowser.selectedTab;
     let uri = tab.linkedBrowser?.currentURI;

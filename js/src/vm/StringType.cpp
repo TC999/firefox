@@ -2,8 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "vm/StringType-inl.h"
-
 #include "mozilla/DebugOnly.h"
 #include "mozilla/HashFunctions.h"
 #include "mozilla/Latin1.h"
@@ -41,6 +39,7 @@
 
 #include "gc/Marking-inl.h"
 #include "vm/GeckoProfiler-inl.h"
+#include "vm/StringType-inl.h"
 
 using namespace js;
 
@@ -831,41 +830,39 @@ UniquePtr<CharT[], JS::FreePolicy> JSRope::copyCharsInternal(
 }
 
 template <typename CharT>
-void AddStringToHash(uint32_t* hash, const CharT* chars, size_t len) {
-  // It's tempting to use |HashString| instead of this loop, but that's
-  // slightly different than our existing implementation for non-ropes. We
-  // want to pretend we have a contiguous set of chars so we need to
-  // accumulate char by char rather than generate a new hash for substring
-  // and then accumulate that.
+static void AddStringToHash(mozilla::detail::UTF16Hasher& aHasher,
+                            const CharT* chars, size_t len) {
+  // It's tempting to use |HashString| / |HashLatin1AsUTF16| instead of this
+  // loop, but that's slightly different than our existing implementation for
+  // non-ropes. We want to pretend we have a contiguous set of chars so we need
+  // to accumulate char by char using UTF16Hasher rather than generate a new
+  // hash for substring and then accumulate that.
   for (size_t i = 0; i < len; i++) {
-    *hash = mozilla::AddToHash(*hash, chars[i]);
+    aHasher.Add(char16_t(chars[i]));
   }
 }
 
-void AddStringToHash(uint32_t* hash, const JSString* str) {
-  AutoCheckCannotGC nogc;
-  const auto& s = str->asLinear();
-  if (s.hasLatin1Chars()) {
-    AddStringToHash(hash, s.latin1Chars(nogc), s.length());
-  } else {
-    AddStringToHash(hash, s.twoByteChars(nogc), s.length());
-  }
-}
-
-bool JSRope::hash(uint32_t* outHash) const {
+bool JSRope::hashPrefix(size_t budget, uint32_t* outHash) const {
   Vector<const JSString*, 8, SystemAllocPolicy> nodeStack;
   const JSString* str = this;
 
-  *outHash = 0;
-
-  while (true) {
+  mozilla::detail::UTF16Hasher hasher;
+  while (budget > 0) {
     if (str->isRope()) {
       if (!nodeStack.append(str->asRope().rightChild())) {
         return false;
       }
       str = str->asRope().leftChild();
     } else {
-      AddStringToHash(outHash, str);
+      AutoCheckCannotGC nogc;
+      const auto& s = str->asLinear();
+      size_t toHash = std::min(s.length(), budget);
+      if (s.hasLatin1Chars()) {
+        AddStringToHash(hasher, s.latin1Chars(nogc), toHash);
+      } else {
+        AddStringToHash(hasher, s.twoByteChars(nogc), toHash);
+      }
+      budget -= toHash;
       if (nodeStack.empty()) {
         break;
       }
@@ -873,6 +870,7 @@ bool JSRope::hash(uint32_t* outHash) const {
     }
   }
 
+  *outHash = hasher.Finish();
   return true;
 }
 
@@ -1144,7 +1142,7 @@ JSLinearString* JSRope::flattenInternal(JSRope* root) {
   CharT* pos = wholeChars;
 
   JSRope* parent = nullptr;
-  uint32_t parentFlag = 0;
+  uint32_t parentFlag = StringFlags::FLATTEN_FINISH_NODE;
 
 first_visit_node: {
   MOZ_ASSERT_IF(str != root, parent && parentFlag);
@@ -1153,8 +1151,13 @@ first_visit_node: {
   ropeBarrierDuringFlattening<usingBarrier>(str);
 
   JSString& left = *str->d.s.u2.left;
-  str->d.s.u2.parent = parent;
+#ifdef JS_GC_CONCURRENT_MARKING
+  str->setFlagBitAtomic(parentFlag);
+  js::gc::MemoryReleaseFence(str);
+#else
   str->setFlagBit(parentFlag);
+#endif
+  setField(&str->d.s.u2.parent, parent);
   parent = nullptr;
   parentFlag = 0;
 
@@ -1206,8 +1209,11 @@ finish_node: {
   uint32_t flags = StringFlags::dependentStringFlags(encoding);
   flags |= str->flags() & StringFlags::PRESERVE_ROPE_BITS_ON_REPLACE;
   str->changeStringType(str->length(), flags);
-  str->d.s.u3.base =
-      reinterpret_cast<JSLinearString*>(root); /* will be true on exit */
+  {
+    // Will be true on exit.
+    auto* newBase = reinterpret_cast<JSLinearString*>(root);
+    setField(&str->d.s.u3.base, newBase);
+  }
   newRootFlags |= StringFlags::DEPENDED_ON_BIT;
 
   // Every interior (rope) node in the rope's tree will be visited during
@@ -1245,7 +1251,7 @@ finish_root:
   }
   root->changeStringType(wholeLength, flags);
   root->setNonInlineChars(wholeChars, hasStringBuffer);
-  root->d.s.u3.capacity = wholeCapacity;
+  setField(&root->d.s.u3.capacity, wholeCapacity);
   AddCellMemory(root, wholeCapacity * sizeof(CharT), MemoryUse::StringContents);
 
   if (reuseLeftmostBuffer) {
@@ -2549,7 +2555,7 @@ static JSString* NewStringFromBuffer(JSContext* cx, BufferT&& buffer,
   } else {
     // Note: |buffer| is either a StringBuffer* or a RefPtr<StringBuffer>, so
     // ensure we have a RefPtr.
-    RefPtr<mozilla::StringBuffer> bufferRef(std::move(buffer));
+    RefPtr<mozilla::StringBuffer> bufferRef(std::forward<BufferT>(buffer));
     Rooted<JSString::OwnedChars<CharT>> owned(cx, std::move(bufferRef), length);
     str = JSLinearString::new_<CanGC, CharT>(cx, &owned, gc::Heap::Default);
   }
@@ -2591,7 +2597,8 @@ static JSString* NewStringFromUTF8Buffer(JSContext* cx, BufferT&& buffer,
   JS::SmallestEncoding encoding = JS::FindSmallestEncoding(utf8);
   if (encoding == JS::SmallestEncoding::ASCII) {
     // ASCII case can use the string buffer as Latin1 buffer.
-    return NewStringFromBuffer<Latin1Char>(cx, std::move(buffer), length);
+    return NewStringFromBuffer<Latin1Char>(cx, std::forward<BufferT>(buffer),
+                                           length);
   }
 
   // Non-ASCII case cannot use the string buffer.
@@ -2927,7 +2934,7 @@ bool JSString::tryReplaceWithAtomRef(JSAtom* atom) {
            (isRope() ? StringFlags::PRESERVE_ROPE_BITS_ON_REPLACE
                      : StringFlags::PRESERVE_LINEAR_NONATOM_BITS_ON_REPLACE);
   changeStringType(length(), flags);
-  d.s.u3.atom = atom;
+  d.s.u3.base = atom;
   if (atom->hasLatin1Chars()) {
     setNonInlineChars(atom->chars<Latin1Char>(nogc), atom->hasStringBuffer());
   } else {
@@ -2937,6 +2944,7 @@ bool JSString::tryReplaceWithAtomRef(JSAtom* atom) {
   // Redundant, but just a reminder that this needs to be true or else we need
   // to check and conditionally put ourselves in the store buffer
   MOZ_ASSERT(atom->isTenured());
+
   return true;
 }
 
@@ -3069,7 +3077,7 @@ JSLinearString* js::StringChars<CharT>::toStringDontDeflate(JSContext* cx,
     if (auto* str = TryEmptyOrStaticString(cx, inlineChars_, length)) {
       return str;
     }
-    return NewInlineString<CanGC>(cx, inlineChars_, length, heap);
+    return NewInlineString<allowGC>(cx, inlineChars_, length, heap);
   }
 
   MOZ_ASSERT(ownedChars_,

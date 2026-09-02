@@ -8,8 +8,10 @@
 
 #include "ImageContainer.h"
 #include "mozilla/PresShell.h"
+#include "mozilla/ReflowInput.h"
 #include "mozilla/dom/HTMLImageElement.h"
 #include "mozilla/dom/HTMLVideoElement.h"
+#include "mozilla/dom/PerformanceContainerTiming.h"
 #include "mozilla/dom/ShadowRoot.h"
 #include "mozilla/layers/RenderRootStateManager.h"
 #include "nsCOMPtr.h"
@@ -167,18 +169,18 @@ void nsVideoFrame::Destroy(DestroyContext& aContext) {
   nsContainerFrame::Destroy(aContext);
 }
 
-class DispatchResizeEvent : public Runnable {
+class DispatchControlsResizeEvent final : public Runnable {
  public:
-  explicit DispatchResizeEvent(nsIContent* aContent,
-                               const nsLiteralString& aName)
-      : Runnable("DispatchResizeEvent"), mContent(aContent), mName(aName) {}
-  NS_IMETHOD Run() override {
-    nsContentUtils::DispatchTrustedEvent(mContent->OwnerDoc(), mContent, mName,
+  explicit DispatchControlsResizeEvent(nsIContent* aContent)
+      : Runnable("DispatchControlsResizeEvent"), mContent(aContent) {}
+  MOZ_CAN_RUN_SCRIPT_BOUNDARY NS_IMETHOD Run() override {
+    // This is ok-ish because we're dispatching it in the shadow dom so it
+    // doesn't propagate up to the <video>.
+    nsContentUtils::DispatchTrustedEvent(mContent, u"resizevideocontrols"_ns,
                                          CanBubble::eNo, Cancelable::eNo);
     return NS_OK;
   }
-  nsCOMPtr<nsIContent> mContent;
-  const nsLiteralString mName;
+  MOZ_KNOWN_LIVE const nsCOMPtr<nsIContent> mContent;
 };
 
 bool nsVideoFrame::ReflowFinished() {
@@ -196,23 +198,31 @@ bool nsVideoFrame::ReflowFinished() {
 
   AutoTArray<nsCOMPtr<nsIRunnable>, 2> events;
 
+  bool resizedCaption = false;
   if (auto size = GetSize(mCaptionDiv)) {
     if (*size != mCaptionTrackedSize) {
       mCaptionTrackedSize = *size;
-      events.AppendElement(
-          new DispatchResizeEvent(mCaptionDiv, u"resizecaption"_ns));
+      resizedCaption = true;
     }
   }
-  nsIContent* controls = GetVideoControls();
+  RefPtr controls = GetVideoControls();
+  bool resizedControls = false;
   if (auto size = GetSize(controls)) {
     if (*size != mControlsTrackedSize) {
       mControlsTrackedSize = *size;
-      events.AppendElement(
-          new DispatchResizeEvent(controls, u"resizevideocontrols"_ns));
+      resizedControls = true;
     }
   }
-  for (auto& event : events) {
-    nsContentUtils::AddScriptRunner(event.forget());
+
+  if (resizedCaption) {
+    RefPtr mediaEl = static_cast<HTMLMediaElement*>(GetContent());
+    mediaEl->SetCuesDirty();
+    mediaEl->UpdateCueDisplay();
+  }
+
+  if (resizedControls) {
+    nsContentUtils::AddScriptRunner(
+        MakeAndAddRef<DispatchControlsResizeEvent>(controls));
   }
   return false;
 }
@@ -568,7 +578,8 @@ class nsDisplayVideo final : public nsPaintedDisplayItem {
 
   NS_DISPLAY_DECL_NAME("Video", TYPE_VIDEO)
 
-  already_AddRefed<ImageContainer> GetImageContainer(gfxRect& aDestGFXRect) {
+  already_AddRefed<ImageContainer> GetImageContainer(gfxRect& aDestGFXRect,
+                                                     nsRect& aDest) {
     auto* f = static_cast<nsVideoFrame*>(Frame());
     nsRect area = f->InkOverflowRectRelativeToSelf() + ToReferenceFrame();
     auto* element = static_cast<HTMLVideoElement*>(f->GetContent());
@@ -591,9 +602,9 @@ class nsDisplayVideo final : public nsPaintedDisplayItem {
       return nullptr;
     }
 
-    nsRect dest =
-        f->GetDestRect(f->GetContentRectRelativeToSelf() + ToReferenceFrame());
-    aDestGFXRect = f->PresContext()->AppUnitsToGfxUnits(dest);
+    aDest = f->GetDestRect(f->GetContentRectRelativeToSelf());
+    aDestGFXRect =
+        f->PresContext()->AppUnitsToGfxUnits(aDest + ToReferenceFrame());
     aDestGFXRect.Round();
     if (aDestGFXRect.IsEmpty()) {
       return nullptr;
@@ -602,18 +613,18 @@ class nsDisplayVideo final : public nsPaintedDisplayItem {
     return container.forget();
   }
 
-  bool CreateWebRenderCommands(
+  WebRenderCommandsResult CreateWebRenderCommands(
       mozilla::wr::DisplayListBuilder& aBuilder,
       mozilla::wr::IpcResourceUpdateQueue& aResources,
       const mozilla::layers::StackingContextHelper& aSc,
       mozilla::layers::RenderRootStateManager* aManager,
       nsDisplayListBuilder* aDisplayListBuilder) override {
-    HTMLVideoElement* element =
-        static_cast<HTMLVideoElement*>(Frame()->GetContent());
+    auto* element = static_cast<HTMLVideoElement*>(Frame()->GetContent());
     gfxRect destGFXRect;
-    RefPtr<ImageContainer> container = GetImageContainer(destGFXRect);
+    nsRect dest;
+    RefPtr<ImageContainer> container = GetImageContainer(destGFXRect, dest);
     if (!container) {
-      return true;
+      return Ok();
     }
 
     container->SetRotation(element->RotationDegrees());
@@ -625,7 +636,10 @@ class nsDisplayVideo final : public nsPaintedDisplayItem {
                           destGFXRect.height);
     aManager->CommandBuilder().PushImage(this, container, aBuilder, aResources,
                                          aSc, rect, rect);
-    return true;
+
+    dom::ContainerTimingHelpers::MaybeProcessPaintForContainer(element, Frame(),
+                                                               dest);
+    return Ok();
   }
 
   // For opaque videos, we will want to override GetOpaqueRegion here.
@@ -645,10 +659,10 @@ class nsDisplayVideo final : public nsPaintedDisplayItem {
   }
 
   void Paint(nsDisplayListBuilder* aBuilder, gfxContext* aCtx) override {
-    HTMLVideoElement* element =
-        static_cast<HTMLVideoElement*>(Frame()->GetContent());
+    auto* element = static_cast<HTMLVideoElement*>(Frame()->GetContent());
     gfxRect destGFXRect;
-    RefPtr<ImageContainer> container = GetImageContainer(destGFXRect);
+    nsRect dest;
+    RefPtr<ImageContainer> container = GetImageContainer(destGFXRect, dest);
     if (!container) {
       return;
     }
@@ -660,7 +674,7 @@ class nsDisplayVideo final : public nsPaintedDisplayItem {
         preTransform * Matrix::Translation(destGFXRect.x, destGFXRect.y);
 
     AutoLockImage autoLock(container);
-    Image* image = autoLock.GetImage(TimeStamp::Now());
+    layers::Image* image = autoLock.GetImage(TimeStamp::Now());
     if (!image) {
       return;
     }
@@ -690,6 +704,9 @@ class nsDisplayVideo final : public nsPaintedDisplayItem {
         SurfacePattern(surface, ExtendMode::CLAMP, Matrix(),
                        nsLayoutUtils::GetSamplingFilterForFrame(Frame())),
         DrawOptions());
+
+    dom::ContainerTimingHelpers::MaybeProcessPaintForContainer(element, Frame(),
+                                                               dest);
   }
 };
 
@@ -716,8 +733,9 @@ void nsVideoFrame::BuildDisplayList(nsDisplayListBuilder* aBuilder,
   if (!clipAxes.isEmpty()) {
     nsRect clipRect;
     nsRectCornerRadii radii;
+    nsMargin inset;
     const bool haveRadii =
-        ComputeOverflowClipRectRelativeToSelf(clipAxes, clipRect, radii);
+        ComputeOverflowClipRectRelativeToSelf(clipAxes, clipRect, radii, inset);
     // NOTE: If we're displaying a poster image (instead of video data), we can
     // trust the nsImageFrame to constrain its drawing to its content rect
     // (which happens to be the same as our content rect).
@@ -727,7 +745,7 @@ void nsVideoFrame::BuildDisplayList(nsDisplayListBuilder* aBuilder,
     if (haveRadii || canOverflowWithoutRadii) {
       clipState.ClipContainingBlockDescendants(
           clipRect + aBuilder->ToReferenceFrame(this),
-          haveRadii ? &radii : nullptr);
+          haveRadii ? &radii : nullptr, haveRadii ? &inset : nullptr);
     }
   }
 

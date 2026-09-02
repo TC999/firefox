@@ -6,9 +6,9 @@
 #define MacOSNotificationCenter_h
 
 #import <Foundation/Foundation.h>
+#include "mozilla/RefPtr.h"
 #include "nsIAlertsService.h"
 #include "nsTArray.h"
-#include "mozilla/RefPtr.h"
 
 // mozNotificationCenterDelegate is used to access the macOS notification
 // center. It is not related to the DesktopNotificationCenter object, which was
@@ -22,7 +22,7 @@ namespace mozilla {
 class MacOSNotificationInfo;
 
 class MacOSNotificationCenter : public nsIAlertsService,
-                              public nsIAlertsDoNotDisturb {
+                                public nsIAlertsDoNotDisturb {
  public:
   NS_DECL_ISUPPORTS
   NS_DECL_NSIALERTSSERVICE

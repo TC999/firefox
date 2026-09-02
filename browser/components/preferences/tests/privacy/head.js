@@ -2,7 +2,7 @@
    http://creativecommons.org/publicdomain/zero/1.0/ */
 
 Services.scriptloader.loadSubScript(
-  "chrome://mochitests/content/browser/browser/components/preferences/tests/head.js",
+  "chrome://mochitests/content/browser/browser/components/preferences/tests/head-common.js",
   this
 );
 
@@ -77,10 +77,53 @@ async function clickCheckboxWithConfirmDialog(
   return checkbox;
 }
 
-/**
- * Select the given history mode via dropdown in the privacy pane.
- *
- * @param {Window} win - The preferences window which contains the
- * dropdown.
- * @param {string} value - The history mode to select.
- */
+// Some things are set dangerously in the test environment.
+// We can suppress these errors!
+const RESET_PROBLEMATIC_TEST_STATUSES = [
+  [
+    "browser.preferences.config_warning.warningAllowFingerprinters.dismissed",
+    true,
+  ],
+  [
+    "browser.preferences.config_warning.warningThirdPartyCookies.dismissed",
+    true,
+  ],
+  ["browser.preferences.config_warning.warningPasswordManager.dismissed", true],
+  ["browser.preferences.config_warning.warningPopupBlocker.dismissed", true],
+  [
+    "browser.preferences.config_warning.warningExtensionInstall.dismissed",
+    true,
+  ],
+  ["browser.preferences.config_warning.warningSafeBrowsing.dismissed", true],
+  ["browser.preferences.config_warning.warningDoH.dismissed", true],
+  ["browser.preferences.config_warning.warningECH.dismissed", true],
+  ["browser.preferences.config_warning.warningCT.dismissed", true],
+  ["browser.preferences.config_warning.warningCRLite.dismissed", true],
+  [
+    "browser.preferences.config_warning.warningCertificatePinning.dismissed",
+    true,
+  ],
+  ["browser.preferences.config_warning.warningTLSMin.dismissed", true],
+  ["browser.preferences.config_warning.warningTLSMax.dismissed", true],
+  [
+    "browser.preferences.config_warning.warningProxyAutodetection.dismissed",
+    true,
+  ],
+  [
+    "browser.preferences.config_warning.warningContentResourceURI.dismissed",
+    true,
+  ],
+  ["browser.preferences.config_warning.warningWorkerMIME.dismissed", true],
+  ["browser.preferences.config_warning.warningTopLevelDataURI.dismissed", true],
+  [
+    "browser.preferences.config_warning.warningActiveMixedContent.dismissed",
+    true,
+  ],
+  ["browser.preferences.config_warning.warningInnerHTMLltgt.dismissed", true],
+  ["browser.preferences.config_warning.warningFileURIOrigin.dismissed", true],
+  [
+    "browser.preferences.config_warning.warningPrivelegedConstraint.dismissed",
+    true,
+  ],
+  ["browser.preferences.config_warning.warningProcessSandbox.dismissed", true],
+];

@@ -16,6 +16,7 @@
 #include "base/basictypes.h"
 #include "buildid_section.h"
 #include "jsapi.h"
+#include "mozilla/AppShutdown.h"
 #include "mozilla/AsyncEventDispatcher.h"
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/ContentPrincipal.h"
@@ -167,7 +168,7 @@ nsFrameLoader::nsFrameLoader(Element* aOwner, BrowsingContext* aBrowsingContext,
       mOwnerContent(aOwner),
       mPendingSwitchID(0),
       mChildID(0),
-      mRemoteType(NOT_REMOTE_TYPE),
+      mRemoteType(RemoteType::NotRemote()),
       mInitialized(false),
       mDepthTooGreat(false),
       mIsTopLevelContent(false),
@@ -417,24 +418,30 @@ already_AddRefed<nsFrameLoader> nsFrameLoader::Create(
   }
 
   bool isRemoteFrame = InitialLoadIsRemote(aOwner);
-  RefPtr<nsFrameLoader> fl =
-      new nsFrameLoader(aOwner, context, isRemoteFrame, aNetworkCreated);
-  fl->mOpenWindowInfo = aOpenWindowInfo;
 
   // If this is a toplevel initial remote frame, we're looking at a browser
   // loaded in the parent process. Pull the remote type attribute off of the
   // <browser> element to determine which remote type it should be loaded in, or
-  // use `DEFAULT_REMOTE_TYPE` if we can't tell.
+  // use a shared web remote type if we can't tell.
+  RemoteType remoteType;
   if (isRemoteFrame) {
     MOZ_ASSERT(XRE_IsParentProcess());
-    nsAutoString remoteType;
-    if (aOwner->GetAttr(nsGkAtoms::RemoteType, remoteType) &&
-        !remoteType.IsEmpty()) {
-      CopyUTF16toUTF8(remoteType, fl->mRemoteType);
+    nsAutoString remoteTypeAttr;
+    if (aOwner->GetAttr(nsGkAtoms::RemoteType, remoteTypeAttr) &&
+        !remoteTypeAttr.IsEmpty()) {
+      remoteType = RemoteType::Parse(NS_ConvertUTF16toUTF8(remoteTypeAttr));
+      NS_ENSURE_TRUE(remoteType, nullptr);
     } else {
-      fl->mRemoteType = DEFAULT_REMOTE_TYPE;
+      remoteType = RemoteType::SharedWeb(context->OriginAttributesRef());
     }
+  } else {
+    remoteType = RemoteType::NotRemote();
   }
+
+  RefPtr<nsFrameLoader> fl =
+      new nsFrameLoader(aOwner, context, isRemoteFrame, aNetworkCreated);
+  fl->mOpenWindowInfo = aOpenWindowInfo;
+  fl->mRemoteType = remoteType;
   return fl.forget();
 }
 
@@ -540,7 +547,7 @@ void nsFrameLoader::LoadFrame(bool aOriginalSrc,
   }
 }
 
-void nsFrameLoader::ConfigRemoteProcess(const nsACString& aRemoteType,
+void nsFrameLoader::ConfigRemoteProcess(const RemoteType& aRemoteType,
                                         ContentParent* aContentParent) {
   MOZ_DIAGNOSTIC_ASSERT(IsRemoteFrame(), "Must be a remote frame");
   MOZ_DIAGNOSTIC_ASSERT(!mRemoteBrowser, "Must not have a browser yet");
@@ -706,6 +713,12 @@ nsresult nsFrameLoader::ReallyStartLoadingInternal() {
   }
 
   if (IsRemoteFrame()) {
+    if (!XRE_IsParentProcess() && mURIToLoad &&
+        mURIToLoad->SchemeIs("javascript")) {
+      // Web content should only be able to load javascript URIs same origin.
+      return NS_ERROR_DOM_BAD_CROSS_ORIGIN_URI;
+    }
+
     if (!EnsureRemoteBrowser()) {
       NS_WARNING("Couldn't create child process for iframe.");
       return NS_ERROR_FAILURE;
@@ -1060,7 +1073,10 @@ bool nsFrameLoader::ShowRemoteFrame(nsSubDocumentFrame* aFrame) {
                "ShowRemote only makes sense on remote frames.");
 
   if (!EnsureRemoteBrowser()) {
-    NS_ERROR("Couldn't create child process.");
+    // We know that creation of a browser will fail past shutdown, so we only
+    // assert before shutdown, to avoid failures on debug builds (bug 2055827).
+    NS_ASSERTION(AppShutdown::IsInOrBeyond(ShutdownPhase::AppShutdownConfirmed),
+                 "Couldn't create child process.");
     return false;
   }
 
@@ -1391,11 +1407,12 @@ nsresult nsFrameLoader::SwapWithOtherRemoteLoader(
 
 class MOZ_RAII AutoResetInFrameSwap final {
  public:
-  AutoResetInFrameSwap(nsFrameLoader* aThisFrameLoader,
-                       nsFrameLoader* aOtherFrameLoader,
-                       nsDocShell* aThisDocShell, nsDocShell* aOtherDocShell,
-                       EventTarget* aThisEventTarget,
-                       EventTarget* aOtherEventTarget)
+  MOZ_CAN_RUN_SCRIPT AutoResetInFrameSwap(nsFrameLoader* aThisFrameLoader,
+                                          nsFrameLoader* aOtherFrameLoader,
+                                          nsDocShell* aThisDocShell,
+                                          nsDocShell* aOtherDocShell,
+                                          EventTarget* aThisEventTarget,
+                                          EventTarget* aOtherEventTarget)
       : mThisFrameLoader(aThisFrameLoader),
         mOtherFrameLoader(aOtherFrameLoader),
         mThisDocShell(aThisDocShell),
@@ -1420,7 +1437,7 @@ class MOZ_RAII AutoResetInFrameSwap final {
                                                         mOtherEventTarget);
   }
 
-  ~AutoResetInFrameSwap() {
+  MOZ_CAN_RUN_SCRIPT ~AutoResetInFrameSwap() {
     nsContentUtils::FirePageShowEventForFrameLoaderSwap(mThisDocShell,
                                                         mThisEventTarget, true);
     nsContentUtils::FirePageShowEventForFrameLoaderSwap(
@@ -1442,12 +1459,12 @@ class MOZ_RAII AutoResetInFrameSwap final {
   }
 
  private:
-  RefPtr<nsFrameLoader> mThisFrameLoader;
-  RefPtr<nsFrameLoader> mOtherFrameLoader;
-  RefPtr<nsDocShell> mThisDocShell;
-  RefPtr<nsDocShell> mOtherDocShell;
-  nsCOMPtr<EventTarget> mThisEventTarget;
-  nsCOMPtr<EventTarget> mOtherEventTarget;
+  MOZ_KNOWN_LIVE const RefPtr<nsFrameLoader> mThisFrameLoader;
+  MOZ_KNOWN_LIVE const RefPtr<nsFrameLoader> mOtherFrameLoader;
+  MOZ_KNOWN_LIVE const RefPtr<nsDocShell> mThisDocShell;
+  MOZ_KNOWN_LIVE const RefPtr<nsDocShell> mOtherDocShell;
+  MOZ_KNOWN_LIVE const nsCOMPtr<EventTarget> mThisEventTarget;
+  MOZ_KNOWN_LIVE const nsCOMPtr<EventTarget> mOtherEventTarget;
 };
 
 nsresult nsFrameLoader::SwapWithOtherLoader(nsFrameLoader* aOther,
@@ -1927,7 +1944,7 @@ nsresult nsFrameLoaderDestroyRunnable::Run() {
       // called at the right time. The frame loader is kept alive by
       // mFrameLoader during this time.
       if (!mFrameLoader->GetRemoteBrowser() ||
-          !mFrameLoader->GetRemoteBrowser()->CanRecv()) {
+          !mFrameLoader->GetRemoteBrowser()->CanSend()) {
         // When the docshell is destroyed, NotifyWindowIDDestroyed is called to
         // asynchronously notify {outer,inner}-window-destroyed via a runnable.
         // We don't want DestroyComplete to run until after those runnables have
@@ -2089,20 +2106,11 @@ void nsFrameLoader::SetOwnerContent(Element* aContent) {
     // SetEmbedderElement above.
     mSessionStoreChild->UpdateEventTargets();
   }
-
-  AutoJSAPI jsapi;
-  jsapi.Init();
-
-  JS::Rooted<JSObject*> wrapper(jsapi.cx(), GetWrapper());
-  if (wrapper) {
-    JSAutoRealm ar(jsapi.cx(), wrapper);
-    IgnoredErrorResult rv;
-    UpdateReflectorGlobal(jsapi.cx(), wrapper, rv);
-    (void)NS_WARN_IF(rv.Failed());
-  }
 }
 
-nsIContent* nsFrameLoader::GetParentObject() const { return mOwnerContent; }
+nsISupports* nsFrameLoader::GetParentObject() const {
+  return xpc::NativeGlobal(xpc::PrivilegedJunkScope());
+}
 
 void nsFrameLoader::AssertSafeToInit() {
   MOZ_DIAGNOSTIC_ASSERT(nsContentUtils::IsSafeToRunScript() ||
@@ -3170,7 +3178,7 @@ already_AddRefed<Promise> nsFrameLoader::RequestTabStateFlush(
     return nullptr;
   }
 
-  RefPtr<Promise> promise = Promise::Create(ownerDoc->GetOwnerGlobal(), aRv);
+  RefPtr<Promise> promise = Promise::Create(ownerDoc->GetRelevantGlobal(), aRv);
   if (aRv.Failed()) {
     return nullptr;
   }
@@ -3252,7 +3260,7 @@ already_AddRefed<Promise> nsFrameLoader::PrintPreview(
     aRv.ThrowNotSupportedError("No owner document");
     return nullptr;
   }
-  RefPtr<Promise> promise = Promise::Create(ownerDoc->GetOwnerGlobal(), aRv);
+  RefPtr<Promise> promise = Promise::Create(ownerDoc->GetRelevantGlobal(), aRv);
   if (!promise) {
     return nullptr;
   }
@@ -3574,7 +3582,7 @@ nsresult nsFrameLoader::PopulateOriginContextIdsFromAttributes(
                              attributeValue) &&
       !attributeValue.IsEmpty()) {
     // XXX: Should we check the format from `GeckoViewNavigation.sys.mjs` here?
-    aAttr.mGeckoViewSessionContextId = attributeValue;
+    aAttr.mGeckoViewSessionContextId = std::move(attributeValue);
   }
 
   return NS_OK;

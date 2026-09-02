@@ -6,13 +6,10 @@ support-files = [
 ]
 
 ["browser_aboutCertError.js"]
-skip-if = [
-  "os == 'mac' && os_version == '10.15' && arch == 'x86_64' && opt",
-  "os == 'mac' && os_version == '15.30' && arch == 'aarch64'", # Bug 1996741
-  "os == 'linux' && opt && standalone", # Bug 2028651
-]
 
 ["browser_aboutCertError_accesskey.js"]
+
+["browser_aboutCertError_caInvalid.js"]
 
 ["browser_aboutCertError_cca_telemetry.js"]
 
@@ -53,6 +50,8 @@ skip-if = [
   "os == 'win' && os_version == '11.26200' && arch == 'x86_64' && msix && verify-standalone",
 ]
 
+["browser_aboutDialog_referrals.js"]
+
 ["browser_aboutNetError.js"]
 
 ["browser_aboutNetError_basicHttpAuth.js"]
@@ -63,6 +62,13 @@ support-files = [
 ["browser_aboutNetError_blank_page.js"]
 support-files = [
   "blank_page.sjs",
+]
+
+["browser_aboutNetError_connectionFailure.js"]
+
+["browser_aboutNetError_contentEncodingError.js"]
+support-files = [
+  "invalid_content_encoding.sjs",
 ]
 
 ["browser_aboutNetError_csp_iframe.js"]
@@ -92,11 +98,31 @@ support-files = [
   "invalid_header.sjs",
 ]
 
+["browser_aboutNetError_netInterrupt.js"]
+
+["browser_aboutNetError_searchCTA.js"]
+
+["browser_aboutNetError_searchCTA_connectivity.js"]
+
+["browser_aboutNetError_searchCTA_derivation.js"]
+
+["browser_aboutNetError_searchCTA_exit.js"]
+
+["browser_aboutNetError_searchCTA_frame.js"]
+
+["browser_aboutNetError_searchCTA_pbm.js"]
+
+["browser_aboutNetError_searchCTA_telemetry.js"]
+
 ["browser_aboutNetError_server_error.js"]
 support-files = [
   "http_error.sjs",
   "server_error.sjs",
 ]
+
+["browser_aboutNetError_sslKeyLoggingDisabled.js"]
+
+["browser_aboutNetError_telemetry.js"]
 
 ["browser_aboutNetError_timeout.js"]
 skip-if = [
@@ -105,12 +131,8 @@ skip-if = [
 
 ["browser_aboutNetError_trr.js"]
 skip-if = [
-  "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && asan", # Bug 1831977
-  "os == 'win' && os_version == '11.26200' && arch == 'x86_64' && asan", # Bug 1831977
   "socketprocess_networking",
 ]
-
-["browser_aboutNetError_neterror_telemetry.js"]
 
 ["browser_aboutNetError_xfo_iframe.js"]
 https_first_disabled = true
@@ -135,10 +157,10 @@ skip-if = [
 
 ["browser_aboutNewTab_bookmarksToolbarPrefs.js"]
 
-["browser_aboutStopReload.js"]
-
 ["browser_aboutSupport.js"]
 tags = "remote-settings"
+
+["browser_aboutSupport_graphics_media.js"]
 
 ["browser_aboutSupport_newtab_security_state.js"]
 
@@ -159,3 +181,5 @@ skip-if = [
 ["browser_bug633691.js"]
 
 ["browser_bug2008464.js"]
+
+["browser_releaseNotesURL.js"]

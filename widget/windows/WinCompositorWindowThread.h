@@ -5,9 +5,8 @@
 #ifndef widget_windows_WinCompositorWindowThread_h
 #define widget_windows_WinCompositorWindowThread_h
 
-#include "base/thread.h"
 #include "base/message_loop.h"
-#include "mozilla/Monitor.h"
+#include "base/thread.h"
 
 namespace mozilla {
 namespace widget {
@@ -47,12 +46,11 @@ class WinCompositorWindowThread final {
 
  private:
   explicit WinCompositorWindowThread(base::Thread* aThread);
-  ~WinCompositorWindowThread() {}
+  ~WinCompositorWindowThread() = default;
 
   void ShutDownTask();
 
   UniquePtr<base::Thread> const mThread;
-  Monitor mMonitor;
 
   // Has ShutDown been called on us? We might have survived if our thread join
   // timed out.

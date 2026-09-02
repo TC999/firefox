@@ -15,11 +15,11 @@
 #include "nsIInputStream.h"
 
 extern mozilla::LazyLogModule gTextTrackLog;
-#define LOG(msg, ...)                     \
-  MOZ_LOG(gTextTrackLog, LogLevel::Debug, \
-          ("WebVTTListener=%p, " msg, this, ##__VA_ARGS__))
+#define LOG(msg, ...)                                                    \
+  MOZ_LOG_FMT(gTextTrackLog, LogLevel::Debug, "WebVTTListener={}, " msg, \
+              fmt::ptr(this), ##__VA_ARGS__)
 #define LOG_WIHTOUT_ADDRESS(msg, ...) \
-  MOZ_LOG(gTextTrackLog, LogLevel::Debug, (msg, ##__VA_ARGS__))
+  MOZ_LOG_FMT(gTextTrackLog, LogLevel::Debug, msg, ##__VA_ARGS__)
 
 namespace mozilla::dom {
 
@@ -39,7 +39,7 @@ NS_IMPL_CYCLE_COLLECTING_RELEASE(WebVTTListener)
 WebVTTListener::WebVTTListener(HTMLTrackElement* aElement)
     : mElement(aElement), mParserWrapperError(NS_OK) {
   MOZ_ASSERT(mElement, "Must pass an element to the callback");
-  LOG("Created listener for track element %p", aElement);
+  LOG("Created listener for track element {}", fmt::ptr(aElement));
   MOZ_DIAGNOSTIC_ASSERT(
       CycleCollectedJSContext::Get() &&
       !CycleCollectedJSContext::Get()->IsInStableOrMetaStableState());
@@ -87,13 +87,15 @@ WebVTTListener::AsyncOnChannelRedirect(nsIChannel* aOldChannel,
 }
 
 NS_IMETHODIMP
-WebVTTListener::OnStartRequest(nsIRequest* aRequest) {
+WebVTTListener::OnStartRequest(nsIRequest* aRequest)
+    MOZ_CAN_RUN_SCRIPT_BOUNDARY {
   if (IsCanceled()) {
     return NS_OK;
   }
 
   LOG("OnStartRequest");
-  mElement->DispatchTestEvent(u"mozStartedLoadingTextTrack"_ns);
+  const RefPtr<HTMLTrackElement> element = mElement;
+  element->DispatchTestEvent(u"mozStartedLoadingTextTrack"_ns);
   return NS_OK;
 }
 
@@ -130,8 +132,8 @@ nsresult WebVTTListener::ParseChunk(nsIInputStream* aInStream, void* aClosure,
 
   if (NS_FAILED(listener->mParserWrapper->Parse(buffer))) {
     LOG_WIHTOUT_ADDRESS(
-        "WebVTTListener=%p, Unable to parse chunk of WEBVTT text. Aborting.",
-        listener);
+        "WebVTTListener={}, Unable to parse chunk of WEBVTT text. Aborting.",
+        fmt::ptr(listener));
     *aWriteCount = 0;
     return NS_ERROR_FAILURE;
   }

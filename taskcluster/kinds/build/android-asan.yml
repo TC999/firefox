@@ -32,6 +32,7 @@ task-defaults:
               type: directory
     run-on-repo-type: [hg]
     run:
+        clone-with: hg
         using: mozharness
         script: "mozharness/scripts/fx_desktop_build.py"
         secrets: true

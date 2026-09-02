@@ -5,6 +5,7 @@
 package mozilla.components.feature.session
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import kotlin.test.assertNotNull
 import mozilla.components.browser.state.action.CustomTabListAction
 import mozilla.components.browser.state.action.EngineAction
 import mozilla.components.browser.state.action.TabListAction
@@ -21,14 +22,15 @@ import mozilla.components.browser.state.store.BrowserStore
 import mozilla.components.concept.engine.Engine
 import mozilla.components.concept.engine.EngineSession
 import mozilla.components.concept.engine.content.blocking.TrackerLog
+import mozilla.components.concept.engine.content.blocking.TrackingProtectionEvent
 import mozilla.components.concept.engine.content.blocking.TrackingProtectionException
 import mozilla.components.concept.engine.content.blocking.TrackingProtectionExceptionStorage
 import mozilla.components.support.test.any
 import mozilla.components.support.test.eq
 import mozilla.components.support.test.mock
 import mozilla.components.support.test.whenever
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -54,18 +56,20 @@ class TrackingProtectionUseCasesTest {
 
         engineSession = mock()
 
-        store = BrowserStore(
-            BrowserState(
-                tabs = listOf(
-                    TabSessionState(
-                        id = "A",
-                        content = ContentState("https://www.mozilla.org"),
-                        engineState = EngineState(engineSession),
-                    ),
-                ),
-                selectedTabId = "A",
-            ),
-        )
+        store =
+            BrowserStore(
+                BrowserState(
+                    tabs =
+                        listOf(
+                            TabSessionState(
+                                id = "A",
+                                content = ContentState("https://www.mozilla.org"),
+                                engineState = EngineState(engineSession),
+                            )
+                        ),
+                    selectedTabId = "A",
+                )
+            )
 
         useCases = TrackingProtectionUseCases(store, engine)
     }
@@ -112,9 +116,7 @@ class TrackingProtectionUseCasesTest {
             onSuccessCalled = true
         }
 
-        store.dispatch(
-            EngineAction.UnlinkEngineSessionAction("A"),
-        )
+        store.dispatch(EngineAction.UnlinkEngineSessionAction("A"))
 
         whenever(engine.getTrackersLog(any(), any(), any())).then {
             onSuccess(emptyList())
@@ -145,9 +147,7 @@ class TrackingProtectionUseCasesTest {
 
     @Test
     fun `add exception with a null engine session will not call the store`() {
-        store.dispatch(
-            EngineAction.UnlinkEngineSessionAction("A"),
-        )
+        store.dispatch(EngineAction.UnlinkEngineSessionAction("A"))
 
         useCases.addException("A")
 
@@ -171,21 +171,26 @@ class TrackingProtectionUseCasesTest {
 
     @Test
     fun `remove a tracking protection exception`() {
-        val tab1 = createTab("https://www.mozilla.org")
-            .copy(trackingProtection = TrackingProtectionState(ignoredOnTrackingProtection = true))
+        val tab1 =
+            createTab("https://www.mozilla.org")
+                .copy(trackingProtection = TrackingProtectionState(ignoredOnTrackingProtection = true))
 
-        val tab2 = createTab("https://wiki.mozilla.org/")
-            .copy(trackingProtection = TrackingProtectionState(ignoredOnTrackingProtection = true))
+        val tab2 =
+            createTab("https://wiki.mozilla.org/")
+                .copy(trackingProtection = TrackingProtectionState(ignoredOnTrackingProtection = true))
 
-        val tab3 = createTab("https://www.mozilla.org/en-CA/")
-            .copy(trackingProtection = TrackingProtectionState(ignoredOnTrackingProtection = true))
+        val tab3 =
+            createTab("https://www.mozilla.org/en-CA/")
+                .copy(trackingProtection = TrackingProtectionState(ignoredOnTrackingProtection = true))
 
-        val customTab = createCustomTab("https://www.mozilla.org/en-CA/")
-            .copy(trackingProtection = TrackingProtectionState(ignoredOnTrackingProtection = true))
+        val customTab =
+            createCustomTab("https://www.mozilla.org/en-CA/")
+                .copy(trackingProtection = TrackingProtectionState(ignoredOnTrackingProtection = true))
 
-        val exception = object : TrackingProtectionException {
-            override val url: String = tab1.content.url
-        }
+        val exception =
+            object : TrackingProtectionException {
+                override val url: String = tab1.content.url
+            }
 
         store.dispatch(TabListAction.AddTabAction(tab1))
         store.dispatch(TabListAction.AddTabAction(tab2))
@@ -213,9 +218,7 @@ class TrackingProtectionUseCasesTest {
 
     @Test
     fun `remove exception with a null engine session will not call the store`() {
-        store.dispatch(
-            EngineAction.UnlinkEngineSessionAction("A"),
-        )
+        store.dispatch(EngineAction.UnlinkEngineSessionAction("A"))
 
         useCases.removeException("A")
 
@@ -241,9 +244,7 @@ class TrackingProtectionUseCasesTest {
     fun `contains exception with a null engine session will not call the store`() {
         var contains = true
 
-        store.dispatch(
-            EngineAction.UnlinkEngineSessionAction("A"),
-        )
+        store.dispatch(EngineAction.UnlinkEngineSessionAction("A"))
 
         useCases.containsException("A") {
             contains = it
@@ -257,5 +258,88 @@ class TrackingProtectionUseCasesTest {
     fun `fetch exceptions`() {
         useCases.fetchExceptions {}
         verify(exceptionStore).fetchAll(any())
+    }
+
+    @Test
+    fun `GIVEN a request to fetch tracking events WHEN successful THEN invoke the success callback`() {
+        val dateFrom = 1000L
+        val dateTo = 2000L
+        val events = listOf(TrackingProtectionEvent(1, 5, "2023-01-01"))
+        whenever(engine.getTrackingProtectionEventsByDateRange(eq(dateFrom), eq(dateTo), any(), any())).then {
+            it.getArgument<(List<TrackingProtectionEvent>) -> Unit>(2).invoke(events)
+        }
+        var capturedEvents: List<TrackingProtectionEvent>? = null
+
+        useCases.fetchTrackingEvents(dateFrom, dateTo, onSuccess = { capturedEvents = it })
+
+        verify(engine).getTrackingProtectionEventsByDateRange(eq(dateFrom), eq(dateTo), any(), any())
+        assertEquals(events, capturedEvents)
+    }
+
+    @Test
+    fun `GIVEN a request to fetch total trackers blocked WHEN successful THEN invoke the success callback`() {
+        val total = 42
+        whenever(engine.sumAllTrackingProtectionEvents(any(), any())).then {
+            it.getArgument<(Int) -> Unit>(0).invoke(total)
+        }
+        var capturedTotal = -1
+
+        useCases.fetchTotalTrackersBlocked(onSuccess = { capturedTotal = it })
+
+        verify(engine).sumAllTrackingProtectionEvents(any(), any())
+        assertEquals(total, capturedTotal)
+    }
+
+    @Test
+    fun `GIVEN a request to fetch earliest tracking date WHEN successful THEN invoke the success callback`() {
+        val date = 123456789L
+        whenever(engine.getEarliestTrackingProtectionDate(any(), any())).then {
+            it.getArgument<(Long?) -> Unit>(0).invoke(date)
+        }
+        var capturedDate: Long? = -1L
+
+        useCases.fetchEarliestTrackingDate(onSuccess = { capturedDate = it })
+
+        verify(engine).getEarliestTrackingProtectionDate(any(), any())
+        assertEquals(date, capturedDate)
+    }
+
+    @Test
+    fun `GIVEN a request to fetch tracking events WHEN an error is encountered THEN call the error callback`() {
+        val error = Exception("Test error")
+        val onError: (Throwable) -> Unit = mock()
+        whenever(engine.getTrackingProtectionEventsByDateRange(eq(0L), eq(0L), any(), any())).then {
+            it.getArgument<(Throwable) -> Unit>(3).invoke(error)
+        }
+
+        useCases.fetchTrackingEvents(0L, 0L, onSuccess = {}, onError = onError)
+
+        verify(onError).invoke(error)
+    }
+
+    @Test
+    fun `GIVEN a request to fetch total trackers blocked WHEN an error is encountered THEN call the error callback`() {
+        val error = Exception("Test error")
+        val onError: (Throwable) -> Unit = mock()
+        whenever(engine.sumAllTrackingProtectionEvents(any(), any())).then {
+            it.getArgument<(Throwable) -> Unit>(1).invoke(error)
+        }
+
+        useCases.fetchTotalTrackersBlocked(onSuccess = {}, onError = onError)
+
+        verify(onError).invoke(error)
+    }
+
+    @Test
+    fun `GIVEN a request to fetch earliest tracking date WHEN an error is encountered THEN call the error callback`() {
+        val error = Exception("Test error")
+        val onError: (Throwable) -> Unit = mock()
+        whenever(engine.getEarliestTrackingProtectionDate(any(), any())).then {
+            it.getArgument<(Throwable) -> Unit>(1).invoke(error)
+        }
+
+        useCases.fetchEarliestTrackingDate(onSuccess = {}, onError = onError)
+
+        verify(onError).invoke(error)
     }
 }

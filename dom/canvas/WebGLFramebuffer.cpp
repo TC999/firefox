@@ -890,6 +890,11 @@ void WebGLFramebuffer::ResolveAttachmentData() const {
             const uint32_t drawBuffer =
                 cur->mAttachmentPoint - LOCAL_GL_COLOR_ATTACHMENT0;
             MOZ_ASSERT(drawBuffer <= 100);
+            std::vector<GLenum> drawBuffersForClear(drawBuffer + 1,
+                                                    LOCAL_GL_NONE);
+            drawBuffersForClear[drawBuffer] = cur->mAttachmentPoint;
+            gl->fDrawBuffers(drawBuffersForClear.size(),
+                             drawBuffersForClear.data());
             switch (format->componentType) {
               case webgl::ComponentType::Int:
                 gl->fClearBufferiv(LOCAL_GL_COLOR, drawBuffer, iZeros);
@@ -921,6 +926,7 @@ void WebGLFramebuffer::ResolveAttachmentData() const {
       }
       imageInfo->mUninitializedSlices.reset();
     }
+    RefreshDrawBuffers();
     return;
   }
 
@@ -983,7 +989,7 @@ WebGLFramebuffer::CompletenessInfo::~CompletenessInfo() {
 // Entrypoints
 
 FBStatus WebGLFramebuffer::CheckFramebufferStatus() const {
-  if (MOZ_UNLIKELY(mOpaque && !mInOpaqueRAF)) {
+  if (mOpaque && !mInOpaqueRAF) [[unlikely]] {
     // Opaque Framebuffers are considered incomplete outside of a RAF.
     return LOCAL_GL_FRAMEBUFFER_UNSUPPORTED;
   }
@@ -1192,7 +1198,7 @@ bool WebGLFramebuffer::FramebufferAttach(const GLenum attachEnum,
   MOZ_ASSERT(mContext->mBoundDrawFramebuffer == this ||
              mContext->mBoundReadFramebuffer == this);
 
-  if (MOZ_UNLIKELY(mOpaque)) {
+  if (mOpaque) [[unlikely]] {
     // An opaque framebuffer's attachments cannot be inspected or changed.
     return false;
   }
@@ -1224,7 +1230,7 @@ Maybe<double> WebGLFramebuffer::GetAttachmentParameter(GLenum attachEnum,
         " STENCIL_ATTACHMENT for a framebuffer.");
     return Nothing();
   }
-  if (MOZ_UNLIKELY(mOpaque)) {
+  if (mOpaque) [[unlikely]] {
     mContext->ErrorInvalidOperation(
         "An opaque framebuffer's attachments cannot be inspected or changed.");
     return Nothing();
@@ -1614,8 +1620,8 @@ void WebGLFramebuffer::BlitFramebuffer(WebGLContext* webgl, GLint _srcX0,
 
     // src -Blit-> fbB -DrawBlit-> fbC -Blit-> dst
 
-    const auto fbB = gl::MozFramebuffer::Create(gl, {1, 1}, 0, false);
-    const auto fbC = gl::MozFramebuffer::Create(gl, {1, 1}, 0, false);
+    const auto fbB = gl::MozFramebuffer::Create(gl, {1, 1}, 0, false, false);
+    const auto fbC = gl::MozFramebuffer::Create(gl, {1, 1}, 0, false, false);
 
     // -
 

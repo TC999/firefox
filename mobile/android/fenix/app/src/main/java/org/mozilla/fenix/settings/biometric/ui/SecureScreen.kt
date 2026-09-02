@@ -18,7 +18,7 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import mozilla.components.lib.state.helpers.StoreProvider.Companion.composableStore
-import org.mozilla.fenix.ext.settings
+import org.mozilla.fenix.ext.components
 import org.mozilla.fenix.settings.biometric.ui.state.BiometricAuthenticationState
 import org.mozilla.fenix.settings.biometric.ui.state.SecureScreenAction
 import org.mozilla.fenix.settings.biometric.ui.state.SecureScreenAction.AuthenticationFlowAction
@@ -29,8 +29,8 @@ import org.mozilla.fenix.settings.biometric.ui.state.SecureScreenStore
 import org.mozilla.fenix.settings.logins.ui.BiometricAuthenticationDialog
 
 /**
- * A composable that wraps content requiring biometric or device credential authentication.
- * It observes the authentication state from the provided [store] and displays the appropriate UI.
+ * A composable that wraps content requiring biometric or device credential authentication. It observes the
+ * authentication state from the provided [store] and displays the appropriate UI.
  *
  * @param store The [SecureScreenStore] that manages the state for this screen.
  * @param title The title to be displayed on the authentication prompt.
@@ -80,7 +80,7 @@ internal fun SecureScreenImpl(
             StartAuthorization(
                 onStart = {
                     handleAction(AuthenticationFlowAction.Started)
-                },
+                }
             )
         }
 
@@ -97,8 +97,7 @@ internal fun SecureScreenImpl(
         }
 
         is BiometricAuthenticationState.ReadyToLock,
-        is BiometricAuthenticationState.Failed,
-            -> {
+        is BiometricAuthenticationState.Failed -> {
             NotAuthorized(
                 title = title,
                 onUnlockClicked = {
@@ -146,23 +145,24 @@ private fun ObserveLifecycle(
 
     DisposableEffect(LocalLifecycleOwner.current) {
         val lifecycle = ProcessLifecycleOwner.get().lifecycle
-        val observer = object : DefaultLifecycleObserver {
-            override fun onPause(owner: LifecycleOwner) {
-                super.onPause(owner)
-                activityContext.window?.lock()
-                onPause()
-            }
-
-            override fun onResume(owner: LifecycleOwner) {
-                super.onResume(owner)
-                if (activityContext.settings().allowScreenCaptureInSecureScreens) {
-                    activityContext.window?.unlock()
-                } else {
+        val observer =
+            object : DefaultLifecycleObserver {
+                override fun onPause(owner: LifecycleOwner) {
+                    super.onPause(owner)
                     activityContext.window?.lock()
+                    onPause()
                 }
-                onResume()
+
+                override fun onResume(owner: LifecycleOwner) {
+                    super.onResume(owner)
+                    if (activityContext.components.settings.allowScreenCaptureInSecureScreens) {
+                        activityContext.window?.unlock()
+                    } else {
+                        activityContext.window?.lock()
+                    }
+                    onResume()
+                }
             }
-        }
         lifecycle.addObserver(observer)
 
         onDispose {
@@ -174,9 +174,12 @@ private fun ObserveLifecycle(
 }
 
 private fun Window.lock() = addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+
 private fun Window.unlock() = clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
 
 @Composable
-private fun provideStore() = composableStore(SecureScreenState.Initial) {
-    SecureScreenStore(it)
-}.value
+private fun provideStore() =
+    composableStore(SecureScreenState.Initial) {
+            SecureScreenStore(it)
+        }
+        .value

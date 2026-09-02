@@ -25,7 +25,7 @@ import { Preferences } from "chrome://global/content/preferences/Preferences.mjs
  */
 
 /**
- * @typedef {string | boolean | number | nsIFile | void} SettingValue
+ * @typedef {string | boolean | number | nsIFile | null} SettingValue
  */
 
 /**
@@ -46,13 +46,16 @@ import { Preferences } from "chrome://global/content/preferences/Preferences.mjs
  */
 
 /**
- * Sets the value of a {@link Setting}.
+ * Sets the value of a {@link Setting}. If the SettingConfig has {@link SettingConfig.pref} set
+ * use this callback to transform the control's value to the literal pref value, this
+ * would likely be the inverse of {@link SettingConfig.get}. If {@link SettingConfig.pref} is not set,
+ * this should store the value manually in a fashion that can be retrieved in {@link SettingConfig.get}.
  *
  * @callback SettingSetCallback
  * @param {SettingValue} val - The value/pressed/checked from the input (control) associated with the setting
  * @param {SettingDeps} deps
  * @param {Setting} setting
- * @returns {void}
+ * @returns {SettingValue}
  */
 
 /**
@@ -127,6 +130,7 @@ import { Preferences } from "chrome://global/content/preferences/Preferences.mjs
  * @property {string} [id] The controlling extension's id.
  * @property {string} [supportPage] A support page to show in the message.
  * @property {boolean} [allowControl] If the control should be enabled while controlled.
+ * @property {boolean} [mayDisable] If the controlling extension may be disabled.
  */
 
 /**
@@ -137,7 +141,7 @@ import { Preferences } from "chrome://global/content/preferences/Preferences.mjs
  * @property {Pick<SettingControllingExtensionInfo, "storeId" | "l10nId" | "allowControl" | "supportPage">} [controllingExtensionInfo] Data related to the setting being controlled by an extension.
  * @property {SettingVisibleCallback} [visible] - Function to determine if a setting is visible in the UI
  * @property {SettingGetCallback} [get] - Function to get the value of the setting. Optional if {@link SettingConfig#pref} is set.
- * @property {SettingSetCallback} [set] - Function to set the value of the setting. Optional if {@link SettingConfig#pref} is set.
+ * @property {SettingSetCallback} [set] - See {@link SettingSetCallback}
  * @property {SettingGetControlConfigCallback} [getControlConfig] -  Function that allows the setting to modify its layout, this is intended to be used to provide the options, {@link SettingConfig#l10nId} or {@link SettingConfig#l10nArgs} data if necessary, but technically it can change anything (that doesn't mean it will have any effect though).
  * @property {SettingOnUserChangeCallback} [onUserChange] - A function that will be called when the setting
  *    has been modified by the user, it is passed the value/pressed/checked from its input. NOTE: This should be used for
@@ -423,6 +427,9 @@ export class Setting extends EventEmitter {
       if (addon) {
         this.controllingExtensionInfo.name = addon.name;
         this.controllingExtensionInfo.id = info.id;
+        this.controllingExtensionInfo.mayDisable = !!(
+          addon.permissions & lazy.AddonManager.PERM_CAN_DISABLE
+        );
         this.emit("change");
         return;
       }
@@ -433,6 +440,7 @@ export class Setting extends EventEmitter {
   _clearControllingExtensionInfo() {
     delete this.controllingExtensionInfo.id;
     delete this.controllingExtensionInfo.name;
+    delete this.controllingExtensionInfo.mayDisable;
     delete this.controllingExtensionInfo.supportPage;
     // Request an update to the setting control so the UI is in the correct state
     this.onChange();

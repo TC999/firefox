@@ -223,7 +223,7 @@ void InspectorFontFace::GetVariationAxes(
     aRV.Throw(NS_ERROR_OUT_OF_MEMORY);
     return;
   }
-  for (auto a : axes) {
+  for (const auto& a : axes) {
     InspectorVariationAxis& axis = *aResult.AppendElement();
     AppendTagAsASCII(axis.mTag, a.mTag);
     axis.mName.Append(NS_ConvertUTF8toUTF16(a.mName));
@@ -257,7 +257,7 @@ void InspectorFontFace::GetVariationInstances(
     }
     for (const auto& v : i.mValues) {
       InspectorVariationValue value;
-      AppendTagAsASCII(value.mAxis, v.mAxis);
+      AppendTagAsASCII(value.mAxis, v.mTag);
       value.mValue = v.mValue;
       // This won't fail, because of SetCapacity above.
       (void)inst.mValues.AppendElement(value, mozilla::fallible);

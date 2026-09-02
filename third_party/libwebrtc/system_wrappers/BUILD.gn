@@ -23,7 +23,6 @@ rtc_library("system_wrappers") {
   defines = []
   libs = []
   deps = [
-    "../api:array_view",
     "../api/units:time_delta",
     "../api/units:timestamp",
     "../rtc_base:checks",
@@ -87,9 +86,5 @@ if (rtc_include_tests && !build_with_chromium) {
       "//testing/gtest",
       "//third_party/abseil-cpp/absl/strings:string_view",
     ]
-
-    if (is_android) {
-      shard_timeout = 900
-    }
   }
 }

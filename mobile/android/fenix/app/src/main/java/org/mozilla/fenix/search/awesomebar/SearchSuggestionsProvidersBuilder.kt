@@ -6,6 +6,7 @@ package org.mozilla.fenix.search.awesomebar
 
 import android.net.Uri
 import androidx.annotation.VisibleForTesting
+import kotlinx.coroutines.CoroutineScope
 import mozilla.components.browser.state.search.SearchEngine
 import mozilla.components.browser.state.state.searchEngines
 import mozilla.components.concept.awesomebar.AwesomeBar
@@ -25,9 +26,7 @@ import mozilla.components.feature.awesomebar.provider.SportsOnlineSuggestionProv
 import mozilla.components.feature.awesomebar.provider.StocksOnlineSuggestionProvider
 import mozilla.components.feature.awesomebar.provider.TrendingSearchProvider
 import mozilla.components.feature.fxsuggest.FxSuggestSuggestionProvider
-import mozilla.components.feature.fxsuggest.MockedFlightsSuggestionDataSource
-import mozilla.components.feature.fxsuggest.MockedSportsSuggestionDataSource
-import mozilla.components.feature.fxsuggest.MockedStocksSuggestionDataSource
+import mozilla.components.feature.fxsuggest.datasource.CombinedOnlineSuggestionDataSource
 import mozilla.components.feature.search.SearchUseCases
 import mozilla.components.feature.session.SessionUseCases.LoadUrlUseCase
 import mozilla.components.feature.syncedtabs.DeviceIndicators
@@ -44,12 +43,11 @@ import org.mozilla.fenix.components.Core.Companion.METADATA_SHORTCUT_SUGGESTION_
 import org.mozilla.fenix.ext.containsQueryParameters
 import org.mozilla.fenix.search.SearchEngineSource
 
-/**
- * View that contains and configures the BrowserAwesomeBar
- */
+/** View that contains and configures the BrowserAwesomeBar */
 @Suppress("LongParameterList")
 class SearchSuggestionsProvidersBuilder(
     private val components: Components,
+    private val scope: CoroutineScope,
     private val browsingModeManager: BrowsingModeManager,
     private val includeSelectedTab: Boolean,
     private val loadUrlUseCase: LoadUrlUseCase,
@@ -67,12 +65,14 @@ class SearchSuggestionsProvidersBuilder(
     val defaultSearchActionProvider: SearchActionProvider
     var searchEngineSuggestionProvider: SearchEngineSuggestionProvider?
     val searchSuggestionProviderMap: MutableMap<SearchEngine, List<AwesomeBar.SuggestionProvider>>
+    val combinedOnlineDataSource: CombinedOnlineSuggestionDataSource = CombinedOnlineSuggestionDataSource(scope = scope)
 
     init {
-        engineForSpeculativeConnects = when (browsingModeManager.mode) {
-            BrowsingMode.Normal -> components.core.engine
-            BrowsingMode.Private -> null
-        }
+        engineForSpeculativeConnects =
+            when (browsingModeManager.mode) {
+                BrowsingMode.Normal -> components.core.engine
+                BrowsingMode.Private -> null
+            }
 
         defaultHistoryStorageProvider =
             HistoryStorageSuggestionProvider(
@@ -99,6 +99,8 @@ class SearchSuggestionsProvidersBuilder(
         val searchBitmap = suggestionIconProvider.getSearchIconBitmap()
         val searchWithBitmap = suggestionIconProvider.getSearchWithIconBitmap()
 
+        val trendingSearchBitmap = suggestionIconProvider.getTrendingSearchIconBitmap()
+
         defaultSearchSuggestionProvider =
             SearchSuggestionProvider(
                 store = components.core.store,
@@ -119,7 +121,7 @@ class SearchSuggestionsProvidersBuilder(
                 fetchClient = components.core.client,
                 privateMode = browsingModeManager.mode.isPrivate,
                 searchUseCase = searchUseCase,
-                icon = searchBitmap,
+                icon = trendingSearchBitmap,
             )
 
         defaultSearchActionProvider =
@@ -146,9 +148,7 @@ class SearchSuggestionsProvidersBuilder(
     }
 
     @Suppress("CognitiveComplexMethod", "LongMethod", "CyclomaticComplexMethod")
-    internal fun getProvidersToAdd(
-        state: SearchProviderState,
-    ): Set<AwesomeBar.SuggestionProvider> {
+    internal fun getProvidersToAdd(state: SearchProviderState): Set<AwesomeBar.SuggestionProvider> {
         val providersToAdd = mutableSetOf<AwesomeBar.SuggestionProvider>()
 
         when (state.searchEngineSource) {
@@ -163,23 +163,19 @@ class SearchSuggestionsProvidersBuilder(
         }
 
         if (state.showSearchTermHistory) {
-            getSearchTermSuggestionsProvider(
-                searchEngineSource = state.searchEngineSource,
-            )?.let { providersToAdd.add(it) }
+            getSearchTermSuggestionsProvider(searchEngineSource = state.searchEngineSource)?.let {
+                providersToAdd.add(it)
+            }
         }
 
         if (state.showRecentSearches) {
-            getRecentSearchSuggestionsProvider(
-                searchEngineSource = state.searchEngineSource,
-            )?.let { providersToAdd.add(it) }
+            getRecentSearchSuggestionsProvider(searchEngineSource = state.searchEngineSource)?.let {
+                providersToAdd.add(it)
+            }
         }
 
         if (state.showAllHistorySuggestions) {
-            providersToAdd.add(
-                getHistoryProvider(
-                    filter = getFilterToExcludeSponsoredResults(state),
-                ),
-            )
+            providersToAdd.add(getHistoryProvider(filter = getFilterToExcludeSponsoredResults(state)))
         }
 
         if (state.showHistorySuggestionsForCurrentEngine) {
@@ -189,11 +185,7 @@ class SearchSuggestionsProvidersBuilder(
         }
 
         if (state.showAllBookmarkSuggestions) {
-            providersToAdd.add(
-                getBookmarksProvider(
-                    filter = getFilterToExcludeSponsoredResults(state),
-                ),
-            )
+            providersToAdd.add(getBookmarksProvider(filter = getFilterToExcludeSponsoredResults(state)))
         }
 
         if (state.showBookmarksSuggestionsForCurrentEngine) {
@@ -207,11 +199,7 @@ class SearchSuggestionsProvidersBuilder(
         }
 
         if (state.showAllSyncedTabsSuggestions) {
-            providersToAdd.add(
-                getSyncedTabsProvider(
-                    filter = getFilterToExcludeSponsoredResults(state),
-                ),
-            )
+            providersToAdd.add(getSyncedTabsProvider(filter = getFilterToExcludeSponsoredResults(state)))
         }
 
         if (state.showSyncedTabsSuggestionsForCurrentEngine) {
@@ -252,7 +240,7 @@ class SearchSuggestionsProvidersBuilder(
                         sponsoredSuggestionDescription = suggestionsStringsProvider.getSponsoredSuggestionDescription(),
                         contextId = components.settings.contileContextId,
                     )
-                },
+                }
             )
         }
 
@@ -260,38 +248,40 @@ class SearchSuggestionsProvidersBuilder(
             providersToAdd.add(
                 StocksOnlineSuggestionProvider(
                     searchUseCase = searchUseCase,
-                    dataSource = MockedStocksSuggestionDataSource(),
+                    dataSource = combinedOnlineDataSource,
                     suggestionsHeader = suggestionsStringsProvider.firefoxSuggestOnlineHeader,
-                ),
+                )
             )
         }
 
         if (state.showSportsSuggestions) {
             providersToAdd.add(
                 SportsOnlineSuggestionProvider(
+                    icons = components.core.icons,
                     searchUseCase = searchUseCase,
-                    dataSource = MockedSportsSuggestionDataSource(),
+                    dataSource = combinedOnlineDataSource,
                     suggestionsHeader = suggestionsStringsProvider.firefoxSuggestOnlineHeader,
-                ),
+                )
             )
         }
 
         if (state.showFlightsSuggestions) {
             providersToAdd.add(
                 FlightsOnlineSuggestionProvider(
-                    searchUseCase = searchUseCase,
-                    dataSource = MockedFlightsSuggestionDataSource(),
+                    loadUrlUseCase = loadUrlUseCase,
+                    dataSource = combinedOnlineDataSource,
                     suggestionsHeader = suggestionsStringsProvider.firefoxSuggestOnlineHeader,
-                ),
+                )
             )
         }
 
         providersToAdd.add(requireNotNull(searchEngineSuggestionProvider))
 
         if (state.showTrendingSearches) {
-            val suggestionHeader = state.searchEngineSource.searchEngine?.let { searchEngine ->
-                suggestionsStringsProvider.forTrendingSearches(searchEngine)
-            }
+            val suggestionHeader =
+                state.searchEngineSource.searchEngine?.let { searchEngine ->
+                    suggestionsStringsProvider.forTrendingSearches(searchEngine)
+                }
 
             defaultTrendingSearchProvider.setSearchEngine(
                 state.searchEngineSource.searchEngine,
@@ -307,14 +297,11 @@ class SearchSuggestionsProvidersBuilder(
      * Configure and return a provider of history suggestions.
      *
      * @param filter Optional filter to limit the returned history suggestions.
-     *
-     * @return A [CombinedHistorySuggestionProvider] or [HistoryStorageSuggestionProvider] depending
-     * on if the history metadata feature is enabled.
+     * @return A [CombinedHistorySuggestionProvider] or [HistoryStorageSuggestionProvider] depending on if the history
+     *   metadata feature is enabled.
      */
     @VisibleForTesting
-    internal fun getHistoryProvider(
-        filter: SearchResultFilter? = null,
-    ): AwesomeBar.SuggestionProvider {
+    internal fun getHistoryProvider(filter: SearchResultFilter? = null): AwesomeBar.SuggestionProvider {
         return if (components.settings.historyMetadataUIFeature) {
             if (filter != null) {
                 CombinedHistorySuggestionProvider(
@@ -351,13 +338,12 @@ class SearchSuggestionsProvidersBuilder(
 
     private fun getSelectedSearchSuggestionProvider(state: SearchProviderState): List<AwesomeBar.SuggestionProvider> {
         return when (state.searchEngineSource) {
-            is SearchEngineSource.Default -> listOf(
-                defaultSearchActionProvider,
-                defaultSearchSuggestionProvider,
-            )
-            is SearchEngineSource.Shortcut -> getSuggestionProviderForEngine(
-                state.searchEngineSource.searchEngine,
-            )
+            is SearchEngineSource.Default ->
+                listOf(
+                    defaultSearchActionProvider,
+                    defaultSearchSuggestionProvider,
+                )
+            is SearchEngineSource.Shortcut -> getSuggestionProviderForEngine(state.searchEngineSource.searchEngine)
             is SearchEngineSource.History -> emptyList()
             is SearchEngineSource.Bookmarks -> emptyList()
             is SearchEngineSource.Tabs -> emptyList()
@@ -367,7 +353,7 @@ class SearchSuggestionsProvidersBuilder(
 
     @VisibleForTesting
     internal fun getSearchTermSuggestionsProvider(
-        searchEngineSource: SearchEngineSource,
+        searchEngineSource: SearchEngineSource
     ): AwesomeBar.SuggestionProvider? {
         val validSearchEngine = searchEngineSource.searchEngine ?: return null
 
@@ -377,9 +363,7 @@ class SearchSuggestionsProvidersBuilder(
             searchEngine = validSearchEngine,
             icon = suggestionIconProvider.getHistoryIconBitmap(),
             engine = engineForSpeculativeConnects,
-            suggestionsHeader = suggestionsStringsProvider.forSearchEngineSuggestion(
-                searchEngineSource.searchEngine,
-            ),
+            suggestionsHeader = suggestionsStringsProvider.forSearchEngineSuggestion(searchEngineSource.searchEngine),
         )
     }
 
@@ -405,10 +389,11 @@ class SearchSuggestionsProvidersBuilder(
         return searchSuggestionProviderMap.getOrPut(engine) {
             val searchBitmap = suggestionIconProvider.getSearchIconBitmap()
 
-            val engineForSpeculativeConnects = when (browsingModeManager.mode.isPrivate) {
-                true -> null
-                else -> components.core.engine
-            }
+            val engineForSpeculativeConnects =
+                when (browsingModeManager.mode.isPrivate) {
+                    true -> null
+                    else -> components.core.engine
+                }
 
             listOf(
                 SearchActionProvider(
@@ -436,13 +421,10 @@ class SearchSuggestionsProvidersBuilder(
      * Configure and return a provider of synced tabs suggestions.
      *
      * @param filter Optional filter to limit the returned synced tab suggestions.
-     *
      * @return [SyncedTabsStorageSuggestionProvider] providing suggestions for the [AwesomeBar].
      */
     @VisibleForTesting
-    internal fun getSyncedTabsProvider(
-        filter: SearchResultFilter? = null,
-    ): SyncedTabsStorageSuggestionProvider {
+    internal fun getSyncedTabsProvider(filter: SearchResultFilter? = null): SyncedTabsStorageSuggestionProvider {
         return SyncedTabsStorageSuggestionProvider(
             components.backgroundServices.syncedTabsStorage,
             loadUrlUseCase,
@@ -458,16 +440,13 @@ class SearchSuggestionsProvidersBuilder(
     }
 
     /**
-     *  Configure and return a provider of local tabs suggestions.
+     * Configure and return a provider of local tabs suggestions.
      *
      * @param filter Optional filter to limit the returned local tab suggestions.
-     *
      * @return [SessionSuggestionProvider] providing suggestions for the [AwesomeBar].
      */
     @VisibleForTesting
-    internal fun getLocalTabsProvider(
-        filter: SearchResultFilter? = null,
-    ): SessionSuggestionProvider {
+    internal fun getLocalTabsProvider(filter: SearchResultFilter? = null): SessionSuggestionProvider {
         return SessionSuggestionProvider(
             components.core.store,
             selectTabUseCase,
@@ -484,13 +463,10 @@ class SearchSuggestionsProvidersBuilder(
      * Configure and return a provider of bookmark suggestions.
      *
      * @param filter Optional filter to limit the returned bookmark suggestions.
-     *
      * @return [BookmarksStorageSuggestionProvider] providing suggestions for the [AwesomeBar].
      */
     @VisibleForTesting
-    internal fun getBookmarksProvider(
-        filter: SearchResultFilter? = null,
-    ): BookmarksStorageSuggestionProvider {
+    internal fun getBookmarksProvider(filter: SearchResultFilter? = null): BookmarksStorageSuggestionProvider {
         return BookmarksStorageSuggestionProvider(
             bookmarksStorage = components.core.bookmarksStorage,
             loadUrlUseCase = loadUrlUseCase,
@@ -503,17 +479,13 @@ class SearchSuggestionsProvidersBuilder(
         )
     }
 
-    /**
-     * Returns a [SearchResultFilter] that only includes results for the current search engine.
-     */
+    /** Returns a [SearchResultFilter] that only includes results for the current search engine. */
     internal fun getFilterForCurrentEngineResults(state: SearchProviderState): SearchResultFilter? =
         state.searchEngineSource.searchEngine?.resultsUrl?.let {
             SearchResultFilter.CurrentEngine(it)
         }
 
-    /**
-     * Returns a [SearchResultFilter] that excludes sponsored results.
-     */
+    /** Returns a [SearchResultFilter] that excludes sponsored results. */
     internal fun getFilterToExcludeSponsoredResults(state: SearchProviderState): SearchResultFilter? =
         if (state.showSponsoredSuggestions) {
             SearchResultFilter.ExcludeSponsored(components.settings.frecencyFilterQuery)
@@ -525,18 +497,18 @@ class SearchSuggestionsProvidersBuilder(
      * Data based on which the search suggestions providers list should be built.
      *
      * @property showSearchTermHistory Whether to show the search term history.
-     * @property showHistorySuggestionsForCurrentEngine Whether to show history suggestions
-     * for the current search engine.
+     * @property showHistorySuggestionsForCurrentEngine Whether to show history suggestions for the current search
+     *   engine.
      * @property showAllHistorySuggestions Whether to show all history suggestions.
-     * @property showBookmarksSuggestionsForCurrentEngine Whether to show bookmarks suggestions
-     * for the current search engine.
+     * @property showBookmarksSuggestionsForCurrentEngine Whether to show bookmarks suggestions for the current search
+     *   engine.
      * @property showAllBookmarkSuggestions Whether to show all bookmark suggestions.
      * @property showSearchSuggestions Whether to show search suggestions.
-     * @property showSyncedTabsSuggestionsForCurrentEngine Whether to show synced tabs suggestions
-     * for the current search engine.
+     * @property showSyncedTabsSuggestionsForCurrentEngine Whether to show synced tabs suggestions for the current
+     *   search engine.
      * @property showAllSyncedTabsSuggestions Whether to show all synced tabs suggestions.
-     * @property showSessionSuggestionsForCurrentEngine Whether to show session suggestions
-     * for the current search engine.
+     * @property showSessionSuggestionsForCurrentEngine Whether to show session suggestions for the current search
+     *   engine.
      * @property showAllSessionSuggestions Whether to show all session suggestions.
      * @property showSponsoredSuggestions Whether to show sponsored suggestions.
      * @property showNonSponsoredSuggestions Whether to show non-sponsored suggestions.
@@ -568,44 +540,39 @@ class SearchSuggestionsProvidersBuilder(
         val searchEngineSource: SearchEngineSource,
     )
 
-    /**
-     * Filters to limit the suggestions returned from a suggestion provider.
-     */
+    /** Filters to limit the suggestions returned from a suggestion provider. */
     sealed interface SearchResultFilter {
         /**
-         * A filter for the currently selected search engine. This filter only includes suggestions
-         * whose URLs have the same host as [resultsUri].
+         * A filter for the currently selected search engine. This filter only includes suggestions whose URLs have the
+         * same host as [resultsUri].
          */
         data class CurrentEngine(val resultsUri: Uri) : SearchResultFilter
 
-        /**
-         * A filter that excludes sponsored suggestions, whose URLs contain the given
-         * [queryParameter].
-         */
+        /** A filter that excludes sponsored suggestions, whose URLs contain the given [queryParameter]. */
         data class ExcludeSponsored(val queryParameter: String) : SearchResultFilter
 
         /**
-         * Returns `true` if the suggestion with the given [uri] should be included in the
-         * suggestions returned from the provider.
+         * Returns `true` if the suggestion with the given [uri] should be included in the suggestions returned from the
+         * provider.
          */
-        fun shouldIncludeUri(uri: Uri): Boolean = when (this) {
-            is CurrentEngine -> this.resultsUri.sameHostWithoutMobileSubdomainAs(uri)
-            is ExcludeSponsored -> !uri.containsQueryParameters(queryParameter)
-        }
+        fun shouldIncludeUri(uri: Uri): Boolean =
+            when (this) {
+                is CurrentEngine -> this.resultsUri.sameHostWithoutMobileSubdomainAs(uri)
+                is ExcludeSponsored -> !uri.containsQueryParameters(queryParameter)
+            }
 
         /**
-         * Returns `true` if the suggestion with the given [url] string should be included in the
-         * suggestions returned from the provider.
+         * Returns `true` if the suggestion with the given [url] string should be included in the suggestions returned
+         * from the provider.
          */
-        fun shouldIncludeUrl(url: String): Boolean = when (this) {
-            is CurrentEngine -> resultsUri.host == url.tryGetHostFromUrl()
-            is ExcludeSponsored -> !url.urlContainsQueryParameters(queryParameter)
-        }
+        fun shouldIncludeUrl(url: String): Boolean =
+            when (this) {
+                is CurrentEngine -> resultsUri.host == url.tryGetHostFromUrl()
+                is ExcludeSponsored -> !url.urlContainsQueryParameters(queryParameter)
+            }
     }
 
-    /**
-     * Static configuration.
-     */
+    /** Static configuration. */
     companion object {
         // Maximum number of suggestions returned.
         const val METADATA_SUGGESTION_LIMIT = 3

@@ -31,7 +31,7 @@ async function newtabWithSponsoredTopsites(callback = () => {}) {
   );
 
   // Wait for the re-broadcast to conclude and for sponsored topsites to render.
-  await BrowserTestUtils.waitForCondition(
+  await TestUtils.waitForCondition(
     () =>
       SpecialPowers.spawn(
         browser,
@@ -118,15 +118,14 @@ add_task(async function test_dismiss() {
     contextMenuButton.click();
 
     await ContentTaskUtils.waitForCondition(
-      () => contextMenuDiv.querySelector(".context-menu"),
+      () => contextMenuDiv.querySelector("panel-list"),
       "Should find context menu after clicking button"
     );
 
-    const contextMenu = contextMenuDiv.querySelector(".context-menu");
+    const contextMenu = contextMenuDiv.querySelector("panel-list");
 
-    const dismissButton = contextMenu.querySelector(
-      "li.context-menu-item:nth-child(4) button"
-    );
+    // "Dismiss" is the 4th item in the context menu.
+    const dismissButton = contextMenu.children.item(3);
 
     dismissButton.click();
 

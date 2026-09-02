@@ -36,15 +36,6 @@ static void PrintLongString(const char* const begin, const size_t len) {
   printf_stderr("%s", chunkBegin);
 }
 
-template <size_t N>
-static bool SubstringStartsWith(const std::string& testStr, size_t offset,
-                                const char (&refStr)[N]) {
-  for (size_t i = 0; i < N - 1; i++) {
-    if (testStr[offset + i] != refStr[i]) return false;
-  }
-  return true;
-}
-
 static void GetCompilationStatusAndLog(gl::GLContext* gl, GLuint shader,
                                        bool* const out_success,
                                        std::string* const out_log) {
@@ -88,7 +79,7 @@ void WebGLShader::CompileShader() {
   gl::GLContext* gl = mContext->gl;
 
   static const bool kDumpShaders = PR_GetEnv("MOZ_WEBGL_DUMP_SHADERS");
-  if (MOZ_UNLIKELY(kDumpShaders)) {
+  if (kDumpShaders) [[unlikely]] {
     printf_stderr("==== begin MOZ_WEBGL_DUMP_SHADERS ====\n");
     PrintLongString(mSource.c_str(), mSource.size());
   }
@@ -103,7 +94,7 @@ void WebGLShader::CompileShader() {
   mCompilationLog = mCompileResults->mInfoLog;
   const auto& success = mCompileResults->mValid;
 
-  if (MOZ_UNLIKELY(kDumpShaders)) {
+  if (kDumpShaders) [[unlikely]] {
     printf_stderr("\n==== \\/ \\/ \\/ ====\n");
     if (success) {
       const auto& translated = mCompileResults->mObjectCode;

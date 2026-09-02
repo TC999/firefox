@@ -10,15 +10,16 @@
 <hbox id="browserPrivacyCategory"
       class="subcategory"
       hidden="true"
-      data-category="panePrivacy">
+      data-category="panePrivacy"
+      data-srd-groupid="etpStatus">
   <html:h1 data-l10n-id="privacy-header"/>
 </hbox>
 
-<html:setting-group hidden="true" groupid="securityPrivacyStatus" data-category="panePrivacy" />
-<html:setting-group hidden="true" groupid="securityPrivacyWarnings" data-category="panePrivacy" />
+<html:setting-group hidden="true" groupid="securityPrivacyStatus" data-category="panePrivacy" data-srd-migrated="" />
+<html:setting-group hidden="true" groupid="securityPrivacyWarnings" data-category="panePrivacy" data-srd-migrated="" />
 
 <!-- Enhanced Tracking Protection Status Section -->
-<html:setting-group groupid="etpStatus" id="etpStatusCard" data-category="panePrivacy" data-subcategory="etpStatus" hidden="true"></html:setting-group>
+<html:setting-group groupid="etpStatus" id="etpStatusCard" data-category="panePrivacy" data-subcategory="etpStatus" hidden="true" data-srd-migrated=""></html:setting-group>
 
 <!-- Tracking / Content Blocking -->
 <groupbox id="trackingGroup" data-category="panePrivacy" data-srd-groupid="etpStatus" hidden="true" aria-describedby="contentBlockingDescription" class="highlighting-group">
@@ -285,7 +286,7 @@
                               preference="network.cookie.cookieBehavior">
                       <menupopup>
                         <menuitem id="blockCookiesSocialMedia" data-l10n-id="sitedata-option-block-cross-site-trackers" value="trackers"/>
-                        <menuitem id="isolateCookiesSocialMedia" data-l10n-id="sitedata-option-block-cross-site-cookies2" value="trackers-plus-isolate"/>
+                        <menuitem id="isolateCookiesSocialMedia" data-l10n-id="sitedata-option-block-cross-site-cookies2" value="isolate"/>
                         <menuitem data-l10n-id="sitedata-option-block-unvisited" value="unvisited"/>
                         <menuitem data-l10n-id="sitedata-option-block-all-cross-site-cookies" value="all-third-parties"/>
                         <menuitem data-l10n-id="sitedata-option-block-all" value="always"/>
@@ -394,35 +395,16 @@
   </vbox>
 </groupbox>
 <html:setting-group id="nonTechnicalPrivacyGroup" groupid="nonTechnicalPrivacy" data-category="panePrivacy" hidden="true" data-srd-groupid="nonTechnicalPrivacy2"/>
-<html:setting-group groupid="nonTechnicalPrivacy2" data-category="panePrivacy" hidden="true"/>
+<html:setting-group groupid="nonTechnicalPrivacy2" data-category="panePrivacy" hidden="true" data-srd-migrated=""/>
 
 <!-- Firefox VPN - IP Protection -->
-<html:setting-group groupid="ipprotection" data-category="panePrivacy" data-subcategory="vpn" hidden="true"></html:setting-group>
+<html:setting-group groupid="ipprotection" data-category="panePrivacy" data-subcategory="vpn" hidden="true" data-srd-migrated=""></html:setting-group>
 
 <html:setting-group groupid="cookiesAndSiteData" data-category="panePrivacy" hidden="true" data-srd-groupid="cookiesAndSiteData2"/>
-<html:setting-group groupid="cookiesAndSiteData2" data-category="panePrivacy" hidden="true" />
-
-<!-- Cookie Banner Handling -->
-<groupbox id="cookieBannerHandlingGroup" data-category="panePrivacy" data-subcategory="cookiebanner" hidden="true">
-  <label><html:h2 data-l10n-id="cookie-banner-blocker-header" /></label>
-  <vbox flex="1">
-    <hbox>
-      <description class="description-deemphasized">
-        <html:span id="cookieBannerReductionExplanation" data-l10n-id="cookie-banner-blocker-description" ></html:span>
-        <html:a is="moz-support-link" id="cookieBannerHandlingLearnMore" class="learnMore"  data-l10n-id="cookie-banner-learn-more" support-page="cookie-banner-reduction"/>
-      </description>
-    </hbox>
-    <hbox>
-      <checkbox id="handleCookieBanners"
-                preference="cookiebanners.service.mode.privateBrowsing"
-                data-l10n-id="cookie-banner-blocker-checkbox-label"
-                flex="1" />
-    </hbox>
-  </vbox>
-</groupbox>
+<html:setting-group groupid="cookiesAndSiteData2" data-category="panePrivacy" hidden="true" data-srd-migrated="" />
 
 <!-- Passwords -->
-<groupbox data-srd-groupid="passwords" id="passwordsGroup" orient="vertical" data-category="panePrivacy" data-subcategory="logins" hidden="true">
+<groupbox id="passwordsGroup" orient="vertical" data-category="panePrivacy" data-subcategory="logins" hidden="true" data-srd-groupid="passwords" data-srd-migrated="">
   <label><html:h2 data-l10n-id="pane-privacy-passwords-header" data-l10n-attrs="searchkeywords"/></label>
 
   <vbox id="passwordSettings">
@@ -551,23 +533,24 @@
   <label id="fips-desc" hidden="true" data-l10n-id="forms-master-pw-fips-desc"></label>
 </groupbox>
 
-<html:setting-group groupid="passwords" hidden="true" data-category="panePrivacy" />
+<html:setting-group groupid="passwords" hidden="true" data-category="panePrivacy" data-srd-migrated=""/>
 
-<html:setting-group data-category="panePrivacy" data-subcategory="payment-methods-autofill credit-card-autofill" groupid="payments" data-group="formAutofill" hidden="true" />
-<html:setting-group data-category="panePrivacy" data-subcategory="addresses-autofill address-autofill" groupid="addresses" data-group="formAutofill" hidden="true" />
+<html:setting-group data-category="panePrivacy" data-subcategory="payment-methods-autofill credit-card-autofill" groupid="payments" data-group="formAutofill" hidden="true" data-srd-migrated="" />
+<html:setting-group data-category="panePrivacy" data-subcategory="addresses-autofill address-autofill" groupid="addresses" data-group="formAutofill" hidden="true" data-srd-migrated="" />
 
 <!-- History -->
 <html:setting-group groupid="history" data-category="panePrivacy" hidden="true" data-srd-groupid="history2"/>
-<html:setting-group groupid="history2"  data-category="panePrivacy" hidden="true"/>
+<html:setting-group groupid="history2" data-category="panePrivacy" hidden="true" data-srd-migrated=""/>
 
 <!-- Permissions -->
-<html:setting-group groupid="permissions" data-category="panePrivacy" data-subcategory="permissions" hidden="true"></html:setting-group>
+<html:setting-group groupid="permissions" data-category="panePrivacy" data-subcategory="permissions" hidden="true" data-srd-migrated=""></html:setting-group>
 
 <!-- Firefox Data Collection and Use -->
 <html:setting-group groupid="dataCollection" data-category="panePrivacy" hidden="true"
-  class="subcategory"></html:setting-group>
+  class="subcategory" data-srd-migrated=""></html:setting-group>
+<html:setting-group groupid="privacyPanel" id="privacyPanelGroup" data-category="panePrivacy" hidden="true" data-srd-migrated=""></html:setting-group>
 
-<groupbox data-category="panePrivacy" hidden="true">
+<groupbox data-category="panePrivacy" hidden="true" data-srd-groupid="dataCollection">
   <vbox id="privacySegmentationSection" data-subcategory="privacy-segmentation" hidden="true">
     <label>
       <html:h2 data-l10n-id="privacy-segmentation-section-header"/>
@@ -587,21 +570,22 @@
 <hbox id="securityCategory"
       class="subcategory"
       hidden="true"
-      data-category="panePrivacy">
+      data-category="panePrivacy"
+      data-srd-groupid="etpStatus">
   <html:h1 data-l10n-id="security-header"/>
 </hbox>
 
 <!-- addons, forgery (phishing) UI Security -->
-<html:setting-group groupid="browsingProtection" data-category="panePrivacy" hidden="true"></html:setting-group>
+<html:setting-group groupid="browsingProtection" data-category="panePrivacy" hidden="true" data-srd-migrated=""></html:setting-group>
 
 <!-- Certificates -->
-<html:setting-group groupid="certificates" data-category="panePrivacy" hidden="true"></html:setting-group>
+<html:setting-group groupid="certificates" data-category="panePrivacy" hidden="true" data-srd-migrated=""></html:setting-group>
 
 <!-- HTTPS-ONLY Mode -->
-<html:setting-group groupid="httpsOnly" data-category="panePrivacy" hidden="true"/>
+<html:setting-group groupid="httpsOnly" data-category="panePrivacy" hidden="true" data-srd-migrated=""/>
 
 <!-- DoH -->
-<html:setting-group hidden="true" data-category="panePrivacy" groupid="dnsOverHttps" />
+<html:setting-group hidden="true" data-category="panePrivacy" groupid="dnsOverHttps" data-srd-migrated="" />
 
 <hbox id="DoHCategory"
       class="subcategory"

@@ -4,15 +4,15 @@
 
 #include "GLBlitHelper.h"
 
-#include "gfxEnv.h"
-#include "gfxUtils.h"
 #include "GLContext.h"
 #include "GLScreenBuffer.h"
+#include "GLUploadHelpers.h"
 #include "GPUVideoImage.h"
 #include "HeapCopyOfStackArray.h"
 #include "ImageContainer.h"
 #include "ScopedGLHelpers.h"
-#include "GLUploadHelpers.h"
+#include "gfxEnv.h"
+#include "gfxUtils.h"
 #include "mozilla/Casting.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/StaticPrefs_gfx.h"
@@ -20,6 +20,7 @@
 #include "mozilla/gfx/BuildConstants.h"
 #include "mozilla/gfx/Logging.h"
 #include "mozilla/gfx/Matrix.h"
+#include "mozilla/layers/GpuFence.h"
 #include "mozilla/layers/ImageDataSerializer.h"
 #include "mozilla/layers/LayersSurfaces.h"
 
@@ -36,14 +37,14 @@
 
 #ifdef XP_WIN
 #  include "mozilla/layers/D3D11ShareHandleImage.h"
-#  include "mozilla/layers/D3D11ZeroCopyTextureImage.h"
 #  include "mozilla/layers/D3D11YCbCrImage.h"
+#  include "mozilla/layers/D3D11ZeroCopyTextureImage.h"
 #endif
 
 #ifdef MOZ_WIDGET_GTK
 #  include "mozilla/layers/DMABUFSurfaceImage.h"
-#  include "mozilla/widget/DMABufSurface.h"
 #  include "mozilla/widget/DMABufDevice.h"
+#  include "mozilla/widget/DMABufSurface.h"
 #endif
 
 using mozilla::layers::PlanarYCbCrData;
@@ -672,7 +673,7 @@ void DrawBlitProg::Draw(const BaseArgs& args,
 
     gl->fEnableVertexAttribArray(0);
     const ScopedBindArrayBuffer bindVBO(gl, mParent.mQuadVBO);
-    gl->fVertexAttribPointer(0, 2, LOCAL_GL_FLOAT, false, 0, 0);
+    gl->fVertexAttribPointer(0, 2, LOCAL_GL_FLOAT, false, 0, nullptr);
   }
 
   gl->fDrawArrays(LOCAL_GL_TRIANGLE_STRIP, 0, 4);
@@ -716,7 +717,7 @@ GLBlitHelper::GLBlitHelper(GLContext* const gl)
       mGL->fGenVertexArrays(1, &mQuadVAO);
       mGL->fBindVertexArray(mQuadVAO);
       mGL->fEnableVertexAttribArray(0);
-      mGL->fVertexAttribPointer(0, 2, LOCAL_GL_FLOAT, false, 0, 0);
+      mGL->fVertexAttribPointer(0, 2, LOCAL_GL_FLOAT, false, 0, nullptr);
 
       mGL->fBindVertexArray(prev);
     }
@@ -913,8 +914,11 @@ std::unique_ptr<const DrawBlitProg> GLBlitHelper::CreateDrawBlitProg(
 #ifdef XP_MACOSX
 static RefPtr<MacIOSurface> LookupSurface(
     const layers::SurfaceDescriptorMacIOSurface& sd) {
-  return MacIOSurface::LookupSurface(sd.surfaceId(), !sd.isOpaque(),
-                                     sd.yUVColorSpace());
+  MacIOSurface::AllowAlpha allowAlpha = sd.isOpaque()
+                                            ? MacIOSurface::AllowAlpha::No
+                                            : MacIOSurface::AllowAlpha::Yes;
+  return MacIOSurface::LookupSurface(sd.surfaceId(), sd.yUVColorSpace(),
+                                     gfx::TransferFunction::SRGB, allowAlpha);
 }
 #endif
 
@@ -949,6 +953,10 @@ bool GLBlitHelper::BlitSdToFramebuffer(const layers::SurfaceDescriptor& asd,
 #ifdef XP_MACOSX
     case layers::SurfaceDescriptor::TSurfaceDescriptorMacIOSurface: {
       const auto& sd = asd.get_SurfaceDescriptorMacIOSurface();
+      if (sd.gpuFence() &&
+          !sd.gpuFence()->ServerWait(mGL, TimeDuration::Forever())) {
+        return false;
+      }
       const auto surf = LookupSurface(sd);
       if (!surf) {
         NS_WARNING("LookupSurface(MacIOSurface) failed");
@@ -985,79 +993,6 @@ bool GLBlitHelper::BlitSdToFramebuffer(const layers::SurfaceDescriptor& asd,
     default:
       return false;
   }
-}
-
-bool GLBlitHelper::BlitImageToFramebuffer(layers::Image* const srcImage,
-                                          const gfx::IntRect& destRect,
-                                          const OriginPos destOrigin,
-                                          const gfx::IntSize& fbSize) {
-  switch (srcImage->GetFormat()) {
-    case ImageFormat::PLANAR_YCBCR: {
-      const auto srcImage2 = static_cast<PlanarYCbCrImage*>(srcImage);
-      const auto data = srcImage2->GetData();
-      return BlitPlanarYCbCr(*data, destRect, destOrigin, fbSize);
-    }
-
-    case ImageFormat::SURFACE_TEXTURE: {
-#ifdef MOZ_WIDGET_ANDROID
-      auto* image = srcImage->AsSurfaceTextureImage();
-      MOZ_ASSERT(image);
-      auto surfaceTexture =
-          java::GeckoSurfaceTexture::Lookup(image->GetHandle());
-      return Blit(surfaceTexture, image->GetSize(), destRect, destOrigin,
-                  fbSize);
-#else
-      MOZ_ASSERT(false);
-      return false;
-#endif
-    }
-    case ImageFormat::MAC_IOSURFACE:
-#ifdef XP_MACOSX
-      return BlitImage(srcImage->AsMacIOSurfaceImage(), destRect, destOrigin,
-                       fbSize);
-#else
-      MOZ_ASSERT(false);
-      return false;
-#endif
-
-    case ImageFormat::GPU_VIDEO:
-      return BlitImage(static_cast<layers::GPUVideoImage*>(srcImage), destRect,
-                       destOrigin, fbSize);
-#ifdef XP_WIN
-    case ImageFormat::D3D11_SHARE_HANDLE_TEXTURE:
-      return BlitImage(static_cast<layers::D3D11ShareHandleImage*>(srcImage),
-                       destRect, destOrigin, fbSize);
-    case ImageFormat::D3D11_TEXTURE_ZERO_COPY:
-      return BlitImage(
-          static_cast<layers::D3D11ZeroCopyTextureImage*>(srcImage), destRect,
-          destOrigin, fbSize);
-    case ImageFormat::D3D9_RGB32_TEXTURE:
-      return false;  // todo
-    case ImageFormat::DCOMP_SURFACE:
-      return false;
-#else
-    case ImageFormat::D3D11_SHARE_HANDLE_TEXTURE:
-    case ImageFormat::D3D11_TEXTURE_ZERO_COPY:
-    case ImageFormat::D3D9_RGB32_TEXTURE:
-    case ImageFormat::DCOMP_SURFACE:
-      MOZ_ASSERT(false);
-      return false;
-#endif
-    case ImageFormat::DMABUF:
-#ifdef MOZ_WIDGET_GTK
-      return BlitImage(static_cast<layers::DMABUFSurfaceImage*>(srcImage),
-                       destRect, destOrigin, fbSize);
-#else
-      return false;
-#endif
-    case ImageFormat::MOZ2D_SURFACE:
-    case ImageFormat::NV_IMAGE:
-    case ImageFormat::OVERLAY_IMAGE:
-    case ImageFormat::SHARED_RGB:
-    case ImageFormat::TEXTURE_WRAPPER:
-      return false;  // todo
-  }
-  return false;
 }
 
 // -------------------------------------
@@ -1304,13 +1239,6 @@ bool GLBlitHelper::BlitPlanarYCbCr(const PlanarYCbCrData& yuvData,
 // -------------------------------------
 
 #ifdef XP_MACOSX
-bool GLBlitHelper::BlitImage(layers::MacIOSurfaceImage* const srcImage,
-                             const gfx::IntRect& destRect,
-                             const OriginPos destOrigin,
-                             const gfx::IntSize& fbSize) const {
-  return BlitImage(srcImage->GetSurface(), destRect, destOrigin, fbSize);
-}
-
 static std::string IntAsAscii(const int x) {
   std::string str;
   str.reserve(6);
@@ -1333,8 +1261,9 @@ bool GLBlitHelper::BlitImage(MacIOSurface* const iosurf,
     gfxCriticalError() << "Null MacIOSurface for GLBlitHelper::BlitImage";
     return false;
   }
-  if (mGL->GetContextType() != GLContextType::CGL) {
-    MOZ_ASSERT(false);
+  if (mGL->GetContextType() != GLContextType::CGL &&
+      mGL->GetContextType() != GLContextType::EGL) {
+    MOZ_ASSERT_UNREACHABLE();
     return false;
   }
 
@@ -1407,7 +1336,7 @@ bool GLBlitHelper::BlitImage(MacIOSurface* const iosurf,
       return false;
   }
 
-  const GLenum texTarget = LOCAL_GL_TEXTURE_RECTANGLE;
+  const GLenum texTarget = mGL->GetPreferredMacIOSurfaceTextureTarget();
   const ScopedSaveMultiTex saveTex(mGL, planes, texTarget);
   Maybe<ScopedTexture> texs[3];
 
@@ -1420,19 +1349,32 @@ bool GLBlitHelper::BlitImage(MacIOSurface* const iosurf,
     if (!iosurf->BindTexImage(mGL, p)) {
       return false;
     }
+  }
 
-    if (p == 0) {
-      const auto width = iosurf->GetDevicePixelWidth(p);
-      const auto height = iosurf->GetDevicePixelHeight(p);
+  const auto width = iosurf->GetDevicePixelWidth(0);
+  const auto height = iosurf->GetDevicePixelHeight(0);
+  baseArgs.texSize = gfx::IntSize(width, height);
+  const char* texHeader;
+  switch (texTarget) {
+    case LOCAL_GL_TEXTURE_RECTANGLE_ARB:
+      texHeader = kFragHeader_Tex2DRect;
       baseArgs.texMatrix0 = SubRectMat3(0, 0, width, height);
-      baseArgs.texSize = gfx::IntSize(width, height);
-      yuvArgs.texMatrix1 = SubRectMat3(0, 0, width / 2.0, height / 2.0);
-    }
+      yuvArgs.texMatrix1 = SubRectMat3(0, 0, iosurf->GetDevicePixelWidth(1),
+                                       iosurf->GetDevicePixelHeight(1));
+      break;
+    case LOCAL_GL_TEXTURE_2D:
+      texHeader = kFragHeader_Tex2D;
+      baseArgs.texMatrix0 = Mat3::I();
+      yuvArgs.texMatrix1 = Mat3::I();
+      break;
+    default:
+      MOZ_ASSERT_UNREACHABLE();
+      return false;
   }
 
   const char* fragConvert = yuv ? kFragConvert_ColorMatrix : kFragConvert_None;
   const auto& prog = GetDrawBlitProg({
-      kFragHeader_Tex2DRect,
+      texHeader,
       {fragSample, fragConvert, GetAlphaMixin(convertAlpha)},
   });
   prog.Draw(baseArgs, yuv ? &yuvArgs : nullptr);
@@ -1557,65 +1499,6 @@ void GLBlitHelper::BlitTextureToTexture(GLuint srcTex, GLuint destTex,
 }
 
 // -------------------------------------
-
-bool GLBlitHelper::BlitImage(layers::GPUVideoImage* const srcImage,
-                             const gfx::IntRect& destRect,
-                             const OriginPos destOrigin,
-                             const gfx::IntSize& fbSize) const {
-  const auto& data = srcImage->GetData();
-  if (!data) return false;
-
-  const auto& desc = data->SD();
-
-  MOZ_ASSERT(
-      desc.type() ==
-      layers::SurfaceDescriptorGPUVideo::TSurfaceDescriptorRemoteDecoder);
-  const auto& subdescUnion =
-      desc.get_SurfaceDescriptorRemoteDecoder().subdesc();
-  switch (subdescUnion.type()) {
-#ifdef MOZ_WIDGET_GTK
-    case layers::RemoteDecoderVideoSubDescriptor::TSurfaceDescriptorDMABuf: {
-      const auto& subdesc = subdescUnion.get_SurfaceDescriptorDMABuf();
-      RefPtr<DMABufSurface> surface =
-          DMABufSurface::CreateDMABufSurface(subdesc);
-      return Blit(surface, destRect, destOrigin, fbSize);
-    }
-#endif
-#ifdef XP_WIN
-    case layers::RemoteDecoderVideoSubDescriptor::TSurfaceDescriptorD3D10: {
-      const auto& subdesc = subdescUnion.get_SurfaceDescriptorD3D10();
-      return BlitDescriptor(subdesc, destRect, destOrigin, fbSize);
-    }
-    case layers::RemoteDecoderVideoSubDescriptor::TSurfaceDescriptorDXGIYCbCr: {
-      const auto& subdesc = subdescUnion.get_SurfaceDescriptorDXGIYCbCr();
-      return BlitDescriptor(subdesc, destRect, destOrigin, fbSize);
-    }
-#endif
-#ifdef XP_MACOSX
-    case layers::RemoteDecoderVideoSubDescriptor::
-        TSurfaceDescriptorMacIOSurface: {
-      const auto& subdesc = subdescUnion.get_SurfaceDescriptorMacIOSurface();
-      RefPtr<MacIOSurface> surface = MacIOSurface::LookupSurface(
-          subdesc.surfaceId(), !subdesc.isOpaque(), subdesc.yUVColorSpace());
-      MOZ_ASSERT(surface);
-      if (!surface) {
-        return false;
-      }
-      return BlitImage(surface, destRect, destOrigin, fbSize);
-    }
-#endif
-    case layers::RemoteDecoderVideoSubDescriptor::Tnull_t:
-      // This GPUVideoImage isn't directly readable outside the GPU process.
-      // Abort.
-      return false;
-    default:
-      gfxCriticalError() << "Unhandled subdesc type: "
-                         << uint32_t(subdescUnion.type());
-      return false;
-  }
-}
-
-// -------------------------------------
 #ifdef MOZ_WIDGET_GTK
 bool GLBlitHelper::Blit(DMABufSurface* surface, const gfx::IntRect& destRect,
                         OriginPos destOrigin, const gfx::IntSize& fbSize,
@@ -1709,11 +1592,15 @@ bool GLBlitHelper::Blit(DMABufSurface* surface, const gfx::IntRect& destRect,
     mGL->TexParams_SetClampNoMips(texTarget);
   }
 
-  // We support only NV12/YUV420 formats only with 1/2 texture scale.
-  // We don't set cliprect as DMABus textures are created without padding.
-  baseArgs.texMatrix0 = SubRectMat3(0, 0, 1, 1);
+  // Crop to visible region: VA-API surfaces may have macroblock-aligned
+  // textures larger than the visible size (bug 2054811).
+  baseArgs.texMatrix0 = SubRectMat3(
+      0, 0, float(surface->GetWidth(0)) / float(surface->GetWidthAligned(0)),
+      float(surface->GetHeight(0)) / float(surface->GetHeightAligned(0)));
   baseArgs.texSize = gfx::IntSize(surface->GetWidth(), surface->GetHeight());
-  yuvArgs.texMatrix1 = SubRectMat3(0, 0, 1, 1);
+  yuvArgs.texMatrix1 = SubRectMat3(
+      0, 0, float(surface->GetWidth(1)) / float(surface->GetWidthAligned(1)),
+      float(surface->GetHeight(1)) / float(surface->GetHeightAligned(1)));
 
   const auto& prog =
       GetDrawBlitProg({kFragHeader_Tex2D,
@@ -1721,17 +1608,6 @@ bool GLBlitHelper::Blit(DMABufSurface* surface, const gfx::IntRect& destRect,
   prog.Draw(baseArgs, pYuvArgs);
 
   return true;
-}
-
-bool GLBlitHelper::BlitImage(layers::DMABUFSurfaceImage* srcImage,
-                             const gfx::IntRect& destRect, OriginPos destOrigin,
-                             const gfx::IntSize& fbSize) const {
-  DMABufSurface* surface = srcImage->GetSurface();
-  if (!surface) {
-    gfxCriticalError() << "Null DMABUFSurface for GLBlitHelper::BlitImage";
-    return false;
-  }
-  return Blit(surface, destRect, destOrigin, fbSize);
 }
 
 bool GLBlitHelper::BlitYCbCrImageToDMABuf(const PlanarYCbCrData& yuvData,
@@ -2192,7 +2068,7 @@ std::optional<color::ColorProfileDesc> GLBlitHelper::ToColorProfileDesc(
 
 // For std::visit
 template <class... Ts>
-struct overloaded : Ts... {
+struct MOZ_EMPTY_BASES overloaded : Ts... {
   using Ts::operator()...;
 };
 // explicit deduction guide (not needed as of C++20)

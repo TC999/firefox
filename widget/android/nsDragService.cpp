@@ -6,10 +6,10 @@
 
 #include "AndroidGraphics.h"
 #include "AndroidWidgetUtils.h"
-#include "mozilla/dom/Document.h"
-#include "mozilla/java/GeckoDragAndDropWrappers.h"
 #include "mozilla/PresShell.h"
 #include "mozilla/ScopeExit.h"
+#include "mozilla/dom/Document.h"
+#include "mozilla/java/GeckoDragAndDropWrappers.h"
 #include "nsArrayUtils.h"
 #include "nsClipboard.h"
 #include "nsComponentManagerUtils.h"
@@ -36,7 +36,7 @@ already_AddRefed<nsDragService> nsDragService::GetInstance() {
 }
 
 already_AddRefed<nsIDragSession> nsDragService::CreateDragSession() {
-  RefPtr<nsDragSession> session = new nsDragSession();
+  auto session = MakeRefPtr<nsDragSession>();
   return session.forget();
 }
 

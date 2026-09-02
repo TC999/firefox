@@ -124,6 +124,7 @@ class alignas(uintptr_t) ICScript final : public TrailingArray<ICScript> {
            InliningRoot* inliningRoot = nullptr)
       : inliningRoot_(inliningRoot),
         warmUpCount_(warmUpCount),
+        ionThreshold_(JitOptions.normalIonWarmUpThreshold),
         fallbackStubsOffset_(fallbackStubsOffset),
         endOffset_(endOffset),
         depth_(depth),
@@ -170,6 +171,9 @@ class alignas(uintptr_t) ICScript final : public TrailingArray<ICScript> {
 
   static constexpr Offset offsetOfWarmUpCount() {
     return offsetof(ICScript, warmUpCount_);
+  }
+  static constexpr Offset offsetOfIonThreshold() {
+    return offsetof(ICScript, ionThreshold_);
   }
   static constexpr Offset offsetOfDepth() { return offsetof(ICScript, depth_); }
 
@@ -249,6 +253,8 @@ class alignas(uintptr_t) ICScript final : public TrailingArray<ICScript> {
   // backedges taken.  Reset if the script's JIT code is forcibly discarded.
   // See also the ScriptWarmUpData class.
   mozilla::Atomic<uint32_t, mozilla::Relaxed> warmUpCount_ = {};
+
+  uint32_t ionThreshold_;
 
   // The offset of the ICFallbackStub array.
   Offset fallbackStubsOffset_;
@@ -340,7 +346,7 @@ class alignas(uintptr_t) JitScript final
   // Profile string used by the profiler for Baseline Interpreter frames.
   const char* profileString_ = nullptr;
 
-  HeapPtr<JSScript*> owningScript_;
+  GCPtr<JSScript*> owningScript_;
 
   // Baseline code for the script. Either nullptr, BaselineDisabledScriptPtr,
   // BaselineQueuedScriptPtr, BaselineCompilingScriptPtr,
@@ -355,8 +361,9 @@ class alignas(uintptr_t) JitScript final
   // objects used by the Baseline JIT and Ion. If the function needs both a
   // named lambda object and a call object, the named lambda object template is
   // linked via the call object's enclosing environment. This field is set the
-  // first time the Baseline JIT compiles this script.
-  mozilla::Maybe<HeapPtr<EnvironmentObject*>> templateEnv_;
+  // first time the Baseline JIT compiles this script and
+  // |initializedTemplateEnv| records whether this has happened.
+  GCPtr<EnvironmentObject*> templateEnv_;
 
   // The size of this allocation.
   Offset endOffset_ = 0;
@@ -369,6 +376,7 @@ class alignas(uintptr_t) JitScript final
     // True if this script entered Ion via OSR at a loop header.
     bool hadIonOSR : 1;
     bool ranBytecodeAnalysis : 1;
+    bool initializedTemplateEnv : 1;
   };
   Flags flags_ = {};  // Zero-initialize flags.
 
@@ -448,6 +456,8 @@ class alignas(uintptr_t) JitScript final
   void incWarmUpCount() { icScript_.warmUpCount_++; }
   void resetWarmUpCount(uint32_t count);
 
+  void setIonThreshold(uint32_t count) { icScript_.ionThreshold_ = count; }
+
   void prepareForDestruction(Zone* zone);
 
   void addSizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf, size_t* data,
@@ -478,7 +488,10 @@ class alignas(uintptr_t) JitScript final
 
   size_t allocBytes() const { return endOffset(); }
 
-  EnvironmentObject* templateEnvironment() const { return templateEnv_.ref(); }
+  EnvironmentObject* templateEnvironment() const {
+    MOZ_ASSERT(flags_.initializedTemplateEnv);
+    return templateEnv_;
+  }
 
   std::pair<CallObject*, NamedLambdaObject*> functionEnvironmentTemplates(
       JSFunction* fun) const;
@@ -505,13 +518,16 @@ class alignas(uintptr_t) JitScript final
     }
   }
 
+  static bool IsBaselineScript(BaselineScript* baselineScript) {
+    return baselineScript && baselineScript != BaselineDisabledScriptPtr &&
+           baselineScript != BaselineQueuedScriptPtr &&
+           baselineScript != BaselineCompilingScriptPtr;
+  }
+
  public:
   // Methods for getting/setting/clearing a BaselineScript*.
   bool hasBaselineScript() const {
-    bool res = baselineScript_ &&
-               baselineScript_ != BaselineDisabledScriptPtr &&
-               baselineScript_ != BaselineQueuedScriptPtr &&
-               baselineScript_ != BaselineCompilingScriptPtr;
+    bool res = IsBaselineScript(baselineScript_);
     MOZ_ASSERT_IF(!res, !hasIonScript());
     return res;
   }
@@ -565,11 +581,15 @@ class alignas(uintptr_t) JitScript final
   template <typename F>
   void forEachICScript(const F& f) const;
 
+  static bool IsIonScript(IonScript* ionScript) {
+    return ionScript && ionScript != IonDisabledScriptPtr &&
+           ionScript != IonCompilingScriptPtr;
+  }
+
  public:
   // Methods for getting/setting/clearing an IonScript*.
   bool hasIonScript() const {
-    bool res = ionScript_ && ionScript_ != IonDisabledScriptPtr &&
-               ionScript_ != IonCompilingScriptPtr;
+    bool res = IsIonScript(ionScript_);
     MOZ_ASSERT_IF(res, baselineScript_);
     return res;
   }
@@ -638,12 +658,12 @@ class MOZ_RAII AutoKeepJitScripts {
   jit::JitZone* zone_;
   bool prev_;
 
-  AutoKeepJitScripts(const AutoKeepJitScripts&) = delete;
-  void operator=(const AutoKeepJitScripts&) = delete;
-
  public:
   explicit inline AutoKeepJitScripts(JSContext* cx);
   inline ~AutoKeepJitScripts();
+
+  AutoKeepJitScripts(const AutoKeepJitScripts&) = delete;
+  void operator=(const AutoKeepJitScripts&) = delete;
 };
 
 // Mark ICScripts on the stack as active, so that they are not discarded

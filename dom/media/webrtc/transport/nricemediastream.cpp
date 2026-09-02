@@ -71,7 +71,7 @@ static bool ToNrIceAddr(nr_transport_addr& addr, NrIceAddr* out) {
   if (r) return false;
   out->host = addrstring;
 
-  int port;
+  uint16_t port;
   r = nr_transport_addr_get_port(&addr, &port);
   if (r) return false;
 
@@ -158,6 +158,7 @@ static bool ToNrIceCandidate(const nr_ice_candidate& candc,
   out->tcp_type = tcp_type;
   out->codeword = candc.codeword;
   out->label = candc.label;
+  out->foundation = candc.foundation;
   out->trickled = candc.trickled;
   out->priority = candc.priority;
   return true;
@@ -168,7 +169,7 @@ static bool ToNrIceCandidate(const nr_ice_candidate& candc,
 // defn of nr_ice_candidate but we pass by reference.
 static UniquePtr<NrIceCandidate> MakeNrIceCandidate(
     const nr_ice_candidate& candc) {
-  UniquePtr<NrIceCandidate> out(new NrIceCandidate());
+  auto out = MakeUnique<NrIceCandidate>();
 
   if (!ToNrIceCandidate(candc, out.get())) {
     return nullptr;
@@ -352,6 +353,56 @@ nsresult NrIceMediaStream::GetActivePair(int component,
   return NS_OK;
 }
 
+nsresult NrIceMediaStream::GetActivePairAsAttributes(
+    int aComponent, std::string* aLocal, std::string* aRemote) const {
+  if (!stream_) {
+    return NS_ERROR_NOT_AVAILABLE;
+  }
+
+  nr_ice_candidate* local_cand;
+  nr_ice_candidate* remote_cand;
+  int r = nr_ice_media_stream_get_active(ctx_->peer(), stream_, aComponent,
+                                         &local_cand, &remote_cand);
+  if (r == R_REJECTED) return NS_ERROR_NOT_AVAILABLE;
+  if (r) return NS_ERROR_FAILURE;
+
+  char buf[NR_ICE_MAX_ATTRIBUTE_SIZE];
+
+  // |label| in local candidates is not set to the parseable
+  // candidate-attribute form, we need to generate that format here. Perform
+  // addr/raddr obfuscation for our own addresses if configured to.
+  // We do not use NrIceCtx::GenerateObfuscatedAddress like the trickle code,
+  // since that is strictly for prompting the mDNS stack to advertise the mDNS
+  // address.
+  if (aLocal) {
+    int obfuscate =
+        (ctx_->ctx()->flags & NR_ICE_CTX_FLAGS_OBFUSCATE_HOST_ADDRESSES) ? 1
+                                                                         : 0;
+    if (nr_ice_format_candidate_attribute(local_cand, buf, sizeof(buf),
+                                          obfuscate)) {
+      return NS_ERROR_FAILURE;
+    }
+    aLocal->assign(buf);
+  }
+
+  // Remote candidates from JS have |label| set to the original
+  // candidate-attribute string. Peer-reflexive candidates do not (they were
+  // discovered via STUN), so we generate that format here.
+  if (aRemote) {
+    if (remote_cand->type == PEER_REFLEXIVE) {
+      if (nr_ice_format_candidate_attribute(remote_cand, buf, sizeof(buf),
+                                            /*obfuscate_raddr=*/0)) {
+        return NS_ERROR_FAILURE;
+      }
+      aRemote->assign(buf);
+    } else {
+      aRemote->assign(remote_cand->label);
+    }
+  }
+
+  return NS_OK;
+}
+
 nsresult NrIceMediaStream::GetCandidatePairs(
     std::vector<NrIceCandidatePair>* out_pairs) const {
   MOZ_ASSERT(out_pairs);
@@ -450,6 +501,8 @@ nsresult NrIceMediaStream::GetCandidatePairs(
     pair.codeword = p1->codeword;
     pair.bytes_sent = p1->bytes_sent;
     pair.bytes_recvd = p1->bytes_recvd;
+    pair.packets_sent = p1->packets_sent;
+    pair.packets_recvd = p1->packets_recvd;
     pair.ms_since_last_send =
         p1->last_sent.tv_sec * 1000 + p1->last_sent.tv_usec / 1000;
     pair.ms_since_last_recv =
@@ -462,6 +515,8 @@ nsresult NrIceMediaStream::GetCandidatePairs(
         !ToNrIceCandidate(*(p1->remote), &pair.remote)) {
       return NS_ERROR_FAILURE;
     }
+    pair.local.username_fragment = stream_->ufrag;
+    pair.remote.username_fragment = peer_stream->ufrag;
 
     out_pairs->push_back(pair);
   }
@@ -498,6 +553,13 @@ nsresult NrIceMediaStream::GetDefaultCandidate(
   return NS_OK;
 }
 
+std::string NrIceMediaStream::GetUfrag() const {
+  if (!stream_ || !stream_->ufrag) {
+    return "";
+  }
+  return stream_->ufrag;
+}
+
 std::vector<std::string> NrIceMediaStream::GetAttributes() const {
   char** attrs = nullptr;
   int attrct;
@@ -515,11 +577,11 @@ std::vector<std::string> NrIceMediaStream::GetAttributes() const {
   }
 
   for (int i = 0; i < attrct; i++) {
-    ret.push_back(attrs[i]);
-    RFREE(attrs[i]);
+    ret.emplace_back(attrs[i]);
+    free(attrs[i]);
   }
 
-  RFREE(attrs);
+  free(attrs);
 
   return ret;
 }
@@ -538,7 +600,8 @@ static nsresult GetCandidatesFromStream(
         // yet). For the purposes of this code, this isn't a candidate we're
         // interested in, since it is not fully baked yet.
         if (ToNrIceCandidate(*cand, &new_cand)) {
-          candidates->push_back(new_cand);
+          new_cand.username_fragment = stream->ufrag;
+          candidates->push_back(std::move(new_cand));
         }
         cand = TAILQ_NEXT(cand, entry_comp);
       }

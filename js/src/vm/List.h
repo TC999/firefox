@@ -6,6 +6,7 @@
 #define vm_List_h
 
 #include "NamespaceImports.h"
+
 #include "js/Value.h"
 #include "vm/NativeObject.h"
 
@@ -48,6 +49,12 @@ class ListObject : public NativeObject {
    * Add an element to the end of the list. Returns false on OOM.
    */
   [[nodiscard]] inline bool append(JSContext* cx, Value value);
+
+  /**
+   * Add two elements to the end of the list atomically. Returns false on OOM.
+   * On failure, neither element is added.
+   */
+  [[nodiscard]] inline bool append(JSContext* cx, Value v1, Value v2);
 
   /**
    * Remove and return the first element of the list.

@@ -13,17 +13,21 @@ var gStringBundle = Services.strings.createBundle(
 // UI consumers (identity panel, etc.) update.
 Services.obs.addObserver(
   {
-    observe(subject, _topic, _data) {
-      let permission = subject.QueryInterface(Ci.nsIPermission);
-      let browserId = permission.browserId;
+    observe(subject, _topic, data) {
+      // A bulk clear reports the affected tab as a bare browserId rather than
+      // as an nsIPermission, since no single permission describes it.
+      let browserId =
+        data == "cleared"
+          ? subject?.QueryInterface(Ci.nsISupportsPRUint64).data
+          : subject.QueryInterface(Ci.nsIPermission).browserId;
       if (!browserId) {
         return;
       }
       let bc = BrowsingContext.getCurrentTopByBrowserId(browserId);
       let browser = bc?.embedderElement;
-      if (browser?.ownerGlobal) {
+      if (browser?.documentGlobal) {
         browser.dispatchEvent(
-          new browser.ownerGlobal.CustomEvent("PermissionStateChange")
+          new browser.documentGlobal.CustomEvent("PermissionStateChange")
         );
       }
     },
@@ -556,7 +560,7 @@ export var SitePermissions = {
     if (scope == this.SCOPE_GLOBAL && state == this.BLOCK) {
       if (GloballyBlockedPermissions.set(browser, permissionID)) {
         browser.dispatchEvent(
-          new browser.ownerGlobal.CustomEvent("PermissionStateChange")
+          new browser.documentGlobal.CustomEvent("PermissionStateChange")
         );
       }
       return;
@@ -1033,6 +1037,36 @@ let gPermissions = {
       exactHostMatch: true,
     },
 
+    // Clear-on-shutdown exception. ALLOW means the site's data is kept when
+    // the browser closes; absent (the default) means it is cleared. The
+    // Sanitizer reads this via testPermissionFromPrincipal (base-domain
+    // matching), so exactHostMatch is false to mirror that read path. Only
+    // relevant while data is actually cleared on shutdown, so it's hidden
+    // (from Page Info and the permission panel) when that's off.
+    "persist-data-on-shutdown": {
+      exactHostMatch: false,
+      get disabled() {
+        return !SitePermissions.sanitizeOnShutdownEnabled;
+      },
+      getDefault() {
+        return SitePermissions.UNKNOWN;
+      },
+      states: [SitePermissions.UNKNOWN, SitePermissions.ALLOW],
+      getMultichoiceStateLabel(state) {
+        switch (state) {
+          case SitePermissions.UNKNOWN:
+            return gStringBundle.GetStringFromName(
+              "state.multichoice.clearDataOnShutdown"
+            );
+          case SitePermissions.ALLOW:
+            return gStringBundle.GetStringFromName(
+              "state.multichoice.persistDataOnShutdown"
+            );
+        }
+        throw new Error(`Unknown state: ${state}`);
+      },
+    },
+
     shortcuts: {
       states: [SitePermissions.ALLOW, SitePermissions.BLOCK],
     },
@@ -1057,6 +1091,13 @@ let gPermissions = {
       },
     },
 
+    serial: {
+      exactHostMatch: true,
+      get disabled() {
+        return !SitePermissions.serialPermissionEnabled;
+      },
+    },
+
     "storage-access": {
       labelID: null,
       getDefault() {
@@ -1071,6 +1112,9 @@ let gPermissions = {
 
 SitePermissions.midiPermissionEnabled = Services.prefs.getBoolPref(
   "dom.webmidi.enabled"
+);
+SitePermissions.serialPermissionEnabled = Services.prefs.getBoolPref(
+  "dom.webserial.enabled"
 );
 
 XPCOMUtils.defineLazyPreferenceGetter(
@@ -1102,6 +1146,13 @@ XPCOMUtils.defineLazyPreferenceGetter(
   SitePermissions.invalidatePermissionList.bind(SitePermissions)
 );
 
+XPCOMUtils.defineLazyPreferenceGetter(
+  SitePermissions,
+  "sanitizeOnShutdownEnabled",
+  "privacy.sanitize.sanitizeOnShutdown",
+  false,
+  SitePermissions.invalidatePermissionList.bind(SitePermissions)
+);
 XPCOMUtils.defineLazyPreferenceGetter(
   SitePermissions,
   "popupBlockerEnabled",

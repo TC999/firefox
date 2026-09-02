@@ -10,7 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CornerBasedShape
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -38,8 +38,8 @@ import androidx.compose.ui.tooling.preview.PreviewLightDark
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import mozilla.components.compose.base.button.FilledButton
-import org.mozilla.fenix.theme.FirefoxTheme
 import mozilla.components.ui.icons.R as iconsR
+import org.mozilla.fenix.theme.FirefoxTheme
 
 /**
  * Root popup action dropdown menu.
@@ -57,7 +57,7 @@ import mozilla.components.ui.icons.R as iconsR
 private fun Menu(
     menuItems: List<MenuItem>,
     showMenu: Boolean,
-    cornerShape: RoundedCornerShape,
+    cornerShape: CornerBasedShape,
     modifier: Modifier = Modifier,
     canShowCheckItems: Boolean = false,
     offset: DpOffset = DpOffset.Zero,
@@ -82,39 +82,37 @@ private fun Menu(
             onDismissRequest = onDismissRequest,
             offset = offset,
             scrollState = ScrollState(with(localDensity) { columnHeightDp.toPx() * selectedItemIndex }.toInt()),
-            modifier = Modifier
-                .background(color = MaterialTheme.colorScheme.surfaceContainerLowest)
-                .then(modifier),
+            modifier = Modifier.background(color = MaterialTheme.colorScheme.surfaceBright).then(modifier),
         ) {
             val hasCheckedItems = menuItems.any { it.isChecked }
             menuItems.forEachIndexed { index, item ->
-                val checkmarkModifier = if (hasCheckedItems) {
-                    Modifier.selectable(
-                        selected = item.isChecked,
-                        role = Role.Button,
-                        onClick = {
-                            onDismissRequest()
-                            item.onClick()
-                        },
-                    )
-                } else {
-                    Modifier
-                }
+                val checkmarkModifier =
+                    if (hasCheckedItems) {
+                        Modifier.selectable(
+                            selected = item.isChecked,
+                            role = Role.Button,
+                            onClick = {
+                                onDismissRequest()
+                                item.onClick()
+                            },
+                        )
+                    } else {
+                        Modifier
+                    }
                 val leadingIcon: @Composable (() -> Unit)? =
                     if (item.isChecked && (hasCheckedItems || canShowCheckItems)) {
                         selectedItemIndex = index
                         {
                             Icon(
                                 painter = painterResource(id = iconsR.drawable.mozac_ic_checkmark_24),
-                                modifier = Modifier
-                                    .size(24.dp),
+                                modifier = Modifier.size(24.dp),
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.onSurface,
                             )
                         }
-                } else {
-                    null
-                }
+                    } else {
+                        null
+                    }
 
                 DropdownMenuItem(
                     text = {
@@ -125,14 +123,14 @@ private fun Menu(
                             style = FirefoxTheme.typography.body1,
                         )
                     },
-                    modifier = Modifier
-                        .testTag(item.testTag)
-                        .align(alignment = Alignment.CenterHorizontally)
-                        .then(checkmarkModifier)
-                        .onGloballyPositioned { coordinates ->
-                            columnHeightDp = with(localDensity) { coordinates.size.height.toDp() }
-                        }
-                        .semantics { if (item.isChecked) traversalIndex = -1f },
+                    modifier =
+                        Modifier.testTag(item.testTag)
+                            .align(alignment = Alignment.CenterHorizontally)
+                            .then(checkmarkModifier)
+                            .onGloballyPositioned { coordinates ->
+                                columnHeightDp = with(localDensity) { coordinates.size.height.toDp() }
+                            }
+                            .semantics { if (item.isChecked) traversalIndex = -1f },
                     leadingIcon = leadingIcon,
                     onClick = {
                         onDismissRequest()
@@ -156,11 +154,13 @@ private fun Menu(
  */
 @Deprecated(
     message = "Use DropdownMenu instead with updated parameters and MenuItem type",
-    replaceWith = ReplaceWith(
-        expression = "DropdownMenu( menuItems = menuItems, expanded = showMenu, modifier = modifier," +
-            " offset = offset, onDismissRequest = onDismissRequest)",
-        imports = ["org.mozilla.fenix.compose.menu.DropdownMenu", "org.mozilla.fenix.compose.menu.MenuItem"],
-    ),
+    replaceWith =
+        ReplaceWith(
+            expression =
+                "DropdownMenu( menuItems = menuItems, expanded = showMenu, modifier = modifier," +
+                    " offset = offset, onDismissRequest = onDismissRequest)",
+            imports = ["org.mozilla.fenix.compose.menu.DropdownMenu", "org.mozilla.fenix.compose.menu.MenuItem"],
+        ),
     level = DeprecationLevel.WARNING,
 )
 @Composable
@@ -177,7 +177,7 @@ fun ContextualMenu(
         showMenu = showMenu,
         modifier = modifier,
         canShowCheckItems = canShowCheckItems,
-        cornerShape = RoundedCornerShape(size = 5.dp),
+        cornerShape = MaterialTheme.shapes.extraSmall,
         offset = offset,
         onDismissRequest = onDismissRequest,
     )
@@ -215,11 +215,12 @@ private fun ContextualMenuPreview() {
             }
 
             ContextualMenu(
-                menuItems = listOf(
-                    MenuItem("Rename") {},
-                    MenuItem("Share") {},
-                    MenuItem("Remove") {},
-                ),
+                menuItems =
+                    listOf(
+                        MenuItem("Rename") {},
+                        MenuItem("Share") {},
+                        MenuItem("Remove") {},
+                    ),
                 showMenu = showMenu,
                 onDismissRequest = { showMenu = false },
             )

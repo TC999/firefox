@@ -21,6 +21,7 @@ $shadow-image-inset: inset 0 0 0 0.5px $black-15;
   --newtab-text-primary-color: var(--text-color);
   // Card Background includes 20% transparency
   --newtab-background-card: #{$newtab-background-card};
+  --newtab-card-placeholder-background-color: color-mix(in srgb, currentColor 21%, transparent);
   --newtab-text-topic-label-color: var(--color-violet-70);
   --newtab-text-secondary-text: var(--text-color-deemphasized);
   // We need to be careful about the contrast of text over newtab wallpapers, which might not match the theme.
@@ -63,7 +64,6 @@ $shadow-image-inset: inset 0 0 0 0.5px $black-15;
   --newtab-element-secondary-hover-color: color-mix(in srgb, currentColor 12%, transparent);
   --newtab-element-secondary-active-color: color-mix(in srgb, currentColor 25%, transparent);
 
-  --newtab-primary-element-hover-color: color-mix(in srgb, var(--newtab-primary-action-background) 90%, #{$black});
   --newtab-primary-element-hover-pocket-color: color-mix(in srgb, var(--newtab-primary-action-background-pocket) 90%, #{$black});
   --newtab-primary-element-active-color: color-mix(in srgb, var(--newtab-primary-action-background) 80%, #{$black});
   --newtab-primary-element-text-color: #{$white};
@@ -76,6 +76,9 @@ $shadow-image-inset: inset 0 0 0 0.5px $black-15;
   --newtab-inner-box-shadow-color: #{$black-10};
   --newtab-section-card-box-shadow-color: rgba(58, 57, 68, 20%);
   --newtab-overlay-color: color-mix(in srgb, var(--newtab-background-color) 85%, transparent);
+  // Fill behind a side-by-side layout section, over a wallpaper. The opacity
+  // token becomes 1 under forced-colors, so the panel turns opaque there.
+  --newtab-layout-panel-background: color-mix(in srgb, var(--newtab-background-color) calc(var(--opacity-deemphasized-strong) * 100%), transparent);
 
   // Custom border radius
   --border-radius-large: 16px;
@@ -100,7 +103,6 @@ $shadow-image-inset: inset 0 0 0 0.5px $black-15;
     --newtab-primary-action-background-pocket: #{$primary-blue-dark};
     --newtab-primary-action-background-pocket-dimmed: color-mix(in srgb, var(--newtab-primary-action-background) 25%, transparent);
 
-    --newtab-primary-element-hover-color: color-mix(in srgb, var(--newtab-primary-action-background) 55%, #{$white});
     --newtab-primary-element-hover-pocket-color: color-mix(in srgb, var(--newtab-primary-action-background-pocket) 55%, #{$white});
 
     --newtab-element-hover-color: color-mix(in srgb, var(--newtab-background-color) 80%, #{$white});
@@ -110,6 +112,29 @@ $shadow-image-inset: inset 0 0 0 0.5px $black-15;
     --newtab-element-secondary-hover-color: color-mix(in srgb, currentColor 17%, transparent);
     --newtab-element-secondary-active-color: color-mix(in srgb, currentColor 30%, transparent);
 
+    --newtab-primary-element-text-color: #{$primary-text-color-dark};
+    --newtab-status-success: #{$status-dark-green};
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([lwt-newtab]) {
+    color-scheme: dark;
+    --newtab-background-color: #{$in-content-page-background-dark};
+    --newtab-background-color-secondary: #{$newtab-background-secondary-dark};
+    --newtab-text-primary-color: #{$in-content-page-color-dark};
+    --newtab-background-card: #{$newtab-background-card-dark};
+    --newtab-text-topic-label-color: var(--color-violet-30);
+    --newtab-text-secondary-text: #FBFBFEB0;
+    --newtab-primary-action-background-pocket: #{$primary-blue-dark};
+    --newtab-primary-action-background-pocket-dimmed: color-mix(in srgb, var(--newtab-primary-action-background) 25%, transparent);
+    --newtab-primary-element-hover-pocket-color: color-mix(in srgb, var(--newtab-primary-action-background-pocket) 55%, #{$white});
+    --newtab-element-hover-color: color-mix(in srgb, var(--newtab-background-color) 80%, #{$white});
+    --newtab-element-active-color: color-mix(in srgb, var(--newtab-background-color) 60%, #{$white});
+    --newtab-section-card-box-shadow-color: rgba(0, 0, 0, 80%);
+    --newtab-element-secondary-color: color-mix(in srgb, currentColor 10%, transparent);
+    --newtab-element-secondary-hover-color: color-mix(in srgb, currentColor 17%, transparent);
+    --newtab-element-secondary-active-color: color-mix(in srgb, currentColor 30%, transparent);
     --newtab-primary-element-text-color: #{$primary-text-color-dark};
     --newtab-status-success: #{$status-dark-green};
   }

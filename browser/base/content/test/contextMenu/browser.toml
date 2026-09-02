@@ -23,9 +23,10 @@ tags = "os_integration"
 support-files = [ "../general/video.webm"  ]
 tags = "fullscreen"
 skip-if = [
+  "os == 'linux' && os_version == '22.04' && arch == 'x86_64'", # Bug 2057831
   "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && display == 'x11'",
   "os == 'mac' && os_version == '10.15' && arch == 'x86_64' && opt", # Bug 1853186
-  "os == 'mac' && os_version == '15.30' && arch == 'aarch64' && opt", # Bug 1853186
+  "os == 'mac' && os_version == '15.30' && arch == 'aarch64'", # Bug 1853186
 ]
 
 ["browser_contextmenu_add_search_engine.js"]
@@ -42,12 +43,17 @@ skip-if = [
   "os == 'win'", # Bug 1719856
 ]
 
+["browser_contextmenu_blocked_image_protocols.js"]
+support-files = ["file_blocked_image_protocols.html"]
+
 ["browser_contextmenu_bookmark_link_text.js"]
 skip-if = [
   "os == 'mac' && os_version == '15.30' && arch == 'aarch64'", # Bug 2019466
 ]
 
 ["browser_contextmenu_chrome_images.js"]
+
+["browser_contextmenu_color_scheme.js"]
 
 ["browser_contextmenu_contenteditable.js"]
 

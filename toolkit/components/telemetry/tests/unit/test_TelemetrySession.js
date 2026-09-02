@@ -338,11 +338,9 @@ function checkPayload(payload, reason, successfulPings) {
   let activeTicks = payload.simpleMeasurements.activeTicks;
   Assert.greaterOrEqual(activeTicks, 0);
 
-  if ("browser.timings.last_shutdown" in payload.processes.parent.scalars) {
-    Assert.equal(
-      payload.processes.parent.scalars["browser.timings.last_shutdown"],
-      SHUTDOWN_TIME
-    );
+  const lastShutdown = Glean.browserTimings.lastShutdown.testGetValue();
+  if (lastShutdown !== null) {
+    Assert.equal(lastShutdown, SHUTDOWN_TIME);
   }
 
   let profileDirectory = Services.dirsvc.get("ProfD", Ci.nsIFile);
@@ -402,8 +400,8 @@ function checkPayload(payload, reason, successfulPings) {
   // Telemetry doesn't touch a memory reporter with these units that's
   // available on all platforms.
 
-  Assert.ok("MEMORY_TOTAL" in payload.histograms); // UNITS_BYTES
-  Assert.ok("MEMORY_JS_COMPARTMENTS_SYSTEM" in payload.histograms); // UNITS_COUNT
+  Assert.notEqual(Glean.memory.total.testGetValue(), null); // UNITS_BYTES
+  Assert.notEqual(Glean.memory.jsCompartmentsSystem.testGetValue(), null); // UNITS_COUNT
 
   Assert.ok(
     "mainThread" in payload.slowSQL && "otherThreads" in payload.slowSQL
@@ -1728,10 +1726,7 @@ add_task(async function test_abortedSession() {
   );
 
   // Make sure the aborted sessions directory does not exist to test its creation.
-  await IOUtils.remove(DATAREPORTING_PATH, {
-    ignoreAbsent: true,
-    recursive: true,
-  });
+  await IOUtils.remove(ABORTED_FILE, { ignoreAbsent: true });
 
   let schedulerTickCallback = null;
   let now = new Date(2040, 1, 1, 0, 0, 0);
@@ -1849,10 +1844,7 @@ add_task(async function test_abortedDailyCoalescing() {
   );
 
   // Make sure the aborted sessions directory does not exist to test its creation.
-  await IOUtils.remove(DATAREPORTING_PATH, {
-    ignoreAbsent: true,
-    recursive: true,
-  });
+  await IOUtils.remove(ABORTED_FILE, { ignoreAbsent: true });
 
   let schedulerTickCallback = null;
   PingServer.clearRequests();
@@ -1925,10 +1917,7 @@ add_task(async function test_schedulerComputerSleep() {
   PingServer.clearRequests();
 
   // Remove any aborted-session ping from the previous tests.
-  await IOUtils.remove(DATAREPORTING_PATH, {
-    ignoreAbsent: true,
-    recursive: true,
-  });
+  await IOUtils.remove(ABORTED_FILE, { ignoreAbsent: true });
 
   // Set a fake current date and start Telemetry.
   let nowDate = fakeNow(2009, 10, 18, 0, 0, 0);
@@ -2067,10 +2056,7 @@ add_task(async function test_schedulerNothingDue() {
   );
 
   // Remove any aborted-session ping from the previous tests.
-  await IOUtils.remove(DATAREPORTING_PATH, {
-    ignoreAbsent: true,
-    recursive: true,
-  });
+  await IOUtils.remove(ABORTED_FILE, { ignoreAbsent: true });
   await TelemetryStorage.testClearPendingPings();
   await TelemetryController.testReset();
 

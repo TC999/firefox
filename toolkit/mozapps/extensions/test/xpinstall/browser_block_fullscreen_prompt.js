@@ -26,7 +26,11 @@ function changeFullscreen(browser, fullscreenState) {
 
 function triggerInstall(browser, xpi_url) {
   return SpecialPowers.spawn(browser, [xpi_url], async function (xpi_url) {
-    content.location = xpi_url;
+    // Trigger navigation from the content principal. Without wrappedJSObject
+    // we would trigger a navigation from a system principal, which users are
+    // not going to encounter in practice (such requests would be initiated
+    // from the parent process instead of the child process).
+    content.wrappedJSObject.location = xpi_url;
   });
 }
 
@@ -83,13 +87,12 @@ add_task(async function testFullscreenCloseAddonInstallPrompt() {
   let addonEventPromise = TestUtils.topicObserved(
     "webextension-permission-prompt"
   );
-  await SpecialPowers.spawn(
-    gBrowser.selectedBrowser,
-    [TESTROOT + "amosigned.xpi"],
-    xpi_url => {
-      this.content.location = xpi_url;
-    }
-  );
+  let preInstallPromise = TestUtils.topicObserved("addon-install-blocked");
+  await triggerInstall(gBrowser.selectedBrowser, TESTROOT + "amosigned.xpi");
+
+  info("Awaiting pre-install third-party doorhanger and continue install");
+  (await preInstallPromise)[0].wrappedJSObject.install();
+
   // Wait for addon install event
   info("Wait for webextension-permission-prompt");
   await addonEventPromise;
@@ -107,6 +110,10 @@ add_task(async function testFullscreenCloseAddonInstallPrompt() {
     null,
     "Opened notification is webextension permissions prompt"
   );
+
+  // The permissions prompt is autofocused on open (See Bug 2059855), move
+  // focus back to the tab before requesting fullscreen.
+  gBrowser.selectedBrowser.focus();
 
   // Switch to fullscreen and test for addon installation prompt close
   await changeFullscreen(gBrowser.selectedBrowser, true);

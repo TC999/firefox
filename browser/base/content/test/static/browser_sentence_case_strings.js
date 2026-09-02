@@ -26,7 +26,9 @@ const NAMES = new Set(["Mozilla", "Nightly", "Firefox", "AI"]);
 const PHRASES = new Set([
   "Extensions and Themes",
   "Find in Page…",
+  "Help and Report",
   "Troubleshoot Mode…",
+  "Create a New Profile",
 ]);
 
 let gCUITestUtils = new CustomizableUITestUtils(window);
@@ -86,6 +88,11 @@ function checkToolbarButtons(view) {
   info("Checking toolbarbuttons in subview with id " + view.id);
 
   for (let toolbarbutton of toolbarbuttons) {
+    // Concatenated title + description creates a false positive.
+    // checkUpdateBanner handles the update banner separately.
+    if (toolbarbutton.id === "appMenu-update-banner") {
+      continue;
+    }
     let strings = [
       toolbarbutton.label,
       toolbarbutton.textContent,

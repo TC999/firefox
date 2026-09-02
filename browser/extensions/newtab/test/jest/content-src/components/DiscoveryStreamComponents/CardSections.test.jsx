@@ -3,15 +3,17 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 import { render, fireEvent } from "@testing-library/react";
-import { Provider } from "react-redux";
+import { WrapWithProvider } from "test/jest/test-utils";
 import {
   actionTypes as at,
   CONTENT_MESSAGE_TYPE,
   MAIN_MESSAGE_TYPE,
 } from "common/Actions.mjs";
-import { INITIAL_STATE, reducers } from "common/Reducers.sys.mjs";
-import { CardSections } from "content-src/components/DiscoveryStreamComponents/CardSections/CardSections";
-import { combineReducers, createStore } from "redux";
+import { INITIAL_STATE } from "common/Reducers.sys.mjs";
+import {
+  CardSections,
+  getOrphanTileIndexes,
+} from "content-src/components/DiscoveryStreamComponents/CardSections/CardSections";
 
 const PREF_SECTIONS_PERSONALIZATION_ENABLED =
   "discoverystream.sections.personalization.enabled";
@@ -60,11 +62,6 @@ const DEFAULT_PROPS = {
     url: "https://merino.services.mozilla.com/api/v1/curated-recommendations",
   },
 };
-
-function WrapWithProvider({ children, state = INITIAL_STATE }) {
-  const store = createStore(combineReducers(reducers), state);
-  return <Provider store={store}>{children}</Provider>;
-}
 
 describe("<CardSections />", () => {
   let dispatch;
@@ -163,6 +160,70 @@ describe("<CardSections />", () => {
       </WrapWithProvider>
     );
     expect(container.querySelector(".ds-card.placeholder")).toBeInTheDocument();
+  });
+
+  it("should render DEFAULT_MAX_TILES placeholder cards when spocsLoading is true", () => {
+    const sectionData = [];
+    for (let i = 0; i < 12; i++) {
+      sectionData.push({ id: `card-${i}`, url: `https://example.com/${i}` });
+    }
+    const sectionProps = {
+      ...DEFAULT_PROPS,
+      data: {
+        ...DEFAULT_PROPS.data,
+        sections: [
+          {
+            ...DEFAULT_PROPS.data.sections[0],
+            sectionKey: "section_key_1",
+            data: sectionData,
+          },
+          {
+            ...DEFAULT_PROPS.data.sections[0],
+            sectionKey: "section_key_2",
+            data: sectionData,
+          },
+        ],
+      },
+    };
+
+    const { container: baselineContainer } = render(
+      <WrapWithProvider>
+        <CardSections {...sectionProps} />
+      </WrapWithProvider>
+    );
+    expect(baselineContainer.querySelectorAll("article.ds-card")).toHaveLength(
+      8
+    );
+
+    const { container } = render(
+      <WrapWithProvider>
+        <CardSections {...sectionProps} spocsLoading={true} />
+      </WrapWithProvider>
+    );
+    expect(container.querySelectorAll(".ds-card.placeholder")).toHaveLength(24);
+  });
+
+  it("should render placeholders when responsiveLayouts is empty", () => {
+    const { container } = render(
+      <WrapWithProvider>
+        <CardSections
+          {...DEFAULT_PROPS}
+          data={{
+            ...DEFAULT_PROPS.data,
+            sections: [
+              {
+                ...DEFAULT_PROPS.data.sections[0],
+                layout: { responsiveLayouts: [] },
+                data: [{ placeholder: true }, { placeholder: true }],
+              },
+            ],
+          }}
+        />
+      </WrapWithProvider>
+    );
+    expect(
+      container.querySelectorAll(".ds-card.placeholder").length
+    ).toBeGreaterThan(0);
   });
 
   it("should pass correct props to DSCard", () => {
@@ -524,127 +585,104 @@ describe("<CardSections />", () => {
       });
     });
   });
+});
 
-  describe("Daily Briefing v2 BriefingCard", () => {
-    const MOCK_HEADLINES = [
-      {
-        id: "h1",
-        section: "daily_brief_section",
-        isHeadline: true,
-        url: "https://example.com/1",
-        title: "Headline 1",
-        publisher: "Publisher 1",
-      },
-      {
-        id: "h2",
-        section: "daily_brief_section",
-        isHeadline: true,
-        url: "https://example.com/2",
-        title: "Headline 2",
-        publisher: "Publisher 2",
-      },
-      {
-        id: "h3",
-        section: "daily_brief_section",
-        isHeadline: true,
-        url: "https://example.com/3",
-        title: "Headline 3",
-        publisher: "Publisher 3",
-      },
-    ];
+// Bug 2053264 - hide section layout cards that don't fill their final row.
+// getOrphanTileIndexes walks the tiles row by row (a medium/large is 2 units
+// tall, so it carries into the next row); the tiles left in an incomplete final
+// row are the orphans to hide.
+describe("getOrphanTileIndexes", () => {
+  const tiles = sizes => sizes.map(size => ({ size }));
 
-    const createBriefingSectionProps = ({
-      sectionKey = "daily_brief_section",
-      allowsWidget = true,
-    } = {}) => ({
-      ...DEFAULT_PROPS,
-      data: {
-        sections: [
-          {
-            ...DEFAULT_PROPS.data.sections[0],
-            sectionKey,
-            layout: {
-              responsiveLayouts: [
-                {
-                  columnCount: 1,
-                  tiles: [{ position: 0, size: "medium", allowsWidget }],
-                },
-              ],
-            },
-          },
-        ],
-      },
-    });
+  it("returns no orphans when the tiles fill their rows exactly", () => {
+    // 3 mediums across 3 columns fill one 2-row block flush.
+    const cards = tiles(["medium", "medium", "medium"]);
+    expect(getOrphanTileIndexes(cards, 3)).toEqual(new Set());
+  });
 
-    let state;
+  it("sheds the trailing cards of an incomplete final row", () => {
+    // 8 mediums at 3 columns: 6 fill two full blocks, the last 2 are a partial
+    // row of 3.
+    const cards = tiles(Array(8).fill("medium"));
+    expect(getOrphanTileIndexes(cards, 3)).toEqual(new Set([6, 7]));
+  });
 
-    beforeEach(() => {
-      state = {
-        ...INITIAL_STATE,
-        DiscoveryStream: {
-          ...INITIAL_STATE.DiscoveryStream,
-          feeds: {
-            data: {
-              "https://merino.services.mozilla.com/api/v1/curated-recommendations":
-                {
-                  data: {
-                    recommendations: [
-                      ...MOCK_HEADLINES,
-                      { id: "r1", isHeadline: false },
-                    ],
-                  },
-                  lastUpdated: Date.now(),
-                },
-            },
-          },
-        },
-        Prefs: {
-          ...INITIAL_STATE.Prefs,
-          values: {
-            ...INITIAL_STATE.Prefs.values,
-            "discoverystream.dailyBrief.enabled": true,
-            "discoverystream.dailyBrief.sectionId": "daily_brief_section",
-          },
-        },
-      };
-    });
+  it("sheds a partial final row of mixed sizes", () => {
+    // 2 columns: the two mediums fill a row, the trailing small can't.
+    const cards = tiles(["medium", "medium", "small"]);
+    expect(getOrphanTileIndexes(cards, 2)).toEqual(new Set([2]));
+  });
 
-    it("should render BriefingCard when all conditions met", () => {
-      const { container } = render(
-        <WrapWithProvider state={state}>
-          <CardSections dispatch={dispatch} {...createBriefingSectionProps()} />
-        </WrapWithProvider>
-      );
-      expect(container.querySelector(".briefing-card")).toBeInTheDocument();
-      expect(
-        container.querySelectorAll(".briefing-card-headline")
-      ).toHaveLength(3);
-    });
+  it("treats an unknown size as a medium", () => {
+    const cards = tiles(["medium", "mystery"]);
+    expect(getOrphanTileIndexes(cards, 2)).toEqual(new Set());
+  });
 
-    it("should not render BriefingCard when fewer than 3 headlines available", () => {
-      state.DiscoveryStream.feeds.data[
-        "https://merino.services.mozilla.com/api/v1/curated-recommendations"
-      ].data.recommendations = MOCK_HEADLINES.slice(0, 2);
+  it("keeps a full-width row of smalls under mediums", () => {
+    // The 2053264 edge case: at 2 columns the two mediums stack over two smalls
+    // that pack side by side. Both columns end at height 3 — a flush rectangle,
+    // so nothing is hidden even though the smalls only half-fill the last block.
+    const cards = tiles(["medium", "medium", "small", "small"]);
+    expect(getOrphanTileIndexes(cards, 2)).toEqual(new Set());
+  });
 
-      const { container } = render(
-        <WrapWithProvider state={state}>
-          <CardSections dispatch={dispatch} {...createBriefingSectionProps()} />
-        </WrapWithProvider>
-      );
-      expect(container.querySelector(".briefing-card")).not.toBeInTheDocument();
-      expect(container.querySelector("article.ds-card")).toBeInTheDocument();
-    });
+  it("keeps smalls that backfill under a medium in a mixed row", () => {
+    // 3 columns: the medium takes col0 for two rows; the four smalls fill the
+    // rest of both rows (two per remaining column). Columns end level at 2, so
+    // nothing is orphaned — the case a per-row tally gets wrong.
+    const cards = tiles(["medium", "small", "small", "small", "small"]);
+    expect(getOrphanTileIndexes(cards, 3)).toEqual(new Set());
+  });
 
-    it("should not render BriefingCard when section key doesn't match", () => {
-      const { container } = render(
-        <WrapWithProvider state={state}>
-          <CardSections
-            dispatch={dispatch}
-            {...createBriefingSectionProps({ sectionKey: "other-section" })}
-          />
-        </WrapWithProvider>
-      );
-      expect(container.querySelector(".briefing-card")).not.toBeInTheDocument();
-    });
+  it("keeps a full-width row of smalls on its own", () => {
+    // 3 smalls at 3 columns is a complete 1-row-tall row.
+    const cards = tiles(["small", "small", "small"]);
+    expect(getOrphanTileIndexes(cards, 3)).toEqual(new Set());
+  });
+
+  it("sheds a small that starts its own partial final row", () => {
+    // 3 mediums fill the first block; the trailing small drops to a new row by
+    // itself, leaving two empty columns beside it.
+    const cards = tiles(["medium", "medium", "medium", "small"]);
+    expect(getOrphanTileIndexes(cards, 3)).toEqual(new Set([3]));
+  });
+
+  it("keeps a full-width row of smalls placed before taller cards", () => {
+    // The two smalls fill row 0; the two mediums fill both rows below it.
+    const cards = tiles(["small", "small", "medium", "medium"]);
+    expect(getOrphanTileIndexes(cards, 2)).toEqual(new Set());
+  });
+
+  it("sheds a trailing card left partial after a leading row of smalls", () => {
+    // Leading smalls fill row 0, two mediums fill the next block, the last
+    // medium starts a new block alone.
+    const cards = tiles(["small", "small", "medium", "medium", "medium"]);
+    expect(getOrphanTileIndexes(cards, 2)).toEqual(new Set([4]));
+  });
+
+  it("keeps a full-width row of smalls sandwiched between medium blocks", () => {
+    // 3 mediums, a full row of 3 smalls, then 3 more mediums — every row fills.
+    const cards = tiles([
+      ...Array(3).fill("medium"),
+      ...Array(3).fill("small"),
+      ...Array(3).fill("medium"),
+    ]);
+    expect(getOrphanTileIndexes(cards, 3)).toEqual(new Set());
+  });
+
+  it("sheds only the straggler past a full trailing row of smalls", () => {
+    // A medium block, then 4 smalls: the first 3 complete a row, the 4th is an
+    // orphan on its own row.
+    const cards = tiles([
+      ...Array(3).fill("medium"),
+      ...Array(4).fill("small"),
+    ]);
+    expect(getOrphanTileIndexes(cards, 3)).toEqual(new Set([6]));
+  });
+
+  it("sheds a trailing medium after a full row of larges", () => {
+    // 4 columns: two larges fill the first block, the medium starts a new one.
+    const cards = tiles(["large", "large", "medium"]);
+    expect(getOrphanTileIndexes(cards, 4)).toEqual(new Set([2]));
   });
 });

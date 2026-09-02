@@ -4,37 +4,41 @@
 
 #include "mozilla/LoadInfo.h"
 
+#include "ThirdPartyUtil.h"
 #include "js/Array.h"               // JS::NewArrayObject
 #include "js/PropertyAndElement.h"  // JS_DefineElement
+#include "mozIThirdPartyUtil.h"
 #include "mozilla/Assertions.h"
 #include "mozilla/ExpandedPrincipal.h"
+#include "mozilla/NullPrincipal.h"
+#include "mozilla/StaticPrefs_network.h"
+#include "mozilla/StaticPrefs_security.h"
+#include "mozilla/StoragePrincipalHelper.h"
+#include "mozilla/dom/BrowserChild.h"
+#include "mozilla/dom/BrowsingContext.h"
 #include "mozilla/dom/CanonicalBrowsingContext.h"
 #include "mozilla/dom/ClientIPCTypes.h"
 #include "mozilla/dom/ClientSource.h"
 #include "mozilla/dom/ContentChild.h"
 #include "mozilla/dom/DOMTypes.h"
+#include "mozilla/dom/Document.h"
+#include "mozilla/dom/InternalRequest.h"
 #include "mozilla/dom/Performance.h"
 #include "mozilla/dom/PerformanceStorage.h"
 #include "mozilla/dom/PolicyContainer.h"
-#include "mozilla/dom/BrowserChild.h"
 #include "mozilla/dom/ToJSValue.h"
-#include "mozilla/dom/BrowsingContext.h"
 #include "mozilla/dom/WindowGlobalParent.h"
 #include "mozilla/dom/nsHTTPSOnlyUtils.h"
-#include "mozilla/dom/InternalRequest.h"
 #include "mozilla/net/CookieJarSettings.h"
-#include "mozilla/NullPrincipal.h"
-#include "mozilla/StaticPrefs_network.h"
-#include "mozilla/StaticPrefs_security.h"
-#include "mozIThirdPartyUtil.h"
-#include "ThirdPartyUtil.h"
 #include "nsContentSecurityManager.h"
+#include "nsDocShell.h"
 #include "nsFrameLoader.h"
 #include "nsFrameLoaderOwner.h"
+#include "nsGlobalWindowInner.h"
 #include "nsIContentPolicy.h"
 #include "nsIContentSecurityPolicy.h"
+#include "nsICookieService.h"
 #include "nsIDocShell.h"
-#include "mozilla/dom/Document.h"
 #include "nsIHttpChannel.h"
 #include "nsIHttpChannelInternal.h"
 #include "nsIInterfaceRequestorUtils.h"
@@ -43,24 +47,22 @@
 #include "nsISupportsImpl.h"
 #include "nsISupportsUtils.h"
 #include "nsIXPConnect.h"
-#include "nsDocShell.h"
-#include "nsGlobalWindowInner.h"
 #include "nsMixedContentBlocker.h"
+#include "nsPIDOMWindowInlines.h"
 #include "nsQueryObject.h"
 #include "nsRedirectHistoryEntry.h"
 #include "nsSandboxFlags.h"
-#include "nsICookieService.h"
 
 using namespace mozilla::dom;
 
 namespace mozilla::net {
 
-static nsCString CurrentRemoteType() {
+static const RemoteType& CurrentRemoteType() {
   MOZ_ASSERT(XRE_IsParentProcess() || XRE_IsContentProcess());
   if (ContentChild* cc = ContentChild::GetSingleton()) {
-    return nsCString(cc->GetRemoteType());
+    return cc->GetRemoteType();
   }
-  return NOT_REMOTE_TYPE;
+  return RemoteType::NotRemote();
 }
 
 static nsContentPolicyType InternalContentPolicyTypeForFrame(
@@ -139,7 +141,7 @@ bool LoadInfo::IsDocumentMissingClientInfo() {
 
 /* static */ already_AddRefed<LoadInfo> LoadInfo::CreateForDocument(
     dom::CanonicalBrowsingContext* aBrowsingContext, nsIURI* aURI,
-    nsIPrincipal* aTriggeringPrincipal, const nsACString& aTriggeringRemoteType,
+    nsIPrincipal* aTriggeringPrincipal, const RemoteType& aTriggeringRemoteType,
     const OriginAttributes& aOriginAttributes, nsSecurityFlags aSecurityFlags,
     uint32_t aSandboxFlags) {
   return MakeAndAddRef<LoadInfo>(aBrowsingContext, aURI, aTriggeringPrincipal,
@@ -149,7 +151,7 @@ bool LoadInfo::IsDocumentMissingClientInfo() {
 
 /* static */ already_AddRefed<LoadInfo> LoadInfo::CreateForFrame(
     dom::CanonicalBrowsingContext* aBrowsingContext,
-    nsIPrincipal* aTriggeringPrincipal, const nsACString& aTriggeringRemoteType,
+    nsIPrincipal* aTriggeringPrincipal, const RemoteType& aTriggeringRemoteType,
     nsSecurityFlags aSecurityFlags, uint32_t aSandboxFlags) {
   return MakeAndAddRef<LoadInfo>(aBrowsingContext, aTriggeringPrincipal,
                                  aTriggeringRemoteType, aSecurityFlags,
@@ -340,8 +342,12 @@ LoadInfo::LoadInfo(
     if (nsMixedContentBlocker::IsUpgradableContentType(
             mInternalContentPolicyType)) {
       // Check the load is within a secure context but ignore loopback URLs
-      if (mLoadingPrincipal->GetIsOriginPotentiallyTrustworthy() &&
-          !mLoadingPrincipal->GetIsLoopbackHost()) {
+      nsCOMPtr<nsIPrincipal> precursorPrincipal =
+          mLoadingPrincipal->GetPrecursorPrincipal();
+      nsCOMPtr<nsIPrincipal> requestingPrincipal =
+          precursorPrincipal ? precursorPrincipal : mLoadingPrincipal;
+      if (requestingPrincipal->GetIsOriginPotentiallyTrustworthy() &&
+          !requestingPrincipal->GetIsLoopbackHost()) {
         if (StaticPrefs::security_mixed_content_upgrade_display_content()) {
           mBrowserUpgradeInsecureRequests = true;
         } else {
@@ -463,7 +469,7 @@ LoadInfo::LoadInfo(nsPIDOMWindowOuter* aOuterWindow, nsIURI* aURI,
 
 LoadInfo::LoadInfo(dom::CanonicalBrowsingContext* aBrowsingContext,
                    nsIURI* aURI, nsIPrincipal* aTriggeringPrincipal,
-                   const nsACString& aTriggeringRemoteType,
+                   const RemoteType& aTriggeringRemoteType,
                    const OriginAttributes& aOriginAttributes,
                    nsSecurityFlags aSecurityFlags, uint32_t aSandboxFlags)
     : mTriggeringPrincipal(aTriggeringPrincipal),
@@ -558,7 +564,7 @@ LoadInfo::LoadInfo(dom::CanonicalBrowsingContext* aBrowsingContext,
 
 LoadInfo::LoadInfo(dom::WindowGlobalParent* aParentWGP,
                    nsIPrincipal* aTriggeringPrincipal,
-                   const nsACString& aTriggeringRemoteType,
+                   const RemoteType& aTriggeringRemoteType,
                    nsContentPolicyType aContentPolicyType,
                    nsSecurityFlags aSecurityFlags, uint32_t aSandboxFlags)
     : mTriggeringPrincipal(aTriggeringPrincipal),
@@ -687,7 +693,7 @@ LoadInfo::LoadInfo(dom::WindowGlobalParent* aParentWGP,
 // Used for TYPE_FRAME or TYPE_IFRAME load.
 LoadInfo::LoadInfo(dom::CanonicalBrowsingContext* aBrowsingContext,
                    nsIPrincipal* aTriggeringPrincipal,
-                   const nsACString& aTriggeringRemoteType,
+                   const RemoteType& aTriggeringRemoteType,
                    nsSecurityFlags aSecurityFlags, uint32_t aSandboxFlags)
     : LoadInfo(aBrowsingContext->GetParentWindowContext(), aTriggeringPrincipal,
                aTriggeringRemoteType,
@@ -718,7 +724,10 @@ LoadInfo::LoadInfo(const LoadInfo& rhs)
       mContextForTopLevelLoad(rhs.mContextForTopLevelLoad),
       mSecurityFlags(rhs.mSecurityFlags),
       mSandboxFlags(rhs.mSandboxFlags),
+      mFrameReferrerPolicySnapshot(rhs.mFrameReferrerPolicySnapshot),
       mInternalContentPolicyType(rhs.mInternalContentPolicyType),
+      // mServiceWorkerTaintingSynthesized must be handled specially during
+      // redirect
       mTainting(rhs.mTainting),
 #define DEFINE_INIT(_t, name, _n, _d) m##name(rhs.m##name),
       LOADINFO_FOR_EACH_FIELD(DEFINE_INIT, LOADINFO_DUMMY_SETTER)
@@ -754,13 +763,14 @@ LoadInfo::LoadInfo(
     nsIURI* aResultPrincipalURI, nsICookieJarSettings* aCookieJarSettings,
     nsIPolicyContainer* aPolicyContainerToInherit,
     const Maybe<dom::FeaturePolicyInfo>& aContainerFeaturePolicyInfo,
-    const nsACString& aTriggeringRemoteType,
+    const RemoteType& aTriggeringRemoteType,
     const nsID& aSandboxedNullPrincipalID, const Maybe<ClientInfo>& aClientInfo,
     const Maybe<ClientInfo>& aReservedClientInfo,
     const Maybe<ClientInfo>& aInitialClientInfo,
     const Maybe<ServiceWorkerDescriptor>& aController,
     nsSecurityFlags aSecurityFlags, uint32_t aSandboxFlags,
-    nsContentPolicyType aContentPolicyType, LoadTainting aTainting,
+    nsContentPolicyType aContentPolicyType,
+    bool aServiceWorkerTaintingSynthesized, LoadTainting aTainting,
 #define DEFINE_PARAMETER(type, name, _n, _d) type a##name,
     LOADINFO_FOR_EACH_FIELD(DEFINE_PARAMETER, LOADINFO_DUMMY_SETTER)
 #undef DEFINE_PARAMETER
@@ -799,6 +809,7 @@ LoadInfo::LoadInfo(
       mSecurityFlags(aSecurityFlags),
       mSandboxFlags(aSandboxFlags),
       mInternalContentPolicyType(aContentPolicyType),
+      mServiceWorkerTaintingSynthesized(aServiceWorkerTaintingSynthesized),
       mTainting(aTainting),
 
 #define DEFINE_INIT(_t, name, _n, _d) m##name(a##name),
@@ -975,13 +986,19 @@ void LoadInfo::ResetSandboxedNullPrincipalID() {
 nsIPrincipal* LoadInfo::GetTopLevelPrincipal() { return mTopLevelPrincipal; }
 
 NS_IMETHODIMP
-LoadInfo::GetTriggeringRemoteType(nsACString& aTriggeringRemoteType) {
+LoadInfo::GetXPCOMTriggeringRemoteType(nsACString& aTriggeringRemoteType) {
+  aTriggeringRemoteType = mTriggeringRemoteType.Stringify();
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+LoadInfo::GetTriggeringRemoteType(RemoteType& aTriggeringRemoteType) {
   aTriggeringRemoteType = mTriggeringRemoteType;
   return NS_OK;
 }
 
 NS_IMETHODIMP
-LoadInfo::SetTriggeringRemoteType(const nsACString& aTriggeringRemoteType) {
+LoadInfo::SetTriggeringRemoteType(const RemoteType& aTriggeringRemoteType) {
   mTriggeringRemoteType = aTriggeringRemoteType;
   return NS_OK;
 }
@@ -1658,6 +1675,14 @@ LoadInfo::GetLoadTriggeredFromExternal(bool* aLoadTriggeredFromExternal) {
 }
 
 NS_IMETHODIMP
+LoadInfo::GetServiceWorkerTaintingSynthesized(
+    bool* aServiceWorkerTaintingSynthesized) {
+  MOZ_ASSERT(aServiceWorkerTaintingSynthesized);
+  *aServiceWorkerTaintingSynthesized = mServiceWorkerTaintingSynthesized;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
 LoadInfo::GetTainting(uint32_t* aTaintingOut) {
   MOZ_ASSERT(aTaintingOut);
   *aTaintingOut = static_cast<uint32_t>(mTainting);
@@ -2067,6 +2092,16 @@ void LoadInfo::UpdateParentAddressSpaceInfo() {
   RefPtr<mozilla::dom::BrowsingContext> bc;
   GetBrowsingContext(getter_AddRefs(bc));
   if (!bc) {
+    // For workers, read the IP address space from the policy container
+    // which was propagated from the parent document.
+    if (mClientInfo.isSome() && mClientInfo->Type() != ClientType::Window) {
+      nsCOMPtr<nsIPolicyContainer> policyContainer = GetPolicyContainer();
+      if (policyContainer) {
+        mParentIpAddressSpace =
+            PolicyContainer::Cast(policyContainer)->GetIPAddressSpace();
+        return;
+      }
+    }
     mParentIpAddressSpace = nsILoadInfo::Local;
     return;
   }

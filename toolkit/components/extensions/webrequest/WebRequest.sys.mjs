@@ -7,6 +7,7 @@ const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
   ExtensionDNR: "resource://gre/modules/ExtensionDNR.sys.mjs",
+  ExtensionDocumentId: "resource://gre/modules/ExtensionDocumentId.sys.mjs",
   ExtensionParent: "resource://gre/modules/ExtensionParent.sys.mjs",
   ExtensionUtils: "resource://gre/modules/ExtensionUtils.sys.mjs",
   SecurityInfo: "resource://gre/modules/SecurityInfo.sys.mjs",
@@ -338,6 +339,8 @@ const OPTIONAL_PROPERTIES = [
   "urlClassification",
   "requestSize",
   "responseSize",
+  "documentId",
+  "parentDocumentId",
 ];
 
 function serializeRequestData(eventName) {
@@ -427,6 +430,7 @@ var ChannelEventSink = {
       HttpObserverManager.onChannelReplaced(oldChannel, newChannel);
     } catch (e) {
       // we don't wanna throw: it would abort the redirection
+      Cu.reportError(e);
     }
   },
 
@@ -628,7 +632,6 @@ HttpObserverManager = {
   beforeConnectInitialized: false,
   examineInitialized: false,
   redirectInitialized: false,
-  needTracing: false,
   hasRedirects: false,
 
   getWrapper(nativeChannel) {
@@ -687,14 +690,14 @@ HttpObserverManager = {
       Array.from(listeners.values()).some(listener => listener.blockingAllowed)
     );
 
-    this.needTracing =
+    let needTracing =
       this.listeners.onResponseStarted.size ||
       this.listeners.onErrorOccurred.size ||
       this.listeners.onCompleted.size ||
       haveBlocking;
 
     let needExamine =
-      this.needTracing ||
+      needTracing ||
       this.listeners.onHeadersReceived.size ||
       this.listeners.onAuthRequired.size ||
       this.dnrActive;
@@ -779,6 +782,12 @@ HttpObserverManager = {
       tabId: this.getBrowserData(channel).tabId,
       frameId: channel.frameId,
       parentFrameId: channel.parentFrameId,
+      documentId: lazy.ExtensionDocumentId.getDocumentId(
+        channel.documentInnerWindowId
+      ),
+      parentDocumentId: lazy.ExtensionDocumentId.getDocumentId(
+        channel.parentDocumentInnerWindowId
+      ),
 
       frameAncestors: channel.frameAncestors || undefined,
 
@@ -909,17 +918,7 @@ HttpObserverManager = {
         data.urgentSend = data.urgentSend && opts.blocking;
 
         if (registerFilter && opts.blocking && opts.policy) {
-          data.registerTraceableChannel = (policy, remoteTab) => {
-            // `channel` is a ChannelWrapper, which contains the actual
-            // underlying nsIChannel in `channel.channel`.  For startup events
-            // that are held until the extension background page is started,
-            // it is possible that the underlying channel can be closed and
-            // cleaned up between the time the event occurred and the time
-            // we reach this code.
-            if (channel.channel) {
-              channel.registerTraceableChannel(policy, remoteTab);
-            }
-          };
+          channel.registerTraceableChannel(opts.policy);
         }
 
         if (opts.requestHeaders) {

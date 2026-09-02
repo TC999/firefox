@@ -2,63 +2,61 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include "gfxPlatform.h"
+
+#include "GfxDriverInfo.h"
+#include "VRProcessManager.h"
+#include "VRThread.h"
+#include "gfxBlur.h"
+#include "gfxConfig.h"
+#include "gfxCrashReporterUtils.h"
+#include "gfxEnv.h"
+#include "gfxPlatformWorker.h"
+#include "gfxTextRun.h"
+#include "gfxUserFontSet.h"
+#include "mozilla/Base64.h"
+#include "mozilla/ClearOnShutdown.h"
+#include "mozilla/Components.h"
+#include "mozilla/EnumTypeTraits.h"
 #include "mozilla/FontPropertyTypes.h"
+#include "mozilla/IntegerPrintfMacros.h"
+#include "mozilla/Logging.h"
 #include "mozilla/RDDProcessManager.h"
+#include "mozilla/StaticPrefs_accessibility.h"
+#include "mozilla/StaticPrefs_apz.h"
+#include "mozilla/StaticPrefs_bidi.h"
+#include "mozilla/StaticPrefs_gfx.h"
+#include "mozilla/StaticPrefs_layers.h"
+#include "mozilla/StaticPrefs_layout.h"
+#include "mozilla/StaticPrefs_media.h"
+#include "mozilla/StaticPrefs_privacy.h"
+#include "mozilla/StaticPrefs_webgl.h"
+#include "mozilla/StaticPrefs_widget.h"
+#include "mozilla/TimeStamp.h"
+#include "mozilla/VsyncDispatcher.h"
+#include "mozilla/gfx/BuildConstants.h"
+#include "mozilla/gfx/CanvasRenderThread.h"
+#include "mozilla/gfx/CanvasShutdownManager.h"
+#include "mozilla/gfx/GPUProcessManager.h"
+#include "mozilla/gfx/GraphicsMessages.h"
+#include "mozilla/gfx/gfxConfigManager.h"
+#include "mozilla/gfx/gfxVars.h"
+#include "mozilla/glean/GfxMetrics.h"
 #include "mozilla/image/ImageMemoryReporter.h"
+#include "mozilla/layers/CompositorBridgeChild.h"
 #include "mozilla/layers/CompositorManagerChild.h"
 #include "mozilla/layers/CompositorThread.h"
-#include "mozilla/layers/ImageBridgeChild.h"
 #include "mozilla/layers/ISurfaceAllocator.h"  // for GfxMemoryImageReporter
-#include "mozilla/layers/CompositorBridgeChild.h"
+#include "mozilla/layers/ImageBridgeChild.h"
 #include "mozilla/layers/RemoteTextureMap.h"
 #include "mozilla/layers/VideoBridgeParent.h"
 #include "mozilla/webrender/RenderThread.h"
 #include "mozilla/webrender/WebRenderAPI.h"
 #include "mozilla/webrender/webrender_ffi.h"
-#include "mozilla/gfx/BuildConstants.h"
-#include "mozilla/gfx/gfxConfigManager.h"
-#include "mozilla/gfx/gfxVars.h"
-#include "mozilla/gfx/GPUProcessManager.h"
-#include "mozilla/gfx/GraphicsMessages.h"
-#include "mozilla/gfx/CanvasRenderThread.h"
-#include "mozilla/gfx/CanvasShutdownManager.h"
-#include "mozilla/ClearOnShutdown.h"
-#include "mozilla/EnumTypeTraits.h"
-#include "mozilla/StaticPrefs_accessibility.h"
-#include "mozilla/StaticPrefs_apz.h"
-#include "mozilla/StaticPrefs_bidi.h"
-#include "mozilla/StaticPrefs_gfx.h"
-#include "mozilla/StaticPrefs_layout.h"
-#include "mozilla/StaticPrefs_layers.h"
-#include "mozilla/StaticPrefs_media.h"
-#include "mozilla/StaticPrefs_privacy.h"
-#include "mozilla/StaticPrefs_webgl.h"
-#include "mozilla/StaticPrefs_widget.h"
-#include "mozilla/glean/GfxMetrics.h"
-#include "mozilla/TimeStamp.h"
-#include "mozilla/IntegerPrintfMacros.h"
-#include "mozilla/Base64.h"
-#include "mozilla/VsyncDispatcher.h"
-
-#include "mozilla/Logging.h"
-#include "mozilla/Components.h"
-#include "nsAppRunner.h"
 #include "nsAppDirectoryServiceDefs.h"
+#include "nsAppRunner.h"
 #include "nsCSSProps.h"
 #include "nsContentUtils.h"
-
-#include "gfxCrashReporterUtils.h"
-#include "gfxPlatform.h"
-#include "gfxPlatformWorker.h"
-
-#include "gfxBlur.h"
-#include "gfxEnv.h"
-#include "gfxTextRun.h"
-#include "gfxUserFontSet.h"
-#include "gfxConfig.h"
-#include "GfxDriverInfo.h"
-#include "VRProcessManager.h"
-#include "VRThread.h"
 
 #ifdef XP_WIN
 #  include <process.h>
@@ -67,10 +65,10 @@
 #  include <unistd.h>
 #endif
 
-#include "nsXULAppAPI.h"
-#include "nsIXULAppInfo.h"
-#include "nsDirectoryServiceUtils.h"
 #include "nsDirectoryServiceDefs.h"
+#include "nsDirectoryServiceUtils.h"
+#include "nsIXULAppInfo.h"
+#include "nsXULAppAPI.h"
 
 #if defined(XP_WIN)
 #  include "gfxWindowsPlatform.h"
@@ -80,6 +78,7 @@
 #  include "gfxPlatformMac.h"
 #  include "gfxQuartzSurface.h"
 #elif defined(MOZ_WIDGET_GTK)
+#  include "DMABufFormats.h"
 #  include "gfxPlatformGtk.h"
 #elif defined(ANDROID)
 #  include "gfxAndroidPlatform.h"
@@ -89,41 +88,35 @@
 #endif
 
 #ifdef XP_WIN
-#  include "mozilla/WindowsVersion.h"
 #  include "WinUtils.h"
+#  include "mozilla/WindowsVersion.h"
 #endif
 
-#include "nsGkAtoms.h"
-#include "gfxPlatformFontList.h"
-#include "gfxContext.h"
-#include "gfxImageSurface.h"
-#include "nsUnicodeProperties.h"
-#include "harfbuzz/hb.h"
-#include "gfxGraphiteShaper.h"
-#include "gfx2DGlue.h"
-#include "gfxGradientCache.h"
-#include "gfxUtils.h"  // for NextPowerOfTwo
-#include "gfxFontMissingGlyphs.h"
-
-#include "nsExceptionHandler.h"
-#include "nsServiceManagerUtils.h"
-#include "nsTArray.h"
-#include "nsIObserverService.h"
-#include "mozilla/widget/Screen.h"
-#include "mozilla/widget/ScreenManager.h"
-#include "MainThreadUtils.h"
-
-#include "nsWeakReference.h"
-
-#include "cairo.h"
-#include "qcms.h"
-
-#include "imgITools.h"
-
-#include "nsCRT.h"
 #include "GLContext.h"
 #include "GLContextProvider.h"
+#include "MainThreadUtils.h"
+#include "cairo.h"
+#include "gfx2DGlue.h"
+#include "gfxContext.h"
+#include "gfxFontMissingGlyphs.h"
+#include "gfxGradientCache.h"
+#include "gfxGraphiteShaper.h"
+#include "gfxImageSurface.h"
+#include "gfxPlatformFontList.h"
+#include "gfxUtils.h"  // for NextPowerOfTwo
+#include "harfbuzz/hb.h"
+#include "imgITools.h"
 #include "mozilla/gfx/Logging.h"
+#include "mozilla/widget/Screen.h"
+#include "mozilla/widget/ScreenManager.h"
+#include "nsCRT.h"
+#include "nsExceptionHandler.h"
+#include "nsIObserverService.h"
+#include "nsServiceManagerUtils.h"
+#include "nsTArray.h"
+#include "nsUnicodeProperties.h"
+#include "nsWeakReference.h"
+#include "qcms.h"
 
 #ifdef __GNUC__
 #  pragma GCC diagnostic push
@@ -139,28 +132,26 @@
 #endif
 static const uint32_t kDefaultGlyphCacheSize = -1;
 
-#include "mozilla/Preferences.h"
+#include "SoftwareVsyncSource.h"
+#include "VRManager.h"
+#include "VRManagerChild.h"
+#include "VsyncSource.h"
+#include "gfxVR.h"
 #include "mozilla/Assertions.h"
 #include "mozilla/Atomics.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/Mutex.h"
-
-#include "nsIGfxInfo.h"
-#include "nsIXULRuntime.h"
-#include "VsyncSource.h"
-#include "SoftwareVsyncSource.h"
-#include "nscore.h"  // for NS_FREE_PERMANENT_DATA
+#include "mozilla/Preferences.h"
 #include "mozilla/dom/ContentChild.h"
 #include "mozilla/dom/ContentParent.h"
 #include "mozilla/dom/TouchEvent.h"
-#include "gfxVR.h"
-#include "VRManager.h"
-#include "VRManagerChild.h"
-#include "mozilla/gfx/GPUParent.h"
-#include "prsystem.h"
-
 #include "mozilla/gfx/2D.h"
+#include "mozilla/gfx/GPUParent.h"
 #include "mozilla/gfx/SourceSurfaceCairo.h"
+#include "nsIGfxInfo.h"
+#include "nsIXULRuntime.h"
+#include "nscore.h"  // for NS_FREE_PERMANENT_DATA
+#include "prsystem.h"
 
 using namespace mozilla;
 using namespace mozilla::layers;
@@ -254,9 +245,9 @@ bool CrashStatsLogForwarder::UpdateStringsVectorInternal(
   // just out of paranoia, but we know index <= mBuffer.size().
   LoggingRecordEntry newEntry(mIndex, aString, tStamp);
   if (index >= static_cast<int32_t>(mBuffer.size())) {
-    mBuffer.push_back(newEntry);
+    mBuffer.push_back(std::move(newEntry));
   } else {
-    mBuffer[index] = newEntry;
+    mBuffer[index] = std::move(newEntry);
   }
   return true;
 }
@@ -410,8 +401,6 @@ void CrashStatsLogForwarder::CrashAction(LogReason aReason) {
 #if defined(XP_DARWIN)
 #  define GFX_PREF_CORETEXT_SHAPING "gfx.font_rendering.coretext.enabled"
 #endif
-
-#define FONT_VARIATIONS_PREF "layout.css.font-variations.enabled"
 
 static const char* kObservedPrefs[] = {"gfx.downloadable_fonts.",
                                        "gfx.font_rendering.", nullptr};
@@ -570,6 +559,9 @@ static void WebRenderDebugPrefChangeCallback(const char* aPrefName, void*) {
                       wr::DebugFlags::HIGHLIGHT_BACKDROP_FILTERS)
   GFX_WEBRENDER_DEBUG(".external-composite-borders",
                       wr::DebugFlags::EXTERNAL_COMPOSITE_BORDERS)
+  GFX_WEBRENDER_DEBUG(".dl.dump-spatial-tree",
+                      wr::DebugFlags::DUMP_SPATIAL_TREE)
+  GFX_WEBRENDER_DEBUG(".color-target-init", wr::DebugFlags::COLOR_TARGET_INIT)
 #undef GFX_WEBRENDER_DEBUG
   gfx::gfxVars::SetWebRenderDebugFlags(flags._0);
 
@@ -906,6 +898,20 @@ void gfxPlatform::Init() {
     gfxVars::SetDXNV12Blocked(IsDXNV12Blocked());
     gfxVars::SetDXP010Blocked(IsDXP010Blocked());
     gfxVars::SetDXP016Blocked(IsDXP016Blocked());
+
+    // The primary adapter identifiers are only available from GfxInfo in the
+    // parent process; propagate them so other processes can attach them to
+    // telemetry.
+    if (gfxInfo) {
+      nsString adapterVendorID, adapterDeviceID, adapterDriverVersion;
+      gfxInfo->GetAdapterVendorID(adapterVendorID);
+      gfxInfo->GetAdapterDeviceID(adapterDeviceID);
+      gfxInfo->GetAdapterDriverVersion(adapterDriverVersion);
+      gfxVars::SetAdapterVendorID(NS_ConvertUTF16toUTF8(adapterVendorID));
+      gfxVars::SetAdapterDeviceID(NS_ConvertUTF16toUTF8(adapterDeviceID));
+      gfxVars::SetAdapterDriverVersion(
+          NS_ConvertUTF16toUTF8(adapterDriverVersion));
+    }
   }
 
 #if defined(XP_WIN)
@@ -933,10 +939,15 @@ void gfxPlatform::Init() {
   if (XRE_IsParentProcess()) {
     // Monitor for sanity test changes.
     Preferences::RegisterCallbackAndCall(
-        VideoDecodingFailedChangedCallback,
+        HardwareVideoFailedChangedCallback,
         "media.hardware-video-decoding.failed");
+    Preferences::RegisterCallbackAndCall(
+        HardwareVideoFailedChangedCallback,
+        "media.hardware-video-encoding.failed");
     Preferences::RegisterCallbackAndCall(HWDRMFailedChangedCallback,
                                          "media.eme.hwdrm.failed");
+    Preferences::RegisterCallback(HWDRMFailedChangedCallback,
+                                  "media.wmf.media-engine.enabled");
   }
 
 #if defined(XP_WIN)
@@ -944,9 +955,7 @@ void gfxPlatform::Init() {
   // the (rare) cases where they're used. Note that the GPU process where
   // WebRender runs doesn't initialize gfxPlatform and performs explicit
   // initialization of the bits it needs.
-  if (XRE_IsParentProcess() && !gfxConfig::IsEnabled(Feature::GPU_PROCESS) &&
-      StaticPrefs::
-          gfx_webrender_enabled_no_gpu_process_with_angle_win_AtStartup()) {
+  if (XRE_IsParentProcess() && !gfxConfig::IsEnabled(Feature::GPU_PROCESS)) {
     gPlatform->EnsureDevicesInitialized();
   }
 #endif
@@ -1030,12 +1039,12 @@ void gfxPlatform::Init() {
     MOZ_CRASH("Could not initialize ImageLib");
   }
 
-  RegisterStrongMemoryReporter(new GfxMemoryImageReporter());
+  RegisterStrongMemoryReporter(MakeAndAddRef<GfxMemoryImageReporter>());
   if (XRE_IsParentProcess()) {
-    RegisterStrongAsyncMemoryReporter(new WebRenderMemoryReporter());
+    RegisterStrongAsyncMemoryReporter(MakeAndAddRef<WebRenderMemoryReporter>());
   }
 
-  RegisterStrongMemoryReporter(new SkMemoryReporter());
+  RegisterStrongMemoryReporter(MakeAndAddRef<SkMemoryReporter>());
 
   uint32_t skiaCacheSize = GetSkiaGlyphCacheSize();
   if (skiaCacheSize != kDefaultGlyphCacheSize) {
@@ -1044,16 +1053,6 @@ void gfxPlatform::Init() {
 
   InitNullMetadata();
   InitOpenGLConfig();
-
-  if (XRE_IsParentProcess()) {
-    Preferences::Unlock(FONT_VARIATIONS_PREF);
-    if (!gfxPlatform::HasVariationFontSupport()) {
-      // Ensure variation fonts are disabled and the pref is locked.
-      Preferences::SetBool(FONT_VARIATIONS_PREF, false, PrefValueKind::Default);
-      Preferences::SetBool(FONT_VARIATIONS_PREF, false);
-      Preferences::Lock(FONT_VARIATIONS_PREF);
-    }
-  }
 
   if (XRE_IsParentProcess()) {
     ReportTelemetry();
@@ -1068,8 +1067,8 @@ void gfxPlatform::Init() {
 void gfxPlatform::InitMemoryReportersForGPUProcess() {
   MOZ_RELEASE_ASSERT(XRE_IsGPUProcess());
 
-  RegisterStrongMemoryReporter(new GfxMemoryImageReporter());
-  RegisterStrongMemoryReporter(new SkMemoryReporter());
+  RegisterStrongMemoryReporter(MakeAndAddRef<GfxMemoryImageReporter>());
+  RegisterStrongMemoryReporter(MakeAndAddRef<SkMemoryReporter>());
 }
 
 void gfxPlatform::ReportTelemetry() {
@@ -1242,6 +1241,19 @@ bool gfxPlatform::UseRemoteCanvas() {
 }
 
 /* static */
+bool gfxPlatform::UseHDR() {
+  // If the user set gfx.color_management.hdr.force_enabled then we want to
+  // honor that, if gfx.color_management.hdr is false or the GPU vendor is
+  // blocklisted then we want to do what we did before with HDR video - which
+  // did not look good, but we'll be implementing workarounds for driver
+  // limitations in future so that this will be less common.
+  //
+  // This parallels the logic in Gecko_MediaFeatures_VideoDynamicRange().
+  return (StaticPrefs::gfx_color_management_hdr() && gfxVars::VideoHDR()) ||
+         StaticPrefs::gfx_color_management_hdr_force_enabled();
+}
+
+/* static */
 bool gfxPlatform::IsBackendAccelerated(
     const mozilla::gfx::BackendType aBackendType) {
   return false;
@@ -1303,13 +1315,10 @@ void gfxPlatform::Shutdown() {
   // Shut down the default GL context provider.
   GLContextProvider::Shutdown();
 
-#if defined(XP_WIN)
-  // The above shutdown calls operate on the available context providers on
-  // most platforms.  Windows is a "special snowflake", though, and has three
-  // context providers available, so we have to shut all of them down.
-  // We should only support the default GL provider on Windows; then, this
-  // could go away. Unfortunately, we currently support WGL (the default) for
-  // WebGL on Optimus.
+#if defined(XP_WIN) || defined(XP_MACOSX)
+  // The above shutdown call shuts down the default context provider, which is
+  // the only context provider on most platforms. Windows and Mac, however, may
+  // initialize EGL for ANGLE in addition to their respective defaults.
   GLContextProviderEGL::Shutdown();
 #endif
 
@@ -1847,7 +1856,9 @@ uint32_t gfxPlatform::WordCacheMaxEntries() {
 }
 
 bool gfxPlatform::UseGraphiteShaping() {
-  return StaticPrefs::gfx_font_rendering_graphite_enabled();
+  // Graphite shaping is only available on the main thread.
+  return StaticPrefs::gfx_font_rendering_graphite_enabled() &&
+         NS_IsMainThread();
 }
 
 bool gfxPlatform::IsFontFormatSupported(
@@ -1884,15 +1895,6 @@ bool gfxPlatform::IsFontFormatSupported(
   if (!StaticPrefs::gfx_downloadable_fonts_keep_color_bitmaps()) {
     unsupportedTechnologies |= StyleFontFaceSourceTechFlags::COLOR_CBDT;
   }
-  if (!StaticPrefs::gfx_font_rendering_colr_v1_enabled()) {
-    unsupportedTechnologies |= StyleFontFaceSourceTechFlags::COLOR_COLRV1;
-  }
-  if (!StaticPrefs::layout_css_font_palette_enabled()) {
-    unsupportedTechnologies |= StyleFontFaceSourceTechFlags::PALETTES;
-  }
-  if (!StaticPrefs::layout_css_font_variations_enabled()) {
-    unsupportedTechnologies |= StyleFontFaceSourceTechFlags::VARIATIONS;
-  }
   if (aTechFlags & unsupportedTechnologies) {
     return false;
   }
@@ -1904,23 +1906,21 @@ bool gfxPlatform::IsKnownIconFontFamily(const nsAtom* aFamilyName) const {
       aFamilyName);
 }
 
-gfxFontEntry* gfxPlatform::LookupLocalFont(
+already_AddRefed<gfxFontEntry> gfxPlatform::LookupLocalFont(
     FontVisibilityProvider* aFontVisibilityProvider,
     const nsACString& aFontName, const WeightRange& aWeightForEntry,
-    const StretchRange& aStretchForEntry,
-    const SlantStyleRange& aStyleForEntry) {
+    const WidthRange& aWidthForEntry, const SlantStyleRange& aStyleForEntry) {
   return gfxPlatformFontList::PlatformFontList()->LookupLocalFont(
-      aFontVisibilityProvider, aFontName, aWeightForEntry, aStretchForEntry,
+      aFontVisibilityProvider, aFontName, aWeightForEntry, aWidthForEntry,
       aStyleForEntry);
 }
 
-gfxFontEntry* gfxPlatform::MakePlatformFont(
+already_AddRefed<gfxFontEntry> gfxPlatform::MakePlatformFont(
     const nsACString& aFontName, const WeightRange& aWeightForEntry,
-    const StretchRange& aStretchForEntry, const SlantStyleRange& aStyleForEntry,
-    const uint8_t* aFontData, uint32_t aLength) {
+    const WidthRange& aWidthForEntry, const SlantStyleRange& aStyleForEntry,
+    FontData* aFontData) {
   return gfxPlatformFontList::PlatformFontList()->MakePlatformFont(
-      aFontName, aWeightForEntry, aStretchForEntry, aStyleForEntry, aFontData,
-      aLength);
+      aFontName, aWeightForEntry, aWidthForEntry, aStyleForEntry, aFontData);
 }
 
 BackendPrefsData gfxPlatform::GetBackendPrefs() const {
@@ -2076,7 +2076,7 @@ DeviceColor gfxPlatform::TransformPixel(const sRGBColor& in,
 
 nsTArray<uint8_t> gfxPlatform::GetPrefCMSOutputProfileData() {
   const auto mirror = StaticPrefs::gfx_color_management_display_profile();
-  const auto fname = *mirror;
+  const auto& fname = *mirror;
   if (fname == "") {
     return nsTArray<uint8_t>();
   }
@@ -2414,7 +2414,7 @@ gfxImageFormat gfxPlatform::OptimalFormatForContent(gfxContentType aContent) {
 static mozilla::Atomic<bool> sLayersAccelerationPrefsInitialized(false);
 
 /* static */
-void gfxPlatform::VideoDecodingFailedChangedCallback(const char* aPref, void*) {
+void gfxPlatform::HardwareVideoFailedChangedCallback(const char* aPref, void*) {
   MOZ_ASSERT(XRE_IsParentProcess());
   if (gPlatform) {
     gPlatform->InitHardwareVideoConfig();
@@ -2425,7 +2425,7 @@ void gfxPlatform::VideoDecodingFailedChangedCallback(const char* aPref, void*) {
 void gfxPlatform::HWDRMFailedChangedCallback(const char* aPref, void*) {
   MOZ_ASSERT(XRE_IsParentProcess());
   if (gPlatform) {
-    gPlatform->InitPlatformHardwarDRMConfig();
+    gPlatform->InitPlatformHardwareDRMConfig();
   }
 }
 
@@ -2623,11 +2623,9 @@ void gfxPlatform::InitWebRenderConfig() {
   }
 #endif
 
-#ifdef XP_WIN
   if (gfxConfig::IsEnabled(Feature::WEBRENDER_ANGLE)) {
     gfxVars::SetUseWebRenderANGLE(true);
   }
-#endif
 
   if (gfxConfig::IsEnabled(Feature::WEBRENDER_SHADER_CACHE)) {
     gfxVars::SetUseWebRenderProgramBinaryDisk(true);
@@ -2699,6 +2697,11 @@ void gfxPlatform::InitWebRenderConfig() {
   if (StaticPrefs::gfx_webrender_software_opengl_AtStartup()) {
     gfxVars::SetAllowSoftwareWebRenderOGL(true);
   }
+#endif
+
+#ifdef MOZ_WIDGET_ANDROID
+  gfxVars::SetUseAImageReaderVideoGpuProcessAndroid(
+      StaticPrefs::gfx_video_aimage_reader_gpu_process_android_AtStartup());
 #endif
 
 #ifdef XP_WIN
@@ -2982,8 +2985,51 @@ void gfxPlatform::InitHardwareVideoConfig() {
     return;
   }
 
+#ifdef XP_MACOSX
+  const bool isXpcshell = !!PR_GetEnv("XPCSHELL_TEST_PROFILE_DIR");
+#endif
+
   // Collect the gfxVar updates into a single message.
   gfxVarsCollectUpdates collect;
+
+  nsCOMPtr<nsIGfxInfo> gfxInfo = components::GfxInfo::Service();
+  nsCString failureId;
+
+#ifdef MOZ_WIDGET_GTK
+  int32_t statusVulkan = nsIGfxInfo::FEATURE_STATUS_UNKNOWN;
+  FeatureState& featureVulkanDec =
+      gfxConfig::GetFeature(Feature::HARDWARE_VIDEO_DECODING_VULKAN);
+  featureVulkanDec.Reset();
+  featureVulkanDec.EnableByDefault();
+
+  if (!StaticPrefs::media_hardware_video_decoding_vulkan_enabled_AtStartup()) {
+    featureVulkanDec.UserDisable(
+        "User disabled via media.hardware-video-decoding-vulkan.enabled pref",
+        "FEATURE_HARDWARE_VIDEO_DECODING_VULKAN_PREF_DISABLED"_ns);
+  } else if (
+      StaticPrefs::
+          media_hardware_video_decoding_vulkan_force_enabled_AtStartup()) {
+    featureVulkanDec.UserForceEnable("Force enabled by pref");
+  }
+
+  if (NS_FAILED(gfxInfo->GetFeatureStatus(
+          nsIGfxInfo::FEATURE_HARDWARE_VIDEO_DECODING_VULKAN, failureId,
+          &statusVulkan))) {
+    featureVulkanDec.Disable(FeatureStatus::BlockedNoGfxInfo,
+                             "gfxInfo is broken",
+                             "FEATURE_FAILURE_NO_GFX_INFO"_ns);
+  } else if (statusVulkan != nsIGfxInfo::FEATURE_STATUS_OK) {
+    featureVulkanDec.Disable(FeatureStatus::Blocklisted,
+                             "Blocklisted by gfxInfo", failureId);
+  }
+
+  if (statusVulkan == nsIGfxInfo::FEATURE_BLOCKED_PLATFORM_TEST) {
+    featureVulkanDec.ForceDisable(FeatureStatus::Unavailable,
+                                  "Force disabled by gfxInfo", failureId);
+  }
+
+  gfxVars::SetCanUseVulkanHardwareVideoDecoding(featureVulkanDec.IsEnabled());
+#endif
 
   FeatureState& featureDec =
       gfxConfig::GetFeature(Feature::HARDWARE_VIDEO_DECODING);
@@ -3008,15 +3054,20 @@ void gfxPlatform::InitHardwareVideoConfig() {
   }
 
   int32_t status = nsIGfxInfo::FEATURE_STATUS_UNKNOWN;
-  nsCOMPtr<nsIGfxInfo> gfxInfo = components::GfxInfo::Service();
-  nsCString failureId;
-  if (NS_FAILED(gfxInfo->GetFeatureStatus(
-          nsIGfxInfo::FEATURE_HARDWARE_VIDEO_DECODING, failureId, &status))) {
-    featureDec.Disable(FeatureStatus::BlockedNoGfxInfo, "gfxInfo is broken",
-                       "FEATURE_FAILURE_NO_GFX_INFO"_ns);
-  } else if (status != nsIGfxInfo::FEATURE_STATUS_OK) {
-    featureDec.Disable(FeatureStatus::Blocklisted, "Blocklisted by gfxInfo",
-                       failureId);
+  // If FEATURE_HARDWARE_VIDEO_DECODING_VULKAN is enabled,
+  // just mirror the state to FEATURE_HARDWARE_VIDEO_DECODING
+  // to have one single point of check for HW decoding status.
+  if (gfxVars::CanUseVulkanHardwareVideoDecoding()) {
+    status = nsIGfxInfo::FEATURE_STATUS_OK;
+  } else {
+    if (NS_FAILED(gfxInfo->GetFeatureStatus(
+            nsIGfxInfo::FEATURE_HARDWARE_VIDEO_DECODING, failureId, &status))) {
+      featureDec.Disable(FeatureStatus::BlockedNoGfxInfo, "gfxInfo is broken",
+                         "FEATURE_FAILURE_NO_GFX_INFO"_ns);
+    } else if (status != nsIGfxInfo::FEATURE_STATUS_OK) {
+      featureDec.Disable(FeatureStatus::Blocklisted, "Blocklisted by gfxInfo",
+                         failureId);
+    }
   }
 
   if (status == nsIGfxInfo::FEATURE_BLOCKED_PLATFORM_TEST) {
@@ -3028,6 +3079,13 @@ void gfxPlatform::InitHardwareVideoConfig() {
                             "Force disabled by failed sanity test",
                             "FEATURE_FAILURE_SANITY_TEST_FAILED"_ns);
   }
+#ifdef XP_MACOSX
+  else if (isXpcshell) {
+    featureDec.ForceDisable(FeatureStatus::Unavailable,
+                            "Force disabled in xpcshell due to signing",
+                            "FEATURE_FAILURE_OSX_XPCSHELL_SIGNING"_ns);
+  }
+#endif
 
   FeatureState& featureEnc =
       gfxConfig::GetFeature(Feature::HARDWARE_VIDEO_ENCODING);
@@ -3035,13 +3093,13 @@ void gfxPlatform::InitHardwareVideoConfig() {
   featureEnc.EnableByDefault();
 
   if (!StaticPrefs::media_hardware_video_encoding_enabled_AtStartup()) {
-    featureDec.UserDisable(
+    featureEnc.UserDisable(
         "User disabled via media.hardware-video-encoding.enabled pref",
         "FEATURE_HARDWARE_VIDEO_ENCODING_PREF_1_DISABLED"_ns);
   }
 #ifdef XP_WIN
   else if (!StaticPrefs::media_wmf_dxva_d3d11_enabled()) {
-    featureDec.UserDisable(
+    featureEnc.UserDisable(
         "User disabled via media.wmf.dxva.d3d11.enabled pref",
         "FEATURE_HARDWARE_VIDEO_ENCODING_PREF_2_DISABLED"_ns);
   }
@@ -3066,13 +3124,40 @@ void gfxPlatform::InitHardwareVideoConfig() {
                             "Force disabled by gfxInfo", failureId);
   } else if (Preferences::GetBool("media.hardware-video-decoding.failed",
                                   false)) {
+    // Decoding is better exercised than encoding. If it is broken on this
+    // configuration, encoding is unlikely to be sane either.
     featureEnc.ForceDisable(FeatureStatus::Unavailable,
                             "Force disabled by failed sanity test",
                             "FEATURE_FAILURE_SANITY_TEST_FAILED"_ns);
+  } else if (Preferences::GetBool("media.hardware-video-encoding.failed",
+                                  false)) {
+    featureEnc.ForceDisable(FeatureStatus::Unavailable,
+                            "Force disabled by failed encode sanity test",
+                            "FEATURE_FAILURE_SANITY_TEST_ENCODE_FAILED"_ns);
   }
+#ifdef XP_MACOSX
+  else if (isXpcshell) {
+    featureEnc.ForceDisable(FeatureStatus::Unavailable,
+                            "Force disabled in xpcshell due to signing",
+                            "FEATURE_FAILURE_OSX_XPCSHELL_SIGNING"_ns);
+  }
+#endif
+
+  FeatureState& featureHdr = gfxConfig::GetFeature(Feature::VIDEO_HDR);
+  featureHdr.Reset();
+  featureHdr.EnableByDefault();
+  if (NS_FAILED(gfxInfo->GetFeatureStatus(nsIGfxInfo::FEATURE_VIDEO_HDR,
+                                          failureId, &status))) {
+    featureHdr.Disable(FeatureStatus::BlockedNoGfxInfo, "gfxInfo is broken",
+                       "FEATURE_FAILURE_NO_GFX_INFO"_ns);
+  } else if (status != nsIGfxInfo::FEATURE_STATUS_OK) {
+    featureHdr.Disable(FeatureStatus::Blocklisted, "Blocklisted by gfxInfo",
+                       failureId);
+  }
+  gfxVars::SetVideoHDR(featureHdr.IsEnabled());
 
   InitPlatformHardwareVideoConfig();
-  InitPlatformHardwarDRMConfig();
+  InitPlatformHardwareDRMConfig();
 
   nsCString message;
   gfxVars::SetCanUseHardwareVideoDecoding(featureDec.IsEnabled());
@@ -3125,6 +3210,13 @@ void gfxPlatform::InitHardwareVideoConfig() {
   CODEC_HW_FEATURE_SETUP(HEVC)
 #endif
 
+  status = nsIGfxInfo::FEATURE_STATUS_UNKNOWN;
+  gfxVars::SetHasWebrtcH264Hw(
+      NS_SUCCEEDED(gfxInfo->GetFeatureStatus(
+          nsIGfxInfo::FEATURE_WEBRTC_HW_ACCELERATION_H264, failureId,
+          &status)) &&
+      status == nsIGfxInfo::FEATURE_STATUS_OK);
+
 #undef CODEC_HW_FEATURE_SETUP_PLATFORM
 #undef CODEC_HW_FEATURE_SETUP
 }
@@ -3162,6 +3254,8 @@ void gfxPlatform::InitWebGLConfig() {
       IsFeatureOk(nsIGfxInfo::FEATURE_WEBGL_ANGLE));
   gfxVars::SetWebglUseHardware(
       IsFeatureOk(nsIGfxInfo::FEATURE_WEBGL_USE_HARDWARE));
+  gfxVars::SetAllowMetalAngleWebGL(
+      IsFeatureOk(nsIGfxInfo::FEATURE_WEBGL_ANGLE_METAL));
 
   if (kIsMacOS) {
     // Avoid crash for Intel HD Graphics 3000 on OSX. (Bug 1413269)
@@ -3175,28 +3269,14 @@ void gfxPlatform::InitWebGLConfig() {
     }
   }
 
-  bool allowWebGLOop =
-      IsFeatureOk(nsIGfxInfo::FEATURE_ALLOW_WEBGL_OUT_OF_PROCESS);
-  if (!kIsAndroid) {
-    gfxVars::SetAllowWebglOop(allowWebGLOop);
-  } else {
-    // On android, enable out-of-process WebGL only when GPU process exists.
-    gfxVars::SetAllowWebglOop(allowWebGLOop &&
-                              gfxConfig::IsEnabled(Feature::GPU_PROCESS));
-    // Enable gl::SharedSurface of AndroidHardwareBuffer when out-of-process
-    // WebGL is enabled.
 #ifdef MOZ_WIDGET_ANDROID
-    if (gfxVars::AllowWebglOop() &&
-        StaticPrefs::webgl_out_of_process_enable_ahardwarebuffer_AtStartup()) {
-      gfxVars::SetUseAHardwareBufferSharedSurfaceWebglOop(true);
-    }
+  gfxVars::SetUseAHardwareBufferSharedSurfaceWebglOop(
+      StaticPrefs::webgl_out_of_process_enable_ahardwarebuffer_AtStartup());
 #endif
-  }
 
-  if (!gfxConfig::IsEnabled(Feature::GPU_PROCESS) &&
-#ifdef ANDROID
-      !StaticPrefs::webgl_allow_in_content_AtStartup() &&
-#endif
+  // Until bug 1999136 lands and the GPU process works with headless, we should
+  // allow WebGL in the parent process when headless.
+  if (!gfxConfig::IsEnabled(Feature::GPU_PROCESS) && !IsHeadless() &&
       !StaticPrefs::webgl_allow_in_parent_AtStartup()) {
     featureWebGL.Disable(FeatureStatus::UnavailableNoGpuProcess,
                          "Disabled without GPU process",
@@ -3744,6 +3824,12 @@ void gfxPlatform::GetFrameStats(mozilla::widget::InfoObject& aObj) {
 }
 
 void gfxPlatform::GetCMSSupportInfo(mozilla::widget::InfoObject& aObj) {
+  const bool forcedSRGB = StaticPrefs::gfx_color_management_native_srgb() ||
+                          StaticPrefs::gfx_color_management_force_srgb();
+  aObj.DefineProperty("CMSOutputProfileInUse",
+                      forcedSRGB ? "sRGB (overridden by native_srgb/force_srgb)"
+                                 : "configured CMSOutputProfile");
+
   nsTArray<uint8_t> outputProfileData =
       gfxPlatform::GetPlatform()->GetPlatformCMSOutputProfileData();
   if (outputProfileData.IsEmpty()) {
@@ -3782,13 +3868,24 @@ void gfxPlatform::GetDisplayInfo(mozilla::widget::InfoObject& aObj) {
   size_t i = 0;
   for (auto& screen : screens) {
     const LayoutDeviceIntRect rect = screen->GetRect();
-    nsPrintfCString value(
-        "%dx%d@%dHz scales:%f|%f %s", rect.width, rect.height,
-        screen->GetRefreshRate(), screen->GetContentsScaleFactor(),
-        screen->GetDefaultCSSScaleFactor(), screen->GetIsHDR() ? "HDR" : "SDR");
+    if (screen->GetIsHDR()) {
+      nsPrintfCString value(
+          "%dx%d@%dHz scales:%f|%f HDR %.0f/%.0f nits", rect.width, rect.height,
+          screen->GetRefreshRate(), screen->GetContentsScaleFactor(),
+          screen->GetDefaultCSSScaleFactor(), screen->GetSDRContentBrightness(),
+          screen->GetHDRPeakBrightness());
 
-    aObj.DefineProperty(nsPrintfCString("Display%zu", i++).get(),
-                        NS_ConvertUTF8toUTF16(value));
+      aObj.DefineProperty(nsPrintfCString("Display%zu", i++).get(),
+                          NS_ConvertUTF8toUTF16(value));
+    } else {
+      nsPrintfCString value("%dx%d@%dHz scales:%f|%f SDR", rect.width,
+                            rect.height, screen->GetRefreshRate(),
+                            screen->GetContentsScaleFactor(),
+                            screen->GetDefaultCSSScaleFactor());
+
+      aObj.DefineProperty(nsPrintfCString("Display%zu", i++).get(),
+                          NS_ConvertUTF8toUTF16(value));
+    }
   }
 
   // Platform display info is only currently used for about:support and getting
@@ -4081,8 +4178,7 @@ bool gfxPlatform::FallbackFromAcceleration(FeatureStatus aStatus,
       (gfxVars::AllowWebGPU() &&
        !StaticPrefs::dom_webgpu_allow_in_parent_AtStartup()) ||
       (gfxVars::AllowWebGL() &&
-       !StaticPrefs::webgl_allow_in_parent_AtStartup()) ||
-      (kIsAndroid && gfxVars::AllowWebglOop())) {
+       !StaticPrefs::webgl_allow_in_parent_AtStartup())) {
     // Because content has a lot of control over inputs to remote canvas, we
     // try to disable it as part of our final fallback step before disabling
     // the GPU process. We don't actually support remote canvas in the parent
@@ -4091,8 +4187,8 @@ bool gfxPlatform::FallbackFromAcceleration(FeatureStatus aStatus,
     gfxCriticalNoteOnce << "Fallback SW-WR, disable remote canvas";
     DisableAllCanvasForFallback(
         FeatureStatus::UnavailableNoGpuProcess,
-        "Disabled by fallback to GPU Process disabled",
-        "FEATURE_FAILURE_DISABLED_BY_FALLBACK_GPU_PROCESS_DISABLED"_ns);
+        "Disabled by GPU process instability",
+        "FEATURE_FAILURE_DISABLED_BY_GPU_PROCESS_INSTABILITY"_ns);
     return true;
   }
 
@@ -4129,17 +4225,9 @@ void gfxPlatform::DisableAllCanvasForFallback(FeatureStatus aStatus,
   }
 
   if (gfxVars::AllowWebGL() &&
-#ifdef ANDROID
-      !StaticPrefs::webgl_allow_in_content_AtStartup() &&
-#endif
       !StaticPrefs::webgl_allow_in_parent_AtStartup()) {
     gfxConfig::Disable(Feature::WEBGL, aStatus, aMessage, aFailureId);
     gfxVars::SetAllowWebGL(false);
-  }
-
-  if (kIsAndroid) {
-    // On android, enable out-of-process WebGL only when GPU process exists.
-    gfxVars::SetAllowWebglOop(false);
   }
 }
 

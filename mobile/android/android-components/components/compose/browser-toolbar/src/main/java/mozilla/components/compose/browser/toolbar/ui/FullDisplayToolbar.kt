@@ -9,17 +9,16 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.DividerDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTag
@@ -27,6 +26,7 @@ import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.tooling.preview.PreviewLightDark
 import androidx.compose.ui.tooling.preview.PreviewParameter
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.window.core.layout.WindowSizeClass
 import mozilla.components.compose.base.progressbar.AnimatedProgressBar
@@ -65,74 +65,71 @@ internal fun FullDisplayToolbar(
     modifier: Modifier = Modifier,
     backgroundColor: Color = MaterialTheme.colorScheme.surface,
     outlineColor: Color = DividerDefaults.color,
+    browserActionsColor: Color? = null,
     browserActionsStartModifier: Modifier = Modifier,
     pageActionsStartModifier: Modifier = Modifier,
     originModifier: Modifier = Modifier,
     pageActionsEndModifier: Modifier = Modifier,
     browserActionsEndModifier: Modifier = Modifier,
 ) {
-    val windowSizeClass = currentWindowAdaptiveInfo().windowSizeClass
-    val isSmallWidthScreen = remember(windowSizeClass) {
-        windowSizeClass.minWidthDp < WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND
-    }
-
     Surface(color = backgroundColor) {
-        Box(
-            modifier = modifier
-                .semantics { testTagsAsResourceId = true },
-        ) {
+        Box(modifier = modifier.semantics { testTagsAsResourceId = true }) {
             Row(
-                modifier = Modifier.padding(
-                    horizontal = when (isSmallWidthScreen) {
-                        true -> NO_TOOLBAR_PADDING_DP.dp
-                        else -> LARGE_TOOLBAR_PADDING_DP.dp
-                    },
-                ),
+                modifier = Modifier.adaptiveHorizontalPadding(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (browserActionsStart.isNotEmpty()) {
-                    ActionContainer(
-                        actions = browserActionsStart,
-                        onInteraction = onInteraction,
-                        modifier = browserActionsStartModifier,
-                    )
+                    BrowserActionsColorScheme(browserActionsColor) {
+                        ActionContainer(
+                            actions = browserActionsStart,
+                            onInteraction = onInteraction,
+                            modifier = browserActionsStartModifier,
+                        )
+                    }
                 }
 
                 Row(
-                    modifier = Modifier
-                        .padding(
-                            start = when (browserActionsStart.isEmpty()) {
-                                true -> TOOLBAR_PADDING_DP.dp
-                                false -> NO_TOOLBAR_PADDING_DP.dp
-                            },
-                            top = TOOLBAR_PADDING_DP.dp,
-                            end = when (browserActionsEnd.isEmpty()) {
-                                true -> TOOLBAR_PADDING_DP.dp
-                                false -> NO_TOOLBAR_PADDING_DP.dp
-                            },
-                            bottom = when (gravity) {
-                                Top -> TOOLBAR_PADDING_DP
-                                Bottom -> if (browserActionsEnd.isEmpty()) NO_TOOLBAR_PADDING_DP else TOOLBAR_PADDING_DP
-                            }.dp,
-                        )
-                        .height(48.dp)
-                        .background(
-                            color = MaterialTheme.colorScheme.surfaceDim,
-                            shape = RoundedCornerShape(90.dp),
-                        )
-                        .padding(
-                            start = when (pageActionsStart.isEmpty()) {
-                                true -> TOOLBAR_PADDING_DP.dp
-                                false -> NO_TOOLBAR_PADDING_DP.dp
-                            },
-                            top = NO_TOOLBAR_PADDING_DP.dp,
-                            end = when (pageActionsEnd.isEmpty()) {
-                                true -> TOOLBAR_PADDING_DP.dp
-                                false -> NO_TOOLBAR_PADDING_DP.dp
-                            },
-                            bottom = NO_TOOLBAR_PADDING_DP.dp,
-                        )
-                        .weight(1f),
+                    modifier =
+                        Modifier.padding(
+                                start =
+                                    when (browserActionsStart.isEmpty()) {
+                                        true -> TOOLBAR_PADDING_DP.dp
+                                        false -> NO_TOOLBAR_PADDING_DP.dp
+                                    },
+                                top = TOOLBAR_PADDING_DP.dp,
+                                end =
+                                    when (browserActionsEnd.isEmpty()) {
+                                        true -> TOOLBAR_PADDING_DP.dp
+                                        false -> NO_TOOLBAR_PADDING_DP.dp
+                                    },
+                                bottom =
+                                    when (gravity) {
+                                        Top -> TOOLBAR_PADDING_DP
+                                        Bottom ->
+                                            if (browserActionsEnd.isEmpty()) NO_TOOLBAR_PADDING_DP
+                                            else TOOLBAR_PADDING_DP
+                                    }.dp,
+                            )
+                            .height(48.dp)
+                            .background(
+                                color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                shape = CircleShape,
+                            )
+                            .padding(
+                                start =
+                                    when (pageActionsStart.isEmpty()) {
+                                        true -> TOOLBAR_PADDING_DP.dp
+                                        false -> NO_TOOLBAR_PADDING_DP.dp
+                                    },
+                                top = NO_TOOLBAR_PADDING_DP.dp,
+                                end =
+                                    when (pageActionsEnd.isEmpty()) {
+                                        true -> TOOLBAR_PADDING_DP.dp
+                                        false -> NO_TOOLBAR_PADDING_DP.dp
+                                    },
+                                bottom = NO_TOOLBAR_PADDING_DP.dp,
+                            )
+                            .weight(1f),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     if (pageActionsStart.isNotEmpty()) {
@@ -145,11 +142,7 @@ internal fun FullDisplayToolbar(
 
                     Origin(
                         hint = pageOrigin.hint,
-                        modifier = Modifier
-                            .height(56.dp)
-                            .weight(1f)
-                            .testTag(ADDRESSBAR_URL_BOX)
-                            .then(originModifier),
+                        modifier = Modifier.height(56.dp).weight(1f).testTag(ADDRESSBAR_URL_BOX).then(originModifier),
                         url = pageOrigin.url,
                         title = pageOrigin.title,
                         textGravity = pageOrigin.textGravity,
@@ -169,21 +162,24 @@ internal fun FullDisplayToolbar(
                 }
 
                 if (browserActionsEnd.isNotEmpty()) {
-                    ActionContainer(
-                        actions = browserActionsEnd,
-                        onInteraction = onInteraction,
-                        modifier = browserActionsEndModifier,
-                    )
+                    BrowserActionsColorScheme(browserActionsColor) {
+                        ActionContainer(
+                            actions = browserActionsEnd,
+                            onInteraction = onInteraction,
+                            modifier = browserActionsEndModifier,
+                        )
+                    }
                 }
             }
 
             HorizontalDivider(
-                modifier = Modifier.align(
-                    when (gravity) {
-                        Top -> Alignment.BottomCenter
-                        Bottom -> Alignment.TopCenter
-                    },
-                ),
+                modifier =
+                    Modifier.align(
+                        when (gravity) {
+                            Top -> Alignment.BottomCenter
+                            Bottom -> Alignment.TopCenter
+                        }
+                    ),
                 color = outlineColor,
             )
 
@@ -192,26 +188,78 @@ internal fun FullDisplayToolbar(
                     progress = progressBarConfig.progress,
                     color = progressBarConfig.color,
                     trackColor = Color.Transparent,
-                    modifier = Modifier
-                        .semantics {
-                            testTag = ADDRESSBAR_PROGRESSBAR
-                        }
-                        .align(
-                        when (gravity) {
-                            Top -> Alignment.BottomCenter
-                            Bottom -> Alignment.TopCenter
-                        },
-                    ),
+                    modifier =
+                        Modifier.semantics {
+                                testTag = ADDRESSBAR_PROGRESSBAR
+                            }
+                            .align(
+                                when (gravity) {
+                                    Top -> Alignment.BottomCenter
+                                    Bottom -> Alignment.TopCenter
+                                }
+                            ),
                 )
             }
         }
     }
 }
 
+/**
+ * Overrides `onSurface` for [content] with [color] so browser action icons (and the tab counter) can be tinted
+ * independently of the page actions inside the address bar. A `null` [color] leaves the ambient color scheme untouched.
+ */
+@Composable
+private fun BrowserActionsColorScheme(
+    color: Color?,
+    content: @Composable () -> Unit,
+) {
+    if (color == null) {
+        content()
+    } else {
+        MaterialTheme(
+            colorScheme = MaterialTheme.colorScheme.copy(onSurface = color),
+            content = content,
+        )
+    }
+}
+
+/**
+ * Applies the toolbar's adaptive horizontal padding, depending on the width of the current screen.
+ *
+ * This is an interim fix for https://issuetracker.google.com/issues/515098186.
+ */
+private fun Modifier.adaptiveHorizontalPadding() = layout { measurable, constraints ->
+    val isSmallWidthScreen = constraints.maxWidth < WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND.dp.roundToPx()
+    val padding =
+        when (isSmallWidthScreen) {
+                true -> NO_TOOLBAR_PADDING_DP
+                else -> LARGE_TOOLBAR_PADDING_DP
+            }
+            .dp
+            .roundToPx()
+
+    val horizontal = padding * 2
+    val placeable =
+        measurable.measure(
+            constraints.copy(
+                minWidth = (constraints.minWidth - horizontal).coerceAtLeast(0),
+                maxWidth =
+                    when (constraints.maxWidth) {
+                        Constraints.Infinity -> Constraints.Infinity
+                        else -> (constraints.maxWidth - horizontal).coerceAtLeast(0)
+                    },
+            )
+        )
+
+    layout((placeable.width + horizontal).coerceAtMost(constraints.maxWidth), placeable.height) {
+        placeable.place(padding, 0)
+    }
+}
+
 @PreviewLightDark
 @Composable
 private fun FullDisplayToolbarPreview(
-    @PreviewParameter(DisplayToolbarDataProvider::class) config: DisplayToolbarPreviewModel,
+    @PreviewParameter(DisplayToolbarDataProvider::class) config: DisplayToolbarPreviewModel
 ) {
     AcornTheme {
         FullDisplayToolbar(
@@ -219,12 +267,13 @@ private fun FullDisplayToolbarPreview(
             progressBarConfig = ProgressBarConfig(progress = 66),
             browserActionsStart = config.browserStartActions,
             pageActionsStart = config.pageActionsStart,
-            pageOrigin = PageOrigin(
-                hint = R.string.mozac_browser_toolbar_search_hint,
-                title = config.title,
-                url = config.url,
-                onClick = object : BrowserToolbarEvent {},
-            ),
+            pageOrigin =
+                PageOrigin(
+                    hint = R.string.mozac_browser_toolbar_search_hint,
+                    title = config.title,
+                    url = config.url,
+                    onClick = object : BrowserToolbarEvent {},
+                ),
             pageActionsEnd = config.pageActionsEnd,
             browserActionsEnd = config.browserEndActions,
             onInteraction = {},
@@ -235,7 +284,7 @@ private fun FullDisplayToolbarPreview(
 @Preview
 @Composable
 private fun FullDisplayToolbarPrivatePreview(
-    @PreviewParameter(DisplayToolbarDataProvider::class) config: DisplayToolbarPreviewModel,
+    @PreviewParameter(DisplayToolbarDataProvider::class) config: DisplayToolbarPreviewModel
 ) {
     AcornTheme(
         colors = privateColorPalette,
@@ -246,12 +295,13 @@ private fun FullDisplayToolbarPrivatePreview(
             progressBarConfig = ProgressBarConfig(progress = 66),
             browserActionsStart = config.browserStartActions,
             pageActionsStart = config.pageActionsStart,
-            pageOrigin = PageOrigin(
-                hint = R.string.mozac_browser_toolbar_search_hint,
-                title = config.title,
-                url = config.url,
-                onClick = object : BrowserToolbarEvent {},
-            ),
+            pageOrigin =
+                PageOrigin(
+                    hint = R.string.mozac_browser_toolbar_search_hint,
+                    title = config.title,
+                    url = config.url,
+                    onClick = object : BrowserToolbarEvent {},
+                ),
             pageActionsEnd = config.pageActionsEnd,
             browserActionsEnd = config.browserEndActions,
             onInteraction = {},

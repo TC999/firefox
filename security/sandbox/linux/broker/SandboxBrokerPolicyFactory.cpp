@@ -3,54 +3,10 @@
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "SandboxBrokerPolicyFactory.h"
-#include "SandboxInfo.h"
-#include "SandboxLogging.h"
 
-#include "mozilla/Array.h"
-#include "mozilla/ClearOnShutdown.h"
-#include "mozilla/Omnijar.h"
-#include "mozilla/Preferences.h"
-#include "mozilla/SandboxLaunch.h"
-#include "mozilla/SandboxSettings.h"
-#include "mozilla/StaticPrefs_security.h"
-#include "mozilla/StaticMutex.h"
-#include "mozilla/UniquePtr.h"
-#include "mozilla/UniquePtrExtensions.h"
-#include "mozilla/ipc/SharedMemoryHandle.h"
-#include "nsComponentManagerUtils.h"
-#include "nsPrintfCString.h"
-#include "nsString.h"
-#include "nsThreadUtils.h"
-#include "nsXULAppAPI.h"
-#include "nsDirectoryServiceDefs.h"
-#include "nsAppDirectoryServiceDefs.h"
-#include "SpecialSystemDirectory.h"
-#include "nsReadableUtils.h"
-#include "nsIFileStreams.h"
-#include "nsILineInputStream.h"
-#include "nsIFile.h"
-
-#include "nsNetCID.h"
-#include "prenv.h"
-
-#if defined(MOZ_PROFILE_GENERATE)
+#ifdef MOZ_PROFILE_GENERATE
 #  include <string>
 #endif
-
-#ifdef ANDROID
-#  include "cutils/properties.h"
-#endif
-
-#ifdef MOZ_WIDGET_GTK
-#  include "mozilla/WidgetUtilsGtk.h"
-#  include <glib.h>
-#endif
-
-#ifdef MOZ_ENABLE_V4L2
-#  include <linux/videodev2.h>
-#  include <sys/ioctl.h>
-#  include <fcntl.h>
-#endif  // MOZ_ENABLE_V4L2
 
 #include <dirent.h>
 #include <sys/stat.h>
@@ -58,6 +14,55 @@
 #include <sys/types.h>
 #ifndef ANDROID
 #  include <glob.h>
+#endif
+#ifdef MOZ_ENABLE_V4L2
+#  include <fcntl.h>
+#  include <linux/videodev2.h>
+#  include <sys/ioctl.h>
+#endif  // MOZ_ENABLE_V4L2
+#ifdef MOZ_ENABLE_VULKAN_VIDEO
+#  include "mozilla/Components.h"
+#  include "mozilla/gfx/gfxVars.h"
+// gfxVars.h logging collides with sandbox policy one so undef it.
+#  undef CHECK
+#  undef DCHECK
+#endif  // MOZ_ENABLE_VULKAN_VIDEO
+#ifdef MOZ_WIDGET_GTK
+#  include <glib.h>
+#endif
+
+#include "SandboxInfo.h"
+#include "SandboxLogging.h"
+#include "SpecialSystemDirectory.h"
+#include "mozilla/Array.h"
+#include "mozilla/ClearOnShutdown.h"
+#include "mozilla/Omnijar.h"
+#include "mozilla/Preferences.h"
+#include "mozilla/SandboxLaunch.h"
+#include "mozilla/SandboxSettings.h"
+#include "mozilla/StaticMutex.h"
+#include "mozilla/StaticPrefs_security.h"
+#include "mozilla/UniquePtr.h"
+#include "mozilla/UniquePtrExtensions.h"
+#include "mozilla/ipc/SharedMemoryHandle.h"
+#include "nsAppDirectoryServiceDefs.h"
+#include "nsComponentManagerUtils.h"
+#include "nsDirectoryServiceDefs.h"
+#include "nsIFile.h"
+#include "nsIFileStreams.h"
+#include "nsILineInputStream.h"
+#include "nsNetCID.h"
+#include "nsPrintfCString.h"
+#include "nsReadableUtils.h"
+#include "nsString.h"
+#include "nsThreadUtils.h"
+#include "nsXULAppAPI.h"
+#include "prenv.h"
+#ifdef MOZ_WIDGET_GTK
+#  include "mozilla/WidgetUtilsGtk.h"
+#endif
+#ifdef ANDROID
+#  include "cutils/properties.h"
 #endif
 
 namespace mozilla {
@@ -353,12 +358,9 @@ static void AddX11Dependencies(SandboxBroker::Policy* policy) {
   policy->AddPath(SandboxBroker::MAY_CONNECT, bumblebeeSocket);
 
 #if defined(MOZ_WIDGET_GTK) && defined(MOZ_X11)
-  // Allow local X11 connections, for several purposes:
+  // Allow local X11 connections, if:
   //
-  // * for content processes to use WebGL when the browser is in headless
-  //   mode, by opening the X display if/when needed
-  //
-  // * if Primus or VirtualGL is used, to contact the secondary X server
+  // * Primus or VirtualGL is used, to contact the secondary X server
   static const bool kIsX11 =
       !mozilla::widget::GdkIsWaylandDisplay() && PR_GetEnv("DISPLAY");
   if (kIsX11) {
@@ -380,6 +382,30 @@ static void AddX11Dependencies(SandboxBroker::Policy* policy) {
   }
 #endif
 }
+
+#if defined(MOZ_WIDGET_GTK)
+static void AddWaylandDependencies(SandboxBroker::Policy* policy) {
+  static const bool kIsWayland =
+      mozilla::widget::GdkIsWaylandDisplay() && PR_GetEnv("WAYLAND_DISPLAY");
+  static const bool kIsXWayland = mozilla::widget::IsXWaylandProtocol();
+  if (kIsWayland || kIsXWayland) {
+    nsAutoCString waylandDisplayName(PR_GetEnv("WAYLAND_DISPLAY"));
+    nsAutoCString socketPath;
+    nsAutoCString xdgRuntimeDir(PR_GetEnv("XDG_RUNTIME_DIR"));
+    if (waylandDisplayName[0] == '/') {
+      socketPath = waylandDisplayName;
+    } else if (!xdgRuntimeDir.IsEmpty()) {
+      socketPath = nsPrintfCString("%s/%s", xdgRuntimeDir.get(),
+                                   waylandDisplayName.get());
+    }
+    // If WAYLAND_DISPLAY is relative and XDG_RUNTIME_DIR is unset, socketPath
+    // will be empty and EGL connect() will fail silently at runtime.
+    if (!socketPath.IsEmpty()) {
+      policy->AddPath(SandboxBroker::MAY_CONNECT, socketPath.get());
+    }
+  }
+}
+#endif
 
 static void AddGLDependencies(SandboxBroker::Policy* policy) {
   // Devices
@@ -517,13 +543,11 @@ void SandboxBrokerPolicyFactory::InitContentPolicy() {
 
   nsAutoCString xdgConfigDirs(PR_GetEnv("XDG_CONFIG_DIRS"));
   for (const auto& path : xdgConfigDirs.Split(':')) {
-    if (path[0] != '/') {
+    if (path.IsEmpty() || path[0] != '/') {
       continue;
     }
 
-    if (!path.IsEmpty()) {  // AddPath will fail on empty strings
-      policy->AddFutureDir(rdonly, PromiseFlatCString(path).get());
-    }
+    policy->AddFutureDir(rdonly, PromiseFlatCString(path).get());
   }
 
   // Allow fonts subdir in XDG_DATA_HOME
@@ -537,7 +561,7 @@ void SandboxBrokerPolicyFactory::InitContentPolicy() {
   // Any font subdirs in XDG_DATA_DIRS
   nsAutoCString xdgDataDirs(PR_GetEnv("XDG_DATA_DIRS"));
   for (const auto& path : xdgDataDirs.Split(':')) {
-    if (path[0] != '/') {
+    if (path.IsEmpty() || path[0] != '/') {
       continue;
     }
 
@@ -770,24 +794,17 @@ void SandboxBrokerPolicyFactory::InitContentPolicy() {
     policy->AddTree(rdwrcr, "/dev/shm");
   }
 
+  if (allowPulse) {
 #ifdef MOZ_WIDGET_GTK
-  if (const auto userDir = g_get_user_runtime_dir()) {
-    // Bug 1321134: DConf's single bit of shared memory
-    // The leaf filename is "user" by default, but is configurable.
-    nsPrintfCString shmPath("%s/dconf/", userDir);
-    policy->AddFutureDir(rdwrcr, shmPath.get());
-    policy->AddAncestors(shmPath.get());
-    if (allowPulse) {
+    if (const auto userDir = g_get_user_runtime_dir()) {
       // PulseAudio, if it can't get server info from X11, will break
       // unless it can open this directory (or create it, but in our use
       // case we know it already exists).  See bug 1335329.
       nsPrintfCString pulsePath("%s/pulse", userDir);
       policy->AddPath(rdonly, pulsePath.get());
     }
-  }
 #endif  // MOZ_WIDGET_GTK
 
-  if (allowPulse) {
     // PulseAudio also needs access to read the $XAUTHORITY file (see
     // bug 1384986 comment #1), but that's already allowed for hybrid
     // GPU drivers (see above).
@@ -915,6 +932,60 @@ static void AddV4l2Dependencies(SandboxBroker::Policy* policy) {
 }
 #endif  // MOZ_ENABLE_V4L2
 
+#ifdef MOZ_ENABLE_VULKAN_VIDEO
+
+static void AddVulkanDependencies(SandboxBroker::Policy* policy) {
+  // RDD Vulkan Video decode: ICD manifests (paths beyond AddGLDependencies).
+  policy->AddTree(rdonly, "/usr/share/vulkan/icd.d");
+  policy->AddTree(rdonly, "/usr/local/share/vulkan/icd.d");
+  policy->AddTree(rdonly, "/etc/vulkan/icd.d");
+
+  // Allow user-provided optional extra ICD JSON manifests for the Vulkan loader
+  // (colon-separated list, used as the input for the Vulkan loader).
+  const char* vkDriverFiles = PR_GetEnv("VK_DRIVER_FILES");
+  if (vkDriverFiles && vkDriverFiles[0] != '\0') {
+    nsAutoCString paths(vkDriverFiles);
+    for (const nsACString& path : paths.Split(':')) {
+      if (!path.IsEmpty()) {
+        char* resolvedPath = realpath(PromiseFlatCString(path).get(), nullptr);
+        if (resolvedPath) {
+          policy->AddTree(rdonly, resolvedPath);
+          free(resolvedPath);
+        }
+      }
+    }
+  }
+
+  // Custom Mesa prefix to allow user-provided Intel ANV Mesa build dir (binary
+  // files location)
+  const char* mesaBuildDir = PR_GetEnv("MESA_BUILD_DIR");
+  if (mesaBuildDir && mesaBuildDir[0] != '\0') {
+    policy->AddTree(rdonly, nsPrintfCString("%s", mesaBuildDir).get());
+  }
+
+  // Custom Vulkan SDK prefix to allow user-provided Vulkan SDK dir (binary and
+  // source files location)
+  const char* vulkanSdkDir = PR_GetEnv("VULKAN_SDK");
+  if (vulkanSdkDir && vulkanSdkDir[0] != '\0') {
+    policy->AddTree(rdonly, nsPrintfCString("%s", vulkanSdkDir).get());
+  }
+
+  policy->AddPath(rdwr, "/dev/nvidiactl", SandboxBroker::Policy::AddAlways);
+  policy->AddPath(rdwr, "/dev/nvidia-uvm", SandboxBroker::Policy::AddAlways);
+  policy->AddPath(rdwr, "/dev/nvidia-modeset",
+                  SandboxBroker::Policy::AddAlways);
+  policy->AddTree(rdonly, "/dev/nvidia-caps");
+  for (int i = 0; i < 8; i++) {
+    policy->AddPath(rdwr, nsPrintfCString("/dev/nvidia%d", i).get(),
+                    SandboxBroker::Policy::AddIfExistsNow);
+  }
+  // NVIDIA Wayland DMA-BUF export for Vulkan video (EGL / copy-ring NV12).
+  // AddAlways because the udmabuf misc device only exists while its module is
+  // loaded, which may happen after this policy is built.
+  policy->AddPath(rdwr, "/dev/udmabuf", SandboxBroker::Policy::AddAlways);
+}
+#endif  // MOZ_ENABLE_VULKAN_VIDEO
+
 /* static */ UniquePtr<SandboxBroker::Policy>
 SandboxBrokerPolicyFactory::GetRDDPolicy(int aPid) {
   auto policy = MakeUnique<SandboxBroker::Policy>();
@@ -976,6 +1047,34 @@ SandboxBrokerPolicyFactory::GetRDDPolicy(int aPid) {
   // FFmpeg and GPU drivers may need general-case library loading
   AddLdconfigPaths(policy.get());
   AddLdLibraryEnvPaths(policy.get());
+
+#ifdef MOZ_ENABLE_VULKAN_VIDEO
+  // Only open Vulkan-specific sandbox paths if Vulkan Video is actually
+  // enabled and supported on this GPU, to avoid granting display-server
+  // access when the feature is blocked or disabled.
+  if (gfx::gfxVars::CanUseVulkanHardwareVideoDecoding()) {
+    AddVulkanDependencies(policy.get());
+#  if defined(MOZ_WIDGET_GTK)
+    // EGL needs display server sockets for EGL_MESA_image_dma_buf_export
+    // (bug 2021722).
+    AddWaylandDependencies(policy.get());
+#  endif
+    // Vulkan on X11/XWayland needs display server socket access.
+    AddX11Dependencies(policy.get());
+#  if defined(MOZ_WIDGET_GTK) && defined(MOZ_X11)
+    // AddX11Dependencies() skips the X socket on a Wayland UI, but the EGL
+    // bring-up in RDD still connects to XWayland (bug 2057724). Grant the
+    // same paths it would have granted on X11: the socket, and the cookie
+    // ($XAUTHORITY — on GNOME this is $XDG_RUNTIME_DIR/.mutter-Xwaylandauth.*).
+    if (mozilla::widget::GdkIsWaylandDisplay() && PR_GetEnv("DISPLAY")) {
+      policy->AddPrefix(SandboxBroker::MAY_CONNECT, "/tmp/.X11-unix/X");
+      if (auto* const xauth = PR_GetEnv("XAUTHORITY")) {
+        policy->AddPath(rdonly, xauth);
+      }
+    }
+#  endif
+  }
+#endif  // MOZ_ENABLE_VULKAN_VIDEO
 
 #ifdef MOZ_ENABLE_V4L2
   AddV4l2Dependencies(policy.get());
@@ -1125,5 +1224,77 @@ SandboxBrokerPolicyFactory::GetUtilityProcessPolicy(int aPid) {
   }
   return policy;
 }
+
+#ifndef ANDROID
+/* static */
+UniquePtr<SandboxBroker::Policy>
+SandboxBrokerPolicyFactory::GetHWInferencePolicy(int aPid) {
+  auto policy = MakeUnique<SandboxBroker::Policy>();
+
+  AddSharedMemoryPaths(policy.get(), aPid);
+
+  policy->AddPath(rdonly, "/dev/urandom");
+  // FIXME (bug 1662321): we should fix nsSystemInfo so that every
+  // child process doesn't need to re-read these files to get the info
+  // the parent process already has.
+  policy->AddPath(rdonly, "/proc/cpuinfo");
+  policy->AddPath(rdonly,
+                  "/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq");
+  policy->AddPath(rdonly, "/sys/devices/system/cpu/cpu0/cache/index2/size");
+  policy->AddPath(rdonly, "/sys/devices/system/cpu/cpu0/cache/index3/size");
+  policy->AddTree(rdonly, "/sys/devices/cpu");
+  policy->AddTree(rdonly, "/sys/devices/system/cpu");
+  policy->AddTree(rdonly, "/sys/devices/system/node");
+  policy->AddTree(rdonly, "/lib");
+  policy->AddTree(rdonly, "/lib64");
+  policy->AddTree(rdonly, "/usr/lib");
+  policy->AddTree(rdonly, "/usr/lib32");
+  policy->AddTree(rdonly, "/usr/lib64");
+  policy->AddTree(rdonly, "/run/opengl-driver/lib");
+  policy->AddTree(rdonly, "/nix/store");
+
+  // Bug 1647957: memory reporting.
+  AddMemoryReporting(policy.get(), aPid);
+
+  // Firefox binary dir.
+  // Note that unlike the previous cases, we use NS_GetSpecialDirectory
+  // instead of GetSpecialSystemDirectory. The former requires a working XPCOM
+  // system, which may not be the case for some tests. For querying for the
+  // location of XPCOM things, we can use it anyway.
+  nsCOMPtr<nsIFile> ffDir;
+  nsresult rv = NS_GetSpecialDirectory(NS_GRE_DIR, getter_AddRefs(ffDir));
+  if (NS_SUCCEEDED(rv)) {
+    nsAutoCString tmpPath;
+    rv = ffDir->GetNativePath(tmpPath);
+    if (NS_SUCCEEDED(rv)) {
+      policy->AddTree(rdonly, tmpPath.get());
+    }
+  }
+
+  if (!mozilla::IsPackagedBuild()) {
+    // If this is not a packaged build the resources are likely symlinks to
+    // outside the binary dir. Therefore in non-release builds we allow reads
+    // from the whole repository. MOZ_DEVELOPER_REPO_DIR is set by mach run.
+    const char* developer_repo_dir = PR_GetEnv("MOZ_DEVELOPER_REPO_DIR");
+    if (developer_repo_dir) {
+      policy->AddTree(rdonly, developer_repo_dir);
+    }
+  }
+
+  // GPU compute backends need GPU access and GL context creation (but not
+  // display server access, as of bug 1769499).
+  AddGLDependencies(policy.get());
+
+  // GPU drivers may need general-case library loading.
+  AddLdconfigPaths(policy.get());
+  AddLdLibraryEnvPaths(policy.get());
+
+#  if defined(MOZ_PROFILE_GENERATE)
+  AddLLVMProfilePathDirectory(policy.get());
+#  endif
+
+  return policy;
+}
+#endif  // !ANDROID
 
 }  // namespace mozilla

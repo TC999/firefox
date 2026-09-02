@@ -7,6 +7,7 @@ Transform the repackage task into an actual task description.
 
 from typing import Optional, Union
 
+from mozilla_taskgraph.util.attributes import copy_attributes_from_dependent_job
 from taskgraph.transforms.base import TransformSequence
 from taskgraph.util.copy import deepcopy
 from taskgraph.util.dependencies import get_primary_dependency
@@ -14,7 +15,6 @@ from taskgraph.util.schema import Schema, optionally_keyed_by, resolve_keyed_by
 from taskgraph.util.taskcluster import get_artifact_prefix
 
 from gecko_taskgraph.transforms.job import JobDescriptionSchema
-from gecko_taskgraph.util.attributes import copy_attributes_from_dependent_job
 from gecko_taskgraph.util.platforms import architecture, archive_format
 from gecko_taskgraph.util.workertypes import worker_type_implementation
 
@@ -30,6 +30,17 @@ class MozharnessSchema(Schema, forbid_unknown_fields=False, kw_only=True):
     comm_checkout: Optional[bool] = None
     run_as_root: Optional[bool] = None
     use_caches: Optional[Union[bool, list[str]]] = None
+
+
+class MsiSchema(Schema, kw_only=True):
+    display_name: Optional[  # type: ignore
+        optionally_keyed_by(
+            "shipping-product",
+            "release-type",
+            str,
+            use_msgspec=True,
+        )
+    ] = None
 
 
 class MsixSchema(Schema, kw_only=True):
@@ -130,6 +141,7 @@ class PackagingDescriptionSchema(Schema, kw_only=True):
         list[str],
         use_msgspec=True,
     )
+    msi: Optional[MsiSchema] = None
     msix: Optional[MsixSchema] = None
     flatpak: Optional[FlatpakSchema] = None
     # All l10n jobs use mozharness
@@ -435,6 +447,7 @@ def handle_keyed_by(config, jobs):
     """
     fields = [
         "mozharness.config",
+        "msi.display-name",
         "package-formats",
         "worker.max-run-time",
         "flatpak.name",
@@ -450,6 +463,7 @@ def handle_keyed_by(config, jobs):
                 **{
                     "release-type": config.params["release_type"],
                     "level": config.params["level"],
+                    "shipping-product": job.get("shipping-product"),
                 },
             )
         yield job
@@ -512,6 +526,8 @@ def make_job_description(config, jobs):
 
         if config.kind == "repackage-msi":
             treeherder["symbol"] = "MSI({})".format(locale or "N")
+            if display_name := job.get("msi", {}).get("display-name"):
+                attributes["msi_display_name"] = display_name
 
         elif config.kind == "repackage-msix":
             assert not locale
@@ -707,6 +723,7 @@ def make_job_description(config, jobs):
         run = job.get("mozharness", {})
         run.update({
             "using": "mozharness",
+            "clone-with": "hg",
             "script": "mozharness/scripts/repackage.py",
             "job-script": "taskcluster/scripts/builder/repackage.sh",
             "actions": ["setup", "repackage"],

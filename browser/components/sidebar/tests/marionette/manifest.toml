@@ -2,12 +2,12 @@
 subsuite = "integration"
 tags = "local os_integration"
 
+["test_contextual_password_manager_disabled.py"]
+
 ["test_default_launcher_visible.py"]
 skip-if = [
   "asan", # Bug 2010115
   "tsan", # Bug 2010115
-  "os == 'mac' && os_version == '14.70' && arch == 'x86_64' && debug", # Bug 2021526
-  "os == 'win' && os_version == '11.26100'", # Bug 2021526
 ]
 
 ["test_initialize_vertical_tabs.py"]

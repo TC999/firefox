@@ -3,7 +3,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "builtin/Object.h"
-#include "js/Object.h"  // JS::GetBuiltinClass
 
 #include "mozilla/Maybe.h"
 #include "mozilla/Range.h"
@@ -20,6 +19,7 @@
 #include "jit/InlinableNatives.h"
 #include "js/friend/ErrorMessages.h"  // js::GetErrorMessage, JSMSG_*
 #include "js/friend/StackLimits.h"    // js::AutoCheckRecursionLimit
+#include "js/Object.h"                // JS::GetBuiltinClass
 #include "js/PropertySpec.h"
 #include "js/UniquePtr.h"
 #include "util/Identifier.h"  // js::IsIdentifier
@@ -38,6 +38,7 @@
 #include "vm/StringType.h"
 #include "vm/ToSource.h"  // js::ValueToSource
 #include "vm/Watchtower.h"
+
 #include "vm/GeckoProfiler-inl.h"
 #include "vm/JSObject-inl.h"
 #include "vm/NativeObject-inl.h"
@@ -62,9 +63,9 @@ static PlainObject* CreateThis(JSContext* cx, HandleObject newTarget) {
   gc::AllocKind allocKind = NewObjectGCKind();
 
   if (proto) {
-    return NewPlainObjectWithProtoAndAllocKind(cx, proto, allocKind);
+    return NewPlainObjectWithProto(cx, proto, {.allocKind = allocKind});
   }
-  return NewPlainObjectWithAllocKind(cx, allocKind);
+  return NewPlainObject(cx, {.allocKind = allocKind});
 }
 
 bool js::obj_construct(JSContext* cx, unsigned argc, Value* vp) {
@@ -80,7 +81,7 @@ bool js::obj_construct(JSContext* cx, unsigned argc, Value* vp) {
   } else {
     /* Make an object whether this was called with 'new' or not. */
     gc::AllocKind allocKind = NewObjectGCKind();
-    obj = NewPlainObjectWithAllocKind(cx, allocKind);
+    obj = NewPlainObject(cx, {.allocKind = allocKind});
   }
   if (!obj) {
     return false;
@@ -327,7 +328,7 @@ JSString* js::ObjectToSource(JSContext* cx, HandleObject obj) {
        * If id is a string that's not an identifier, or if it's a
        * negative integer, then it must be quoted.
        */
-      if (id.isAtom() ? !IsIdentifier(id.toAtom()) : id.toInt() < 0) {
+      if (id.isAtom() && !IsIdentifier(id.toAtom())) {
         UniqueChars quotedId = QuoteString(cx, idstr, '\'');
         if (!quotedId) {
           return false;
@@ -843,7 +844,7 @@ static bool CanAddNewPropertyExcludingProtoFast(PlainObject* obj) {
 }
 
 #ifdef DEBUG
-void PlainObjectAssignCache::assertValid() const {
+void PlainObjectCopyPropsCache::assertValid() const {
   MOZ_ASSERT(emptyToShape_);
   MOZ_ASSERT(fromShape_);
   MOZ_ASSERT(newToShape_);
@@ -876,8 +877,7 @@ void PlainObjectAssignCache::assertValid() const {
   if (fromPlain->getDenseInitializedLength() > 0 || fromPlain->isIndexed()) {
     return true;
   }
-  MOZ_ASSERT(!fromPlain->getClass()->getNewEnumerate());
-  MOZ_ASSERT(!fromPlain->getClass()->getEnumerate());
+  MOZ_ASSERT(!ClassCanHaveExtraEnumeratedProperties(fromPlain->getClass()));
 
   // Empty |from| objects are common, so check for this first.
   if (fromPlain->empty()) {
@@ -892,30 +892,19 @@ void PlainObjectAssignCache::assertValid() const {
 
   const bool toWasEmpty = toPlain->empty();
   if (toWasEmpty) {
-    const PlainObjectAssignCache& cache = cx->realm()->plainObjectAssignCache;
+    const PlainObjectCopyPropsCache& cache =
+        cx->realm()->plainObjectAssignCache;
     SharedShape* newShape = cache.lookup(toPlain->shape(), fromPlain->shape());
     if (newShape) {
       *optimized = true;
-      uint32_t oldSpan = 0;
-      uint32_t newSpan = newShape->slotSpan();
-      if (!toPlain->setShapeAndAddNewSlots(cx, newShape, oldSpan, newSpan)) {
-        return false;
-      }
-      MOZ_ASSERT(fromPlain->slotSpan() == newSpan);
-      for (size_t i = 0; i < newSpan; i++) {
-        toPlain->initSlot(i, fromPlain->getSlot(i));
-      }
-      return true;
+      return CopyPropertiesWithNewShape(cx, toPlain, fromPlain, newShape,
+                                        newShape->slotSpan());
     }
   }
 
   // Get a list of all enumerable |from| properties.
 
   Rooted<PropertyInfoWithKeyVector> props(cx, PropertyInfoWithKeyVector(cx));
-
-#ifdef DEBUG
-  Rooted<Shape*> fromShape(cx, fromPlain->shape());
-#endif
 
   bool hasPropsWithNonDefaultAttrs = false;
   bool hasOnlyEnumerableProps = true;
@@ -956,47 +945,24 @@ void PlainObjectAssignCache::assertValid() const {
   // enumerable/writable/configurable data properties, try to use its shape or
   // property map.
   if (toWasEmpty && !hasPropsWithNonDefaultAttrs) {
-    CanReuseShape canReuse =
-        toPlain->canReuseShapeForNewProperties(fromPlain->shape());
-    if (canReuse != CanReuseShape::NoReuse) {
-      SharedShape* newShape;
-      if (canReuse == CanReuseShape::CanReuseShape) {
-        newShape = fromPlain->sharedShape();
-      } else {
-        // Get a shape with fromPlain's PropMap and ObjectFlags (because we need
-        // the HasEnumerable flag checked in canReuseShapeForNewProperties) and
-        // the other fields (BaseShape, numFixedSlots) unchanged.
-        MOZ_ASSERT(canReuse == CanReuseShape::CanReusePropMap);
-        ObjectFlags objectFlags = fromPlain->sharedShape()->objectFlags();
-        Rooted<SharedPropMap*> map(cx, fromPlain->sharedShape()->propMap());
-        uint32_t mapLength = fromPlain->sharedShape()->propMapLength();
-        BaseShape* base = toPlain->sharedShape()->base();
-        uint32_t nfixed = toPlain->sharedShape()->numFixedSlots();
-        newShape = SharedShape::getPropMapShape(cx, base, nfixed, map,
-                                                mapLength, objectFlags);
-        if (!newShape) {
-          return false;
-        }
-      }
-      uint32_t oldSpan = 0;
-      uint32_t newSpan = props.length();
-      if (!toPlain->setShapeAndAddNewSlots(cx, newShape, oldSpan, newSpan)) {
-        return false;
-      }
-      MOZ_ASSERT(fromPlain->slotSpan() == newSpan);
-      MOZ_ASSERT(toPlain->slotSpan() == newSpan);
-      for (size_t i = 0; i < newSpan; i++) {
-        toPlain->initSlot(i, fromPlain->getSlot(i));
-      }
-      PlainObjectAssignCache& cache = cx->realm()->plainObjectAssignCache;
-      cache.fill(&origToShape->asShared(), fromPlain->sharedShape(), newShape);
+    bool copied;
+    if (!TryCopyPropertiesReusingShapeOrPropMap(cx, toPlain, fromPlain,
+                                                props.length(), &copied)) {
+      return false;
+    }
+    if (copied) {
+      PlainObjectCopyPropsCache& cache = cx->realm()->plainObjectAssignCache;
+      cache.fill(&origToShape->asShared(), fromPlain->sharedShape(),
+                 toPlain->sharedShape());
       return true;
     }
   }
 
   RootedValue propValue(cx);
   RootedId nextKey(cx);
-
+#ifdef DEBUG
+  Rooted<Shape*> fromShape(cx, fromPlain->shape());
+#endif
   for (size_t i = props.length(); i > 0; i--) {
     // Assert |from| still has the same properties.
     MOZ_ASSERT(fromPlain->shape() == fromShape);
@@ -1019,7 +985,8 @@ void PlainObjectAssignCache::assertValid() const {
 
     MOZ_ASSERT(!toPlain->containsPure(nextKey));
 
-    if (!AddDataPropertyToPlainObject(cx, toPlain, nextKey, propValue)) {
+    if (!AddDataPropertyToNativeObjectNoHooks(cx, toPlain, nextKey,
+                                              propValue)) {
       return false;
     }
   }
@@ -1029,7 +996,7 @@ void PlainObjectAssignCache::assertValid() const {
   // definition order and the slots may contain holes).
   if (toWasEmpty && hasOnlyEnumerableProps && !fromPlain->inDictionaryMode() &&
       !toPlain->inDictionaryMode()) {
-    PlainObjectAssignCache& cache = cx->realm()->plainObjectAssignCache;
+    PlainObjectCopyPropsCache& cache = cx->realm()->plainObjectAssignCache;
     cache.fill(&origToShape->asShared(), fromPlain->sharedShape(),
                toPlain->sharedShape());
   }
@@ -1049,9 +1016,7 @@ static bool TryAssignNative(JSContext* cx, HandleObject to, HandleObject from,
   // properties.
   NativeObject* fromNative = &from->as<NativeObject>();
   if (fromNative->getDenseInitializedLength() > 0 || fromNative->isIndexed() ||
-      fromNative->is<TypedArrayObject>() ||
-      fromNative->getClass()->getNewEnumerate() ||
-      fromNative->getClass()->getEnumerate()) {
+      ClassCanHaveExtraEnumeratedProperties(fromNative->getClass())) {
     return true;
   }
 
@@ -1245,7 +1210,8 @@ PlainObject* js::ObjectCreateImpl(JSContext* cx, HandleObject proto,
   // Give the new object a small number of fixed slots, like we do for empty
   // object literals ({}).
   gc::AllocKind allocKind = NewObjectGCKind();
-  return NewPlainObjectWithProtoAndAllocKind(cx, proto, allocKind, newKind);
+  return NewPlainObjectWithProto(cx, proto,
+                                 {.newKind = newKind, .allocKind = allocKind});
 }
 
 PlainObject* js::ObjectCreateWithTemplate(JSContext* cx,
@@ -1659,11 +1625,6 @@ static bool TryEnumerableOwnPropertiesNative(JSContext* cx, HandleObject obj,
     }
   }
 
-  // Up to this point no side-effects through accessor properties are
-  // possible which could have replaced |obj| with a non-native object.
-  MOZ_ASSERT(obj->is<NativeObject>());
-  MOZ_ASSERT(obj.as<NativeObject>() == nobj);
-
   size_t approximatePropertyCount =
       nobj->shape()->propMap()
           ? nobj->shape()->propMap()->approximateEntryCount()
@@ -1752,8 +1713,8 @@ static bool TryEnumerableOwnPropertiesNative(JSContext* cx, HandleObject obj,
       PropertyInfoWithKey prop = props[i - 1];
       id = prop.key();
 
-      // If |obj| still has the same shape, it must still be a NativeObject with
-      // the properties in |props|.
+      // If |obj| still has the same shape, it must still have the properties in
+      // |props|.
       if (obj->shape() == objShape && prop.isDataProperty()) {
         if (!prop.enumerable()) {
           continue;
@@ -1795,104 +1756,6 @@ static bool TryEnumerableOwnPropertiesNative(JSContext* cx, HandleObject obj,
   }
 
   rval.setObject(*array);
-  return true;
-}
-
-// Optimization dedicated for `Object.keys(..).length` JS pattern. This function
-// replicates TryEnumerableOwnPropertiesNative code, except that instead of
-// generating an array we only return the length of the array that would have
-// been generated.
-//
-// As opposed to TryEnumerableOwnPropertiesNative, this function only support
-// EnumerableOwnPropertiesKind::Keys variant.
-static bool CountEnumerableOwnPropertiesNative(JSContext* cx, HandleObject obj,
-                                               int32_t& rval, bool* optimized) {
-  *optimized = false;
-
-  // Use the fast path if |obj| has neither extra indexed properties nor a
-  // newEnumerate hook. String objects need to be special-cased, because
-  // they're only marked as indexed after their enumerate hook ran. And
-  // because their enumerate hook is slowish, it's more performant to
-  // exclude them directly instead of executing the hook first.
-  if (!obj->is<NativeObject>() || obj->as<NativeObject>().isIndexed() ||
-      obj->getClass()->getNewEnumerate() || obj->is<StringObject>()) {
-    return true;
-  }
-
-  Handle<NativeObject*> nobj = obj.as<NativeObject>();
-
-  // Resolve lazy properties on |nobj|.
-  if (JSEnumerateOp enumerate = nobj->getClass()->getEnumerate()) {
-    if (!enumerate(cx, nobj)) {
-      return false;
-    }
-
-    // Ensure no extra indexed properties were added through enumerate().
-    if (nobj->isIndexed()) {
-      return true;
-    }
-  }
-
-  *optimized = true;
-
-  size_t num_properties = 0;
-
-  // If possible, attempt to use the shape's iterator cache.
-  Rooted<PropertyIteratorObject*> piter(cx,
-                                        LookupInShapeIteratorCache(cx, nobj));
-  if (piter) {
-    NativeIterator* ni = piter->getNativeIterator();
-
-    // Guard against indexes.
-    if (!ni->mayHavePrototypeProperties()) {
-      rval = ni->numKeys();
-      return true;
-    }
-  }
-
-  for (uint32_t i = 0, len = nobj->getDenseInitializedLength(); i < len; i++) {
-    if (nobj->getDenseElement(i).isMagic(JS_ELEMENTS_HOLE)) {
-      continue;
-    }
-
-    num_properties += 1;
-  }
-
-  if (obj->is<TypedArrayObject>()) {
-    Handle<TypedArrayObject*> tobj = obj.as<TypedArrayObject>();
-    size_t len = tobj->length().valueOr(0);
-
-    // Fail early if the typed array contains too many elements for a dense
-    // array. This could be relaxed in the future but is consistent with
-    // TryEnumerableOwnPropertiesNative.
-    if (len > NativeObject::MAX_DENSE_ELEMENTS_COUNT) {
-      ReportOversizedAllocation(cx, JSMSG_ALLOC_OVERFLOW);
-      return false;
-    }
-
-    MOZ_ASSERT(num_properties == 0, "typed arrays cannot have dense elements");
-    num_properties = len;
-  }
-
-  // All enumerable properties with string property keys are data
-  // properties. This allows us to collect the property values while
-  // iterating over the shape hierarchy without worrying over accessors
-  // modifying any state.
-
-  if (nobj->hasEnumerableProperty()) {
-    for (ShapePropertyIter<AllowGC::NoGC> iter(obj.as<NativeObject>()->shape());
-         !iter.done(); iter++) {
-      jsid id = iter->key();
-      if (!iter->enumerable() || id.isSymbol()) {
-        continue;
-      }
-      MOZ_ASSERT(!id.isInt(), "Unexpected indexed property");
-      num_properties += 1;
-    }
-  }
-
-  MOZ_RELEASE_ASSERT(num_properties <= INT32_MAX);
-  rval = num_properties;
   return true;
 }
 
@@ -2035,26 +1898,6 @@ bool js::obj_keys(JSContext* cx, unsigned argc, Value* vp) {
 
   // Steps 2-3.
   return GetOwnPropertyKeys(cx, obj, JSITER_OWNONLY, args.rval());
-}
-
-bool js::obj_keys_length(JSContext* cx, HandleObject obj, int32_t& length) {
-  bool optimized;
-  if (!CountEnumerableOwnPropertiesNative(cx, obj, length, &optimized)) {
-    return false;
-  }
-  if (optimized) {
-    return true;
-  }
-
-  // Object.keys: Steps 2-3.
-  // (GetOwnPropertyKeys / CountOwnPropertyKeys)
-  RootedIdVector keys(cx);
-  if (!GetPropertyKeys(cx, obj, JSITER_OWNONLY, &keys)) {
-    return false;
-  }
-
-  length = keys.length();
-  return true;
 }
 
 // ES2018 draft rev c164be80f7ea91de5526b33d54e5c9321ed03d3f
@@ -2406,7 +2249,7 @@ static JSObject* CreateObjectPrototype(JSContext* cx, JSProtoKey key) {
    * prototype of the created object.
    */
   Rooted<PlainObject*> objectProto(
-      cx, NewPlainObjectWithProto(cx, nullptr, TenuredObject));
+      cx, NewPlainObjectWithProto(cx, nullptr, {.newKind = TenuredObject}));
   if (!objectProto) {
     return nullptr;
   }

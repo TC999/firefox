@@ -14,7 +14,8 @@ ChromeUtils.defineESModuleGetters(this, {
   BrowserWindowTracker: "resource:///modules/BrowserWindowTracker.sys.mjs",
   PerTestCoverageUtils:
     "resource://testing-common/PerTestCoverageUtils.sys.mjs",
-  SessionStore: "resource:///modules/sessionstore/SessionStore.sys.mjs",
+  SessionStore:
+    "moz-src:///browser/components/sessionstore/SessionStore.sys.mjs",
   setTimeout: "resource://gre/modules/Timer.sys.mjs",
 });
 
@@ -302,7 +303,12 @@ TalosPowersService.prototype = {
       let feed = await pollForFeed();
       await feed._contile.refresh();
       await feed.refresh({ broadcast: true });
-      await AboutHomeStartupCache.cacheNow();
+      // Only write the about:home cache if the cache machinery has been
+      // initialized. In tests where the about:home cache is disabled, init
+      // early-returns before this.log is set, so calling cacheNow() crashes.
+      if (AboutHomeStartupCache.initted) {
+        await AboutHomeStartupCache.cacheNow();
+      }
     }
 
     await SessionStore.promiseAllWindowsRestored;
@@ -424,7 +430,7 @@ TalosPowersService.prototype = {
     this.ParentExecServices[command.name](
       command.data,
       sendResult,
-      msg.target.ownerGlobal
+      msg.target.documentGlobal
     );
   },
 };

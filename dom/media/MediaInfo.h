@@ -108,10 +108,7 @@ struct FlacCodecSpecificData {
 };
 
 struct Mp3CodecSpecificData final {
-  bool operator==(const Mp3CodecSpecificData& rhs) const {
-    return mEncoderDelayFrames == rhs.mEncoderDelayFrames &&
-           mEncoderPaddingFrames == rhs.mEncoderPaddingFrames;
-  }
+  bool operator==(const Mp3CodecSpecificData& rhs) const = default;
 
   auto MutTiedFields() {
     return std::tie(mEncoderDelayFrames, mEncoderPaddingFrames);
@@ -328,6 +325,7 @@ enum class VideoRotation {
   kDegree_90 = 90,
   kDegree_180 = 180,
   kDegree_270 = 270,
+  // Keep in sync with VideoRotationValidator.
 };
 
 // Stores info relevant to presenting media frames.
@@ -368,6 +366,7 @@ class VideoInfo : public TrackInfo {
     mColorSpace = aOther.mColorSpace;
     mColorPrimaries = aOther.mColorPrimaries;
     mTransferFunction = aOther.mTransferFunction;
+    mHDRMetadata = aOther.mHDRMetadata;
     mColorRange = aOther.mColorRange;
     mImageRect = aOther.mImageRect;
     mAlphaPresent = aOther.mAlphaPresent;
@@ -401,6 +400,16 @@ class VideoInfo : public TrackInfo {
 
   void SetImageRect(const gfx::IntRect& aRect) { mImageRect = Some(aRect); }
   void ResetImageRect() { mImageRect.reset(); }
+
+  // Adopts an image size decoded from the bitstream. The picture rectangle is
+  // expressed relative to the image size, so a change in size invalidates it
+  // and it is discarded; an unchanged size keeps the existing rectangle.
+  void AdoptImageSize(const gfx::IntSize& aImage) {
+    if (mImage != aImage) {
+      ResetImageRect();
+    }
+    mImage = aImage;
+  }
 
   // Returned the crop rectangle scaled to aWidth/aHeight size relative to
   // mImage size.
@@ -474,6 +483,8 @@ class VideoInfo : public TrackInfo {
   // Transfer functions get their own member, which may not be strongly
   // correlated to the colorspace.
   Maybe<gfx::TransferFunction> mTransferFunction;
+
+  Maybe<gfx::HDRMetadata> mHDRMetadata;
 
   // True indicates no restriction on Y, U, V values (otherwise 16-235 for 8
   // bits etc)

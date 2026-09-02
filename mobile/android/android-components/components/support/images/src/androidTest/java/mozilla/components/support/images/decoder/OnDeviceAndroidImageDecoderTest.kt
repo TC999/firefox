@@ -4,9 +4,9 @@
 
 package mozilla.components.support.images.decoder
 
+import kotlin.test.assertNotNull
 import mozilla.components.support.images.DesiredSize
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Test
 
 class OnDeviceAndroidImageDecoderTest {
@@ -14,17 +14,18 @@ class OnDeviceAndroidImageDecoderTest {
     fun decodingPNG() {
         val decoder = AndroidImageDecoder()
 
-        val bitmap = decoder.decode(
-            loadImage("png/mozac.png"),
-            DesiredSize(
-                targetSize = 32,
-                minSize = 32,
-                maxSize = 256,
-                maxScaleFactor = 2.0f,
-            ),
-        )
+        val bitmap =
+            decoder.decode(
+                loadImage("png/mozac.png"),
+                DesiredSize(
+                    targetSize = 32,
+                    minSize = 32,
+                    maxSize = 256,
+                    maxScaleFactor = 2.0f,
+                ),
+            )
 
-        assertNotNull(bitmap!!)
+        assertNotNull(bitmap)
         assertEquals(16, bitmap.width)
         assertEquals(16, bitmap.height)
     }
@@ -33,17 +34,18 @@ class OnDeviceAndroidImageDecoderTest {
     fun decodingGIF() {
         val decoder = AndroidImageDecoder()
 
-        val bitmap = decoder.decode(
-            loadImage("gif/cat.gif"),
-            DesiredSize(
-                targetSize = 64,
-                minSize = 64,
-                maxSize = 256,
-                maxScaleFactor = 2.0f,
-            ),
-        )
+        val bitmap =
+            decoder.decode(
+                loadImage("gif/cat.gif"),
+                DesiredSize(
+                    targetSize = 64,
+                    minSize = 64,
+                    maxSize = 256,
+                    maxScaleFactor = 2.0f,
+                ),
+            )
 
-        assertNotNull(bitmap!!)
+        assertNotNull(bitmap)
         // 250 / 3 = 83
         assertEquals(83, bitmap.width)
         assertEquals(83, bitmap.height)
@@ -53,17 +55,18 @@ class OnDeviceAndroidImageDecoderTest {
     fun decodingJPEG() {
         val decoder = AndroidImageDecoder()
 
-        val bitmap = decoder.decode(
-            loadImage("jpg/tonys.jpg"),
-            DesiredSize(
-                targetSize = 64,
-                minSize = 64,
-                maxSize = 512,
-                maxScaleFactor = 2.0f,
-            ),
-        )
+        val bitmap =
+            decoder.decode(
+                loadImage("jpg/tonys.jpg"),
+                DesiredSize(
+                    targetSize = 64,
+                    minSize = 64,
+                    maxSize = 512,
+                    maxScaleFactor = 2.0f,
+                ),
+            )
 
-        assertNotNull(bitmap!!)
+        assertNotNull(bitmap)
         assertEquals(67, bitmap.width)
         assertEquals(67, bitmap.height)
     }
@@ -72,17 +75,18 @@ class OnDeviceAndroidImageDecoderTest {
     fun decodingBMP() {
         val decoder = AndroidImageDecoder()
 
-        val bitmap = decoder.decode(
-            loadImage("bmp/test.bmp"),
-            DesiredSize(
-                targetSize = 64,
-                minSize = 64,
-                maxSize = 256,
-                maxScaleFactor = 2.0f,
-            ),
-        )
+        val bitmap =
+            decoder.decode(
+                loadImage("bmp/test.bmp"),
+                DesiredSize(
+                    targetSize = 64,
+                    minSize = 64,
+                    maxSize = 256,
+                    maxScaleFactor = 2.0f,
+                ),
+            )
 
-        assertNotNull(bitmap!!)
+        assertNotNull(bitmap)
         assertEquals(100, bitmap.width)
         assertEquals(100, bitmap.height)
     }
@@ -91,24 +95,23 @@ class OnDeviceAndroidImageDecoderTest {
     fun decodingWEBP() {
         val decoder = AndroidImageDecoder()
 
-        val bitmap = decoder.decode(
-            loadImage("webp/test.webp"),
-            DesiredSize(
-                targetSize = 64,
-                minSize = 64,
-                maxSize = 256,
-                maxScaleFactor = 2.0f,
-            ),
-        )
+        val bitmap =
+            decoder.decode(
+                loadImage("webp/test.webp"),
+                DesiredSize(
+                    targetSize = 64,
+                    minSize = 64,
+                    maxSize = 256,
+                    maxScaleFactor = 2.0f,
+                ),
+            )
 
-        assertNotNull(bitmap!!)
+        assertNotNull(bitmap)
         // 192 / 3 = 64
         assertEquals(64, bitmap.width)
         assertEquals(64, bitmap.height)
     }
 
     private fun loadImage(fileName: String): ByteArray =
-        javaClass.getResourceAsStream("/$fileName")!!
-            .buffered()
-            .readBytes()
+        javaClass.getResourceAsStream("/$fileName")!!.buffered().readBytes()
 }

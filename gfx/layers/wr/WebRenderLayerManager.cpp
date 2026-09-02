@@ -5,6 +5,9 @@
 #include "WebRenderLayerManager.h"
 
 #include "GeckoProfiler.h"
+#include "LayerUserData.h"
+#include "WebRenderCanvasRenderer.h"
+#include "mozilla/PerfStats.h"
 #include "mozilla/StaticPrefs_apz.h"
 #include "mozilla/StaticPrefs_layers.h"
 #include "mozilla/dom/BrowserChild.h"
@@ -15,11 +18,8 @@
 #include "mozilla/layers/TextureClient.h"
 #include "mozilla/layers/TransactionIdAllocator.h"
 #include "mozilla/layers/WebRenderBridgeChild.h"
-#include "mozilla/PerfStats.h"
 #include "nsDisplayList.h"
 #include "nsLayoutUtils.h"
-#include "WebRenderCanvasRenderer.h"
-#include "LayerUserData.h"
 
 #ifdef XP_WIN
 #  include "gfxDWriteFonts.h"
@@ -79,23 +79,21 @@ RefPtr<WebRenderLayerManager> WebRenderLayerManager::Create(
                         << " isParent: " << XRE_IsParentProcess();
   }
 
-  PWebRenderBridgeChild* bridge =
-      aCBChild->SendPWebRenderBridgeConstructor(aPipelineId, size, windowKind);
-  if (!bridge) {
+  auto bridge = MakeRefPtr<WebRenderBridgeChild>(aPipelineId);
+  if (!aCBChild->SendPWebRenderBridgeConstructor(bridge, aPipelineId, size,
+                                                 windowKind)) {
     // This should only fail if we attempt to access a layer we don't have
     // permission for, or more likely, the GPU process crashed again during
     // reinitialization. We can expect to be notified again to reinitialize
     // (which may or may not be using WebRender).
-    gfxCriticalNote << "Failed to create WebRenderBridgeChild.";
+    gfxCriticalNote << "Failed to send WebRenderBridgeChild.";
     aError.Assign(sHasInitialized
                       ? "FEATURE_FAILURE_WEBRENDER_INITIALIZE_IPDL_POST"_ns
                       : "FEATURE_FAILURE_WEBRENDER_INITIALIZE_IPDL_FIRST"_ns);
     return nullptr;
   }
 
-  RefPtr<WebRenderBridgeChild> wrChild =
-      static_cast<WebRenderBridgeChild*>(bridge);
-  return new WebRenderLayerManager(aWidget, wrChild.forget());
+  return new WebRenderLayerManager(aWidget, bridge.forget());
 }
 
 bool WebRenderLayerManager::Initialize(
@@ -353,7 +351,15 @@ void WebRenderLayerManager::EndTransactionWithoutLayer(
     diplayListBuilder = offscreenBuilder.get();
   }
 
-  diplayListBuilder->Begin();
+  // The grid this display list's coordinates are authored on. It comes from the
+  // document being painted, not the widget, because full zoom applies to
+  // content but not chrome, so the two differ within one WebRender document.
+  const int32_t appUnitsPerDevPixel =
+      aDisplayListBuilder ? aDisplayListBuilder->RootReferenceFrame()
+                                ->PresContext()
+                                ->AppUnitsPerDevPixel()
+                          : AppUnitsPerCSSPixel();
+  diplayListBuilder->Begin(appUnitsPerDevPixel);
 
   wr::IpcResourceUpdateQueue resourceUpdates(WrBridge());
   wr::usize builderDumpIndex = 0;

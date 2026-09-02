@@ -16,10 +16,13 @@ import androidx.compose.runtime.getValue
 import androidx.fragment.compose.content
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewModelScope
+import com.google.android.material.R as materialR
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import kotlinx.coroutines.launch
 import mozilla.components.lib.state.helpers.StoreProvider.Companion.fragmentStore
 import mozilla.components.lib.state.helpers.StoreProvider.Companion.storeProvider
+import org.mozilla.fenix.components.ReviewPromptAttemptResult.Error
+import org.mozilla.fenix.components.ReviewPromptAttemptResult.NotDisplayed
 import org.mozilla.fenix.ext.openInNewTab
 import org.mozilla.fenix.ext.requireComponents
 import org.mozilla.fenix.reviewprompt.CustomReviewPromptAction.LeaveFeedbackButtonClicked
@@ -28,21 +31,20 @@ import org.mozilla.fenix.reviewprompt.CustomReviewPromptAction.PositivePrePrompt
 import org.mozilla.fenix.reviewprompt.CustomReviewPromptAction.RateButtonClicked
 import org.mozilla.fenix.reviewprompt.ui.CustomReviewPrompt
 import org.mozilla.fenix.theme.FirefoxTheme
-import com.google.android.material.R as materialR
 
-/**
- * A bottom sheet fragment for displaying [CustomReviewPrompt].
- */
+/** A bottom sheet fragment for displaying [CustomReviewPrompt]. */
 class CustomReviewPromptBottomSheetFragment : BottomSheetDialogFragment() {
-    private val store by fragmentStore(CustomReviewPromptState.PrePrompt) {
-        CustomReviewPromptStore(
-            initialState = it,
-            middleware = listOf(
-                CustomReviewPromptNavigationMiddleware(storeProvider.viewModelScope),
-                CustomReviewPromptTelemetryMiddleware(),
-            ),
-        )
-    }
+    private val store by
+        fragmentStore(CustomReviewPromptState.PrePrompt) {
+            CustomReviewPromptStore(
+                initialState = it,
+                middleware =
+                    listOf(
+                        CustomReviewPromptNavigationMiddleware(storeProvider.viewModelScope),
+                        CustomReviewPromptTelemetryMiddleware(),
+                    ),
+            )
+        }
 
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
         return super.onCreateDialog(savedInstanceState).apply {
@@ -58,8 +60,7 @@ class CustomReviewPromptBottomSheetFragment : BottomSheetDialogFragment() {
         container: ViewGroup?,
         savedInstanceState: Bundle?,
     ) = content {
-        val state by store.stateFlow
-            .collectAsState(initial = CustomReviewPromptState.PrePrompt)
+        val state by store.stateFlow.collectAsState(initial = CustomReviewPromptState.PrePrompt)
 
         LaunchedEffect(Unit) {
             store.dispatch(CustomReviewPromptAction.Displayed)
@@ -87,11 +88,12 @@ class CustomReviewPromptBottomSheetFragment : BottomSheetDialogFragment() {
                     CustomReviewPromptNavigationEvent.OpenPlayStoreReviewPrompt -> {
                         val activity = activity ?: return@collect
                         with(requireComponents.playStoreReviewPromptController) {
-                            tryPromptReview(
-                                activity = activity,
-                                onNotDisplayed = { tryLaunchPlayStoreReview(activity, ::openInNewTab) },
-                                onError = { tryLaunchPlayStoreReview(activity, ::openInNewTab) },
-                            )
+                            val result = tryPromptReview(activity)
+                            when (result) {
+                                NotDisplayed,
+                                is Error -> tryLaunchPlayStoreReview(activity, ::openInNewTab)
+                                else -> {}
+                            }
                         }
                     }
 

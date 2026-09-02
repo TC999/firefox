@@ -59,6 +59,12 @@ const FeaturePrefs = Object.freeze({
   [OnDeviceModelFeatures.SmartWindow]: [
     "browser.smartwindow.enabled",
     "browser.smartwindow.tos.consentTime",
+    // makeAiControlSetting's get() calls AIWindow.isBlocked which reads a
+    // cached value of this pref. Without this entry get() can run before
+    // AIWindow's cache is refreshed since pref observers fire in
+    // unpredictable order. This is triggered e.g. when UITour overrides
+    // this pref externally.
+    "browser.ai.control.smartWindow",
   ],
 });
 
@@ -168,6 +174,15 @@ export const OnDeviceModelManager = {
   },
 
   /**
+   * Check if a feature has a distinct enabled state in AI Controls.
+   *
+   * @param {OnDeviceModelFeaturesEnum} feature
+   */
+  hasDistinctEnabledState(feature) {
+    return this.getAIFeature(feature).hasDistinctEnabledState;
+  },
+
+  /**
    * Check if a feature is enabled (visible and opted-in).
    *
    * @param {OnDeviceModelFeaturesEnum} feature
@@ -183,6 +198,24 @@ export const OnDeviceModelManager = {
    */
   isBlocked(feature) {
     return this.getAIFeature(feature).isBlocked;
+  },
+
+  /**
+   * Check if the current device can run a feature.
+   *
+   * @param {OnDeviceModelFeaturesEnum} feature
+   */
+  canRunOnDevice(feature) {
+    return this.getAIFeature(feature).canRunOnDevice;
+  },
+
+  /**
+   * Get the derived AI Controls state for a feature.
+   *
+   * @param {OnDeviceModelFeaturesEnum} feature
+   */
+  getAiControlState(feature) {
+    return this.getAIFeature(feature).aiControlState;
   },
 
   /**

@@ -74,6 +74,12 @@ bool RenderTextureHostWrapper::LockSWGLCompositeSurface(
   return mTextureHost->LockSWGLCompositeSurface(aContext, aInfo);
 }
 
+void RenderTextureHostWrapper::UnlockSWGLCompositeSurface() {
+  if (mTextureHost) {
+    mTextureHost->UnlockSWGLCompositeSurface();
+  }
+}
+
 void RenderTextureHostWrapper::ClearCachedResources() {
   if (mTextureHost) {
     mTextureHost->ClearCachedResources();
@@ -162,6 +168,14 @@ RenderTextureHostWrapper::AsRenderAndroidHardwareBufferTextureHost() {
     return nullptr;
   }
   return mTextureHost->AsRenderAndroidHardwareBufferTextureHost();
+}
+
+RenderAndroidImageReaderImageTextureHost*
+RenderTextureHostWrapper::AsRenderAndroidImageReaderImageTextureHost() {
+  if (!mTextureHost) {
+    return nullptr;
+  }
+  return mTextureHost->AsRenderAndroidImageReaderImageTextureHost();
 }
 
 RenderAndroidSurfaceTextureHost*

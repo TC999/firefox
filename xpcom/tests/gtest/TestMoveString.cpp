@@ -2,11 +2,11 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "nsASCIIMask.h"
-#include "nsString.h"
-#include "nsReadableUtils.h"
-#include "nsCRTGlue.h"
 #include "gtest/gtest.h"
+#include "nsASCIIMask.h"
+#include "nsCRTGlue.h"
+#include "nsReadableUtils.h"
+#include "nsString.h"
 
 namespace TestMoveString {
 
@@ -43,14 +43,14 @@ TEST(MoveString, SharedIntoOwned)
 
   nsCString in;
   in.Assign(NEW_VAL);
-  EXPECT_EQ(in.GetDataFlags(), Df::REFCOUNTED | Df::TERMINATED);
+  EXPECT_EQ(in.GetDataFlags(), Df::STRINGBUFFER | Df::OWNED | Df::TERMINATED);
   const char* data = in.get();
 
   out.Assign(std::move(in));
   ExpectTruncated(in);
   ExpectNew(out);
 
-  EXPECT_EQ(out.GetDataFlags(), Df::REFCOUNTED | Df::TERMINATED);
+  EXPECT_EQ(out.GetDataFlags(), Df::STRINGBUFFER | Df::OWNED | Df::TERMINATED);
   EXPECT_EQ(out.get(), data);
 }
 
@@ -107,7 +107,7 @@ TEST(MoveString, AutoIntoOwned)
   ExpectTruncated(in);
   ExpectNew(out);
 
-  EXPECT_EQ(out.GetDataFlags(), Df::REFCOUNTED | Df::TERMINATED);
+  EXPECT_EQ(out.GetDataFlags(), Df::STRINGBUFFER | Df::OWNED | Df::TERMINATED);
   EXPECT_NE(out.get(), data);
 }
 
@@ -124,7 +124,7 @@ TEST(MoveString, DepIntoOwned)
   ExpectTruncated(in);
   ExpectNew(out);
 
-  EXPECT_EQ(out.GetDataFlags(), Df::REFCOUNTED | Df::TERMINATED);
+  EXPECT_EQ(out.GetDataFlags(), Df::STRINGBUFFER | Df::OWNED | Df::TERMINATED);
 }
 
 TEST(MoveString, VoidIntoOwned)
@@ -152,14 +152,14 @@ TEST(MoveString, SharedIntoAuto)
 
   nsCString in;
   in.Assign(NEW_VAL);
-  EXPECT_EQ(in.GetDataFlags(), Df::REFCOUNTED | Df::TERMINATED);
+  EXPECT_EQ(in.GetDataFlags(), Df::STRINGBUFFER | Df::OWNED | Df::TERMINATED);
   const char* data = in.get();
 
   out.Assign(std::move(in));
   ExpectTruncated(in);
   ExpectNew(out);
 
-  EXPECT_EQ(out.GetDataFlags(), Df::REFCOUNTED | Df::TERMINATED);
+  EXPECT_EQ(out.GetDataFlags(), Df::STRINGBUFFER | Df::OWNED | Df::TERMINATED);
   EXPECT_EQ(out.get(), data);
 }
 

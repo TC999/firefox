@@ -14,6 +14,8 @@ import androidx.test.core.app.ApplicationProvider
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import java.lang.String.format
+import java.util.Locale
 import mozilla.components.support.test.robolectric.testContext
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -28,8 +30,6 @@ import org.mozilla.fenix.R
 import org.mozilla.fenix.components.toolbar.ToolbarPosition
 import org.mozilla.fenix.utils.Settings
 import org.robolectric.RobolectricTestRunner
-import java.lang.String.format
-import java.util.Locale
 
 @RunWith(RobolectricTestRunner::class)
 class ContextTest {
@@ -81,17 +81,11 @@ class ContextTest {
     }
 
     @Test
-    fun `GIVEN context WHEN getting metrics controller THEN send back metrics`() {
-        every { testContext.components.analytics } returns mockk(relaxed = true)
-        val expectedMetricsValue = ApplicationProvider.getApplicationContext<FenixApplication>().components.analytics.metrics
-        assertEquals(expectedMetricsValue, testContext.metrics)
-    }
-
-    @Test
     fun `GIVEN activity context WHEN make it an activity THEN return activity`() {
-        val mockActivity = mockk<Activity> {
-            every { baseContext } returns null
-        }
+        val mockActivity =
+            mockk<Activity> {
+                every { baseContext } returns null
+            }
         val mockContext: Context = mockActivity
         assertEquals(mockActivity, mockContext.asActivity())
     }
@@ -99,18 +93,20 @@ class ContextTest {
     @Test
     fun `GIVEN theme wrapper context WHEN make it an activity THEN return base`() {
         val mockActivity = mockk<Activity>()
-        val mockThemeWrapper = mockk<ContextThemeWrapper> {
-            every { baseContext } returns mockActivity
-        }
+        val mockThemeWrapper =
+            mockk<ContextThemeWrapper> {
+                every { baseContext } returns mockActivity
+            }
         val mockContext: Context = mockThemeWrapper
         assertEquals(mockActivity, mockContext.asActivity())
     }
 
     @Test
     fun `GIVEN theme wrapper context without activity base context WHEN make it an activity THEN return null`() {
-        val mockThemeWrapper = mockk<ContextThemeWrapper> {
-            every { baseContext } returns mockk<FenixApplication>()
-        }
+        val mockThemeWrapper =
+            mockk<ContextThemeWrapper> {
+                every { baseContext } returns mockk<FenixApplication>()
+            }
         val mockContext: Context = mockThemeWrapper
         assertNull(mockContext.asActivity())
     }
@@ -118,36 +114,43 @@ class ContextTest {
     @Test
     fun `GIVEN activity context WHEN get root view THEN return content view`() {
         val rootView = mockk<ViewGroup>()
-        val mockActivity = mockk<Activity> {
-            every { baseContext } returns null
-            every { window } returns mockk {
-                every { decorView } returns mockk {
-                    every { findViewById<View>(android.R.id.content) } returns rootView
-                }
+        val mockActivity =
+            mockk<Activity> {
+                every { baseContext } returns null
+                every { window } returns
+                    mockk {
+                        every { decorView } returns
+                            mockk {
+                                every { findViewById<View>(android.R.id.content) } returns rootView
+                            }
+                    }
             }
-        }
         assertEquals(rootView, mockActivity.getRootView())
     }
 
     @Test
     fun `GIVEN activity context without window WHEN get root view THEN return content view`() {
-        val mockActivity = mockk<Activity> {
-            every { baseContext } returns null
-            every { window } returns null
-        }
+        val mockActivity =
+            mockk<Activity> {
+                every { baseContext } returns null
+                every { window } returns null
+            }
         assertNull(mockActivity.getRootView())
     }
 
     @Test
     fun `GIVEN activity context without valid content view WHEN get root view THEN return content view`() {
-        val mockActivity = mockk<Activity> {
-            every { baseContext } returns null
-            every { window } returns mockk {
-                every { decorView } returns mockk {
-                    every { findViewById<View>(android.R.id.content) } returns mockk<TextView>()
-                }
+        val mockActivity =
+            mockk<Activity> {
+                every { baseContext } returns null
+                every { window } returns
+                    mockk {
+                        every { decorView } returns
+                            mockk {
+                                every { findViewById<View>(android.R.id.content) } returns mockk<TextView>()
+                            }
+                    }
             }
-        }
         assertNull(mockActivity.getRootView())
     }
 
@@ -172,7 +175,7 @@ class ContextTest {
     @Test
     fun `GIVEN context WHEN toolbar position is bottom THEN isToolbarAtBottom returns true`() {
         val settings: Settings = mockk()
-        every { testContext.settings() } returns settings
+        every { testContext.components.settings } returns settings
         every { settings.toolbarPosition } returns ToolbarPosition.BOTTOM
 
         assertTrue(testContext.isToolbarAtBottom())
@@ -181,7 +184,7 @@ class ContextTest {
     @Test
     fun `GIVEN context WHEN toolbar position is top THEN isToolbarAtBottom returns false`() {
         val settings: Settings = mockk()
-        every { testContext.settings() } returns settings
+        every { testContext.components.settings } returns settings
         every { settings.toolbarPosition } returns ToolbarPosition.TOP
 
         assertFalse(testContext.isToolbarAtBottom())

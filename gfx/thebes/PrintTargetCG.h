@@ -6,6 +6,7 @@
 #define MOZILLA_GFX_PRINTTARGETCG_H
 
 #include <Carbon/Carbon.h>
+
 #include "PrintTarget.h"
 
 class nsIOutputStream;
@@ -24,7 +25,7 @@ class PrintTargetCG final : public PrintTarget {
 
   nsresult BeginPrinting(const nsAString& aTitle,
                          const nsAString& aPrintToFileName,
-                         uint64_t aBrowsingContextId, int32_t aStartPage,
+                         uint64_t aInnerWindowId, int32_t aStartPage,
                          int32_t aEndPage) final;
   nsresult EndPrinting() final;
   nsresult AbortPrinting() final;

@@ -56,10 +56,6 @@ already_AddRefed<BrowserBridgeHost> BrowserBridgeChild::FinishInit(
   return MakeAndAddRef<BrowserBridgeHost>(this);
 }
 
-nsILoadContext* BrowserBridgeChild::GetLoadContext() {
-  return mBrowsingContext;
-}
-
 void BrowserBridgeChild::NavigateByKey(bool aForward,
                                        bool aForDocumentNavigation) {
   (void)SendNavigateByKey(aForward, aForDocumentNavigation);
@@ -156,8 +152,8 @@ mozilla::ipc::IPCResult BrowserBridgeChild::RecvMaybeFireEmbedderLoadEvents(
 }
 
 mozilla::ipc::IPCResult BrowserBridgeChild::RecvScrollRectIntoView(
-    const nsRect& aRect, const ScrollAxis& aVertical,
-    const ScrollAxis& aHorizontal, const ScrollFlags& aScrollFlags,
+    const nsRect& aRect, const AxisScrollParams& aVertical,
+    const AxisScrollParams& aHorizontal, const ScrollFlags& aScrollFlags,
     const int32_t& aAppUnitsPerDevPixel) {
   RefPtr<Element> owner = mFrameLoader->GetOwnerContent();
   if (!owner) {
@@ -183,6 +179,23 @@ mozilla::ipc::IPCResult BrowserBridgeChild::RecvScrollRectIntoView(
   RefPtr<PresShell> presShell = frame->PresShell();
   presShell->ScrollFrameIntoView(frame, Some(rect), aVertical, aHorizontal,
                                  aScrollFlags);
+  return IPC_OK();
+}
+
+mozilla::ipc::IPCResult BrowserBridgeChild::RecvScrollForKeyboard(
+    const mozilla::layers::KeyboardScrollAction& aAction) {
+  RefPtr<Element> owner = mFrameLoader->GetOwnerContent();
+  if (!owner) {
+    return IPC_OK();
+  }
+
+  nsIFrame* frame = owner->GetPrimaryFrame();
+  if (!frame) {
+    return IPC_OK();
+  }
+
+  RefPtr<PresShell> presShell = frame->PresShell();
+  presShell->ScrollByKeyboard(aAction, frame);
   return IPC_OK();
 }
 

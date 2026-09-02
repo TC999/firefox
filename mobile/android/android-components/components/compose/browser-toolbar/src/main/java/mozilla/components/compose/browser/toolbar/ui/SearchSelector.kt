@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -80,28 +81,25 @@ fun SearchSelector(
     var showMenu by remember { mutableStateOf(false) }
 
     Card(
-        modifier = modifier
-            .padding(horizontal = 4.dp)
-            .width(52.dp)
-            .height(40.dp)
-            .semantics(mergeDescendants = true) {
-                this.contentDescription = contentDescription
-                this.testTag = SEARCH_SELECTOR
-            }
-            .clickable {
-                view.playSoundEffect(SoundEffectConstants.CLICK)
-                showMenu = true
-                onClick?.let {
-                    onInteraction(onClick)
+        modifier =
+            modifier
+                .padding(horizontal = 4.dp)
+                .width(52.dp)
+                .height(40.dp)
+                .semantics(mergeDescendants = true) {
+                    this.contentDescription = contentDescription
+                    this.testTag = SEARCH_SELECTOR
                 }
-            },
-        shape = RoundedCornerShape(90.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceBright,
-        ),
-        elevation = CardDefaults.elevatedCardElevation(
-            defaultElevation = 0.dp,
-        ),
+                .clickable {
+                    view.playSoundEffect(SoundEffectConstants.CLICK)
+                    showMenu = true
+                    onClick?.let {
+                        onInteraction(onClick)
+                    }
+                },
+        shape = CircleShape,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 0.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxSize(),
@@ -111,14 +109,13 @@ fun SearchSelector(
             Image(
                 painter = rememberDrawablePainter(validIcon),
                 contentDescription = null,
-                modifier = Modifier
-                    .size(24.dp)
-                    .clip(RoundedCornerShape(2.dp)),
+                modifier = Modifier.size(24.dp).clip(RoundedCornerShape(2.dp)),
                 contentScale = ContentScale.Crop,
-                colorFilter = when (shouldTint) {
-                    true -> ColorFilter.tint(MaterialTheme.colorScheme.onSurface)
-                    else -> null
-                },
+                colorFilter =
+                    when (shouldTint) {
+                        true -> ColorFilter.tint(MaterialTheme.colorScheme.onSurface)
+                        else -> null
+                    },
             )
 
             Spacer(modifier = Modifier.width(4.dp))
@@ -137,9 +134,10 @@ fun SearchSelector(
             CustomPlacementPopupVerticalContent {
                 menu.toMenuItems().forEach { menuItem ->
                     menuItemComposable(menuItem) { event ->
-                        showMenu = false
-                        onInteraction(event)
-                    }.invoke()
+                            showMenu = false
+                            onInteraction(event)
+                        }
+                        .invoke()
                 }
             }
         }
@@ -153,10 +151,11 @@ private fun SearchSelectorPreview() {
         SearchSelector(
             icon = null,
             contentDescription = "test",
-            modifier = Modifier.background(color = MaterialTheme.colorScheme.surfaceDim),
-            menu = object : BrowserToolbarMenu {
-                override fun items() = emptyList<BrowserToolbarMenuItem>()
-            },
+            modifier = Modifier.background(color = MaterialTheme.colorScheme.surfaceContainerHighest),
+            menu =
+                object : BrowserToolbarMenu {
+                    override fun items() = emptyList<BrowserToolbarMenuItem>()
+                },
             onInteraction = {},
         )
     }

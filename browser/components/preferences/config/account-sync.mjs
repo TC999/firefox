@@ -2,6 +2,20 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+// preferences.js typedefs are duplicated here because @import requires an ES
+// module source. preferences.js is a plain script currently.
+/**
+ * @typedef {object} PaneShownEventDetail
+ * @property {string} category
+ * @property {string} subcategory
+ */
+
+/**
+ * @typedef {Omit<CustomEvent, 'detail'> & {
+ *   detail: PaneShownEventDetail
+ * }} PaneShownEvent
+ */
+
 import { Preferences } from "chrome://global/content/preferences/Preferences.mjs";
 import { SettingGroupManager } from "chrome://browser/content/preferences/config/SettingGroupManager.mjs";
 
@@ -11,9 +25,13 @@ const { SCOPE_APP_SYNC } = ChromeUtils.importESModule(
 const XPCOMUtils = ChromeUtils.importESModule(
   "resource://gre/modules/XPCOMUtils.sys.mjs"
 ).XPCOMUtils;
+const { Referrals } = ChromeUtils.importESModule(
+  "resource:///modules/referrals/Referrals.sys.mjs"
+);
 const lazy = XPCOMUtils.declareLazy({
   BackupService: "resource:///modules/backup/BackupService.sys.mjs",
   Weave: "resource://services-sync/main.sys.mjs",
+
   SelectableProfileService:
     "resource:///modules/profiles/SelectableProfileService.sys.mjs",
 });
@@ -157,13 +175,12 @@ export var SyncHelpers = new (class SyncHelpers {
               });
             }
           }
-          // When the modal closes we want to remove any query params
-          // so it doesn't open on subsequent visits (and will reload)
-          const browser = window.docShell.chromeEventHandler;
-          browser.loadURI(Services.io.newURI("about:preferences#sync"), {
-            triggeringPrincipal:
-              Services.scriptSecurityManager.getSystemPrincipal(),
-          });
+          // Drop any query params (e.g. action=choose-what-to-sync) so the
+          // dialog doesn't reopen on reloads. replaceState avoids the
+          // visible page reload loadURI would cause.
+          const url = new URL(location.href);
+          url.search = "";
+          window.history.replaceState(history.state, document.title, url.href);
         },
       },
       params /* aParams */
@@ -194,6 +211,7 @@ export var SyncHelpers = new (class SyncHelpers {
           return;
         }
         const url = await window.FxAccounts.config.promiseConnectAccountURI(
+          "sync",
           this.getEntryPoint()
         );
         this.replaceTabWithUrl(url);
@@ -210,6 +228,7 @@ export var SyncHelpers = new (class SyncHelpers {
       return;
     }
     const url = await window.FxAccounts.config.promiseConnectAccountURI(
+      "sync",
       this.getEntryPoint()
     );
     this.replaceTabWithUrl(url);
@@ -224,8 +243,10 @@ export var SyncHelpers = new (class SyncHelpers {
    *        different entrypoints to accounts
    */
   async reSignIn(entrypoint) {
-    const url =
-      await window.FxAccounts.config.promiseConnectAccountURI(entrypoint);
+    const url = await window.FxAccounts.config.promiseConnectAccountURI(
+      "sync",
+      entrypoint
+    );
     this.replaceTabWithUrl(url);
   }
 
@@ -244,10 +265,39 @@ export var SyncHelpers = new (class SyncHelpers {
       showConfirm,
     });
   }
+
+  // Check if the user is coming from a call to action
+  // and show them the correct additional panel
+  maybeShowSyncAction() {
+    if (
+      location.hash == "#sync" &&
+      window.UIState.get().status == window.UIState.STATUS_SIGNED_IN
+    ) {
+      if (location.href.includes("action=pair")) {
+        window.gSubDialog.open(
+          "chrome://browser/content/preferences/fxaPairDevice.xhtml",
+
+          { features: "resizable=no" }
+        );
+      } else if (location.href.includes("action=choose-what-to-sync")) {
+        // Pass the real configured state: an already-syncing user who merely
+        // toggled an engine off should take the configured path (queue a sync,
+        // offer disconnect), not be re-run through first-time setup.
+        this._chooseWhatToSync(this.isSyncEnabled, "callToAction");
+      }
+    }
+  }
 })();
 
 // Expose SyncHelpers on the window object for tests and other code.
 window.SyncHelpers = SyncHelpers;
+
+// Listen for when sync pane is loaded to check for actions
+window.addEventListener("paneshown", (/** @type {PaneShownEvent} */ e) => {
+  if (e.detail.category == "paneSync") {
+    SyncHelpers.maybeShowSyncAction();
+  }
+});
 
 Preferences.addSetting({
   id: "uiStateUpdate",
@@ -259,6 +309,11 @@ Preferences.addSetting({
 });
 
 // Mozilla accounts section
+
+// Account settings are unavailable
+Preferences.addSetting({
+  id: "fxaAccountDisabled",
+});
 
 // Logged out of Mozilla account
 Preferences.addSetting({
@@ -612,7 +667,7 @@ Preferences.addSetting({
   },
   setup(emitChange) {
     window.FxAccounts.config
-      .promiseConnectDeviceURI(SyncHelpers.getEntryPoint())
+      .promiseConnectDeviceURI("sync", SyncHelpers.getEntryPoint())
       .then(connectURI => {
         SyncHelpers.connectAnotherDeviceHref = connectURI;
         emitChange();
@@ -764,17 +819,48 @@ Preferences.addSetting({
   },
 });
 
+// Referrals section
+Preferences.addSetting({
+  id: "referrals-link",
+  setup() {
+    Referrals.getReferralCode();
+  },
+  visible() {
+    return Referrals.isEnabled;
+  },
+  onUserClick: () => {
+    Referrals.openReferralsTab(window, "preferences");
+  },
+});
+
+let accountsEnabled = Services.prefs.getBoolPref("identity.fxaccounts.enabled");
+
 SettingGroupManager.registerGroups({
   defaultBrowserSync: window.createDefaultBrowserConfig({
     includeIsDefaultPane: false,
     inProgress: true,
     hiddenFromSearch: true,
   }),
+  accountDisabled: {
+    inProgress: true,
+    hidden: accountsEnabled,
+    items: [
+      {
+        id: "fxaAccountDisabled",
+        control: "moz-fieldset",
+        l10nId: "account-disabled-group",
+        iconSrc: "chrome://browser/skin/preferences/mozilla-logo.svg",
+        supportPage: "managed-browser-firefox",
+        headingLevel: 2,
+      },
+    ],
+  },
   account: {
     inProgress: true,
     l10nId: "account-group-label2",
     headingLevel: 2,
     iconSrc: "chrome://browser/skin/preferences/mozilla-logo.svg",
+    hidden: !accountsEnabled,
     items: [
       {
         id: "noFxaAccountGroup",
@@ -872,6 +958,7 @@ SettingGroupManager.registerGroups({
     l10nId: "sync-group-label",
     headingLevel: 2,
     iconSrc: "chrome://browser/skin/sync.svg",
+    hidden: !accountsEnabled,
     items: [
       {
         id: "syncNoFxaSignIn",
@@ -940,9 +1027,7 @@ SettingGroupManager.registerGroups({
         id: "fxaDeviceNameSection",
         l10nId: "sync-device-name-header-2",
         control: "moz-fieldset",
-        controlAttrs: {
-          ".headingLevel": 3,
-        },
+        headingLevel: 3,
         items: [
           {
             id: "fxaDeviceNameGroup",
@@ -1031,6 +1116,7 @@ SettingGroupManager.registerGroups({
     items: [
       {
         id: "profilesSettings",
+        loadPane: "profiles",
         control: "moz-box-button",
         l10nId: "preferences-profiles-settings-button",
       },
@@ -1041,6 +1127,7 @@ SettingGroupManager.registerGroups({
     headingLevel: 2,
     supportPage: "firefox-backup",
     iconSrc: "chrome://global/skin/icons/reload.svg",
+    subcategory: "backup",
     items: [
       {
         id: "backupSettings",
@@ -1048,4 +1135,35 @@ SettingGroupManager.registerGroups({
       },
     ],
   },
+  referrals: {
+    l10nId: "referrals-section-header2",
+    headingLevel: 2,
+    iconSrc: "chrome://browser/content/logos/share-firefox.svg",
+    hidden: !Referrals.isEnabled,
+    items: [
+      {
+        id: "referrals-link",
+        control: "moz-box-button",
+        l10nId: "referrals-link2",
+      },
+    ],
+  },
 });
+
+document.addEventListener(
+  "paneshown",
+  (/** @type {PaneShownEvent} */ event) => {
+    if (event.detail.category !== "paneSync") {
+      return;
+    }
+    if (Services.policies && !Services.policies.isAllowed("profileImport")) {
+      return;
+    }
+    let { subcategory } = event.detail;
+    if (subcategory == "migrate") {
+      window.gMainPane.showMigrationWizardDialog();
+    } else if (subcategory == "migrate-autoclose") {
+      window.gMainPane.showMigrationWizardDialog({ closeTabWhenDone: true });
+    }
+  }
+);

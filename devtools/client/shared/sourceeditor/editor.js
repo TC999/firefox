@@ -217,6 +217,7 @@ class Editor extends EventEmitter {
     EXCEPTION_POSITION_MARKER: "exception-position-marker",
     ACTIVE_SELECTION_MARKER: "active-selection-marker",
     PAUSED_LOCATION_MARKER: "paused-location-marker",
+    AUTOCOMPLETE_CONTENT_MARKER: "autocomplete-content-marker",
     /* Gutter Markers */
     EMPTY_LINE_MARKER: "empty-line-marker",
     BLACKBOX_LINE_GUTTER_MARKER: "blackbox-line-gutter-marker",
@@ -537,6 +538,32 @@ class Editor extends EventEmitter {
     }
   }
 
+  /**
+   * Checks if the update to the content of the current document
+   * from a direct user interaction.
+   *
+   * @param {object} viewUpdate
+   * @returns {boolean}
+   */
+  isViewUpdateFromUserInput(viewUpdate) {
+    const {
+      codemirrorState: { Transaction },
+    } = this.#CodeMirror6;
+    // Make sure document has changed, ensuring user events like selections don't count.
+    if (viewUpdate.docChanged) {
+      // Check transactions for any that are direct user input, not changes from Y.js or another extension.
+      for (const transaction of viewUpdate.transactions) {
+        // Not using Transaction.isUserEvent because that only checks for a specific User event type ( "input", "delete", etc.).
+        // Checking the annotation directly allows for any type of user event.
+        const userEventType = transaction.annotation(Transaction.userEvent);
+        if (userEventType) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
   // This update listener allows listening to the changes
   // to the codemiror editor.
   setUpdateListener(listener = null) {
@@ -786,6 +813,7 @@ class Editor extends EventEmitter {
         bracketMatching,
       },
       lezerHighlight,
+      codemirrorAutocomplete: { closeBrackets },
     } = this.#CodeMirror6;
 
     this.#compartments = {
@@ -798,6 +826,7 @@ class Editor extends EventEmitter {
       domEventHandlersCompartment: new Compartment(),
       foldGutterCompartment: new Compartment(),
       languageCompartment: new Compartment(),
+      readOnlyCompartment: new Compartment(),
     };
 
     const { lineContentMarkerEffect, lineContentMarkerExtension } =
@@ -833,7 +862,9 @@ class Editor extends EventEmitter {
       this.#compartments.lineWrapCompartment.of(
         this.config.lineWrapping ? EditorView.lineWrapping : []
       ),
-      EditorState.readOnly.of(this.config.readOnly),
+      this.#compartments.readOnlyCompartment.of(
+        EditorState.readOnly.of(this.config.readOnly)
+      ),
       this.#compartments.lineNumberCompartment.of(
         this.config.lineNumbers ? lineNumbers() : []
       ),
@@ -891,6 +922,9 @@ class Editor extends EventEmitter {
                 to: lezerUtils.positionToLocation(tr.newDoc, toB),
                 origin: !inserted.length ? "+delete" : "+input",
                 text: inserted.toString(),
+                // This is always false for CM6, setting this is just keep the
+                // output expected uniform with that returned by CM5.
+                canceled: false,
               });
             });
             this.#beforeUpdateListener(a);
@@ -899,6 +933,10 @@ class Editor extends EventEmitter {
         return tr;
       }),
     ];
+
+    if (Services.prefs.getBoolPref(AUTO_CLOSE)) {
+      extensions.push(closeBrackets());
+    }
 
     if (!this.config.disableSearchAddon && this.config.useSearchAddonPanel) {
       this.config.keyMap = this.config.keyMap
@@ -1165,7 +1203,7 @@ class Editor extends EventEmitter {
           // Wait a cycle so the codemirror updates to the current cursor position,
           // information, TODO: Currently noticed this issue with CM6, not ideal but should
           // investigate further Bug 1890895.
-          event.target.ownerGlobal.setTimeout(() => {
+          event.target.documentGlobal.setTimeout(() => {
             const view = editor.viewState;
             const cursorPos = lezerUtils.positionToLocation(
               view.state.doc,
@@ -1382,6 +1420,12 @@ class Editor extends EventEmitter {
       newMarkerDecorations
     ) {
       const viewport = marker._view.viewport;
+      // If the viewport changes and does ont match the state,
+      // lets not try to update the decorations because the positions
+      // would not longer be valid.
+      if (viewport.to > transaction.state.doc.length) {
+        return;
+      }
       const vStartLine = transaction.state.doc.lineAt(viewport.from);
       const vEndLine = transaction.state.doc.lineAt(viewport.to);
 
@@ -1624,6 +1668,9 @@ class Editor extends EventEmitter {
    */
   removePositionContentMarker(markerId) {
     const cm = editors.get(this);
+    if (!this.#posContentMarkers.has(markerId)) {
+      return;
+    }
     this.#posContentMarkers.delete(markerId);
     cm.dispatch({
       effects:
@@ -2190,7 +2237,26 @@ class Editor extends EventEmitter {
   }
 
   /**
+   * Gets the text from the cursor position to the end of the line
+   *
+   * @returns {string} The text after the cursor
+   */
+  getTextAfterCursor() {
+    const cm = editors.get(this);
+    if (this.config.cm6) {
+      const pos = cm.state.selection.main.head;
+      const line = cm.state.doc.lineAt(pos);
+      return cm.state.sliceDoc(pos, line.to);
+    }
+    const { ch, line } = cm.getCursor();
+    const lineContent = cm.getLine(line);
+    return lineContent.substring(ch);
+  }
+
+  /**
    * Gets the text from the start postion to just before the cursor position
+   *
+   * @returns {string} The text before the cursor
    */
   getTextBeforeCursor() {
     const cm = editors.get(this);
@@ -2214,6 +2280,42 @@ class Editor extends EventEmitter {
       return { line: line.number, ch: pos - line.from };
     }
     return cm.getCursor();
+  }
+
+  /**
+   * Insert a string into the editor at the cursor location,
+   * moving the cursor to the end of the string.
+   *
+   * @param {string} str
+   * @param {int} numberOfCharsToReplaceCharsBeforeCursor - defaults to 0
+   * @param {string} origin
+   */
+  insertStringAtCursor(
+    str,
+    numberOfCharsToReplaceCharsBeforeCursor = 0,
+    origin
+  ) {
+    const cm = editors.get(this);
+    if (this.config.cm6) {
+      const pos = cm.state.selection.main.head;
+      // if the cursor position is `0` (which is the case when selecting text backward to the first position)
+      // we are going to get a negetive offset, this would throw an error.
+      const offset = pos - numberOfCharsToReplaceCharsBeforeCursor;
+      cm.dispatch({
+        changes: {
+          from: offset >= 0 ? offset : 0, // Start offset
+          to: pos, // End offset
+          insert: str, // Replacement text
+        },
+      });
+    } else {
+      const cursor = cm.getCursor();
+      const from = {
+        line: cursor.line,
+        ch: cursor.ch - numberOfCharsToReplaceCharsBeforeCursor,
+      };
+      cm.getDoc().replaceRange(str, from, cursor, origin);
+    }
   }
 
   getDoc() {
@@ -2269,7 +2371,7 @@ class Editor extends EventEmitter {
     if (this.config.cm6) {
       const el = this.getElementAtLine(line);
       return {
-        text: el.innerText,
+        text: cm.state.doc.line(line).text,
         // TODO: Expose those, or see usage for those and do things differently
         line: null,
         gutterMarkers: null,
@@ -2287,15 +2389,24 @@ class Editor extends EventEmitter {
    * Get the functions symbols for the current source loaded in the
    * the editor.
    *
+   * @param {number} sourceId - The id for the source, this used to cache and retrieve a cached syntax tree
    * @param {number} maxResults - The maximum no of results to display
    */
-  async getFunctionSymbols(maxResults) {
+  async getFunctionSymbols(sourceId, maxResults) {
     const cm = editors.get(this);
-    const { codemirrorLanguage } = this.#CodeMirror6;
+    const {
+      codemirrorLanguage,
+      codemirrorLangJavascript: { javascriptLanguage },
+    } = this.#CodeMirror6;
 
     const functionSymbols = [];
     let resultsCount = 0;
     await lezerUtils.walkTree(cm, codemirrorLanguage, {
+      tree: lezerUtils.getTree(
+        javascriptLanguage,
+        sourceId,
+        cm.state.doc.toString()
+      ),
       filterSet: lezerUtils.nodeTypeSets.functionsDeclAndExpr,
       enterVisitor: node => {
         if (resultsCount == maxResults) {
@@ -2324,7 +2435,6 @@ class Editor extends EventEmitter {
         });
         resultsCount++;
       },
-      forceParseTo: cm.state.doc.length,
     });
 
     return functionSymbols;
@@ -2333,14 +2443,23 @@ class Editor extends EventEmitter {
   /**
    * Get the class symbols for the current source loaded in the the editor.
    *
+   * @param {number} sourceId - The id for the source, this used to cache and retrieve a cached syntax tree
    * @returns
    */
-  async getClassSymbols() {
+  async getClassSymbols(sourceId) {
     const cm = editors.get(this);
-    const { codemirrorLanguage } = this.#CodeMirror6;
+    const {
+      codemirrorLanguage,
+      codemirrorLangJavascript: { javascriptLanguage },
+    } = this.#CodeMirror6;
 
     const classSymbols = [];
     await lezerUtils.walkTree(cm, codemirrorLanguage, {
+      tree: lezerUtils.getTree(
+        javascriptLanguage,
+        sourceId,
+        cm.state.doc.toString()
+      ),
       filterSet: lezerUtils.nodeTypeSets.classes,
       enterVisitor: node => {
         const classVarDefNode = node.node.firstChild.nextSibling;
@@ -2355,7 +2474,6 @@ class Editor extends EventEmitter {
           },
         });
       },
-      forceParseTo: cm.state.doc.length,
     });
 
     return classSymbols;
@@ -2675,16 +2793,13 @@ class Editor extends EventEmitter {
       const { codemirrorLanguage } = this.#CodeMirror6;
       const cursorLocation = this.getSelectionCursor();
       const line = cm.state.doc.line(cursorLocation.from.line);
-      const tokPos = line.from + cursorLocation.from.ch;
 
       await lezerUtils.walkTree(cm, codemirrorLanguage, {
         filterSet: lezerUtils.nodeTypeSets.variables,
         enterVisitor: node => {
-          if (node.from <= tokPos && node.to >= tokPos) {
-            variables.push(cm.state.doc.sliceString(node.from, node.to));
-          }
+          variables.push(cm.state.doc.sliceString(node.from, node.to));
         },
-        walkFrom: line.from,
+        walkFrom: 0,
         walkTo: line.to,
       });
     } else {
@@ -3153,6 +3268,29 @@ class Editor extends EventEmitter {
   }
 
   /**
+   * Finds the markers of a specified marker type
+   *
+   * @param {string} markerType - The type for the marker to get decorations
+   */
+  getDecorationsForMarker(markerType) {
+    const cm = editors.get(this);
+    const {
+      codemirrorView: { EditorView },
+    } = this.#CodeMirror6;
+    const decorations = [];
+    const decoSets = cm.state.facet(EditorView.decorations);
+    decoSets.forEach(deco => {
+      const decoSet = typeof deco === "function" ? deco(cm) : deco;
+      decoSet.between(0, cm.state.doc.length, (from, to, decoration) => {
+        if (decoration?.markerType === markerType) {
+          decorations.push(decoration);
+        }
+      });
+    });
+    return decorations;
+  }
+
+  /**
    * Removes all gutter markers in the gutter with the given name.
    */
   removeAllMarkers(gutterName) {
@@ -3506,6 +3644,22 @@ class Editor extends EventEmitter {
     this.config.lineWrapping = value;
   }
 
+  setReadOnly(readOnly) {
+    const cm = editors.get(this);
+    if (!this.config.cm6) {
+      return null;
+    }
+    const {
+      codemirrorState: { EditorState },
+    } = this.#CodeMirror6;
+
+    return cm.dispatch({
+      effects: this.#compartments.readOnlyCompartment.reconfigure(
+        EditorState.readOnly.of(readOnly)
+      ),
+    });
+  }
+
   /**
    * Sets an option for the editor.  For most options it just defers to
    * CodeMirror.setOption, but certain ones are maintained within the editor
@@ -3578,39 +3732,82 @@ class Editor extends EventEmitter {
     }
   }
 
+  /**
+   * Get the marked autocompletion text from the editor
+   *
+   * @returns {string} Autocompletion text
+   */
   getAutoCompletionText() {
     const cm = editors.get(this);
+    if (this.config.cm6) {
+      const decorations = this.getDecorationsForMarker(
+        this.markerTypes.AUTOCOMPLETE_CONTENT_MARKER
+      );
+      if (!decorations.length) {
+        return "";
+      }
+      // For the autocomplete marker we expect to find only
+      // one decoration.
+      const mark = decorations[0].widget.toDOM();
+      return mark.attributes["data-completion"].value || "";
+    }
     const mark = cm
       .getAllMarks()
       .find(m => m.className === AUTOCOMPLETE_MARK_CLASSNAME);
+
     if (!mark) {
       return "";
     }
-
     return mark.attributes["data-completion"] || "";
   }
 
+  /**
+   * Add the autocompletion text to the codemirror editor with a
+   * marker to style the text.
+   *
+   * @param {string} text
+   */
   setAutoCompletionText(text) {
-    const cursor = this.getCursor();
     const cm = editors.get(this);
     const className = AUTOCOMPLETE_MARK_CLASSNAME;
 
-    cm.operation(() => {
-      cm.getAllMarks().forEach(mark => {
-        if (mark.className === className) {
-          mark.clear();
-        }
-      });
-
+    if (this.config.cm6) {
+      const pos = cm.state.selection.main.head;
+      const line = cm.state.doc.lineAt(pos);
+      this.removePositionContentMarker(
+        this.markerTypes.AUTOCOMPLETE_CONTENT_MARKER
+      );
       if (text) {
-        cm.markText({ ...cursor, ch: cursor.ch - 1 }, cursor, {
-          className,
-          attributes: {
-            "data-completion": text,
+        this.setPositionContentMarker({
+          id: this.markerTypes.AUTOCOMPLETE_CONTENT_MARKER,
+          positions: [{ line: line.number, column: pos - line.from }],
+          createPositionElementNode: () => {
+            const autocompleteMarker = this.#win.document.createElement("span");
+            autocompleteMarker.className = AUTOCOMPLETE_MARK_CLASSNAME;
+            autocompleteMarker.setAttribute("data-completion", text);
+            return autocompleteMarker;
           },
         });
       }
-    });
+    } else {
+      const cursor = cm.getCursor();
+      cm.operation(() => {
+        cm.getAllMarks().forEach(mark => {
+          if (mark.className === className) {
+            mark.clear();
+          }
+        });
+
+        if (text) {
+          cm.markText({ ...cursor, ch: cursor.ch - 1 }, cursor, {
+            className,
+            attributes: {
+              "data-completion": text,
+            },
+          });
+        }
+      });
+    }
   }
 
   /**
@@ -3821,29 +4018,49 @@ class Editor extends EventEmitter {
   /**
    * Move CodeMirror cursor to a given location.
    * This will also scroll the editor to the specified position.
-   * Used only for CM6
    *
    * @param {number} line
    * @param {number} column
+   * @param {boolean} scroll
    */
-  async setCursorAt(line, column) {
-    await this.scrollTo(line, column);
+  async setCursorAt(line, column, scroll = true) {
+    if (scroll) {
+      await this.scrollTo(line, column);
+    }
     const cm = editors.get(this);
-    const { lines } = cm.state.doc;
-    if (line > lines) {
-      console.error(
-        `Trying to set the cursor on a non-existing line ${line} > ${lines}`
-      );
-      return null;
+    if (this.config.cm6) {
+      const { lines } = cm.state.doc;
+      if (line > lines) {
+        console.error(
+          `Trying to set the cursor on a non-existing line ${line} > ${lines}`
+        );
+        return null;
+      }
+      const lineInfo = cm.state.doc.line(line);
+      if (column > lineInfo.length) {
+        console.error(
+          `Trying to set the cursor on a non-existing column ${column} > ${lineInfo.length}`
+        );
+        return null;
+      }
+      const position = lineInfo.from + column;
+      return cm.dispatch({ selection: { anchor: position, head: position } });
     }
-    const lineInfo = cm.state.doc.line(line);
-    if (column >= lineInfo.length) {
-      console.error(
-        `Trying to set the cursor on a non-existing column ${column} >= ${lineInfo.length}`
-      );
-      return null;
+    return this.setCursor({ line, ch: column });
+  }
+
+  /**
+   * Set the cursor at a codemirror 6 position in the document.
+   *
+   * @param {number} position
+   * @param {boolean} scroll
+   * @returns
+   */
+  setCursorAtPosition(position, scroll = true) {
+    const cm = editors.get(this);
+    if (scroll) {
+      cm.scrollToPosition(position);
     }
-    const position = lineInfo.from + column;
     return cm.dispatch({ selection: { anchor: position, head: position } });
   }
 
@@ -3894,6 +4111,13 @@ class Editor extends EventEmitter {
     const offset = this.#positionToOffset(line);
     const el = this.#getElementAtOffset(offset);
     return el.closest(".cm-line");
+  }
+
+  // Used only in tests
+  // Only used for CM6
+  isReadOnly() {
+    const cm = editors.get(this);
+    return cm.state.readOnly;
   }
 
   // Used only in tests
@@ -4197,14 +4421,17 @@ class Editor extends EventEmitter {
 
 // Since Editor is a thin layer over CodeMirror some methods
 // are mapped directly—without any changes.
-if (!Services.prefs.getBoolPref(PREF_CMNEXT_ENABLED)) {
-  CM_MAPPING.forEach(name => {
-    Editor.prototype[name] = function (...args) {
-      const cm = editors.get(this);
-      return cm[name].apply(cm, args);
-    };
-  });
-}
+CM_MAPPING.forEach(name => {
+  Editor.prototype[name] = function (...args) {
+    // For CM6 all these methods (do not exist) and are not useful
+    // so they should do nothing.
+    if (this.config.cm6) {
+      throw new Error("This method is not valid for Codemirror 6");
+    }
+    const cm = editors.get(this);
+    return cm[name].apply(cm, args);
+  };
+});
 
 /**
  * We compute the CSS property names, values, and color names to be used with

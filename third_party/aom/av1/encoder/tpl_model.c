@@ -212,6 +212,24 @@ void av1_setup_tpl_buffers(AV1_PRIMARY *const ppi,
   tpl_data->prev_gop_arf_disp_order = -1;
 }
 
+static inline void tpl_subtract_block(BitDepthInfo bd_info, int rows, int cols,
+                                      int16_t *diff, ptrdiff_t diff_stride,
+                                      const uint8_t *src8, ptrdiff_t src_stride,
+                                      const uint8_t *pred8,
+                                      ptrdiff_t pred_stride) {
+  assert(rows >= 4 && cols >= 4);
+#if CONFIG_AV1_HIGHBITDEPTH
+  if (bd_info.use_highbitdepth_buf) {
+    aom_highbd_subtract_block(rows, cols, diff, diff_stride, src8, src_stride,
+                              pred8, pred_stride);
+    return;
+  }
+#endif
+  (void)bd_info;
+  aom_subtract_block(rows, cols, diff, diff_stride, src8, src_stride, pred8,
+                     pred_stride);
+}
+
 static inline int32_t tpl_get_satd_cost(BitDepthInfo bd_info, int16_t *src_diff,
                                         int diff_stride, const uint8_t *src,
                                         int src_stride, const uint8_t *dst,
@@ -219,7 +237,7 @@ static inline int32_t tpl_get_satd_cost(BitDepthInfo bd_info, int16_t *src_diff,
                                         int bw, int bh, TX_SIZE tx_size) {
   const int pix_num = bw * bh;
 
-  av1_subtract_block(bd_info, bh, bw, src_diff, diff_stride, src, src_stride,
+  tpl_subtract_block(bd_info, bh, bw, src_diff, diff_stride, src, src_stride,
                      dst, dst_stride);
   av1_quick_txfm(/*use_hadamard=*/0, tx_size, bd_info, src_diff, bw, coeff);
   return aom_satd(coeff, pix_num);
@@ -247,7 +265,7 @@ static inline void txfm_quant_rdcost(
   const MACROBLOCKD *xd = &x->e_mbd;
   const BitDepthInfo bd_info = get_bit_depth_info(xd);
   uint16_t eob;
-  av1_subtract_block(bd_info, bh, bw, src_diff, diff_stride, src, src_stride,
+  tpl_subtract_block(bd_info, bh, bw, src_diff, diff_stride, src, src_stride,
                      dst, dst_stride);
   av1_quick_txfm(/*use_hadamard=*/0, tx_size, bd_info, src_diff, bw, coeff);
 
@@ -851,7 +869,11 @@ static inline void mode_estimation(AV1_COMP *cpi, TplTxfmStats *tpl_txfm_stats,
     // Store inter cost for each ref frame. This is used to prune inter modes.
     tpl_stats->pred_error[rf_idx] = AOMMAX(1, inter_cost);
 
-    if (inter_cost < best_inter_cost) {
+    // If we have saved the previous arf frame. Only allow using it as reference
+    // for previous gop.
+    if (inter_cost < best_inter_cost &&
+        (tpl_data->prev_gop_arf_disp_order < 0 ||
+         tpl_data->src_ref_frame[rf_idx] != tpl_data->ref_frame[rf_idx])) {
       best_rf_idx = rf_idx;
 
       best_inter_cost = inter_cost;
@@ -981,7 +1003,13 @@ static inline void mode_estimation(AV1_COMP *cpi, TplTxfmStats *tpl_txfm_stats,
     inter_cost =
         tpl_get_satd_cost(bd_info, src_diff, bw, src_mb_buffer, src_stride,
                           predictor, bw, coeff, bw, bh, tx_size);
-    if (inter_cost < best_inter_cost) {
+
+    // If we have saved the previous arf frame. Only allow using it as reference
+    // for previous gop.
+    if (inter_cost < best_inter_cost &&
+        (tpl_data->prev_gop_arf_disp_order < 0 ||
+         (tpl_data->src_ref_frame[rf_idx0] != tpl_data->ref_frame[rf_idx0] &&
+          tpl_data->src_ref_frame[rf_idx1] != tpl_data->ref_frame[rf_idx1]))) {
       best_cmp_rf_idx = cmp_rf_idx;
       best_inter_cost = inter_cost;
       best_mv[0] = tmp_mv[0];
@@ -1409,8 +1437,9 @@ static inline void init_mc_flow_dispenser(AV1_COMP *cpi, int frame_idx,
   xd->block_ref_scale_factors[0] = &tpl_data->sf;
   xd->block_ref_scale_factors[1] = &tpl_data->sf;
 
-  const int base_qindex =
+  int base_qindex =
       cpi->use_ducky_encode ? gf_group->q_val[frame_idx] : pframe_qindex;
+
   // Get rd multiplier set up.
   rdmult = av1_compute_rd_mult(
       base_qindex, cm->seq_params->bit_depth,
@@ -1489,19 +1518,23 @@ static void tpl_store_before_propagation(AV1_COMP *cpi,
   tpl_block_stats->intra_rate = src_stats->intra_rate;
   tpl_block_stats->cmp_recrf_rate[0] = src_stats->cmp_recrf_rate[0];
   tpl_block_stats->cmp_recrf_rate[1] = src_stats->cmp_recrf_rate[1];
-  tpl_block_stats->ref_frame_index[0] =
-      gf_group->ref_frame_list[tpl_data->frame_idx]
-                              [LAST_FRAME + src_stats->ref_frame_index[0]];
-  tpl_block_stats->ref_frame_index[1] =
-      gf_group->ref_frame_list[tpl_data->frame_idx]
-                              [LAST_FRAME + src_stats->ref_frame_index[1]];
-  for (int ref = 0; ref < AOM_RC_INTER_REFS_PER_FRAME; ++ref) {
-    tpl_block_stats->mv[ref].as_mv.col = src_stats->mv[ref].as_mv.col;
-    tpl_block_stats->mv[ref].as_mv.row = src_stats->mv[ref].as_mv.row;
-    tpl_block_stats->mv[ref].as_fullmv.col = src_stats->mv[ref].as_fullmv.col;
-    tpl_block_stats->mv[ref].as_fullmv.row = src_stats->mv[ref].as_fullmv.row;
-    tpl_block_stats->mv[ref].as_int = src_stats->mv[ref].as_int;
-    tpl_block_stats->pred_error[ref] = src_stats->pred_error[ref];
+
+  for (int ref = 0; ref < 2; ++ref) {
+    const int ref_frame_index = src_stats->ref_frame_index[ref];
+    if (ref_frame_index < 0) {
+      tpl_block_stats->ref_frame_index[ref] = -1;
+      continue;
+    }
+    tpl_block_stats->ref_frame_index[ref] =
+        gf_group
+            ->ref_frame_list[tpl_data->frame_idx][LAST_FRAME + ref_frame_index];
+
+    const FULLPEL_MV full_mv =
+        get_fullmv_from_mv(&src_stats->mv[ref_frame_index].as_mv);
+
+    tpl_block_stats->mv[ref].as_mv.row = full_mv.row;
+    tpl_block_stats->mv[ref].as_mv.col = full_mv.col;
+    tpl_block_stats->pred_error[ref] = src_stats->pred_error[ref_frame_index];
   }
 }
 
@@ -1521,8 +1554,19 @@ void av1_mc_flow_dispenser_row(AV1_COMP *cpi, TplTxfmStats *tpl_txfm_stats,
   const int tplb_cols_in_tile =
       ROUND_POWER_OF_TWO(mi_params->mi_cols, mi_size_wide_log2[bsize]);
   const int tplb_row = ROUND_POWER_OF_TWO(mi_row, mi_size_high_log2[bsize]);
-  assert(mi_size_high[bsize] == (1 << tpl_data->tpl_stats_block_mis_log2));
-  assert(mi_size_wide[bsize] == (1 << tpl_data->tpl_stats_block_mis_log2));
+  const int block_mis_log2 = tpl_data->tpl_stats_block_mis_log2;
+  assert(mi_size_high[bsize] == (1 << block_mis_log2));
+  assert(mi_size_wide[bsize] == (1 << block_mis_log2));
+
+  const int use_extrc = av1_use_tpl_for_extrc(&cpi->ext_ratectrl);
+  AomTplFrameStats *tpl_frame_stats_before_propagation = NULL;
+  int cols = 0;
+  if (use_extrc) {
+    tpl_frame_stats_before_propagation =
+        &cpi->extrc_tpl_gop_stats.frame_stats_list[tpl_data->frame_idx];
+    const int mi_to_blocks = 1 << block_mis_log2;
+    cols = (mi_params->mi_cols + mi_to_blocks - 1) / mi_to_blocks;
+  }
 
   for (int mi_col = 0, tplb_col_in_tile = 0; mi_col < mi_params->mi_cols;
        mi_col += mi_width, tplb_col_in_tile++) {
@@ -1552,14 +1596,14 @@ void av1_mc_flow_dispenser_row(AV1_COMP *cpi, TplTxfmStats *tpl_txfm_stats,
 
     // Motion flow dependency dispenser.
     tpl_model_store(tpl_frame->tpl_stats_ptr, mi_row, mi_col, tpl_frame->stride,
-                    &tpl_stats, tpl_data->tpl_stats_block_mis_log2);
+                    &tpl_stats, block_mis_log2);
 
-    if (av1_use_tpl_for_extrc(&cpi->ext_ratectrl)) {
-      AomTplFrameStats *tpl_frame_stats_before_propagation =
-          &cpi->extrc_tpl_gop_stats.frame_stats_list[tpl_data->frame_idx];
+    if (use_extrc) {
+      const int block_index =
+          av1_tpl_ptr_pos(mi_row, mi_col, cols, block_mis_log2);
+      assert(block_index < tpl_frame_stats_before_propagation->num_blocks);
       AomTplBlockStats *block_stats =
-          &tpl_frame_stats_before_propagation
-               ->block_stats_list[mi_row * tpl_frame->mi_cols + mi_col];
+          &tpl_frame_stats_before_propagation->block_stats_list[block_index];
       tpl_store_before_propagation(cpi, block_stats, &tpl_stats, mi_row,
                                    mi_col);
     }
@@ -1625,6 +1669,7 @@ static inline int init_gop_frames_for_tpl(
   TplParams *const tpl_data = &cpi->ppi->tpl_data;
 
   int ref_picture_map[REF_FRAMES];
+  int has_prev_arf = 0;
 
   for (int i = 0; i < REF_FRAMES; ++i) {
     if (frame_params.frame_type == KEY_FRAME) {
@@ -1635,15 +1680,22 @@ static inline int init_gop_frames_for_tpl(
       if (cm->ref_frame_map[i]->display_order_hint ==
           tpl_data->prev_gop_arf_disp_order) {
         tpl_data->tpl_frame[-i - 1].gf_picture = &tpl_data->prev_gop_arf_src;
+        tpl_data->tpl_frame[-i - 1].rec_picture =
+            &tpl_data->prev_gop_arf_tpl_recon;
+        has_prev_arf = 1;
       } else {
         tpl_data->tpl_frame[-i - 1].gf_picture = &cm->ref_frame_map[i]->buf;
+        tpl_data->tpl_frame[-i - 1].rec_picture = &cm->ref_frame_map[i]->buf;
       }
-      tpl_data->tpl_frame[-i - 1].rec_picture = &cm->ref_frame_map[i]->buf;
       tpl_data->tpl_frame[-i - 1].frame_display_index =
           cm->ref_frame_map[i]->display_order_hint;
     }
 
     ref_picture_map[i] = -i - 1;
+  }
+
+  if (frame_params.frame_type != KEY_FRAME && !has_prev_arf) {
+    tpl_data->prev_gop_arf_disp_order = -1;
   }
 
   *tpl_group_frames = 0;
@@ -1969,6 +2021,7 @@ void av1_free_tpl_gop_stats(AomTplGopStats *extrc_tpl_gop_stats) {
 }
 
 static void init_tpl_stats_before_propagation(
+    CommonModeInfoParams *const mi_params,
     struct aom_internal_error_info *error_info,
     AomTplGopStats *extrc_tpl_gop_stats, TplParams *tpl_stats,
     int tpl_gop_frames, int frame_width, int frame_height) {
@@ -1979,15 +2032,19 @@ static void init_tpl_stats_before_propagation(
                  sizeof(*extrc_tpl_gop_stats->frame_stats_list)));
   extrc_tpl_gop_stats->size = tpl_gop_frames;
   for (int frame_index = 0; frame_index < tpl_gop_frames; ++frame_index) {
-    const int mi_rows = tpl_stats->tpl_frame[frame_index].mi_rows;
-    const int mi_cols = tpl_stats->tpl_frame[frame_index].mi_cols;
+    const int block_mis_log2 = tpl_stats->tpl_stats_block_mis_log2;
+    const int mi_to_blocks = 1 << block_mis_log2;
+    const int block_rows =
+        (mi_params->mi_rows + mi_to_blocks - 1) / mi_to_blocks;
+    const int block_cols =
+        (mi_params->mi_cols + mi_to_blocks - 1) / mi_to_blocks;
     AomTplFrameStats *this_frame_stats =
         &extrc_tpl_gop_stats->frame_stats_list[frame_index];
     AOM_CHECK_MEM_ERROR(
         error_info, this_frame_stats->block_stats_list,
-        aom_calloc(mi_rows * mi_cols,
+        aom_calloc(block_rows * block_cols,
                    sizeof(*this_frame_stats->block_stats_list)));
-    this_frame_stats->num_blocks = mi_rows * mi_cols;
+    this_frame_stats->num_blocks = block_rows * block_cols;
     this_frame_stats->frame_width = frame_width;
     this_frame_stats->frame_height = frame_height;
   }
@@ -2066,7 +2123,7 @@ int av1_tpl_setup_stats(AV1_COMP *cpi, int gop_eval,
 
   if (av1_use_tpl_for_extrc(&cpi->ext_ratectrl)) {
     init_tpl_stats_before_propagation(
-        cpi->common.error, &cpi->extrc_tpl_gop_stats, tpl_data,
+        &cm->mi_params, cpi->common.error, &cpi->extrc_tpl_gop_stats, tpl_data,
         tpl_gf_group_frames, cpi->common.width, cpi->common.height);
   }
 

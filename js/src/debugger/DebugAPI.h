@@ -24,6 +24,11 @@ namespace gc {
 class AutoSuppressGC;
 }  // namespace gc
 
+namespace wasm {
+class DebugFrame;
+class Instance;
+}  // namespace wasm
+
 /**
  * DebugAPI::onNativeCall allows the debugger to call callbacks just before
  * some native functions are to be executed. It also allows the hooks
@@ -98,6 +103,19 @@ class DebugAPI {
    */
   static inline void traceGeneratorFrame(JSTracer* tracer,
                                          AbstractGeneratorObject* generator);
+
+#ifdef ENABLE_WASM_JSPI
+  /*
+   * Trace the inferred owning edge from a suspended wasm continuation (|src|)
+   * to one suspended Debugger.Frame, if it has hooks. Called per debug-enabled
+   * frame from ContStack::traceSuspended while marking. Analogous to
+   * traceGeneratorFrame: the ContObject keeps its hooked Debugger.Frames (and
+   * their Debugger) alive while it can still be resumed.
+   */
+  static void traceWasmContFrame(JSTracer* tracer, JSObject* src,
+                                 wasm::DebugFrame* debugFrame,
+                                 wasm::Instance* instance);
+#endif
 
   // Trace cross compartment edges in all debuggers relevant to the current GC.
   static void traceCrossCompartmentEdges(JSTracer* tracer);
@@ -210,20 +228,16 @@ class DebugAPI {
    * There is no separate user-visible Debugger.onResumeFrame hook; this
    * fires .onEnterFrame (again, since we're re-entering the frame).
    *
-   * Unfortunately, the interpreter and the baseline JIT arrange for this to
-   * be called in different ways. The interpreter calls it from JSOp::Resume,
-   * immediately after pushing the resumed frame; the JIT calls it from
-   * JSOp::AfterYield, just after the generator resumes. The difference
-   * should not be user-visible.
+   * This is called from JSOp::AfterYield, just after the generator resumes, so
+   * this also handles breakpoints/stepping for the JSOp::AfterYield op.
    */
   [[nodiscard]] static inline bool onResumeFrame(JSContext* cx,
                                                  AbstractFramePtr frame);
 
-  // Called when Wasm frame is suspended by JS PI.
-  static void onSuspendWasmFrame(JSContext* cx, wasm::DebugFrame* debugFrame);
-
-  // Called when Wasm frame is resumed by JS PI.
-  static void onResumeWasmFrame(JSContext* cx, const FrameIter& iter);
+  // Called when a suspended wasm continuation is destroyed (ContObject
+  // finalized). Terminates any Debugger.Frame objects whose frame pointers
+  // refer to frames on the stacks in the chain.
+  static void onLeaveWasmCont(JSContext* cx, wasm::ContStack* resumeBase);
 
   static inline NativeResumeMode onNativeCall(JSContext* cx,
                                               const CallArgs& args,
@@ -274,23 +288,6 @@ class DebugAPI {
   // Call any stepping handlers for the current scripted location.
   [[nodiscard]] static bool onSingleStep(JSContext* cx);
 
-  // Notify any Debugger instances observing this promise's global that a new
-  // promise was allocated.
-  static inline void onNewPromise(JSContext* cx,
-                                  Handle<PromiseObject*> promise);
-
-  // Notify any Debugger instances observing this promise's global that the
-  // promise has settled (ie, it has either been fulfilled or rejected). Note
-  // that this is *not* equivalent to the promise resolution (ie, the promise's
-  // fate getting locked in) because you can resolve a promise with another
-  // pending promise, in which case neither promise has settled yet.
-  //
-  // This should never be called on the same promise more than once, because a
-  // promise can only make the transition from unsettled to settled once.
-  static inline void onPromiseSettled(JSContext* cx,
-                                      Handle<PromiseObject*> promise);
-
-  // Notify any Debugger instances that a new global object has been created.
   static inline void onNewGlobalObject(JSContext* cx,
                                        Handle<GlobalObject*> global);
 
@@ -301,9 +298,6 @@ class DebugAPI {
 
   // Whether any debugger is observing JS execution coverage in a global.
   static bool debuggerObservesCoverage(GlobalObject* global);
-
-  // Whether any Debugger is observing asm.js execution in a global.
-  static bool debuggerObservesAsmJS(GlobalObject* global);
 
   // Whether any Debugger is observing WebAssembly execution in a global.
   static bool debuggerObservesWasm(GlobalObject* global);
@@ -395,10 +389,6 @@ class DebugAPI {
                                                       AbstractFramePtr frame);
   static void slowPathOnNewWasmInstance(
       JSContext* cx, Handle<WasmInstanceObject*> wasmInstance);
-  static void slowPathOnNewPromise(JSContext* cx,
-                                   Handle<PromiseObject*> promise);
-  static void slowPathOnPromiseSettled(JSContext* cx,
-                                       Handle<PromiseObject*> promise);
   static bool inFrameMaps(AbstractFramePtr frame);
   static void slowPathTraceGeneratorFrame(JSTracer* tracer,
                                           AbstractGeneratorObject* generator);

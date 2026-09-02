@@ -4,7 +4,7 @@
 "use strict";
 
 const { TabStateFlusher } = ChromeUtils.importESModule(
-  "resource:///modules/sessionstore/TabStateFlusher.sys.mjs"
+  "moz-src:///browser/components/sessionstore/TabStateFlusher.sys.mjs"
 );
 
 const { ChatStore } = ChromeUtils.importESModule(
@@ -192,6 +192,9 @@ add_task(async function test_smarttab_with_conversation_becomes_classic() {
     "Re-adopted tab should keep its AI window content"
   );
 
+  // waiting for focus stabilizes flaky test here
+  await SimpleTest.promiseFocus(smartWin);
+
   // Verify the CTA button is functional after re-adoption, testing that the
   // actor connection and SmartbarInput currentPage guard are both working.
   await typeInSmartbar(reAdoptedTab.linkedBrowser, "hello");
@@ -230,9 +233,7 @@ add_task(async function test_smarttab_conversation_restored_after_drag() {
     fetchWithHistory.resolve(ChatStore.updateConversation(conversation));
     return fetchWithHistory.promise;
   });
-  sb.stub(openAIEngine, "build").resolves({
-    loadPrompt: () => Promise.resolve("Mock system prompt"),
-  });
+  sb.stub(openAIEngine, "build").resolves({});
   sb.stub(AIWindowAccountAuth, "ensureAIWindowAccess").resolves(true);
 
   smartWin = await openAIWindow();

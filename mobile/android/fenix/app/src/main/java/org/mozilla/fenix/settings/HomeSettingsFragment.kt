@@ -15,13 +15,13 @@ import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.SwitchPreferenceCompat
 import org.mozilla.fenix.GleanMetrics.CustomizeHome
+import org.mozilla.fenix.GleanMetrics.Events
 import org.mozilla.fenix.R
 import org.mozilla.fenix.components.Components
 import org.mozilla.fenix.components.appstate.AppAction
 import org.mozilla.fenix.e2e.SystemInsetsPaddedFragment
 import org.mozilla.fenix.ext.components
 import org.mozilla.fenix.ext.navigateWithBreadcrumb
-import org.mozilla.fenix.ext.settings
 import org.mozilla.fenix.ext.showToolbar
 import org.mozilla.fenix.home.pocket.ContentRecommendationsFeatureHelper
 import org.mozilla.fenix.utils.Settings
@@ -30,32 +30,29 @@ import org.mozilla.fenix.utils.view.addToRadioGroup
 /**
  * A [PreferenceFragmentCompat] that displays settings for customizing the Firefox home screen.
  *
- * User interactions with these preferences are persisted in [Settings] and may trigger
- * telemetry events via [CustomizeHome] metrics.
+ * User interactions with these preferences are persisted in [Settings] and may trigger telemetry events via
+ * [CustomizeHome] metrics.
  */
 class HomeSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment {
 
     private val args by navArgs<HomeSettingsFragmentArgs>()
 
-    @VisibleForTesting
-    internal var customizeHomeMetrics: CustomizeHome = CustomizeHome
+    @VisibleForTesting internal var customizeHomeMetrics: CustomizeHome = CustomizeHome
 
     @VisibleForTesting
     internal var contentRecommendationsHelper: ContentRecommendationsFeatureHelper = ContentRecommendationsFeatureHelper
 
-    @VisibleForTesting
-    internal lateinit var fenixSettings: Settings
+    @VisibleForTesting internal lateinit var fenixSettings: Settings
 
-    @VisibleForTesting
-    internal lateinit var fenixComponents: Components
+    @VisibleForTesting internal lateinit var fenixComponents: Components
 
     override fun onAttach(context: Context) {
         super.onAttach(context)
-        if (!::fenixSettings.isInitialized) {
-            fenixSettings = context.settings()
-        }
         if (!::fenixComponents.isInitialized) {
             fenixComponents = context.components
+        }
+        if (!::fenixSettings.isInitialized) {
+            fenixSettings = fenixComponents.settings
         }
     }
 
@@ -84,9 +81,13 @@ class HomeSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
         }
 
         requirePreference<SwitchPreferenceCompat>(R.string.pref_key_privacy_report).apply {
-            isVisible = fenixSettings.showPrivacyReportSectionToggle
+            if (fenixSettings.longfoxEnabled) title = resources.getString(R.string.help_catch_trackers)
             isChecked = fenixSettings.showPrivacyReportFeature
-            onPreferenceChangeListener = createMetricPreferenceChangeListener("privacy_report")
+            onPreferenceChangeListener =
+                createMetricPreferenceChangeListener(
+                    metricKey = getString(R.string.pref_key_privacy_report_metric),
+                    recordEventsToggle = true,
+                )
         }
 
         requirePreference<SwitchPreferenceCompat>(R.string.pref_key_recent_tabs).apply {
@@ -122,8 +123,8 @@ class HomeSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
 
                         fenixComponents.appStore.dispatch(
                             AppAction.ContentRecommendationsAction.SponsoredContentsChange(
-                                sponsoredContents = emptyList(),
-                            ),
+                                sponsoredContents = emptyList()
+                            )
                         )
                     }
                 }
@@ -141,20 +142,27 @@ class HomeSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
 
         requirePreference<Preference>(R.string.pref_key_wallpapers).apply {
             setOnPreferenceClickListener {
-                view?.findNavController()?.navigateWithBreadcrumb(
-                    directions = HomeSettingsFragmentDirections.actionHomeSettingsFragmentToWallpaperSettingsFragment(),
-                    navigateFrom = "HomeSettingsFragment",
-                    navigateTo = "ActionHomeSettingsFragmentToWallpaperSettingsFragment",
-                    crashReporter = fenixComponents.analytics.crashReporter,
-                )
+                view
+                    ?.findNavController()
+                    ?.navigateWithBreadcrumb(
+                        directions =
+                            HomeSettingsFragmentDirections.actionHomeSettingsFragmentToWallpaperSettingsFragment(),
+                        navigateFrom = "HomeSettingsFragment",
+                        navigateTo = "ActionHomeSettingsFragmentToWallpaperSettingsFragment",
+                        crashReporter = fenixComponents.analytics.crashReporter,
+                    )
                 true
             }
         }
 
         setupOpeningScreenPreferences()
+        setupWeatherPreference()
     }
 
-    private fun createMetricPreferenceChangeListener(metricKey: String): Preference.OnPreferenceChangeListener {
+    private fun createMetricPreferenceChangeListener(
+        metricKey: String,
+        recordEventsToggle: Boolean = false,
+    ): Preference.OnPreferenceChangeListener {
         return Preference.OnPreferenceChangeListener { preference, newValue ->
             val newBooleanValue = newValue as? Boolean ?: return@OnPreferenceChangeListener false
 
@@ -162,8 +170,17 @@ class HomeSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
                 CustomizeHome.PreferenceToggledExtra(
                     newBooleanValue,
                     metricKey,
-                ),
+                )
             )
+
+            if (recordEventsToggle) {
+                Events.preferenceToggled.record(
+                    Events.PreferenceToggledExtra(
+                        newBooleanValue,
+                        metricKey,
+                    )
+                )
+            }
 
             fenixSettings.preferences.edit { putBoolean(preference.key, newBooleanValue) }
 
@@ -190,5 +207,13 @@ class HomeSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
             openingScreenLastTab,
             openingScreenAfterFourHours,
         )
+    }
+
+    private fun setupWeatherPreference() {
+        requirePreference<SwitchPreferenceCompat>(R.string.pref_key_show_homepage_weather_widget).apply {
+            isVisible = fenixSettings.enableHomepageWeatherWidget
+            isChecked = fenixSettings.showHomepageWeatherWidget
+            onPreferenceChangeListener = createMetricPreferenceChangeListener("weather")
+        }
     }
 }

@@ -48,8 +48,12 @@ async function clickRenderedLink(browserOrBC, url, eventOptions = {}) {
       doc.body.appendChild(el);
 
       const elJS = el.wrappedJSObject || el;
-      elJS.role = "assistant";
-      el.setAttribute("role", "assistant");
+      // `role` reflects to the `data-message-role` attribute: the bare `role`
+      // attribute is the native ARIA role and collides with the reactive
+      // property, so it's set via the data-* attribute instead.
+      // TODO: rename the reactive property off `role` so callers can set it
+      // directly (`elJS.role = "assistant"`).
+      el.setAttribute("data-message-role", "assistant");
       elJS.trustedUrls = Cu.cloneInto([linkUrl], content);
       const md = `Click [here](${linkUrl}) for more`;
       elJS.message = md;
@@ -116,12 +120,13 @@ describe("aichat container tab behavior", () => {
           aiWindow.shadowRoot?.querySelector("#aichat-browser");
         return !!chatBrowser?.browsingContext;
       }, "Nested aichat-browser should exist");
+
       return aiWindow.shadowRoot.querySelector("#aichat-browser")
         .browsingContext;
     });
 
     if (innerBC.currentURI.spec !== "about:aichatcontent") {
-      await BrowserTestUtils.browserLoaded(innerBC, {
+      await BrowserTestUtils.browserLoaded(innerBC.embedderElement, {
         wantLoad: "about:aichatcontent",
       });
     }
@@ -195,7 +200,7 @@ describe("aichat open link", () => {
 
       await clickRenderedLink(chatTab.linkedBrowser, TEST_URL);
 
-      await BrowserTestUtils.waitForCondition(
+      await TestUtils.waitForCondition(
         () => gBrowser.selectedTab === existingTab,
         "Browser should switch to the existing tab with the matching URL"
       );
@@ -300,6 +305,23 @@ describe("aichat open link", () => {
       BrowserTestUtils.removeTab(newTab);
     });
 
+    it("should open about:smartwindowtasks links in a new tab", async () => {
+      const newTabPromise = BrowserTestUtils.waitForNewTab(gBrowser);
+
+      await SpecialPowers.spawn(chatTab.linkedBrowser, [], async () => {
+        content.document.dispatchEvent(
+          new content.CustomEvent("AIChatContent:OpenLink", {
+            bubbles: true,
+            detail: { url: "about:smartwindowtasks" },
+          })
+        );
+      });
+
+      const newTab = await newTabPromise;
+      Assert.ok(newTab, "A new tab should open for about:smartwindowtasks url");
+      BrowserTestUtils.removeTab(newTab);
+    });
+
     it("should switch to an existing about:preferences tab instead of opening a new one", async () => {
       const prefsTab = await BrowserTestUtils.openNewForegroundTab(
         gBrowser,
@@ -317,7 +339,7 @@ describe("aichat open link", () => {
         );
       });
 
-      await BrowserTestUtils.waitForCondition(
+      await TestUtils.waitForCondition(
         () => gBrowser.selectedTab === prefsTab,
         "Should switch to existing preferences tab"
       );
@@ -362,7 +384,9 @@ describe("aichat open link", () => {
         content.document.body.appendChild(el);
 
         const elJS = el.wrappedJSObject || el;
-        elJS.role = "assistant";
+        // See note above: drive `role` via `data-message-role` (ARIA role
+        // collision; TODO rename the reactive property off `role`).
+        el.setAttribute("data-message-role", "assistant");
         elJS.trustedUrls = Cu.cloneInto([], content);
         const md = `Go to [Manage memories](about:preferences#manageMemories)`;
         elJS.message = md;
@@ -387,7 +411,9 @@ describe("aichat open link", () => {
         content.document.body.appendChild(el);
 
         const elJS = el.wrappedJSObject || el;
-        elJS.role = "assistant";
+        // See note above: drive `role` via `data-message-role` (ARIA role
+        // collision; TODO rename the reactive property off `role`).
+        el.setAttribute("data-message-role", "assistant");
         elJS.trustedUrls = Cu.cloneInto([], content);
         elJS.message = `See [config](about:config) for details`;
 
@@ -405,6 +431,155 @@ describe("aichat open link", () => {
         Assert.ok(!link, "about:config link should have href stripped");
         el.remove();
       });
+    });
+
+    it("should render a localized message link via data-l10n-name", async () => {
+      await SpecialPowers.spawn(chatTab.linkedBrowser, [], async () => {
+        await content.customElements.whenDefined("ai-chat-message");
+
+        const el = content.document.createElement("ai-chat-message");
+        content.document.body.appendChild(el);
+
+        const elJS = el.wrappedJSObject || el;
+        // See note above: drive `role` via `data-message-role` (ARIA role
+        // collision; TODO rename the reactive property off `role`).
+        el.setAttribute("data-message-role", "assistant");
+        elJS.messageL10n = Cu.cloneInto(
+          {
+            id: "smartwindow-agent-monitor-watching",
+            args: { monitorName: "Example", schedule: "daily at 9:00 AM" },
+            link: { l10nName: "tasks", href: "about:smartwindowtasks" },
+          },
+          content
+        );
+
+        await ContentTaskUtils.waitForCondition(
+          () =>
+            el.shadowRoot?.querySelector(
+              `.message-assistant a[href="about:smartwindowtasks"]`
+            ),
+          "Localized message link should render with its href"
+        );
+
+        const link = el.shadowRoot.querySelector(
+          `.message-assistant a[href="about:smartwindowtasks"]`
+        );
+        Assert.ok(link, "Localized link keeps its href");
+        Assert.ok(
+          link.textContent.trim().length,
+          "Localized link text is filled from the l10n message"
+        );
+        el.remove();
+      });
+    });
+  });
+
+  describe("aichat preferSwitchToTab", () => {
+    it("should switch to an existing tab when one matches the URL", async () => {
+      existingTab = await BrowserTestUtils.openNewForegroundTab(
+        gBrowser,
+        TEST_URL
+      );
+      gBrowser.selectedTab = chatTab;
+      const initialTabCount = gBrowser.tabs.length;
+
+      await SpecialPowers.spawn(
+        chatTab.linkedBrowser,
+        [TEST_URL],
+        async url => {
+          content.document.dispatchEvent(
+            new content.CustomEvent("AIChatContent:OpenLink", {
+              bubbles: true,
+              detail: { url, preferSwitchToTab: true },
+            })
+          );
+        }
+      );
+
+      await TestUtils.waitForCondition(
+        () => gBrowser.selectedTab === existingTab,
+        "Should switch to the existing tab with the matching URL"
+      );
+      Assert.equal(
+        gBrowser.tabs.length,
+        initialTabCount,
+        "No new tab should be created when an existing one matches"
+      );
+
+      BrowserTestUtils.removeTab(existingTab);
+      existingTab = null;
+    });
+
+    it("should open a new tab on accelKey-click even when a matching tab is already open", async () => {
+      existingTab = await BrowserTestUtils.openNewForegroundTab(
+        gBrowser,
+        TEST_URL
+      );
+      gBrowser.selectedTab = chatTab;
+
+      Assert.equal(
+        gBrowser.selectedTab,
+        chatTab,
+        "The chat tab is selected, not the existing one"
+      );
+      const initialTabCount = gBrowser.tabs.length;
+
+      const newTabPromise = BrowserTestUtils.waitForNewTab(gBrowser, TEST_URL);
+      await clickRenderedLink(chatTab.linkedBrowser, TEST_URL, {
+        accelKey: true,
+      });
+      const newTab = await newTabPromise;
+
+      Assert.ok(
+        newTab && newTab !== existingTab,
+        "accelKey click should open a fresh tab instead of switching to the existing one"
+      );
+      Assert.equal(
+        gBrowser.tabs.length,
+        initialTabCount + 1,
+        "Exactly one new tab should be created"
+      );
+
+      BrowserTestUtils.removeTab(newTab);
+      BrowserTestUtils.removeTab(existingTab);
+      existingTab = null;
+    });
+
+    it("should open in a new tab when no existing tab matches", async () => {
+      const noMatchUrl = "https://example.com/no-existing-tab-for-this-path";
+      const initialTabCount = gBrowser.tabs.length;
+      const newTabPromise = BrowserTestUtils.waitForNewTab(
+        gBrowser,
+        noMatchUrl
+      );
+
+      await SpecialPowers.spawn(
+        chatTab.linkedBrowser,
+        [noMatchUrl],
+        async url => {
+          content.document.dispatchEvent(
+            new content.CustomEvent("AIChatContent:OpenLink", {
+              bubbles: true,
+              detail: { url, preferSwitchToTab: true },
+            })
+          );
+        }
+      );
+
+      const newTab = await newTabPromise;
+      Assert.ok(newTab, "A new tab should open when no existing tab matches");
+      Assert.equal(
+        gBrowser.tabs.length,
+        initialTabCount + 1,
+        "Exactly one new tab should be created"
+      );
+      Assert.equal(
+        gBrowser.selectedTab,
+        chatTab,
+        "The chat tab should not be navigated; the new tab opens alongside"
+      );
+
+      BrowserTestUtils.removeTab(newTab);
     });
   });
 });

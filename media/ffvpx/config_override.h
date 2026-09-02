@@ -1,5 +1,13 @@
 // This file contains overrides for config.h, that can be platform-specific.
 
+// CBS is required for VP9 and AV1 decoding.
+#if !defined(MOZ_FFVPX_AUDIOONLY)
+#undef CONFIG_CBS
+#define CONFIG_CBS 1
+#undef CONFIG_CBS_VP9
+#define CONFIG_CBS_VP9 1
+#endif
+
 #undef CONFIG_FFT
 #undef CONFIG_RDFT
 #define CONFIG_FFT 1
@@ -34,6 +42,32 @@
 #define CONFIG_VP9_VAAPI_HWACCEL 0
 #define CONFIG_AV1_VAAPI_HWACCEL 0
 #endif
+
+/**
+ * Vulkan Hardware Video Decoding
+ **/
+#undef CONFIG_VULKAN
+#undef CONFIG_VP9_VULKAN_HWACCEL
+#undef CONFIG_AV1_VULKAN_HWACCEL
+
+#if defined(MOZ_ENABLE_VULKAN_VIDEO) && !defined(MOZ_FFVPX_AUDIOONLY)
+#define CONFIG_VULKAN 1
+#define CONFIG_VP9_VULKAN_HWACCEL 1
+#define CONFIG_AV1_VULKAN_HWACCEL 1
+#else
+#define CONFIG_VULKAN 0
+#define CONFIG_VP9_VULKAN_HWACCEL 0
+#define CONFIG_AV1_VULKAN_HWACCEL 0
+#endif
+
+#define CONFIG_VULKAN_STATIC 0
+#define CONFIG_SHADER_COMPRESSION 0
+#define CONFIG_H264_VULKAN_HWACCEL 0
+#define CONFIG_HEVC_VULKAN_HWACCEL 0
+#define CONFIG_FFV1_VULKAN_HWACCEL 0
+#define CONFIG_PRORES_VULKAN_HWACCEL 0
+#define CONFIG_PRORES_RAW_VULKAN_HWACCEL 0
+#define CONFIG_DPX_VULKAN_HWACCEL 0
 
 /**
  * Windows Hardware Video Decoding

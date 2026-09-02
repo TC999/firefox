@@ -10,6 +10,7 @@ task-defaults:
     attributes:
         local-toolchain: true
     run:
+        clone-with: hg
         script: build-onnxruntime.sh
     fetches:
         fetch:
@@ -43,6 +44,7 @@ onnxruntime-x86_64-windows-msvc:
     run:
         arguments:
             - "Windows"
+            - "x64"
         toolchain-artifact: public/build/onnxruntime-x86_64-windows-msvc.tar.zst
     fetches:
         toolchain:

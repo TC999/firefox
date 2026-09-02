@@ -37,7 +37,6 @@
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/strings/string_builder.h"
-#include "rtc_base/thread.h"
 #include "rtc_base/time_utils.h"
 #include "rtc_base/trace_event.h"
 #include "system_wrappers/include/clock.h"
@@ -69,20 +68,6 @@ const char* UmaPrefixForContentType(VideoContentType content_type) {
   if (videocontenttypehelpers::IsScreenshare(content_type))
     return "WebRTC.Video.Screenshare";
   return "WebRTC.Video";
-}
-
-// TODO(https://bugs.webrtc.org/11572): Workaround for an issue with some
-// webrtc::Thread instances and/or implementations that don't register as the
-// current task queue.
-bool IsCurrentTaskQueueOrThread(TaskQueueBase* task_queue) {
-  if (task_queue->IsCurrent())
-    return true;
-
-  Thread* current_thread = ThreadManager::Instance()->CurrentThread();
-  if (!current_thread)
-    return false;
-
-  return static_cast<TaskQueueBase*>(current_thread) == task_queue;
 }
 
 }  // namespace
@@ -122,14 +107,13 @@ void ReceiveStatisticsProxy::UpdateHistograms(
     const StreamDataCounters* rtx_stats) {
   RTC_DCHECK_RUN_ON(&main_thread_);
 
-  char log_stream_buf[8 * 1024];
-  SimpleStringBuilder log_stream(log_stream_buf);
+  StringBuilder log_stream;
 
   Timestamp now = clock_->CurrentTime();
   TimeDelta stream_duration = now - start_;
 
-  if (stats_.frame_counts.key_frames > 0 ||
-      stats_.frame_counts.delta_frames > 0) {
+  if (stats_.received_frame_counts.key_frames > 0 ||
+      stats_.received_frame_counts.delta_frames > 0) {
     RTC_HISTOGRAM_COUNTS_100000("WebRTC.Video.ReceiveStreamLifetimeInSeconds",
                                 stream_duration.seconds());
     log_stream << "WebRTC.Video.ReceiveStreamLifetimeInSeconds "
@@ -207,10 +191,10 @@ void ReceiveStatisticsProxy::UpdateHistograms(
                << freq_offset_stats.ToString() << '\n';
   }
 
-  int num_total_frames =
-      stats_.frame_counts.key_frames + stats_.frame_counts.delta_frames;
+  int num_total_frames = stats_.received_frame_counts.key_frames +
+                         stats_.received_frame_counts.delta_frames;
   if (num_total_frames >= kMinRequiredSamples) {
-    int num_key_frames = stats_.frame_counts.key_frames;
+    int num_key_frames = stats_.received_frame_counts.key_frames;
     int key_frames_permille =
         (num_key_frames * 1000 + num_total_frames / 2) / num_total_frames;
     RTC_HISTOGRAM_COUNTS_1000("WebRTC.Video.KeyFramesReceivedInPermille",
@@ -577,7 +561,7 @@ void ReceiveStatisticsProxy::RtcpPacketTypesCounterUpdated(
   if (ssrc != remote_ssrc_)
     return;
 
-  if (!IsCurrentTaskQueueOrThread(worker_thread_)) {
+  if (!worker_thread_->IsCurrent()) {
     // RtpRtcpInterface::Configuration has a single
     // RtcpPacketTypeCounterObserver and that same configuration may be used for
     // both receiver and sender (see ModuleRtpRtcpImpl::ModuleRtpRtcpImpl). The
@@ -610,11 +594,13 @@ void ReceiveStatisticsProxy::OnCname(uint32_t ssrc, absl::string_view cname) {
   stats_.c_name = std::string(cname);
 }
 
-void ReceiveStatisticsProxy::OnDecodedFrame(const VideoFrame& frame,
-                                            std::optional<uint8_t> qp,
-                                            TimeDelta decode_time,
-                                            VideoContentType content_type,
-                                            VideoFrameType frame_type) {
+void ReceiveStatisticsProxy::OnDecodedFrame(
+    const VideoFrame& frame,
+    std::optional<uint8_t> qp,
+    TimeDelta decode_time,
+    VideoContentType content_type,
+    VideoFrameType frame_type,
+    const TimingFrameInfo& timing_frame_info) {
   TimeDelta processing_delay = TimeDelta::Zero();
   Timestamp current_time = clock_->CurrentTime();
   // TODO(bugs.webrtc.org/13984): some tests do not fill packet_infos().
@@ -638,10 +624,12 @@ void ReceiveStatisticsProxy::OnDecodedFrame(const VideoFrame& frame,
   // "com.apple.coremedia.decompressionsession.clientcallback"
   VideoFrameMetaData meta(frame, current_time);
   worker_thread_->PostTask(SafeTask(
-      task_safety_.flag(), [meta, qp, decode_time, processing_delay,
-                            assembly_time, content_type, frame_type, this]() {
+      task_safety_.flag(),
+      [meta, qp, decode_time, processing_delay, assembly_time, content_type,
+       frame_type, timing_frame_info, this]() {
         OnDecodedFrame(meta, qp, decode_time, processing_delay, assembly_time,
                        content_type, frame_type);
+        OnTimingFrameInfoUpdated(timing_frame_info);
       }));
 }
 
@@ -674,6 +662,9 @@ void ReceiveStatisticsProxy::OnDecodedFrame(
       &content_specific_stats_[content_type];
 
   ++stats_.frames_decoded;
+  if (frame_type == VideoFrameType::kVideoFrameKey) {
+    ++stats_.key_frames_decoded;
+  }
   if (qp) {
     if (!stats_.qp_sum) {
       if (stats_.frames_decoded != 1) {
@@ -788,9 +779,9 @@ void ReceiveStatisticsProxy::OnCompleteFrame(bool is_keyframe,
                "remote_ssrc", remote_ssrc_, "is_keyframe", is_keyframe);
 
   if (is_keyframe) {
-    ++stats_.frame_counts.key_frames;
+    ++stats_.received_frame_counts.key_frames;
   } else {
-    ++stats_.frame_counts.delta_frames;
+    ++stats_.received_frame_counts.delta_frames;
   }
 
   // Content type extension is set only for keyframes and should be propagated
@@ -901,21 +892,6 @@ ReceiveStatisticsProxy::ContentSpecificStats::ContentSpecificStats()
     : interframe_delay_percentiles(kMaxCommonInterframeDelayMs) {}
 
 ReceiveStatisticsProxy::ContentSpecificStats::~ContentSpecificStats() = default;
-
-void ReceiveStatisticsProxy::ContentSpecificStats::Add(
-    const ContentSpecificStats& other) {
-  e2e_delay_counter.Add(other.e2e_delay_counter);
-  interframe_delay_counter.Add(other.interframe_delay_counter);
-  flow_duration_ms += other.flow_duration_ms;
-  total_media_bytes += other.total_media_bytes;
-  received_height.Add(other.received_height);
-  received_width.Add(other.received_width);
-  qp_counter.Add(other.qp_counter);
-  frame_counts.key_frames += other.frame_counts.key_frames;
-  frame_counts.delta_frames += other.frame_counts.delta_frames;
-  interframe_delay_percentiles.Add(other.interframe_delay_percentiles);
-  corruption_score.MergeStatistics(other.corruption_score);
-}
 
 }  // namespace internal
 }  // namespace webrtc

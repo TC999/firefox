@@ -1,5 +1,3 @@
-/* -*- Mode: indent-tabs-mode: nil; js-indent-level: 2 -*- */
-/* vim: set sts=2 sw=2 et tw=80: */
 "use strict";
 
 const { PlacesTestUtils } = ChromeUtils.importESModule(
@@ -286,9 +284,10 @@ add_task(async function test_topSites_newtab_visits_favicons() {
   faviconData.set("http://example-1.com", IMAGE_1x1);
   await PlacesTestUtils.addFavicons(faviconData);
 
-  // Wait for example-1.com to be listed second, after the Amazon search link.
+  // Wait for example-1.com to be listed second, after the Amazon search link,
+  // with the favicon added above.
   await updateTopSites(sites => {
-    return sites && sites[1] && sites[1].url == "http://example-1.com/";
+    return sites?.[1]?.url == "http://example-1.com/" && sites?.[1]?.favicon;
   });
 
   let base = "chrome://activity-stream/content/data/content/tippytop/images/";
@@ -375,9 +374,10 @@ add_task(async function test_topSites_newtab_visits_favicons_limit() {
   faviconData.set("http://example-1.com", IMAGE_1x1);
   await PlacesTestUtils.addFavicons(faviconData);
 
-  // Wait for example-1.com to be listed second, after the Amazon search link.
+  // Wait for example-1.com to be listed second, after the Amazon search link,
+  // with the favicon added above.
   await updateTopSites(sites => {
-    return sites && sites[1] && sites[1].url == "http://example-1.com/";
+    return sites?.[1]?.url == "http://example-1.com/" && sites?.[1]?.favicon;
   });
 
   let expectedResults = [

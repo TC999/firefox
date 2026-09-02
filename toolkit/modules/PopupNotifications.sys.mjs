@@ -17,6 +17,12 @@ const ICON_ANCHOR_ATTRIBUTE = "popupnotificationanchor";
 
 const PREF_SECURITY_DELAY = "security.notification_enable_delay";
 const FULLSCREEN_TRANSITION_TIME_SHOWN_OFFSET_MS = 2000;
+// Caps how far rejected button clicks during the security delay can push the
+// effective deadline. Without a cap, continuous rapid clicking resets the
+// countdown faster than it elapses and the user can never dismiss the popup
+// (see bug 2035581). With this multiplier, the wait is bounded at
+// SECURITY_DELAY_EXTENSION_CAP_MULTIPLIER * the configured delay.
+const SECURITY_DELAY_EXTENSION_CAP_MULTIPLIER = 20;
 
 // Enumerated values for the POPUP_NOTIFICATION_STATS telemetry histogram.
 const TELEMETRY_STAT_OFFERED = 0;
@@ -107,7 +113,7 @@ function Notification(
   this.wasDismissed = false;
   this.recordedTelemetryStats = new Set();
   this.isPrivate = PrivateBrowsingUtils.isWindowPrivate(
-    this.browser.ownerGlobal
+    this.browser.documentGlobal
   );
   this.timeCreated = ChromeUtils.now();
 }
@@ -122,6 +128,14 @@ Notification.prototype = {
   owner: null,
   options: null,
   timeShown: null,
+  // Snapshot of `timeShown` taken every time the notification is (re)shown,
+  // before any rejected-click extensions have been applied. Reassigned on
+  // every show, reshow, popup-positioned re-anchor, _extendSecurityDelay
+  // call (fullscreen transition / pointer lock), and the fallback in
+  // _onButtonEvent -- it is NOT a record of the first-ever show. Used by
+  // _onButtonEvent as the lower bound for the cap on how far rejected clicks
+  // can push `timeShown` forward (see SECURITY_DELAY_EXTENSION_CAP_MULTIPLIER).
+  timeShownWithoutClickExtensions: null,
 
   /**
    * Indicates whether the notification is currently dismissed.
@@ -265,7 +279,7 @@ export function PopupNotifications(tabbrowser, panel, iconBox, options = {}) {
 
   this._getVisibleAnchorElement = options.getVisibleAnchorElement;
 
-  this.window = tabbrowser.ownerGlobal;
+  this.window = tabbrowser.documentGlobal;
   this.panel = panel;
   this.tabbrowser = tabbrowser;
   this.iconBox = iconBox;
@@ -292,13 +306,21 @@ export function PopupNotifications(tabbrowser, panel, iconBox, options = {}) {
     let doc = this.window.document;
     let focusedElement = Services.focus.focusedElement;
 
-    // If the chrome window has a focused element, let it handle the ESC key instead.
+    // Go through shadow roots so that focus delegated into a shadow DOM
+    // (e.g., moz-button with delegatesFocus:true) is still treated as inside
+    // the notification.
+    let focusedInsideNotification = false;
+    for (let el = focusedElement; el; el = el.parentNode ?? el.host) {
+      if (el === notification) {
+        focusedInsideNotification = true;
+        break;
+      }
+    }
     if (
       !focusedElement ||
       focusedElement == doc.body ||
       focusedElement == this.tabbrowser.selectedBrowser ||
-      // Ignore focused elements inside the notification.
-      notification.contains(focusedElement)
+      focusedInsideNotification
     ) {
       let escAction = notification.notification.options.escAction;
       this._onButtonEvent(aEvent, escAction, "esc-press", notification);
@@ -309,13 +331,9 @@ export function PopupNotifications(tabbrowser, panel, iconBox, options = {}) {
     }
   };
 
-  let documentElement = this.window.document.documentElement;
-  let locationBarHidden = documentElement
-    .getAttribute("chromehidden")
-    .includes("location");
   let isFullscreen = !!this.window.document.fullscreenElement;
 
-  this.panel.setAttribute("followanchor", !locationBarHidden && !isFullscreen);
+  this.panel.setAttribute("followanchor", !isFullscreen);
 
   // There are no anchor icons in DOM fullscreen mode, but we would
   // still like to show the popup notification. To avoid an infinite
@@ -331,7 +349,7 @@ export function PopupNotifications(tabbrowser, panel, iconBox, options = {}) {
   this.window.addEventListener(
     "MozDOMFullscreen:Exited",
     () => {
-      this.panel.setAttribute("followanchor", !locationBarHidden);
+      this.panel.setAttribute("followanchor", "true");
     },
     true
   );
@@ -360,7 +378,8 @@ export function PopupNotifications(tabbrowser, panel, iconBox, options = {}) {
         this._fireCallback(
           notification,
           NOTIFICATION_EVENT_REMOVED,
-          this.nextRemovalReason
+          this.nextRemovalReason,
+          /* withoutUserResponse = */ true
         );
         notification._recordTelemetryStat(this.nextRemovalReason);
       }
@@ -469,6 +488,12 @@ PopupNotifications.prototype = {
    *            will be dismissed instead of removed after running the callback.
    *          - [optional] disabled (boolean): If this is true, the button
    *            will be disabled.
+   *          - [optional] disableSecurityDelay (boolean): If this is true,
+   *            this action skips the clickjacking security delay. Use only
+   *            for actions whose semantics cannot harm the user (e.g.
+   *            "Cancel", "Don't Allow", "Block"). Never set this for actions
+   *            that grant a permission, install software, or otherwise
+   *            expose attack surface.
    *        If null, the notification will have a default "OK" action button
    *        that can be used to dismiss the popup and secondaryActions will be ignored.
    * @param secondaryActions
@@ -486,6 +511,11 @@ PopupNotifications.prototype = {
    *        persistWhileVisible:
    *                     A boolean. If true, a visible notification will always
    *                     persist across location changes.
+   *        lowerPanelLevel:
+   *                     A boolean. If true, the panel's popup level is lowered
+   *                     to "parent" so a popup hosted inside the notification
+   *                     (such as an autocomplete dropdown) can stack above the
+   *                     panel instead of behind it.
    *        persistent:  A boolean. If true, the notification will always
    *                     persist even across tab and app changes (but not across
    *                     location changes), until the user accepts or rejects
@@ -658,7 +688,7 @@ PopupNotifications.prototype = {
 
     let existingNotification = this.getNotification(id, browser);
     if (existingNotification) {
-      this._remove(existingNotification);
+      this._remove(existingNotification, /* withoutUserResponse = */ true);
     }
 
     let notifications = this.getNotificationsForBrowser(browser);
@@ -669,13 +699,6 @@ PopupNotifications.prototype = {
 
     if (isActiveBrowser) {
       if (isActiveWindow) {
-        // Autofocus if the notification requests focus.
-        if (options && !options.dismissed && options.autofocus) {
-          this.panel.removeAttribute("noautofocus");
-        } else {
-          this.panel.setAttribute("noautofocus", "true");
-        }
-
         // show panel now
         this._update(
           notifications,
@@ -772,7 +795,8 @@ PopupNotifications.prototype = {
       this._fireCallback(
         notification,
         NOTIFICATION_EVENT_REMOVED,
-        this.nextRemovalReason
+        this.nextRemovalReason,
+        /* withoutUserResponse = */ true
       );
       return false;
     }, this);
@@ -821,18 +845,22 @@ PopupNotifications.prototype = {
    * Removes one or many Notifications.
    *
    * @param {Notification|Notification[]} notification - The Notification object/s to remove.
-   * @param {boolean} [isCancel] - Whether to signal,  in the notification event, that removal
-   *  should be treated as cancel. This is currently used to cancel permission requests
-   *  when their Notifications are removed.
+   * @param {boolean} [withoutUserResponse] - Whether the removal happens without the user
+   *  responding to the notification via an action button or menu item. Consumers that
+   *  represent pending user requests (e.g. permission prompts) should treat a true value
+   *  as a signal to abandon the request.
    */
-  remove: function PopupNotifications_remove(notification, isCancel = false) {
+  remove: function PopupNotifications_remove(
+    notification,
+    withoutUserResponse = false
+  ) {
     let notificationArray = Array.isArray(notification)
       ? notification
       : [notification];
     let activeBrowser;
 
     notificationArray.forEach(n => {
-      this._remove(n, isCancel);
+      this._remove(n, withoutUserResponse);
       if (!activeBrowser && this._isActiveBrowser(n.browser)) {
         activeBrowser = n.browser;
       }
@@ -858,6 +886,8 @@ PopupNotifications.prototype = {
               now,
               elt.notification.timeShown ?? 0
             );
+            elt.notification.timeShownWithoutClickExtensions =
+              elt.notification.timeShown;
           }
           break;
         }
@@ -907,7 +937,7 @@ PopupNotifications.prototype = {
 
   _remove: function PopupNotifications_removeHelper(
     notification,
-    isCancel = false
+    withoutUserResponse = false
   ) {
     // This notification may already be removed, in which case let's just fail
     // silently.
@@ -931,7 +961,7 @@ PopupNotifications.prototype = {
       notification,
       NOTIFICATION_EVENT_REMOVED,
       this.nextRemovalReason,
-      isCancel
+      withoutUserResponse
     );
   },
 
@@ -1260,7 +1290,25 @@ PopupNotifications.prototype = {
     let now = ChromeUtils.now();
     notifications.forEach(n => {
       n.timeShown = now + FULLSCREEN_TRANSITION_TIME_SHOWN_OFFSET_MS;
+      n.timeShownWithoutClickExtensions = n.timeShown;
     });
+  },
+
+  /**
+   * Lowers the panel's popup level to "parent" when a notification hosts its
+   * own popup (e.g. the autocomplete dropdown in the password doorhanger), so
+   * that popup can stack above the panel. The level is only read when the
+   * popup widget is created, so changing the attribute recreates the widget.
+   *
+   * @param {Array} notificationsToShow
+   *        The notifications about to be shown in the panel.
+   */
+  _updatePanelLevel(notificationsToShow) {
+    if (notificationsToShow.some(n => n.options.lowerPanelLevel)) {
+      this.panel.setAttribute("level", "parent");
+    } else {
+      this.panel.removeAttribute("level");
+    }
   },
 
   _showPanel: function PopupNotifications_showPanel(
@@ -1308,10 +1356,19 @@ PopupNotifications.prototype = {
     }
 
     if (this.isPanelOpen && this._currentAnchorElement == anchorElement) {
+      // isPanelOpen is also true while the panel is animating open, in which
+      // case a popupshown listener is still pending. It holds the notifications
+      // that were current when the panel started opening, some of which we may
+      // just have replaced, and firing "shown" for those would let their
+      // callbacks overwrite the panel contents. We fire "shown" for the current
+      // notifications right here, so the pending listener has nothing left to do.
+      this._clearPopupshownListener();
+
       notificationsToShow.forEach(function (n) {
         // If the panel is already open remember the time the notification was
         // shown for the security delay.
         n.timeShown = Math.max(ChromeUtils.now(), n.timeShown ?? 0);
+        n.timeShownWithoutClickExtensions = n.timeShown;
         this._fireCallback(n, NOTIFICATION_EVENT_SHOWN);
       }, this);
 
@@ -1321,6 +1378,8 @@ PopupNotifications.prototype = {
       } else {
         this.panel.removeAttribute("noautohide");
       }
+
+      this._updatePanelLevel(notificationsToShow);
 
       // Let tests know that the panel was updated and what notifications it was
       // updated with so that tests can wait for the correct notifications to be
@@ -1343,6 +1402,19 @@ PopupNotifications.prototype = {
       } else {
         this.panel.removeAttribute("noautohide");
       }
+
+      // Autofocus the panel if any notification being shown requests focus.
+      // Done here when the panel is actually opened, rather than
+      // in show(), since a notification may be shown asynchronously (e.g. after the
+      // window/browser becomes active again following a navigation). This path
+      // reliably runs before openPopup() in every case.
+      if (notificationsToShow.some(n => !n.dismissed && n.options.autofocus)) {
+        this.panel.removeAttribute("noautofocus");
+      } else {
+        this.panel.setAttribute("noautofocus", "true");
+      }
+
+      this._updatePanelLevel(notificationsToShow);
 
       notificationsToShow.forEach(function (n) {
         // Record that the notification was actually displayed on screen.
@@ -1376,6 +1448,7 @@ PopupNotifications.prototype = {
           // The panel has been opened, remember the time the notification was
           // shown for the security delay.
           n.timeShown = Math.max(ChromeUtils.now(), n.timeShown ?? 0);
+          n.timeShownWithoutClickExtensions = n.timeShown;
           this._fireCallback(n, NOTIFICATION_EVENT_SHOWN);
         }, this);
         // These notifications are used by tests to know when all the processing
@@ -1701,7 +1774,7 @@ PopupNotifications.prototype = {
       // to update our notification map.
 
       let ourNotifications = this.getNotificationsForBrowser(ourBrowser);
-      let other = otherBrowser.ownerGlobal.PopupNotifications;
+      let other = otherBrowser.documentGlobal.PopupNotifications;
       if (!other) {
         if (ourNotifications.length) {
           console.error(
@@ -1725,7 +1798,8 @@ PopupNotifications.prototype = {
         other._fireCallback(
           n,
           NOTIFICATION_EVENT_REMOVED,
-          this.nextRemovalReason
+          this.nextRemovalReason,
+          /* withoutUserResponse = */ true
         );
         return false;
       });
@@ -1739,7 +1813,8 @@ PopupNotifications.prototype = {
         this._fireCallback(
           n,
           NOTIFICATION_EVENT_REMOVED,
-          this.nextRemovalReason
+          this.nextRemovalReason,
+          /* withoutUserResponse = */ true
         );
         return false;
       });
@@ -1832,7 +1907,7 @@ PopupNotifications.prototype = {
       // if the notification is removed.
       if (notificationObj.options.removeOnDismissal) {
         notificationObj._recordTelemetryStat(this.nextRemovalReason);
-        this._remove(notificationObj);
+        this._remove(notificationObj, /* withoutUserResponse = */ true);
       } else {
         notificationObj.dismissed = true;
         this._fireCallback(notificationObj, NOTIFICATION_EVENT_DISMISSED);
@@ -1907,6 +1982,15 @@ PopupNotifications.prototype = {
 
     let notification = notificationEl.notification;
 
+    // Resolve the action being invoked up front so we can honor per-action
+    // flags such as disableSecurityDelay before the security-delay check.
+    let action = notification.mainAction;
+    let telemetryStatId = TELEMETRY_STAT_ACTION_1;
+    if (type == "secondarybuttoncommand") {
+      action = notification.secondaryActions?.[0];
+      telemetryStatId = TELEMETRY_STAT_ACTION_2;
+    }
+
     // Receiving a button event means the notification should have been shown.
     // Make sure that timeShown is always set to ensure we don't break the
     // security delay calculation below.
@@ -1916,6 +2000,7 @@ PopupNotifications.prototype = {
         notification
       );
       notification.timeShown = ChromeUtils.now();
+      notification.timeShownWithoutClickExtensions = notification.timeShown;
     }
 
     if (type == "dropmarkerpopupshown") {
@@ -1952,26 +2037,32 @@ PopupNotifications.prototype = {
         return;
       }
 
-      let now = ChromeUtils.now();
-      let timeSinceShown = now - notification.timeShown;
-      if (timeSinceShown < lazy.buttonDelay) {
-        Services.console.logStringMessage(
-          "PopupNotifications._onButtonEvent: " +
-            "Button click happened before the security delay: " +
-            timeSinceShown +
-            "ms"
-        );
-        notification.timeShown = Math.max(now, notification.timeShown);
-        return;
+      // Actions that opt out of the security delay (e.g. Cancel/Block) are
+      // not a clickjacking target and should fire immediately.
+      if (!action?.disableSecurityDelay) {
+        let now = ChromeUtils.now();
+        let timeSinceShown = now - notification.timeShown;
+        if (timeSinceShown < lazy.buttonDelay) {
+          Services.console.logStringMessage(
+            "PopupNotifications._onButtonEvent: " +
+              "Button click happened before the security delay: " +
+              timeSinceShown +
+              "ms"
+          );
+          // Cap how far rejected clicks can push the deadline so continuous
+          // rapid clicking can never extend the wait beyond
+          // SECURITY_DELAY_EXTENSION_CAP_MULTIPLIER * the configured delay.
+          let cap =
+            (notification.timeShownWithoutClickExtensions ??
+              notification.timeShown) +
+            SECURITY_DELAY_EXTENSION_CAP_MULTIPLIER * lazy.buttonDelay;
+          notification.timeShown = Math.min(
+            Math.max(now, notification.timeShown),
+            cap
+          );
+          return;
+        }
       }
-    }
-
-    let action = notification.mainAction;
-    let telemetryStatId = TELEMETRY_STAT_ACTION_1;
-
-    if (type == "secondarybuttoncommand") {
-      action = notification.secondaryActions[0];
-      telemetryStatId = TELEMETRY_STAT_ACTION_2;
     }
 
     notification._recordTelemetryStat(telemetryStatId);

@@ -10,6 +10,7 @@
 #include "RubyUtils.h"
 #include "nsContainerFrame.h"
 
+class nsLineLayout;
 namespace mozilla {
 class PresShell;
 }  // namespace mozilla
@@ -86,7 +87,7 @@ class nsRubyBaseContainerFrame final : public nsContainerFrame {
   void PullOneColumn(nsLineLayout* aLineLayout, PullFrameState& aPullFrameState,
                      mozilla::RubyColumn& aColumn, bool& aIsComplete);
 
-  nscoord mBaseline;
+  nscoord mBaseline = 0;
 
   // Leading produced by descendant ruby annotations.
   mozilla::RubyBlockLeadings mDescendantLeadings;

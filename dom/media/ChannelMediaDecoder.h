@@ -69,8 +69,6 @@ class ChannelMediaDecoder
 
   explicit ChannelMediaDecoder(MediaDecoderInit& aInit);
 
-  void GetDebugInfo(dom::MediaDecoderDebugInfo& aInfo);
-
  public:
   // Create a decoder for the given aType. Returns null if we were unable
   // to create the decoder, for example because the requested MIME type in
@@ -128,7 +126,7 @@ class ChannelMediaDecoder
   void DownloadProgressed();
 
   // Create a new state machine to run this decoder.
-  MediaDecoderStateMachineBase* CreateStateMachine(
+  already_AddRefed<MediaDecoderStateMachineBase> CreateStateMachine(
       bool aDisableExternalEngine) override;
 
   nsresult Load(BaseMediaResource* aOriginal);

@@ -21,16 +21,15 @@ import org.mozilla.fenix.components.DefaultPendingIntentFactory
 import org.mozilla.fenix.components.DefaultShortcutManagerCompatWrapper
 import org.mozilla.fenix.components.PrivateShortcutCreateManager
 import org.mozilla.fenix.e2e.SystemInsetsPaddedFragment
+import org.mozilla.fenix.ext.components
 import org.mozilla.fenix.ext.registerForActivityResult
-import org.mozilla.fenix.ext.settings
+import org.mozilla.fenix.ext.requireComponents
 import org.mozilla.fenix.ext.showToolbar
 import org.mozilla.fenix.settings.biometric.DefaultBiometricUtils
 import org.mozilla.fenix.settings.biometric.ext.isAuthenticatorAvailable
-import org.mozilla.fenix.settings.biometric.ext.isHardwareAvailable
+import org.mozilla.fenix.settings.biometric.ext.isDeviceLockCapable
 
-/**
- * Lets the user customize Private browsing options.
- */
+/** Lets the user customize Private browsing options. */
 class PrivateBrowsingFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment {
     private lateinit var startForResult: ActivityResultLauncher<Intent>
 
@@ -46,25 +45,27 @@ class PrivateBrowsingFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFr
 
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
         setPreferencesFromResource(R.xml.private_browsing_preferences, rootKey)
-        startForResult = registerForActivityResult(
-            onFailure = { PrivateBrowsingLocked.authFailure.record() },
-            onSuccess = { onSuccessfulAuthenticationUsingFallbackPrompt() },
-        )
+        startForResult =
+            registerForActivityResult(
+                onFailure = { PrivateBrowsingLocked.authFailure.record() },
+                onSuccess = { onSuccessfulAuthenticationUsingFallbackPrompt() },
+            )
         updatePreferences()
     }
 
     @Suppress("CognitiveComplexMethod")
     private fun updatePreferences() {
         val biometricManager = BiometricManager.from(requireContext())
-        val deviceCapable = biometricManager.isHardwareAvailable()
+        val deviceCapable = biometricManager.isDeviceLockCapable()
         val userHasEnabledCapability = biometricManager.isAuthenticatorAvailable()
 
         requirePreference<Preference>(R.string.pref_key_add_private_browsing_shortcut).apply {
             setOnPreferenceClickListener {
-                val privateShortcutCreateManager = PrivateShortcutCreateManager(
-                    shortcutManagerWrapper = DefaultShortcutManagerCompatWrapper(),
-                    pendingIntentFactory = DefaultPendingIntentFactory(),
-                )
+                val privateShortcutCreateManager =
+                    PrivateShortcutCreateManager(
+                        shortcutManagerWrapper = DefaultShortcutManagerCompatWrapper(),
+                        pendingIntentFactory = DefaultPendingIntentFactory(),
+                    )
                 privateShortcutCreateManager.createPrivateShortcut(requireContext())
                 true
             }
@@ -72,46 +73,51 @@ class PrivateBrowsingFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFr
 
         requirePreference<SwitchPreferenceCompat>(R.string.pref_key_open_links_in_a_private_tab).apply {
             onPreferenceChangeListener = SharedPreferenceUpdater()
-            isChecked = context.settings().openLinksInAPrivateTab
+            isChecked = context.components.settings.openLinksInAPrivateTab
         }
 
         requirePreference<SwitchPreferenceCompat>(R.string.pref_key_allow_screenshots_in_private_mode).apply {
-            isEnabled = !(context.settings().privateBrowsingModeLocked && biometricManager.isAuthenticatorAvailable())
-            onPreferenceChangeListener = object : SharedPreferenceUpdater() {
-                override fun onPreferenceChange(preference: Preference, newValue: Any?): Boolean {
-                    if ((activity as? HomeActivity)?.browsingModeManager?.mode?.isPrivate == true &&
-                        newValue == false
-                    ) {
-                        activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-                    } else {
-                        activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            isEnabled =
+                !(context.components.settings.privateBrowsingModeLocked && biometricManager.isAuthenticatorAvailable())
+            onPreferenceChangeListener =
+                object : SharedPreferenceUpdater() {
+                    override fun onPreferenceChange(preference: Preference, newValue: Any?): Boolean {
+                        if (
+                            (activity as? HomeActivity)?.browsingModeManager?.mode?.isPrivate == true &&
+                                newValue == false
+                        ) {
+                            activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                        } else {
+                            activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                        }
+                        return super.onPreferenceChange(preference, newValue)
                     }
-                    return super.onPreferenceChange(preference, newValue)
                 }
-            }
         }
 
         // Show divider only if user does not have a device lock set
         requirePreference<PreferenceCategory>(R.string.pref_key_pbm_lock_category_divider).apply {
             isVisible =
-                deviceCapable && !userHasEnabledCapability && context.settings().privateBrowsingLockedFeatureEnabled
+                deviceCapable &&
+                    !userHasEnabledCapability &&
+                    context.components.settings.privateBrowsingLockedFeatureEnabled
         }
 
         requirePreference<SwitchPreferenceCompat>(R.string.pref_key_private_browsing_locked_enabled).apply {
             isChecked =
-                context.settings().privateBrowsingModeLocked && biometricManager.isAuthenticatorAvailable()
-            isVisible = context.settings().privateBrowsingLockedFeatureEnabled && deviceCapable
+                context.components.settings.privateBrowsingModeLocked && biometricManager.isAuthenticatorAvailable()
+            isVisible = context.components.settings.privateBrowsingLockedFeatureEnabled && deviceCapable
             isEnabled = userHasEnabledCapability
 
             setOnPreferenceChangeListener { preference, newValue ->
-                val pbmLockEnabled = newValue as? Boolean
-                    ?: return@setOnPreferenceChangeListener false
+                val pbmLockEnabled = newValue as? Boolean ?: return@setOnPreferenceChangeListener false
 
-                val titleRes = if (pbmLockEnabled) {
-                    R.string.pbm_authentication_enable_lock
-                } else {
-                    R.string.pbm_authentication_disable_lock
-                }
+                val titleRes =
+                    if (pbmLockEnabled) {
+                        R.string.pbm_authentication_enable_lock
+                    } else {
+                        R.string.pbm_authentication_disable_lock
+                    }
 
                 DefaultBiometricUtils.bindBiometricsCredentialsPromptOrShowWarning(
                     titleRes = titleRes,
@@ -135,7 +141,9 @@ class PrivateBrowsingFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFr
 
         requirePreference<Preference>(R.string.pref_key_private_browsing_lock_device_feature_enabled).apply {
             isVisible =
-                deviceCapable && !userHasEnabledCapability && context.settings().privateBrowsingLockedFeatureEnabled
+                deviceCapable &&
+                    !userHasEnabledCapability &&
+                    context.components.settings.privateBrowsingLockedFeatureEnabled
 
             setOnPreferenceClickListener {
                 context.startActivity(Intent(Settings.ACTION_SECURITY_SETTINGS))
@@ -147,9 +155,9 @@ class PrivateBrowsingFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFr
     private fun onSuccessfulAuthenticationUsingFallbackPrompt() {
         PrivateBrowsingLocked.authSuccess.record()
 
-        val newValue = !requireContext().settings().privateBrowsingModeLocked
+        val newValue = !requireComponents.settings.privateBrowsingModeLocked
         recordPbmLockFeatureEnabledStateTelemetry(newValue)
-        requireContext().settings().privateBrowsingModeLocked = newValue
+        requireComponents.settings.privateBrowsingModeLocked = newValue
         // Update switch state manually
         requirePreference<SwitchPreferenceCompat>(R.string.pref_key_private_browsing_locked_enabled).apply {
             isChecked = !isChecked
@@ -164,7 +172,7 @@ class PrivateBrowsingFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFr
         PrivateBrowsingLocked.authSuccess.record()
 
         recordPbmLockFeatureEnabledStateTelemetry(pbmLockEnabled)
-        requireContext().settings().privateBrowsingModeLocked = pbmLockEnabled
+        requireComponents.settings.privateBrowsingModeLocked = pbmLockEnabled
         // Update switch state manually
         (preference as? SwitchPreferenceCompat)?.isChecked = pbmLockEnabled
         updateScreenshotPreference(pbmLockEnabled)
@@ -179,16 +187,15 @@ class PrivateBrowsingFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFr
     }
 
     private fun updateScreenshotPreference(pbmLockEnabled: Boolean) {
-        requirePreference<SwitchPreferenceCompat>(R.string.pref_key_allow_screenshots_in_private_mode)
-            .apply {
-                if (pbmLockEnabled) {
-                    requireContext().settings().allowScreenshotsInPrivateMode = false
-                    isChecked = false
-                    if ((activity as? HomeActivity)?.browsingModeManager?.mode?.isPrivate == true) {
-                        activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-                    }
+        requirePreference<SwitchPreferenceCompat>(R.string.pref_key_allow_screenshots_in_private_mode).apply {
+            if (pbmLockEnabled) {
+                requireComponents.settings.allowScreenshotsInPrivateMode = false
+                isChecked = false
+                if ((activity as? HomeActivity)?.browsingModeManager?.mode?.isPrivate == true) {
+                    activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
                 }
-                isEnabled = !pbmLockEnabled
             }
+            isEnabled = !pbmLockEnabled
+        }
     }
 }

@@ -15,6 +15,7 @@
 #include "js/GCAnnotations.h"
 #include "js/shadow/Zone.h"  // JS::shadow::Zone
 #include "js/TypeDecls.h"
+#include "vm/MutexIDs.h"
 
 namespace JS {
 enum class TraceKind;
@@ -53,6 +54,9 @@ class TenuredCell;
 
 extern void PerformIncrementalReadBarrier(TenuredCell* cell);
 extern void PerformIncrementalPreWriteBarrier(TenuredCell* cell);
+#ifdef ENABLE_WASM_JSPI
+extern void PerformIncrementalPreWriteBarrierAllChildren(JSObject* cell);
+#endif
 extern void PerformIncrementalBarrierDuringFlattening(JSString* str);
 extern void UnmarkGrayGCThingRecursively(TenuredCell* cell);
 
@@ -116,9 +120,26 @@ class HeaderWord {
     setAtomic(value);
   }
 
+  // Atomic bitwise operations on the cell flags.
+  void setBitAtomic(uintptr_t flag) {
+    MOZ_ASSERT((flag & RESERVED_MASK) == 0);
+    __atomic_fetch_or(&value_, flag, __ATOMIC_RELAXED);
+  }
+  void clearBitAtomic(uintptr_t flag) {
+    MOZ_ASSERT((flag & RESERVED_MASK) == 0);
+    __atomic_fetch_and(&value_, ~flag, __ATOMIC_RELAXED);
+  }
+  void toggleBitAtomic(uintptr_t flag) {
+    MOZ_ASSERT((flag & RESERVED_MASK) == 0);
+    __atomic_fetch_xor(&value_, flag, __ATOMIC_RELAXED);
+  }
+
   // Accessors for GC data.
   uintptr_t flags() const { return getAtomic() & RESERVED_MASK; }
   bool isForwarded() const { return flags() & FORWARD_BIT; }
+  // Non-atomic variant. Only safe when no other thread can be mutating the
+  // header concurrently.
+  bool isForwardedNonAtomic() const { return value_ & FORWARD_BIT; }
   void setForwardingAddress(uintptr_t ptr) {
     MOZ_ASSERT((ptr & RESERVED_MASK) == 0);
     setAtomic(ptr | FORWARD_BIT);
@@ -156,6 +177,7 @@ class Cell {
   void operator=(const Cell&) = delete;
 
   bool isForwarded() const { return header_.isForwarded(); }
+  bool isForwardedNonAtomic() const { return header_.isForwardedNonAtomic(); }
   uintptr_t flags() const { return header_.flags(); }
 
   MOZ_ALWAYS_INLINE bool isTenured() const { return !IsInsideNursery(this); }
@@ -469,7 +491,7 @@ JS::Zone* TenuredCell::zone() const {
   return zone;
 }
 
-JS::Zone* TenuredCell::zoneFromAnyThread() const { return arena()->zone(); }
+JS::Zone* TenuredCell::zoneFromAnyThread() const { return chunk()->info.zone; }
 
 bool TenuredCell::isInsideZone(JS::Zone* zone) const {
   return zone == zoneFromAnyThread();
@@ -683,6 +705,14 @@ class alignas(gc::CellAlignBytes) CellWithLengthAndFlags : public Cell {
     return uint32_t(header_.getAtomic());
   }
 
+#if JS_GC_CONCURRENT_MARKING
+  uintptr_t headerFlagsFieldForTracing() const {
+    return headerFlagsFieldAtomic();
+  }
+#else
+  uintptr_t headerFlagsFieldForTracing() const { return headerFlagsField(); }
+#endif
+
   void setHeaderFlagBit(uint32_t flag) {
     header_.set(header_.get() | uintptr_t(flag));
   }
@@ -691,6 +721,11 @@ class alignas(gc::CellAlignBytes) CellWithLengthAndFlags : public Cell {
   }
   void toggleHeaderFlagBit(uint32_t flag) {
     header_.set(header_.get() ^ uintptr_t(flag));
+  }
+  void setHeaderFlagBitAtomic(uint32_t flag) { header_.setBitAtomic(flag); }
+  void clearHeaderFlagBitAtomic(uint32_t flag) { header_.clearBitAtomic(flag); }
+  void toggleHeaderFlagBitAtomic(uint32_t flag) {
+    header_.toggleBitAtomic(flag);
   }
 
   void setHeaderLengthAndFlags(uint32_t len, uint32_t flags) {
@@ -760,6 +795,15 @@ class alignas(gc::CellAlignBytes) TenuredCellWithNonGCPointer
     return reinterpret_cast<PtrT*>(uintptr_t(header_.get()));
   }
 
+#if JS_GC_CONCURRENT_MARKING
+  PtrT* headerPtrForTracing() const {
+    MOZ_ASSERT(flags() == 0);
+    return reinterpret_cast<PtrT*>(uintptr_t(header_.getAtomic()));
+  }
+#else
+  PtrT* headerPtrForTracing() const { return headerPtr(); }
+#endif
+
   void setHeaderPtr(PtrT* newValue) {
     // As above, no flags are expected to be set here.
     uintptr_t data = uintptr_t(newValue);
@@ -787,6 +831,15 @@ class alignas(gc::CellAlignBytes) TenuredCellWithFlags : public TenuredCell {
     MOZ_ASSERT(flags() == 0);
     return header_.get();
   }
+
+#if JS_GC_CONCURRENT_MARKING
+  uintptr_t headerFlagsFieldForTracing() const {
+    MOZ_ASSERT(flags() == 0);
+    return header_.getAtomic();
+  }
+#else
+  uintptr_t headerFlagsFieldForTracing() const { return headerFlagsField(); }
+#endif
 
   void setHeaderFlagBits(uintptr_t flags) {
     header_.set(header_.get() | flags);
@@ -847,6 +900,12 @@ class alignas(gc::CellAlignBytes) CellWithTenuredGCPointer : public BaseCell {
     MOZ_ASSERT(this->flags() == 0);
     return reinterpret_cast<PtrT*>(uintptr_t(this->header_.getAtomic()));
   }
+
+#if JS_GC_CONCURRENT_MARKING
+  PtrT* headerPtrForTracing() const { return headerPtrAtomic(); }
+#else
+  PtrT* headerPtrForTracing() const { return headerPtr(); }
+#endif
 
   void unbarrieredSetHeaderPtr(PtrT* newValue) {
     uintptr_t data = uintptr_t(newValue);
@@ -936,7 +995,15 @@ inline bool TenuredThingIsMarkedAny<Cell>(Cell* thing) {
   return thing->asTenured().isMarkedAny();
 }
 
-using MarkingLock = LightLock;
+class MarkingLock : public LightLock {
+ public:
+  MarkingLock() : LightLock(js::mutexid::GCMarkingLock) {}
+};
+
+class AtomRefLock : public LightLock {
+ public:
+  AtomRefLock() : LightLock(js::mutexid::GCAtomRefLock) {}
+};
 
 // A lock used to synchronize access to some data structures during concurrent
 // marking. This is only intended for use where lock-free approaches are
@@ -949,7 +1016,7 @@ using MarkingLock = LightLock;
 // This is a no op outside concurrent marking builds.
 class MOZ_RAII AutoMarkingLock {
 #ifdef JS_GC_CONCURRENT_MARKING
-  MarkingLock* lock = nullptr;
+  LightLock* lock = nullptr;
   JSRuntime* runtime = nullptr;
 #endif
 
@@ -958,7 +1025,7 @@ class MOZ_RAII AutoMarkingLock {
 
  public:
   // Take the lock if concurrent marking is currently happening in zone |zone|.
-  AutoMarkingLock(JS::Zone* zone, MarkingLock& markingLock) {
+  AutoMarkingLock(JS::Zone* zone, LightLock& markingLock) {
 #ifdef JS_GC_CONCURRENT_MARKING
     auto* shadowZone = JS::shadow::Zone::from(zone);
     if (shadowZone->needsMarkingBarrier(JS::shadow::Zone::Concurrent)) {
@@ -970,7 +1037,10 @@ class MOZ_RAII AutoMarkingLock {
   }
 
   // Take the lock if |trc| is a concurrent marking tracer.
-  inline AutoMarkingLock(JSTracer* trc, MarkingLock& markingLock);
+  inline AutoMarkingLock(JSTracer* trc, LightLock& markingLock);
+
+  // Take the lock if any concurrent marking is currently happening.
+  inline AutoMarkingLock(JSRuntime* rt, LightLock& markingLock);
 
   ~AutoMarkingLock() {
 #ifdef JS_GC_CONCURRENT_MARKING

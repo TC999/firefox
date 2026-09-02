@@ -20,6 +20,7 @@
 #include "mozilla/MouseEvents.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/PresShell.h"
+#include "mozilla/ReflowInput.h"
 #include "mozilla/SVGIntegrationUtils.h"
 #include "mozilla/ScrollContainerFrame.h"
 #include "mozilla/StaticPrefs_general.h"
@@ -154,7 +155,7 @@ class nsDisplaySliderMarks final : public nsPaintedDisplayItem {
     return mFrame->InkOverflowRectRelativeToSelf() + ToReferenceFrame();
   }
 
-  bool CreateWebRenderCommands(
+  WebRenderCommandsResult CreateWebRenderCommands(
       wr::DisplayListBuilder& aBuilder, wr::IpcResourceUpdateQueue& aResources,
       const StackingContextHelper& aSc,
       layers::RenderRootStateManager* aManager,
@@ -248,12 +249,12 @@ void nsDisplaySliderMarks::PaintMarks(nsDisplayListBuilder* aDisplayListBuilder,
   }
 }
 
-bool nsDisplaySliderMarks::CreateWebRenderCommands(
+WebRenderCommandsResult nsDisplaySliderMarks::CreateWebRenderCommands(
     wr::DisplayListBuilder& aBuilder, wr::IpcResourceUpdateQueue& aResources,
     const StackingContextHelper& aSc, layers::RenderRootStateManager* aManager,
     nsDisplayListBuilder* aDisplayListBuilder) {
   PaintMarks(aDisplayListBuilder, &aBuilder, nullptr);
-  return true;
+  return Ok();
 }
 
 void nsDisplaySliderMarks::Paint(nsDisplayListBuilder* aBuilder,
@@ -631,7 +632,7 @@ nsresult nsSliderFrame::HandleEvent(nsPresContext* aPresContext,
       case eMouseUp:
         if (ShouldScrollForEvent(aEvent)) {
           StopDrag();
-          // we MUST call nsFrame HandleEvent for mouse ups to maintain the
+          // we MUST call nsIFrame HandleEvent for mouse ups to maintain the
           // selection state and capture state.
           return nsIFrame::HandleEvent(aPresContext, aEvent, aEventStatus);
         }

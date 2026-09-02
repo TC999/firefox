@@ -13,6 +13,7 @@
 #include "mozilla/dom/DataTransfer.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/Selection.h"
+#include "mozilla/dom/UserActivation.h"
 #include "nsCommandParams.h"
 #include "nsIClipboard.h"
 #include "nsIEditingSession.h"
@@ -445,7 +446,8 @@ nsresult PasteCommand::DoCommand(Command aCommand, EditorBase& aEditorBase,
   // confirmation which are all handled in parent process before sending the
   // paste event.
   if (!nsContentUtils::PrincipalHasPermission(*subjectPrincipal,
-                                              nsGkAtoms::clipboardRead)) {
+                                              nsGkAtoms::clipboardRead) &&
+      !dom::UserActivation::IsHandlingKeyboardInputWithPasteActions()) {
     MOZ_DIAGNOSTIC_ASSERT(StaticPrefs::dom_execCommand_paste_enabled(),
                           "How did we get here?");
     // This will spin the event loop.
@@ -467,6 +469,46 @@ nsresult PasteCommand::DoCommand(Command aCommand, EditorBase& aEditorBase,
 }
 
 nsresult PasteCommand::GetCommandStateParams(
+    Command aCommand, nsCommandParams& aParams, EditorBase* aEditorBase,
+    nsIEditingSession* aEditingSession) const {
+  return aParams.SetBool(STATE_ENABLED,
+                         IsCommandEnabled(aCommand, aEditorBase));
+}
+
+/*****************************************************************************
+ * mozilla::PasteNoFormattingCommand
+ *****************************************************************************/
+
+StaticRefPtr<PasteNoFormattingCommand> PasteNoFormattingCommand::sInstance;
+
+bool PasteNoFormattingCommand::IsCommandEnabled(Command aCommand,
+                                                EditorBase* aEditorBase) const {
+  return aEditorBase && aEditorBase->IsSelectionEditable() &&
+         aEditorBase->CanPaste(nsIClipboard::kGlobalClipboard);
+}
+
+nsresult PasteNoFormattingCommand::DoCommand(Command aCommand,
+                                             EditorBase& aEditorBase,
+                                             nsIPrincipal* aPrincipal) const {
+#ifdef DEBUG
+  // cmd_pasteNoFormatting is not available through document.execCommand.
+  // So it should always have clipboardRead permission.
+  nsCOMPtr<nsIPrincipal> subjectPrincipal =
+      aPrincipal ? aPrincipal
+                 : nsContentUtils::SubjectPrincipalOrSystemIfNativeCaller();
+  MOZ_ASSERT(nsContentUtils::PrincipalHasPermission(*subjectPrincipal,
+                                                    nsGkAtoms::clipboardRead));
+#endif
+  nsresult rv = aEditorBase.PasteNoFormattingAsAction(
+      nsIClipboard::kGlobalClipboard, EditorBase::DispatchPasteEvent::Yes,
+      nullptr, aPrincipal);
+  NS_WARNING_ASSERTION(NS_SUCCEEDED(rv),
+                       "EditorBase::PasteNoFormattingAsAction(nsIClipboard::"
+                       "kGlobalClipboard, DispatchPasteEvent::Yes) failed");
+  return rv;
+}
+
+nsresult PasteNoFormattingCommand::GetCommandStateParams(
     Command aCommand, nsCommandParams& aParams, EditorBase* aEditorBase,
     nsIEditingSession* aEditingSession) const {
   return aParams.SetBool(STATE_ENABLED,
@@ -702,6 +744,9 @@ static const struct MoveCommand {
      Command::SelectWordNext, &nsISelectionController::WordMove},
     {Command::BeginLine, Command::EndLine, Command::SelectBeginLine,
      Command::SelectEndLine, &nsISelectionController::IntraLineMove},
+    {Command::BeginParagraph, Command::EndParagraph,
+     Command::SelectBeginParagraph, Command::SelectEndParagraph,
+     &nsISelectionController::ParagraphMove},
     {Command::MovePageUp, Command::MovePageDown, Command::SelectPageUp,
      Command::SelectPageDown, &nsISelectionController::PageMove},
     {Command::MoveTop, Command::MoveBottom, Command::SelectTop,
@@ -726,7 +771,11 @@ static const struct PhysicalCommand {
      nsISelectionController::MOVE_RIGHT, 1},
     {Command::MoveUp2, Command::SelectUp2, nsISelectionController::MOVE_UP, 1},
     {Command::MoveDown2, Command::SelectDown2,
-     nsISelectionController::MOVE_DOWN, 1}};
+     nsISelectionController::MOVE_DOWN, 1},
+    {Command::MoveLeft3, Command::SelectLeft3,
+     nsISelectionController::MOVE_LEFT, 2},
+    {Command::MoveRight3, Command::SelectRight3,
+     nsISelectionController::MOVE_RIGHT, 2}};
 
 nsresult SelectionMoveCommands::DoCommand(Command aCommand,
                                           EditorBase& aEditorBase,

@@ -9,8 +9,6 @@
 
 #include <sys/socket.h>  // for CMSG macros
 
-#include <atomic>
-#include <vector>
 #include <list>
 
 #include "base/message_loop.h"
@@ -24,6 +22,7 @@
 #include "mozilla/UniquePtr.h"
 #include "mozilla/UniquePtrExtensions.h"
 #include "nsISupports.h"
+#include "nsTArray.h"
 
 namespace IPC {
 
@@ -143,7 +142,8 @@ class ChannelPosix final : public Channel, public MessageLoopForIO::Watcher {
   // Large incoming messages that span multiple pipe buffers get built-up in the
   // buffers of this message.
   mozilla::UniquePtr<Message> incoming_message_ MOZ_GUARDED_BY(IOThread());
-  std::vector<int> input_overflow_fds_ MOZ_GUARDED_BY(IOThread());
+  nsTArray<mozilla::UniqueFileHandle> input_overflow_fds_
+      MOZ_GUARDED_BY(IOThread());
 
   // Will be set to `true` until `Connect()` has been called and communication
   // is ready. For privileged connections on macOS, this will not be cleared

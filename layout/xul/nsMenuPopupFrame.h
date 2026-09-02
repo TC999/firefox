@@ -61,6 +61,8 @@ enum class FlipType {
   Slide = 3,  // allow the arrow to "slide" instead of resizing
 };
 
+enum class IsNativeMenu : bool { No, Yes };
+
 enum class MenuPopupAnchorType : uint8_t {
   Node = 0,   // anchored to a node
   Point = 1,  // unanchored, and positioned at a screen point
@@ -230,7 +232,8 @@ class nsMenuPopupFrame final : public nsBlockFrame, public nsIWidgetListener {
   // true. These panels do not roll up automatically.
   bool IsNoAutoHide() const;
 
-  PopupLevel GetPopupLevel() const { return GetPopupLevel(IsNoAutoHide()); }
+  // Returns the popup's level.
+  PopupLevel GetPopupLevel() const;
 
   // Ensure that a widget has already been created for this view, and create
   // one if it hasn't. If aForceRecreate is true, destroys any existing widget
@@ -289,9 +292,13 @@ class nsMenuPopupFrame final : public nsBlockFrame, public nsIWidgetListener {
     return IsOpen() || mPopupState == ePopupPositioning ||
            mPopupState == ePopupShowing;
   }
+  bool IsVisibleOrHiding() const {
+    return IsVisible() || mPopupState == ePopupHiding;
+  }
   bool IsNativeMenu() const { return mIsNativeMenu; }
   bool CanSkipLayout() const;
   bool IsMouseTransparent() const;
+  mozilla::widget::TransparencyMode WidgetTransparencyMode() const;
 
   // Return true if the popup is for a menulist.
   bool IsMenuList() const;
@@ -311,22 +318,18 @@ class nsMenuPopupFrame final : public nsBlockFrame, public nsIWidgetListener {
   // a chrome shell
   bool IsInContentShell() const { return mInContentShell; }
 
-  void InitializePopupProperties(nsIContent* aAnchorContent,
-                                 nsIContent* aTriggerContent,
-                                 const nsAString& aPosition, int32_t aXPos,
-                                 int32_t aYPos, MenuPopupAnchorType aAnchorType,
-                                 bool aAttributesOverride);
-
   // the Initialize methods are used to set the anchor position for
   // each way of opening a popup.
   void InitializePopup(nsIContent* aAnchorContent, nsIContent* aTriggerContent,
                        const nsAString& aPosition, int32_t aXPos, int32_t aYPos,
                        MenuPopupAnchorType aAnchorType,
-                       bool aAttributesOverride);
+                       bool aAttributesOverride,
+                       enum IsNativeMenu aIsNativeMenu);
 
   void InitializePopupAtRect(nsIContent* aTriggerContent,
                              const nsAString& aPosition, const nsIntRect& aRect,
-                             bool aAttributesOverride);
+                             bool aAttributesOverride,
+                             enum IsNativeMenu aIsNativeMenu);
 
   /**
    * @param aIsContextMenu if true, then the popup is
@@ -334,18 +337,8 @@ class nsMenuPopupFrame final : public nsBlockFrame, public nsIWidgetListener {
    * (presumed) mouse position is not over the menu.
    */
   void InitializePopupAtScreen(nsIContent* aTriggerContent, int32_t aXPos,
-                               int32_t aYPos, bool aIsContextMenu);
-
-  // Called if this popup should be displayed as an OS-native context menu.
-  void InitializePopupAsNativeContextMenu(nsIContent* aTriggerContent,
-                                          int32_t aXPos, int32_t aYPos);
-
-  // Called if this popup should be displayed as an OS-native anchored menu.
-  void InitializePopupAsNativeAnchoredMenu(nsIContent* aAnchorContent,
-                                           nsIContent* aTriggerContent,
-                                           const nsAString& aPosition,
-                                           const mozilla::CSSIntRect& aRect,
-                                           bool aIsContextMenu);
+                               int32_t aYPos, bool aIsContextMenu,
+                               enum IsNativeMenu aIsNativeMenu);
 
   // indicate that the popup should be opened
   void ShowPopup(bool aIsContextMenu);
@@ -465,9 +458,6 @@ class nsMenuPopupFrame final : public nsBlockFrame, public nsIWidgetListener {
   void WillDispatchPopupPositioned() { mPendingPositionedEvent = false; }
 
  protected:
-  // returns the popup's level.
-  PopupLevel GetPopupLevel(bool aIsNoAutoHide) const;
-
   void InitPositionFromAnchorAlign(const nsAString& aAnchor,
                                    const nsAString& aAlign);
 
@@ -530,14 +520,6 @@ class nsMenuPopupFrame final : public nsBlockFrame, public nsIWidgetListener {
   // attributes.
   void MoveToAttributePosition();
 
-  // Returns true if the popup should try to remain at the same relative
-  // location as the anchor while it is open. If the anchor becomes hidden
-  // either directly or indirectly because a parent popup or other element
-  // is no longer visible, or a parent deck page is changed, the popup hides
-  // as well. The second variation also sets the anchor rectangle, relative to
-  // the popup frame.
-  bool ShouldFollowAnchor() const;
-
   nsIFrame* GetAnchorFrame() const;
 
  public:
@@ -549,6 +531,14 @@ class nsMenuPopupFrame final : public nsBlockFrame, public nsIWidgetListener {
    * Return whether the popup direction should be RTL.
    */
   bool IsDirectionRTL() const;
+
+  // Returns true if the popup should try to remain at the same relative
+  // location as the anchor while it is open. If the anchor becomes hidden
+  // either directly or indirectly because a parent popup or other element
+  // is no longer visible, or a parent deck page is changed, the popup hides
+  // as well. The second variation also sets the anchor rectangle, relative to
+  // the popup frame.
+  bool ShouldFollowAnchor() const;
 
   bool ShouldFollowAnchor(nsRect& aRect);
 
@@ -660,8 +650,7 @@ class nsMenuPopupFrame final : public nsBlockFrame, public nsIWidgetListener {
   // Whether layout has constrained this popup in some way.
   bool mConstrainedByLayout = false;
 
-  // Whether the most recent initialization of this menupopup happened via
-  // InitializePopupAsNativeContextMenu or InitializePopupAsNativeAnchoredMenu.
+  // Whether the most recent initialization of this menupopup is native.
   bool mIsNativeMenu = false;
 
   // Whether we have a pending `popuppositioned` event.

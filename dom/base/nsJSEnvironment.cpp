@@ -8,6 +8,7 @@
 #include "mozilla/HoldDropJSObjects.h"
 #include "nsAtom.h"
 #include "nsCOMPtr.h"
+#include "nsCRT.h"
 #include "nsContentUtils.h"
 #include "nsCycleCollector.h"
 #include "nsDOMCID.h"
@@ -27,6 +28,7 @@
 #include "nsIXPConnect.h"
 #include "nsJSUtils.h"
 #include "nsPIDOMWindow.h"
+#include "nsPIDOMWindowInlines.h"
 #include "nsPresContext.h"
 #include "nsReadableUtils.h"
 #include "nsServiceManagerUtils.h"
@@ -65,6 +67,7 @@
 #include "mozilla/StaticPrefs_dom.h"
 #include "mozilla/StaticPrefs_javascript.h"
 #include "mozilla/StaticPtr.h"
+#include "mozilla/TaskController.h"
 #include "mozilla/dom/BindingUtils.h"
 #include "mozilla/dom/BrowsingContext.h"
 #include "mozilla/dom/CanvasRenderingContext2DBinding.h"
@@ -88,7 +91,6 @@
 #include "prthread.h"
 #include "xpcpublic.h"
 #if defined(MOZ_MEMORY)
-#  include "mozilla/TaskController.h"
 #  include "mozmemory.h"
 #endif
 
@@ -395,7 +397,7 @@ void DispatchScriptErrorEvent(nsPIDOMWindowInner* win,
                               xpc::ErrorReport* xpcReport,
                               JS::Handle<JS::Value> exception,
                               JS::Handle<JSObject*> exceptionStack) {
-  nsContentUtils::AddScriptRunner(new ScriptErrorEvent(
+  nsContentUtils::AddScriptRunner(MakeAndAddRef<ScriptErrorEvent>(
       win, rootingCx, xpcReport, exception, exceptionStack));
 }
 
@@ -801,7 +803,7 @@ nsresult nsJSContext::AddSupportsPrimitiveTojsvals(JSContext* aCx,
 
       p->GetData(&data);
 
-      *aArgv = ::JS_NumberValue(data);
+      aArgv->setNumber(data);
 
       break;
     }
@@ -813,7 +815,7 @@ nsresult nsJSContext::AddSupportsPrimitiveTojsvals(JSContext* aCx,
 
       p->GetData(&data);
 
-      *aArgv = ::JS_NumberValue(data);
+      aArgv->setNumber(data);
 
       break;
     }
@@ -1537,8 +1539,8 @@ static void DOMGCSliceCallback(JSContext* aCx, JS::GCProgress aProgress,
       }
 
       MOZ_ASSERT(sCurrentGCStartTime);
-      glean::dom::gc_in_progress.AccumulateRawDuration(TimeStamp::Now() -
-                                                       sCurrentGCStartTime);
+      glean::dom::gc_in_progress.ProcessGet().AccumulateRawDuration(
+          TimeStamp::Now() - sCurrentGCStartTime);
 
 #if defined(MOZ_MEMORY)
       if (freeDirty &&
@@ -1788,8 +1790,10 @@ static bool ConsumeStream(JSContext* aCx, JS::Handle<JSObject*> aObj,
 
 static JS::SliceBudget CreateGCSliceBudget(JS::GCReason aReason,
                                            int64_t aMillis) {
+  IdleTaskManager* manager = TaskController::Get()->GetIdleTaskManager();
+  bool isIdle = bool(manager->State().GetCachedIdleDeadline());
   return sScheduler->CreateGCSliceBudget(
-      mozilla::TimeDuration::FromMilliseconds(aMillis), false, false);
+      mozilla::TimeDuration::FromMilliseconds(aMillis), isIdle, false);
 }
 
 void nsJSContext::EnsureStatics() {
@@ -2070,7 +2074,7 @@ class nsJSArgArray final : public nsIJSArgArray {
                nsresult* prv);
 
   // nsISupports
-  NS_DECL_CYCLE_COLLECTING_ISUPPORTS
+  NS_DECL_CYCLE_COLLECTING_ISUPPORTS_FINAL
   NS_DECL_CYCLE_COLLECTION_SCRIPT_HOLDER_CLASS_AMBIGUOUS(nsJSArgArray,
                                                          nsIJSArgArray)
 

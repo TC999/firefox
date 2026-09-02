@@ -66,9 +66,8 @@
 static_assert(sizeof(void*) == sizeof(nullptr),
               "nullptr should be the correct size");
 
-nsresult NS_NewSVGElement(
-    mozilla::dom::Element** aResult,
-    already_AddRefed<mozilla::dom::NodeInfo>&& aNodeInfo) {
+nsresult NS_NewSVGElement(mozilla::dom::Element** aResult,
+                          already_AddRefed<mozilla::dom::NodeInfo> aNodeInfo) {
   RefPtr<mozilla::dom::NodeInfo> nodeInfo(aNodeInfo);
   auto* nim = nodeInfo->NodeInfoManager();
   RefPtr<mozilla::dom::SVGElement> it =
@@ -98,7 +97,7 @@ SVGEnumMapping SVGElement::sSVGUnitTypesMap[] = {
     {nsGkAtoms::objectBoundingBox, SVG_UNIT_TYPE_OBJECTBOUNDINGBOX},
     {nullptr, 0}};
 
-SVGElement::SVGElement(already_AddRefed<mozilla::dom::NodeInfo>&& aNodeInfo)
+SVGElement::SVGElement(already_AddRefed<mozilla::dom::NodeInfo> aNodeInfo)
     : SVGElementBase(std::move(aNodeInfo)) {}
 
 SVGElement::~SVGElement() = default;
@@ -238,8 +237,8 @@ nsresult SVGElement::CopyInnerTo(mozilla::dom::Element* aDest) {
     if (const auto* pointList = GetAnimatedPointList()) {
       *dest->GetAnimatedPointList() = *pointList;
     }
-    if (const auto* pathSegList = GetAnimPathSegList()) {
-      *dest->GetAnimPathSegList() = *pathSegList;
+    if (const auto* pathSegList = GetAnimatedPathSegList()) {
+      *dest->GetAnimatedPathSegList() = *pathSegList;
       if (pathSegList->IsAnimating()) {
         dest->SMILOverrideStyle()->SetSMILValue(eCSSProperty_d, *pathSegList);
       }
@@ -252,8 +251,8 @@ nsresult SVGElement::CopyInnerTo(mozilla::dom::Element* aDest) {
     }
     if (const auto* smilOverrideStyleDecoration =
             GetSMILOverrideStyleDeclaration()) {
-      RefPtr<DeclarationBlock> declClone = smilOverrideStyleDecoration->Clone();
-      declClone->SetDirty();
+      RefPtr<StyleLockedDeclarationBlock> declClone =
+          Servo_DeclarationBlock_Clone(smilOverrideStyleDecoration).Consume();
       dest->SetSMILOverrideStyleDeclaration(*declClone);
     }
   }
@@ -469,7 +468,7 @@ bool SVGElement::ParseAttribute(int32_t aNamespaceID, nsAtom* aAttribute,
     if (!foundMatch) {
       // Check for SVGAnimatedPathSegList attribute
       if (GetPathDataAttrName() == aAttribute) {
-        if (SVGAnimatedPathSegList* segList = GetAnimPathSegList()) {
+        if (SVGAnimatedPathSegList* segList = GetAnimatedPathSegList()) {
           segList->SetBaseValueString(aValue);
           // The spec says we parse everything up to the failure, so we DON'T
           // need to check the result of SetBaseValueString or call
@@ -778,7 +777,7 @@ void SVGElement::UnsetAttrInternal(int32_t aNamespaceID, nsAtom* aName,
 
     // Check if this is a path segment list attribute going away
     if (GetPathDataAttrName() == aName) {
-      SVGAnimatedPathSegList* segList = GetAnimPathSegList();
+      SVGAnimatedPathSegList* segList = GetAnimatedPathSegList();
       if (segList) {
         segList->ClearBaseValue();
         return;
@@ -1181,8 +1180,8 @@ bool SVGElement::UpdateDeclarationBlockFromTransform(
                                              ? aTransform->GetAnimValue()
                                              : aTransform->GetBaseValue();
     // TODO: Maybe make SVGTransform use StyleTransformOperation directly?
-    for (size_t i = 0, len = transforms.Length(); i < len; ++i) {
-      SVGTransformToCSS(transforms[i], operations);
+    for (const auto& transform : transforms) {
+      SVGTransformToCSS(transform, operations);
     }
   }
   Servo_DeclarationBlock_SetTransform(&aBlock, eCSSProperty_transform,
@@ -1365,7 +1364,7 @@ void SVGElement::UpdateMappedDeclarationBlock() {
     }
 
     if (nameAtom == nsGkAtoms::d) {
-      const auto* path = GetAnimPathSegList();
+      const auto* path = GetAnimatedPathSegList();
       // Note: Only SVGPathElement has d attribute.
       MOZ_ASSERT(
           path,
@@ -1470,7 +1469,8 @@ void SVGElement::DidChangeValue(nsAtom* aName, nsAttrValue& aNewValue,
   const nsAttrValue emptyValue;
   SetAttrAndNotify(kNameSpaceID_None, aName, nullptr, &emptyValue, aNewValue,
                    nullptr, modType, kNotifyDocumentObservers,
-                   kCallAfterSetAttr, GetComposedDoc(), aProofOfUpdate);
+                   kCallAfterSetAttr, GetComposedDoc(), aProofOfUpdate,
+                   mozilla::dom::IsKnownNewAttr::No);
 }
 
 nsAtom* SVGElement::GetEventNameForAttr(nsAtom* aAttr) {
@@ -1725,7 +1725,7 @@ void SVGElement::DidChangePathSegList(const mozAutoDocUpdate& aProofOfUpdate) {
   MOZ_ASSERT(GetPathDataAttrName(), "Changing non-existent path seg list?");
 
   nsAttrValue newValue;
-  newValue.SetTo(GetAnimPathSegList()->GetBaseValue(), nullptr);
+  newValue.SetTo(GetAnimatedPathSegList()->GetBaseValue(), nullptr);
 
   DidChangeValue(GetPathDataAttrName(), newValue, aProofOfUpdate);
 }
@@ -1738,7 +1738,7 @@ void SVGElement::DidAnimatePathSegList() {
 
   // Notify style we have to update the d property because of SMIL animation.
   if (name == nsGkAtoms::d) {
-    auto* animPathSegList = GetAnimPathSegList();
+    auto* animPathSegList = GetAnimatedPathSegList();
     if (animPathSegList->IsAnimating()) {
       SMILOverrideStyle()->SetSMILValue(eCSSProperty_d, *animPathSegList);
     } else {
@@ -1764,7 +1764,7 @@ void SVGElement::DidChangeNumber(uint8_t aAttrEnum) {
   attrValue.SetTo(info.mValues[aAttrEnum].GetBaseValue(), nullptr);
 
   SetParsedAttr(kNameSpaceID_None, info.mInfos[aAttrEnum].mName, nullptr,
-                attrValue, true);
+                attrValue, true, mozilla::dom::IsKnownNewAttr::No);
 }
 
 void SVGElement::GetAnimatedNumberValues(float* aFirst, ...) {
@@ -1823,7 +1823,7 @@ void SVGElement::DidChangeInteger(uint8_t aAttrEnum) {
   attrValue.SetTo(info.mValues[aAttrEnum].GetBaseValue(), nullptr);
 
   SetParsedAttr(kNameSpaceID_None, info.mInfos[aAttrEnum].mName, nullptr,
-                attrValue, true);
+                attrValue, true, mozilla::dom::IsKnownNewAttr::No);
 }
 
 void SVGElement::GetAnimatedIntegerValues(int32_t* aFirst, ...) {
@@ -1881,7 +1881,7 @@ void SVGElement::DidChangeBoolean(uint8_t aAttrEnum) {
 
   nsAttrValue attrValue(info.mValues[aAttrEnum].GetBaseValueAtom());
   SetParsedAttr(kNameSpaceID_None, info.mInfos[aAttrEnum].mName, nullptr,
-                attrValue, true);
+                attrValue, true, mozilla::dom::IsKnownNewAttr::No);
 }
 
 SVGElement::EnumAttributesInfo SVGElement::GetEnumInfo() {
@@ -1897,7 +1897,7 @@ void SVGElement::DidChangeEnum(uint8_t aAttrEnum) {
 
   nsAttrValue attrValue(info.mValues[aAttrEnum].GetBaseValueAtom(this));
   SetParsedAttr(kNameSpaceID_None, info.mInfos[aAttrEnum].mName, nullptr,
-                attrValue, true);
+                attrValue, true, mozilla::dom::IsKnownNewAttr::No);
 }
 
 SVGAnimatedOrient* SVGElement::GetAnimatedOrient() { return nullptr; }
@@ -2227,7 +2227,7 @@ std::unique_ptr<SMILAttr> SVGElement::GetAnimatedAttr(int32_t aNamespaceID,
     // PathSegLists:
     {
       if (GetPathDataAttrName() == aName) {
-        SVGAnimatedPathSegList* segList = GetAnimPathSegList();
+        SVGAnimatedPathSegList* segList = GetAnimatedPathSegList();
         if (segList) {
           return segList->ToSMILAttr(this);
         }

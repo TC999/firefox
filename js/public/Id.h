@@ -69,12 +69,7 @@ class PropertyKey {
     return id;
   }
 
-  bool operator==(const PropertyKey& rhs) const {
-    return asBits_ == rhs.asBits_;
-  }
-  bool operator!=(const PropertyKey& rhs) const {
-    return asBits_ != rhs.asBits_;
-  }
+  bool operator==(const PropertyKey& rhs) const = default;
 
   MOZ_ALWAYS_INLINE bool isVoid() const {
     MOZ_ASSERT_IF((asBits_ & TypeMask) == VoidTypeTag, asBits_ == VoidTypeTag);
@@ -95,10 +90,10 @@ class PropertyKey {
 
   constexpr uintptr_t asRawBits() const { return asBits_; }
 
-  MOZ_ALWAYS_INLINE int32_t toInt() const {
+  MOZ_ALWAYS_INLINE uint32_t toInt() const {
     MOZ_ASSERT(isInt());
     uint32_t bits = static_cast<uint32_t>(asBits_) >> 1;
-    return static_cast<int32_t>(bits);
+    return bits;
   }
 
   MOZ_ALWAYS_INLINE JSString* toString() const {
@@ -205,6 +200,14 @@ class PropertyKey {
   }
   MOZ_ALWAYS_INLINE JSLinearString* toLinearString() const {
     return reinterpret_cast<JSLinearString*>(toString());
+  }
+
+  // Relaxed atomic load and store operations on a PropertyKey.
+  PropertyKey atomicGet() const {
+    return fromRawBits(__atomic_load_n(&asBits_, __ATOMIC_RELAXED));
+  }
+  void atomicSet(const PropertyKey& other) {
+    __atomic_store_n(&asBits_, other.asBits_, __ATOMIC_RELAXED);
   }
 
 #if defined(DEBUG) || defined(JS_JITSPEW)
@@ -355,7 +358,7 @@ class WrappedPtrOperations<JS::PropertyKey, Wrapper> {
   bool isSymbol() const { return id().isSymbol(); }
   bool isGCThing() const { return id().isGCThing(); }
 
-  int32_t toInt() const { return id().toInt(); }
+  uint32_t toInt() const { return id().toInt(); }
   JSString* toString() const { return id().toString(); }
   JS::Symbol* toSymbol() const { return id().toSymbol(); }
 

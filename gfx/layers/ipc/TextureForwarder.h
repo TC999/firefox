@@ -6,13 +6,14 @@
 #define MOZILLA_LAYERS_TEXTUREFORWARDER
 
 #include <stdint.h>  // for int32_t, uint64_t
+
 #include "gfxTypes.h"
 #include "mozilla/dom/ipc/IdType.h"
 #include "mozilla/ipc/ProtocolUtils.h"
+#include "mozilla/layers/KnowsCompositor.h"
 #include "mozilla/layers/LayersMessages.h"  // for Edit, etc
 #include "mozilla/layers/LayersTypes.h"     // for LayersBackend
 #include "mozilla/layers/TextureClient.h"   // for TextureClient
-#include "mozilla/layers/KnowsCompositor.h"
 #include "nsISerialEventTarget.h"
 
 namespace mozilla {
@@ -72,7 +73,7 @@ class TextureForwarder : public LayersIPCChannel {
    * Create a TextureChild/Parent pair as as well as the TextureHost on the
    * parent side.
    */
-  virtual PTextureChild* CreateTexture(
+  virtual already_AddRefed<PTextureChild> CreateTexture(
       const SurfaceDescriptor& aSharedData, ReadLockDescriptor&& aReadLock,
       LayersBackend aLayersBackend, TextureFlags aFlags,
       const dom::ContentParentId& aContentId, uint64_t aSerial,

@@ -5,8 +5,7 @@
   text-decoration: none;
   border-radius: var(--border-radius-large);
   padding: var(--space-medium);
-  // @backward-compat { version 150 } D281466/D283723 renamed design tokens; remove once Firefox 150 is on Release.
-  box-shadow: var(--card-box-shadow, var(--box-shadow-card));
+  box-shadow: var(--card-box-shadow);
   display: flex;
   flex-direction: column;
 
@@ -268,6 +267,12 @@
       content: url('chrome://browser/skin/weather/night-mostly-cloudy-with-flurries.svg');
     }
   }
+
+  hr {
+    border: 0;
+    border-block-start: 1px solid var(--border-color);
+    width: 100%;
+  }
 }
 
 .weather-info-column {
@@ -317,12 +322,6 @@
   }
 }
 
-hr {
-  border: 0;
-  border-block-start: 1px solid var(--border-color);
-  width: 100%;
-}
-
 .forecast-row {
   .today-forecast {
     margin-block-start: var(--space-small);
@@ -365,7 +364,7 @@ hr {
   margin-block-start: auto;
 
   span {
-    font-size: var(--font-size-xsmall);
+    font-size: var(--newtab-font-size-xsmall);
   }
 
   .sponsored-text {
@@ -375,7 +374,7 @@ hr {
   .full-forecast {
     position: relative;
     z-index: 1;
-    font-size: var(--font-size-xsmall);
+    font-size: var(--newtab-font-size-xsmall);
     text-decoration: none;
     color: inherit;
   }

@@ -18,7 +18,6 @@
 #define wasm_dump_h
 
 #include "js/Printer.h"
-
 #include "wasm/WasmModuleTypes.h"
 #include "wasm/WasmOpIter.h"
 #include "wasm/WasmTypeDef.h"
@@ -61,6 +60,13 @@ extern void DumpArrayType(const ArrayType& arrayType,
                           const TypeContext* types = nullptr);
 extern void DumpArrayType(const ArrayType& arrayType, StructuredPrinter& out,
                           const TypeContext* types = nullptr);
+
+#ifdef ENABLE_WASM_JSPI
+extern void DumpContType(const ContType& contType,
+                         const TypeContext* types = nullptr);
+extern void DumpContType(const ContType& contType, StructuredPrinter& out,
+                         const TypeContext* types = nullptr);
+#endif  // ENABLE_WASM_JSPI
 
 extern void DumpTypeDef(const TypeDef& typeDef, int32_t index = -1,
                         const TypeContext* types = nullptr);

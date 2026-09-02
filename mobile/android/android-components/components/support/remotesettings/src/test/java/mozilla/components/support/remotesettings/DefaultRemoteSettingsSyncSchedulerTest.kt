@@ -10,6 +10,7 @@ import androidx.work.Configuration
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.testing.WorkManagerTestInitHelper
+import java.util.concurrent.TimeUnit
 import junit.framework.TestCase.assertEquals
 import junit.framework.TestCase.assertFalse
 import junit.framework.TestCase.assertTrue
@@ -20,7 +21,6 @@ import mozilla.components.support.test.robolectric.testContext
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
-import java.util.concurrent.TimeUnit
 
 @RunWith(AndroidJUnit4::class)
 class DefaultRemoteSettingsSyncSchedulerTest {
@@ -33,7 +33,7 @@ class DefaultRemoteSettingsSyncSchedulerTest {
 
     @Test
     fun `WHEN registerForSync is called THEN work is scheduled for syncs`() = runTest {
-        val frequency = Frequency(24, TimeUnit.HOURS)
+        val frequency = Frequency(2, TimeUnit.HOURS)
         val checker = DefaultRemoteSettingsSyncScheduler(testContext, frequency)
 
         val workId = REMOTE_SETTINGS_SYNC_WORKER_TAG
@@ -52,7 +52,7 @@ class DefaultRemoteSettingsSyncSchedulerTest {
 
     @Test
     fun `WHEN unregisterForSync is called THEN work is unscheduled for syncs`() = runTest {
-        val frequency = Frequency(24, TimeUnit.HOURS)
+        val frequency = Frequency(2, TimeUnit.HOURS)
         val checker = DefaultRemoteSettingsSyncScheduler(testContext, frequency)
 
         val workId = REMOTE_SETTINGS_SYNC_WORKER_TAG

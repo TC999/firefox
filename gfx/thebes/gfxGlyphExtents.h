@@ -7,11 +7,11 @@
 
 #include "gfxFont.h"
 #include "gfxRect.h"
-#include "nsTHashtable.h"
-#include "nsHashKeys.h"
-#include "nsTArray.h"
 #include "mozilla/MemoryReporting.h"
 #include "mozilla/RWLock.h"
+#include "nsHashKeys.h"
+#include "nsTArray.h"
+#include "nsTHashtable.h"
 
 class gfxContext;
 
@@ -44,6 +44,9 @@ class gfxGlyphExtents {
     MOZ_COUNT_CTOR(gfxGlyphExtents);
   }
   ~gfxGlyphExtents();
+
+  gfxGlyphExtents(const gfxGlyphExtents& aOther) = delete;
+  gfxGlyphExtents& operator=(const gfxGlyphExtents& aOther) = delete;
 
   enum { INVALID_WIDTH = 0xFFFF };
 
@@ -161,11 +164,6 @@ class gfxGlyphExtents {
 
  public:
   mutable mozilla::RWLock mLock;
-
- private:
-  // not implemented:
-  gfxGlyphExtents(const gfxGlyphExtents& aOther) = delete;
-  gfxGlyphExtents& operator=(const gfxGlyphExtents& aOther) = delete;
 };
 
 #endif

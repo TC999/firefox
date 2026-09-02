@@ -244,11 +244,6 @@ class WebGLContext : public VRefCounted, public SupportsWeakPtr {
   class LruPosition final {
     std::list<WebGLContext*>::iterator mItr;
 
-    LruPosition(const LruPosition&) = delete;
-    LruPosition(LruPosition&&) = delete;
-    LruPosition& operator=(const LruPosition&) = delete;
-    LruPosition& operator=(LruPosition&&) = delete;
-
    public:
     void AssignLocked(WebGLContext& aContext) MOZ_REQUIRES(sLruMutex);
     void Reset();
@@ -259,6 +254,11 @@ class WebGLContext : public VRefCounted, public SupportsWeakPtr {
     explicit LruPosition(WebGLContext&);
 
     ~LruPosition() { Reset(); }
+
+    LruPosition(const LruPosition&) = delete;
+    LruPosition(LruPosition&&) = delete;
+    LruPosition& operator=(const LruPosition&) = delete;
+    LruPosition& operator=(LruPosition&&) = delete;
   };
 
   mutable LruPosition mLruPosition MOZ_GUARDED_BY(sLruMutex);
@@ -970,6 +970,8 @@ class WebGLContext : public VRefCounted, public SupportsWeakPtr {
   // ES3:
   uint32_t mGLMinProgramTexelOffset = 0;
   uint32_t mGLMaxProgramTexelOffset = 0;
+  uint32_t mGLMaxVertexUniformBlocks = 0;
+  uint32_t mGLMaxFragmentUniformBlocks = 0;
 
  public:
   auto GLMaxDrawBuffers() const { return mLimits->maxColorDrawBuffers; }
@@ -1119,7 +1121,7 @@ class WebGLContext : public VRefCounted, public SupportsWeakPtr {
 
  public:
   bool ValidateNonNegative(const char* argName, int64_t val) const {
-    if (MOZ_UNLIKELY(val < 0)) {
+    if (val < 0) [[unlikely]] {
       ErrorInvalidValue("`%s` must be non-negative.", argName);
       return false;
     }
@@ -1455,7 +1457,7 @@ bool Intersect(int32_t srcSize, int32_t read0, int32_t readSize,
                int32_t* out_intRead0, int32_t* out_intWrite0,
                int32_t* out_intSize);
 
-uint64_t AvailGroups(uint64_t totalAvailItems, uint64_t firstItemOffset,
+uint64_t AvailGroups(uint64_t totalAvailItemBytes, uint64_t firstItemOffset,
                      uint32_t groupSize, uint32_t groupStride);
 
 ////

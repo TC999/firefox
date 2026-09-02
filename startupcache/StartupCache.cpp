@@ -10,6 +10,7 @@
 #include "mozilla/IOBuffers.h"
 #include "mozilla/MemoryReporting.h"
 #include "mozilla/MemUtils.h"
+#include "mozilla/Maybe.h"
 #include "mozilla/MmapFaultHandler.h"
 #include "mozilla/ResultExtensions.h"
 #include "mozilla/scache/StartupCache.h"
@@ -261,7 +262,7 @@ void StartupCache::StartPrefetchMemory() {
     MonitorAutoLock lock(mPrefetchComplete);
     mPrefetchInProgress = true;
   }
-  NS_DispatchBackgroundTask(NewRunnableMethod<uint8_t*, size_t>(
+  NS_DispatchBackgroundTask(NewRunnableMethod<const uint8_t*, size_t>(
       "StartupCache::ThreadedPrefetch", this, &StartupCache::ThreadedPrefetch,
       mCacheData.get<uint8_t>().get(), mCacheData.size()));
 }
@@ -682,7 +683,11 @@ void StartupCache::MaybeKickOffShutdownWrite() {
   }
   gShutdownInitiated = true;
 
-  MaybeWriteOffMainThread(WriteType::RegularWrite);
+  // Don't throttle I/O: a starved write holding mTableLock blocks
+  // main-thread GetBuffer() long enough to trip the shutdown terminator
+  // (bug 2037923).
+  MaybeWriteOffMainThread(WriteType::RegularWrite,
+                          /* aUseLowPriorityIO */ false);
 }
 
 void StartupCache::EnsureShutdownWriteComplete() {
@@ -723,7 +728,7 @@ void StartupCache::WaitOnPrefetch() {
   }
 }
 
-void StartupCache::ThreadedPrefetch(uint8_t* aStart, size_t aSize) {
+void StartupCache::ThreadedPrefetch(const uint8_t* aStart, size_t aSize) {
   // Always notify of completion, even if MMAP_FAULT_HANDLER_CATCH()
   // early-returns.
   auto notifyPrefetchComplete = MakeScopeExit([&] {
@@ -768,7 +773,8 @@ void StartupCache::WriteTimeout(nsITimer* aTimer, void* aClosure) {
 /*
  * See StartupCache::WriteTimeout above - this is just the non-static body.
  */
-void StartupCache::MaybeWriteOffMainThread(WriteType aWriteType) {
+void StartupCache::MaybeWriteOffMainThread(WriteType aWriteType,
+                                           bool aUseLowPriorityIO) {
   {
     MutexAutoLock lock(mTableLock);
     if (mRegularWriteDone ||
@@ -786,7 +792,11 @@ void StartupCache::MaybeWriteOffMainThread(WriteType aWriteType) {
 
   RefPtr<StartupCache> self = this;
   nsCOMPtr<nsIRunnable> runnable = NS_NewRunnableFunction(
-      "StartupCache::Write", [self, aWriteType]() mutable {
+      "StartupCache::Write", [self, aWriteType, aUseLowPriorityIO]() mutable {
+        Maybe<nsAutoLowPriorityIO> lowPriority;
+        if (aUseLowPriorityIO) {
+          lowPriority.emplace();
+        }
         MutexAutoLock lock(self->mTableLock);
         auto result = self->WriteToDisk(aWriteType);
         (void)NS_WARN_IF(result.isErr());

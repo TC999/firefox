@@ -5,6 +5,8 @@
 #ifndef _nsWindowX11_h_
 #define _nsWindowX11_h_
 
+#include "nsWindow.h"
+
 namespace mozilla::widget {
 
 class nsWindowX11 final : public nsWindow {
@@ -21,12 +23,19 @@ class nsWindowX11 final : public nsWindow {
 
   void SetProgress(unsigned long progressPercent) override;
 
+  void LockNativePointer(NativePointerLockMode aNativePointerLockMode) override;
+  void UnlockNativePointer() override;
+  void UpdateNativePointerBarriers();
+
  protected:
   virtual ~nsWindowX11() = default;
 
   Window GetX11Window();
 
   void NativeShow(bool aAction) override;
+  bool SendWorkspaceMoveRequest(int32_t workspaceID);
+
+  void OnMapNative() override;
 
   typedef enum {
     GTK_WIDGET_COMPOSITED_DEFAULT = 0,
@@ -35,6 +44,17 @@ class nsWindowX11 final : public nsWindow {
   } WindowComposeRequest;
 
   void SetCompositorHint(WindowComposeRequest aState);
+
+  struct Barriers {
+    unsigned long mLeft = 0;
+    unsigned long mRight = 0;
+    unsigned long mTop = 0;
+    unsigned long mBottom = 0;
+  };
+
+  bool mIsNativePointerLocked = false;
+  mozilla::Maybe<Barriers> mNativePointerBarriers;
+  mozilla::Maybe<int32_t> mDeferredWorkspaceID;
 };
 
 }  // namespace mozilla::widget

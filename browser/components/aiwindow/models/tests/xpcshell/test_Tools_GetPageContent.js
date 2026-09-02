@@ -8,6 +8,10 @@ const { GetPageContent } = ChromeUtils.importESModule(
   "moz-src:///browser/components/aiwindow/models/Tools.sys.mjs"
 );
 
+const { PageExtractorParent } = ChromeUtils.importESModule(
+  "resource://gre/actors/PageExtractorParent.sys.mjs"
+);
+
 const { sinon } = ChromeUtils.importESModule(
   "resource://testing-common/Sinon.sys.mjs"
 );
@@ -330,18 +334,22 @@ add_task(async function test_getPageContent_empty_content() {
 
     setupBrowserWindowTracker(sb, createFakeWindow([tab]));
 
-    const result_array = await GetPageContent.getPageContent(
+    const result_array = await GetPageContent.getPageContentResults(
       { url_list: [targetUrl] },
       makeConversation()
     );
 
     const result = result_array[0];
 
-    Assert.ok(
-      result.includes("Content from"),
-      "Should return content result even for whitespace-only content"
+    Assert.equal(
+      result.ok,
+      false,
+      "Whitespace-only extractions are reported as failed reads"
     );
-    Assert.ok(result.includes("Empty Page"), "Should include tab label");
+    Assert.ok(
+      result.content.includes("Empty Page"),
+      "Should include tab label"
+    );
   } finally {
     sb.restore();
   }
@@ -473,6 +481,124 @@ add_task(async function test_getPageContent_allows_untrusted_input_only() {
     Assert.ok(
       result[0].includes("Example Page"),
       "Should return real content, not a refusal"
+    );
+  } finally {
+    sb.restore();
+  }
+});
+
+add_task(
+  async function test_getPageContent_returns_error_string_for_non_array_url_list() {
+    const result = await GetPageContent.getPageContent(
+      { url_list: "not-an-array" },
+      makeConversation()
+    );
+    Assert.equal(typeof result, "string", "Should return a string");
+    Assert.ok(
+      result.startsWith("Error:"),
+      "Should return an error string so the model can self-correct"
+    );
+  }
+);
+
+add_task(async function test_getPageContent_ledger_url_uses_stripped_fetch() {
+  // A URL in the untrusted ledger (e.g. one extracted from a SERP) should
+  // bypass the private+untrusted block and be fetched through a stripped
+  // headless extractor with `anonymousFetch: true`.
+  const sb = sinon.createSandbox();
+  try {
+    const targetUrl = "https://search-result.example.com/article";
+    const tabs = [createFakeTab("https://other.com", "Other")];
+    setupBrowserWindowTracker(sb, createFakeWindow(tabs));
+
+    const extractedText = "Stripped page content";
+    const headlessStub = sb
+      .stub(PageExtractorParent, "getHeadlessExtractor")
+      .callsFake(({ callback }) => {
+        const fakeExtractor = {
+          getText: sinon.stub().resolves({
+            text: extractedText,
+            links: [],
+          }),
+        };
+        return callback(fakeExtractor);
+      });
+
+    const conversation = makeConversation({
+      privateData: true,
+      untrustedInput: true,
+    });
+    conversation.serpUrlsForAnonymousFetch = new Set([targetUrl]);
+
+    const result = await GetPageContent.getPageContent(
+      { url_list: [targetUrl] },
+      conversation
+    );
+
+    Assert.equal(result.length, 1, "Should return one result");
+    Assert.equal(
+      result[0],
+      "Content from https://search-result.example.com/article:\n\nStripped page content",
+      "Should return the content extracted by the headless extractor"
+    );
+    Assert.ok(
+      headlessStub.calledOnce,
+      "getHeadlessExtractor should be called for the ledger URL"
+    );
+    Assert.equal(
+      headlessStub.firstCall.args[0].urlString,
+      targetUrl,
+      "Headless extractor should be called with the SERP URL"
+    );
+    Assert.equal(
+      headlessStub.firstCall.args[0].anonymousFetch,
+      true,
+      "Ledger URLs must use the stripped fetch path"
+    );
+  } finally {
+    sb.restore();
+  }
+});
+
+add_task(async function test_getPageContent_aborts_hung_extraction() {
+  // A page read whose extraction never settles must not hang the caller: once
+  // the passed AbortSignal fires (e.g. a page-read timeout), getPageContent
+  // cancels the read and resolves with a cancellation message.
+  const sb = sinon.createSandbox();
+
+  try {
+    const targetUrl = "https://example.com/slow";
+
+    // getText never resolves, simulating a hung extraction.
+    const mockExtractor = {
+      getText: sinon.stub().returns(new Promise(() => {})),
+      getReaderModeContent: sinon.stub().resolves({ text: "" }),
+    };
+    const tab = createFakeTab(targetUrl, "Slow Page");
+    tab.linkedBrowser.browsingContext.currentWindowContext.getActor = sinon
+      .stub()
+      .resolves(mockExtractor);
+    setupBrowserWindowTracker(sb, createFakeWindow([tab]));
+
+    const controller = new AbortController();
+    const resultPromise = GetPageContent.getPageContent(
+      { url_list: [targetUrl], signal: controller.signal },
+      makeConversation()
+    );
+    // Abort while the read is in flight. Without cancellation this would hang
+    // forever; the test would then time out and fail.
+    controller.abort();
+
+    const result_array = await resultPromise;
+
+    Assert.equal(result_array.length, 1, "Should return one result");
+    Assert.ok(
+      result_array[0].includes("canceled after a timeout"),
+      "A hung read that is aborted resolves with the cancellation message"
+    );
+    Assert.ok(
+      result_array[0].includes(targetUrl),
+      "Cancellation message should reference the URL"
     );
   } finally {
     sb.restore();

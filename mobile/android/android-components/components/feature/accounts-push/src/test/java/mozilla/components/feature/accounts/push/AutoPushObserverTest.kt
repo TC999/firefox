@@ -31,7 +31,7 @@ class AutoPushObserverTest {
 
     @Test
     fun `messages are forwarded to account manager`() = runTest {
-        val observer = AutoPushObserver(manager, mock(), "test", coroutineContext)
+        val observer = AutoPushObserver(manager, mock(), "test", this)
 
         `when`(manager.authenticatedAccount()).thenReturn(account)
         `when`(account.deviceConstellation()).thenReturn(constellation)
@@ -40,35 +40,32 @@ class AutoPushObserverTest {
         testScheduler.advanceUntilIdle()
 
         verify(constellation).processRawEvent("foobar")
-        Unit
     }
 
     @Test
     fun `account manager is not invoked if no account is available`() = runTest {
-        val observer = AutoPushObserver(manager, mock(), "test", coroutineContext)
+        val observer = AutoPushObserver(manager, mock(), "test", this)
 
         observer.onMessageReceived("test", "foobar".toByteArray())
         testScheduler.advanceUntilIdle()
 
         verify(constellation, never()).setDevicePushSubscription(any())
         verify(constellation, never()).processRawEvent("foobar")
-        Unit
     }
 
     @Test
     fun `messages are not forwarded to account manager if they are for a different scope`() = runTest {
-        val observer = AutoPushObserver(manager, mock(), "fake", coroutineContext)
+        val observer = AutoPushObserver(manager, mock(), "fake", this)
 
         observer.onMessageReceived("test", "foobar".toByteArray())
         testScheduler.advanceUntilIdle()
 
         verify(constellation, never()).processRawEvent(any())
-        Unit
     }
 
     @Test
     fun `subscription changes are forwarded to account manager`() = runTest {
-        val observer = AutoPushObserver(manager, pushFeature, "test", coroutineContext)
+        val observer = AutoPushObserver(manager, pushFeature, "test", this)
 
         whenSubscribe()
 
@@ -84,12 +81,11 @@ class AutoPushObserverTest {
         testScheduler.advanceUntilIdle()
 
         verify(constellation).setDevicePushSubscription(any())
-        Unit
     }
 
     @Test
     fun `do nothing if there is no account manager`() = runTest {
-        val observer = AutoPushObserver(manager, pushFeature, "test", coroutineContext)
+        val observer = AutoPushObserver(manager, pushFeature, "test", this)
 
         whenSubscribe()
 
@@ -97,12 +93,11 @@ class AutoPushObserverTest {
         testScheduler.advanceUntilIdle()
 
         verify(constellation, never()).setDevicePushSubscription(any())
-        Unit
     }
 
     @Test
     fun `subscription changes are not forwarded to account manager if they are for a different scope`() = runTest {
-        val observer = AutoPushObserver(manager, mock(), "fake", coroutineContext)
+        val observer = AutoPushObserver(manager, mock(), "fake", this)
 
         `when`(manager.authenticatedAccount()).thenReturn(account)
         `when`(account.deviceConstellation()).thenReturn(constellation)
@@ -125,7 +120,7 @@ class AutoPushObserverTest {
                     publicKey = "p256dh",
                     authKey = "auth",
                     appServerKey = null,
-                ),
+                )
             )
         }
     }

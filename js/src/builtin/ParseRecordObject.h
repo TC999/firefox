@@ -14,7 +14,9 @@ namespace js {
 using JSONParseNode = JSString;
 
 class ParseRecordObject : public NativeObject {
-  enum { ParseNodeSlot, ValueSlot, KeySlot, SlotCount };
+  JS_DEFINE_TYPED_SLOT(0, PARSE_NODE_SLOT, String, Undefined);
+  JS_DEFINE_UNTYPED_SLOT(1, VALUE_SLOT);
+  static constexpr uint32_t SLOT_COUNT = 2;
 
  public:
   static const JSClass class_;
@@ -27,21 +29,17 @@ class ParseRecordObject : public NativeObject {
   // The source text that was parsed for this record. According to the spec, we
   // don't track this for objects and arrays, so it will be a null pointer.
   JSONParseNode* getParseNode() const {
-    const Value& slot = getSlot(ParseNodeSlot);
+    const Value& slot = getReservedSlotTyped(PARSE_NODE_SLOT);
     return slot.isUndefined() ? nullptr : slot.toString();
   }
 
-  // For object members, the member key. For arrays, the index. For JSON
-  // primitives, it will be undefined.
-  JS::PropertyKey getKey(JSContext* cx) const;
-
-  bool setKey(JSContext* cx, const JS::PropertyKey& key);
-
   // The original value corresponding to this record, used to determine if the
   // reviver function has modified it.
-  const Value& getValue() const { return getSlot(ValueSlot); }
+  const Value& getValue() const { return getReservedSlot(VALUE_SLOT); }
 
-  void setValue(JS::Handle<JS::Value> value) { setSlot(ValueSlot, value); }
+  void setValue(JS::Handle<JS::Value> value) {
+    setReservedSlot(VALUE_SLOT, value);
+  }
 
   bool hasValue() const { return !getValue().isUndefined(); }
 

@@ -8,7 +8,7 @@
 
 class NonParamAnnotation : public CustomTypeAnnotation {
 public:
-  NonParamAnnotation() : CustomTypeAnnotation(moz_non_param, "non-param"){};
+  NonParamAnnotation() : CustomTypeAnnotation(moz_non_param, "non-param") {};
 
 protected:
   // Helper for checking if a Decl has an explicitly specified alignment.
@@ -17,7 +17,8 @@ protected:
   static unsigned checkExplicitAlignment(const Decl *D) {
     ASTContext &Context = D->getASTContext();
 #if CLANG_VERSION_FULL >= 1600
-    unsigned PointerAlign = Context.getTargetInfo().getPointerAlign(LangAS::Default);
+    unsigned PointerAlign =
+        Context.getTargetInfo().getPointerAlign(LangAS::Default);
 #else
     unsigned PointerAlign = Context.getTargetInfo().getPointerAlign(0);
 #endif
@@ -101,7 +102,7 @@ protected:
     // non-win32 platforms, but should not be linted against. Clear any
     // annotations on those types.
     if (!D->getASTContext().getTargetInfo().getCXXABI().isMicrosoft() &&
-        getDeclarationNamespace(D) == "std") {
+        D->isInStdNamespace()) {
       StringRef Name = getNameChecked(D);
       if (Name == "function") {
         ToVisit = VISIT_NONE;
@@ -145,7 +146,7 @@ NonParamAnnotation NonParam;
 void NonParamInsideFunctionDeclChecker::registerMatchers(
     MatchFinder *AstMatcher) {
   AstMatcher->addMatcher(
-      functionDecl(isDefinition(),
+      functionDecl(isDefinition(), isFirstParty(),
                    optionally(hasAncestor(
                        classTemplateSpecializationDecl().bind("spec"))),
                    unless(isDeleted()))
@@ -161,17 +162,6 @@ void NonParamInsideFunctionDeclChecker::check(
   const FunctionDecl *func = Result.Nodes.getNodeAs<FunctionDecl>("func");
   if (!func) {
     func = Result.Nodes.getNodeAs<LambdaExpr>("lambda")->getCallOperator();
-  }
-
-  // We need to skip decls which have these types as parameters in system
-  // headers, because presumably those headers act like an assertion that the
-  // alignment will be preserved in that situation.
-  if (getDeclarationNamespace(func) == "std") {
-    return;
-  }
-
-  if (inThirdPartyPath(func)) {
-    return;
   }
 
   // Don't report errors on the same declarations more than once.

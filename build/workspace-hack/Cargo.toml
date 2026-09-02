@@ -31,7 +31,7 @@ fluent = { version = "0.17", default-features = false, features = ["fluent-pseud
 fluent-langneg = { version = "0.13", features = ["cldr"], optional = true }
 fnv = { version = "1", optional = true }
 form_urlencoded = { version = "1", optional = true }
-futures = { version = "0.3", features = ["futures-executor"], optional = true }
+futures = { version = "0.3", features = ["alloc", "futures-executor"], optional = true }
 futures-channel = { version = "0.3", features = ["sink"], optional = true }
 futures-core = { version = "0.3", optional = true }
 futures-executor = { version = "0.3", features = ["thread-pool"], optional = true }
@@ -40,7 +40,7 @@ futures-util = { version = "0.3", features = ["channel", "io", "sink"], optional
 getrandom = { version = "0.2", default-features = false, features = ["custom", "std"], optional = true }
 hashbrown = { version = "0.13", optional = true }
 hex = { version = "0.4", features = ["serde"], optional = true }
-hyper = { version = "0.14", features = ["full"], optional = true }
+hyper = { version = "1", features = ["server", "http1"], optional = true }
 icu_locale_core = { version = "2.0", default-features = false, features = ["zerovec"], optional = true }
 icu_properties = { version = "2.0", features = ["unicode_bidi"], optional = true }
 idna = { version = "1", optional = true }
@@ -53,7 +53,7 @@ num-traits = { version = "0.2", features = ["i128", "libm"], optional = true }
 object = { version = "0.36", default-features = false, features = ["read", "std"], optional = true }
 once_cell = { version = "1", optional = true }
 percent-encoding = { version = "2", optional = true }
-phf = { version = "0.13", features = ["macros", "phf_macros"], optional = true }
+phf = { version = "0.14", features = ["macros", "phf_macros"], optional = true }
 regex = { version = "1", optional = true }
 rkv = { version = "0.20", default-features = false, features = ["no-canonicalize-path"], optional = true }
 scroll = { version = "0.12", optional = true }
@@ -87,7 +87,7 @@ scopeguard = { version = "1", optional = true }
 [build-dependencies]
 bindgen = { version = "0.69", default-features = false, features = ["runtime"], optional = true }
 cc = { version = "1.0", features = ["parallel"], optional = true }
-itertools = { version = "0.14", default-features = false, features = ["use_alloc"], optional = true }
+itertools = { version = "0.15", default-features = false, features = ["use_alloc"], optional = true }
 libc = "0.2"
 log = { version = "0.4", features = ["std"], optional = true }
 memchr = { version = "2", optional = true }
@@ -222,7 +222,7 @@ features = [
 ]
 
 [target."cfg(windows)".dependencies.windows-sys]
-version = "0.52"
+version = "0.61.1"
 optional = true
 features = [
     "Wdk_Foundation",
@@ -266,6 +266,8 @@ version = "0.8"
 optional = true
 
 [features]
+backgroundtaskregistrar = []
+msixcomserver_s = []
 crash_helper_server = ["dep:cc", "dep:num-traits", "dep:log", "dep:once_cell", "dep:uuid", "dep:windows-sys"]
 crashreporter = ["dep:allocator-api2", "dep:arrayvec", "dep:bindgen", "dep:bitflags", "dep:byteorder", "dep:bytes", "dep:cc", "dep:chrono", "dep:crossbeam-utils", "dep:env_logger", "dep:flate2", "dep:fluent", "dep:fluent-langneg", "dep:fnv", "dep:form_urlencoded", "dep:futures-channel", "dep:futures-core", "dep:futures-executor", "dep:futures-sink", "dep:futures-util", "dep:getrandom", "dep:hashbrown", "dep:hex", "dep:hyper", "dep:icu_locale_core", "dep:icu_properties", "dep:idna", "dep:indexmap", "dep:itertools", "dep:log", "dep:memchr", "dep:mio", "dep:nom", "dep:num-integer", "dep:num-traits", "dep:object", "dep:once_cell", "dep:percent-encoding", "dep:phf", "dep:regex", "dep:rkv", "dep:scroll", "dep:semver", "dep:serde_json", "dep:smallvec", "dep:stable_deref_trait", "dep:time", "dep:time-macros", "dep:tinystr", "dep:tokio", "dep:tokio-util", "dep:toml", "dep:tracing", "dep:unic-langid", "dep:unic-langid-impl", "dep:unicode-bidi", "dep:uniffi", "dep:url", "dep:uuid", "dep:windows-sys", "dep:yoke", "dep:zerocopy", "dep:zerofrom", "dep:zerovec", "dep:zip"]
 crashping = ["dep:serde_json", "dep:time"]
@@ -281,3 +283,9 @@ pkcs11testmodule-static = []
 test-trust-anchors-static = ["dep:bindgen", "dep:bitflags", "dep:itertools", "dep:memchr", "dep:nom", "dep:regex", "dep:smallvec"]
 toolchain-embedded-uniffi-bindgen = []
 toolchain-nimbus-fml = []
+megazord = []
+embedded-uniffi-bindgen = []
+nimbus-fml = []
+gkrust-uniffi-components = []
+uniffi-bindgen-gecko-js = []
+uniffi-bindgen-gecko-js-test-fixtures = []

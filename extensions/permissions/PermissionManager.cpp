@@ -265,7 +265,7 @@ static bool StripOriginString(const nsACString& aOrigin, bool aForceStripOA,
     return false;
   }
   PermissionManager::MaybeStripOriginAttributes(aForceStripOA, attrs);
-  aStripped = originNoSuffix;
+  aStripped = std::move(originNoSuffix);
   nsAutoCString oaSuffix;
   attrs.CreateSuffix(oaSuffix);
   aStripped.Append(oaSuffix);
@@ -298,7 +298,7 @@ nsresult GetOriginFromPrincipal(nsIPrincipal* aPrincipal, bool aForceStripOA,
   OriginAttributes attrs;
   NS_ENSURE_TRUE(attrs.PopulateFromSuffix(suffix), NS_ERROR_FAILURE);
 
-  OriginAppendOASuffix(attrs, aForceStripOA, aOrigin);
+  OriginAppendOASuffix(std::move(attrs), aForceStripOA, aOrigin);
 
   return NS_OK;
 }
@@ -328,7 +328,7 @@ nsresult GetSiteFromPrincipal(nsIPrincipal* aPrincipal, bool aForceStripOA,
   OriginAttributes attrs;
   NS_ENSURE_TRUE(attrs.PopulateFromSuffix(suffix), NS_ERROR_FAILURE);
 
-  OriginAppendOASuffix(attrs, aForceStripOA, aSite);
+  OriginAppendOASuffix(std::move(attrs), aForceStripOA, aSite);
 
   return NS_OK;
 }
@@ -342,7 +342,7 @@ nsresult GetOriginFromURIAndOA(nsIURI* aURI,
 
   OriginAppendOASuffix(*aOriginAttributes, aForceStripOA, origin);
 
-  aOrigin = origin;
+  aOrigin = std::move(origin);
 
   return NS_OK;
 }
@@ -697,7 +697,7 @@ nsresult NotifySecondaryKeyPermissionUpdateInContentProcess(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-PermissionManager::PermissionKey*
+already_AddRefed<PermissionManager::PermissionKey>
 PermissionManager::PermissionKey::CreateFromPrincipal(nsIPrincipal* aPrincipal,
                                                       bool aForceStripOA,
                                                       bool aScopeToSite,
@@ -711,10 +711,10 @@ PermissionManager::PermissionKey::CreateFromPrincipal(nsIPrincipal* aPrincipal,
   if (NS_WARN_IF(NS_FAILED(aResult))) {
     return nullptr;
   }
-  return new PermissionKey(keyString);
+  return MakeAndAddRef<PermissionKey>(keyString);
 }
 
-PermissionManager::PermissionKey*
+already_AddRefed<PermissionManager::PermissionKey>
 PermissionManager::PermissionKey::CreateFromURIAndOriginAttributes(
     nsIURI* aURI, const OriginAttributes* aOriginAttributes, bool aForceStripOA,
     nsresult& aResult) {
@@ -725,10 +725,10 @@ PermissionManager::PermissionKey::CreateFromURIAndOriginAttributes(
     return nullptr;
   }
 
-  return new PermissionKey(origin);
+  return MakeAndAddRef<PermissionKey>(origin);
 }
 
-PermissionManager::PermissionKey*
+already_AddRefed<PermissionManager::PermissionKey>
 PermissionManager::PermissionKey::CreateFromURI(nsIURI* aURI,
                                                 nsresult& aResult) {
   nsAutoCString origin;
@@ -737,7 +737,7 @@ PermissionManager::PermissionKey::CreateFromURI(nsIURI* aURI,
     return nullptr;
   }
 
-  return new PermissionKey(origin);
+  return MakeAndAddRef<PermissionKey>(origin);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -754,15 +754,6 @@ PermissionManager::PermissionManager()
 
 PermissionManager::~PermissionManager() {
   MonitorAutoLock lock{mMonitor};
-
-  // NOTE: Make sure to reject each of the promises in mPermissionKeyPromiseMap
-  // before destroying.
-  for (const auto& promise : mPermissionKeyPromiseMap.Values()) {
-    if (promise) {
-      promise->Reject(NS_ERROR_FAILURE, __func__);
-    }
-  }
-  mPermissionKeyPromiseMap.Clear();
 
   if (mThread) {
     mThread->Shutdown();
@@ -1872,7 +1863,7 @@ PermissionManager::AddDefaultFromPrincipal(nsIPrincipal* aPrincipal,
     // Or add a new entry if there wasn't already one and we aren't deleting the
     // default permission
     if (!updatedExistingEntry) {
-      entry.mOrigin = origin;
+      entry.mOrigin = std::move(origin);
       entry.mPermission = aPermission;
       entry.mType = aType;
       if (aPermission != nsIPermissionManager::UNKNOWN_ACTION) {
@@ -3609,8 +3600,8 @@ void PermissionManager::UpdateDB(OperationType aOp, int64_t aID,
   RefPtr<PermissionManager> self = this;
   mThread->Dispatch(NS_NewRunnableFunction(
       "PermissionManager::UpdateDB",
-      [self, aOp, aID, origin, type, aPermission, aExpireType, aExpireTime,
-       aModificationTime] {
+      [self, aOp, aID, origin = std::move(origin), type = std::move(type),
+       aPermission, aExpireType, aExpireTime, aModificationTime] {
         nsresult rv;
 
         auto data = self->mThreadBoundData.Access();
@@ -3757,22 +3748,11 @@ void PermissionManager::SetPermissionsWithKey(
 
   MonitorAutoLock lock{mMonitor};
 
-  RefPtr<GenericNonExclusivePromise::Private> promise;
-  bool foundKey =
-      mPermissionKeyPromiseMap.Get(aPermissionKey, getter_AddRefs(promise));
-  if (promise) {
-    MOZ_ASSERT(foundKey);
-    // NOTE: This will resolve asynchronously, so we can mark it as resolved
-    // now, and be confident that we will have filled in the database before any
-    // callbacks run.
-    promise->Resolve(true, __func__);
-  } else if (foundKey) {
+  if (!mPermissionKeys.EnsureInserted(aPermissionKey)) {
     // NOTE: We shouldn't be sent two InitializePermissionsWithKey for the same
     // key, but it's possible.
     return;
   }
-  mPermissionKeyPromiseMap.InsertOrUpdate(
-      aPermissionKey, RefPtr<GenericNonExclusivePromise::Private>{});
 
   // Add the permissions locally to our process
   for (IPC::Permission& perm : aPerms) {
@@ -3848,7 +3828,7 @@ nsresult PermissionManager::GetKeyForOrigin(const nsACString& aOrigin,
           mozilla::components::EffectiveTLD::Service();
       rv = etld->GetSite(uri, site);
       if (!NS_WARN_IF(NS_FAILED(rv))) {
-        aKey = site;
+        aKey = std::move(site);
       }
     }
   }
@@ -3939,11 +3919,7 @@ bool PermissionManager::PermissionAvailableInternal(nsIPrincipal* aPrincipal,
     // NOTE: GetKeyForPermission accepts a null aType.
     GetKeyForPermission(aPrincipal, aType, permissionKey);
 
-    // If we have a pending promise for the permission key in question, we don't
-    // have the permission available, so report a warning and return false.
-    RefPtr<GenericNonExclusivePromise::Private> promise;
-    if (!mPermissionKeyPromiseMap.Get(permissionKey, getter_AddRefs(promise)) ||
-        promise) {
+    if (!mPermissionKeys.Contains(permissionKey)) {
       // Emit a useful diagnostic warning with the permissionKey for the process
       // which hasn't received permissions yet.
       NS_WARNING(nsPrintfCString("This content process hasn't received the "
@@ -3954,55 +3930,6 @@ bool PermissionManager::PermissionAvailableInternal(nsIPrincipal* aPrincipal,
     }
   }
   return true;
-}
-
-void PermissionManager::WhenPermissionsAvailable(nsIPrincipal* aPrincipal,
-                                                 nsIRunnable* aRunnable) {
-  MOZ_ASSERT(aRunnable);
-
-  if (!XRE_IsContentProcess()) {
-    aRunnable->Run();
-    return;
-  }
-
-  MonitorAutoLock lock{mMonitor};
-
-  nsTArray<RefPtr<GenericNonExclusivePromise>> promises;
-  for (auto& pair : GetAllKeysForPrincipal(aPrincipal)) {
-    RefPtr<GenericNonExclusivePromise::Private> promise;
-    if (!mPermissionKeyPromiseMap.Get(pair.first, getter_AddRefs(promise))) {
-      // In this case we have found a permission which isn't available in the
-      // content process and hasn't been requested yet. We need to create a new
-      // promise, and send the request to the parent (if we have not already
-      // done so).
-      promise = new GenericNonExclusivePromise::Private(__func__);
-      mPermissionKeyPromiseMap.InsertOrUpdate(pair.first, RefPtr{promise});
-    }
-
-    if (promise) {
-      promises.AppendElement(std::move(promise));
-    }
-  }
-
-  // If all of our permissions are available, immediately run the runnable. This
-  // avoids any extra overhead during fetch interception which is performance
-  // sensitive.
-  if (promises.IsEmpty()) {
-    aRunnable->Run();
-    return;
-  }
-
-  auto* thread = AbstractThread::MainThread();
-
-  RefPtr<nsIRunnable> runnable = aRunnable;
-  GenericNonExclusivePromise::All(thread, promises)
-      ->Then(
-          thread, __func__, [runnable]() { runnable->Run(); },
-          []() {
-            NS_WARNING(
-                "PermissionManager permission promise rejected. We're "
-                "probably shutting down.");
-          });
 }
 
 void PermissionManager::EnsureReadCompleted() {
@@ -4532,6 +4459,34 @@ void PermissionManager::ForwardBrowserPermissionToChild(
     uint64_t aBrowserId, bool aIsRemoval) {
   MOZ_ASSERT(XRE_IsParentProcess());
 
+  nsAutoCString origin;
+  nsresult rv = aPrincipal->GetOrigin(origin);
+  if (NS_FAILED(rv)) {
+    return;
+  }
+
+  // A removal has to reach every process that may still hold a copy, not only
+  // the tab's current one: out-of-process iframes, and processes left behind by
+  // a process switch, are seeded by TransmitBrowserPermissionsForPrincipal.
+  // Select them by permission key, as regular permission updates do, so the
+  // origin only reaches processes that were already given it. The key has no
+  // tab dimension, so a process holding this origin for a different tab is
+  // notified too, where the removal is a no-op.
+  if (aIsRemoval) {
+    nsAutoCString permissionKey;
+    GetKeyForPermission(aPrincipal, aType, permissionKey);
+
+    nsTArray<dom::ContentParent*> cplist;
+    dom::ContentParent::GetAll(cplist);
+    for (dom::ContentParent* cp : cplist) {
+      if (cp->NeedsPermissionsUpdate(permissionKey)) {
+        (void)cp->SendSetBrowserPermission(origin, nsCString(aType), aAction,
+                                           aBrowserId, aIsRemoval);
+      }
+    }
+    return;
+  }
+
   RefPtr<dom::BrowsingContext> bc =
       dom::BrowsingContext::GetCurrentTopByBrowserId(aBrowserId);
   if (!bc) {
@@ -4543,15 +4498,46 @@ void PermissionManager::ForwardBrowserPermissionToChild(
     return;
   }
 
-  nsAutoCString origin;
-  nsresult rv = aPrincipal->GetOrigin(origin);
+  if (!cp->SendSetBrowserPermission(origin, nsCString(aType), aAction,
+                                    aBrowserId, aIsRemoval)) {
+    NS_WARNING("Failed to send SetBrowserPermission to child");
+  }
+}
+
+void PermissionManager::TransmitBrowserPermissionsForPrincipal(
+    dom::ContentParent* aContentParent, nsIPrincipal* aPrincipal,
+    uint64_t aBrowserId) {
+  MOZ_ASSERT(XRE_IsParentProcess());
+  MOZ_ASSERT(NS_IsMainThread());
+
+  if (!aBrowserId) {
+    return;
+  }
+
+  nsTArray<RefPtr<nsIPermission>> perms;
+  nsresult rv = GetAllForBrowser(aPrincipal, aBrowserId, perms);
   if (NS_FAILED(rv)) {
     return;
   }
 
-  if (!cp->SendSetBrowserPermission(origin, nsCString(aType), aAction,
-                                    aBrowserId, aIsRemoval)) {
-    NS_WARNING("Failed to send SetBrowserPermission to child");
+  for (const auto& perm : perms) {
+    nsAutoCString origin;
+    nsCOMPtr<nsIPrincipal> permPrincipal;
+    perm->GetPrincipal(getter_AddRefs(permPrincipal));
+    if (!permPrincipal || NS_FAILED(permPrincipal->GetOrigin(origin))) {
+      continue;
+    }
+
+    nsAutoCString type;
+    perm->GetType(type);
+
+    uint32_t action;
+    perm->GetCapability(&action);
+
+    if (!aContentParent->SendSetBrowserPermission(origin, type, action,
+                                                  aBrowserId, false)) {
+      NS_WARNING("Failed to send SetBrowserPermission to child");
+    }
   }
 }
 
@@ -4752,19 +4738,16 @@ void PermissionManager::ForwardClearBrowserPermissionsToChild(
     uint64_t aBrowserId, uint32_t aActionFilter) {
   MOZ_ASSERT(XRE_IsParentProcess());
 
-  RefPtr<dom::BrowsingContext> bc =
-      dom::BrowsingContext::GetCurrentTopByBrowserId(aBrowserId);
-  if (!bc) {
-    return;
-  }
-
-  dom::ContentParent* cp = bc->Canonical()->GetContentParent();
-  if (!cp) {
-    return;
-  }
-
-  if (!cp->SendClearBrowserPermissions(aBrowserId, aActionFilter)) {
-    NS_WARNING("Failed to send ClearBrowserPermissions to child");
+  // The BrowserId cannot be resolved back to a BrowsingContext here: the main
+  // caller is tab teardown, and BrowsingContext::Detach unregisters the
+  // BrowserId before it fires "browsing-context-discarded". Broadcast instead.
+  // Unlike SetBrowserPermission this message names no origin, so it discloses
+  // nothing to processes that never held the entry, and clearing a browserId a
+  // process knows nothing about is a no-op.
+  nsTArray<dom::ContentParent*> cplist;
+  dom::ContentParent::GetAll(cplist);
+  for (dom::ContentParent* cp : cplist) {
+    (void)cp->SendClearBrowserPermissions(aBrowserId, aActionFilter);
   }
 }
 
@@ -4853,7 +4836,8 @@ void PermissionManager::UpdateLastInteractionInternal(
   nsCString origin(aOrigin);
 
   mThread->Dispatch(NS_NewRunnableFunction(
-      "PermissionManager::UpdateLastInteractionInternal", [self, origin] {
+      "PermissionManager::UpdateLastInteractionInternal",
+      [self, origin = std::move(origin)] {
         auto data = self->mThreadBoundData.Access();
 
         if (self->mState == eClosed || !data->mDBConn ||

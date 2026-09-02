@@ -8,6 +8,7 @@
 #include "js/Proxy.h"
 #include "js/shadow/Object.h"  // JS::shadow::Object
 #include "vm/JSObject.h"
+#include "vm/NativeObject.h"
 
 namespace js {
 
@@ -31,9 +32,12 @@ class ProxyObject : public JSObject {
                   "proxy object size must match GC thing size");
     static_assert(offsetof(ProxyObject, data) == detail::ProxyDataOffset,
                   "proxy object layout must match shadow interface");
-    static_assert(offsetof(ProxyObject, data.reservedSlots) ==
-                      offsetof(JS::shadow::Object, slots),
-                  "Proxy reservedSlots must overlay native object slots field");
+  }
+
+  // The ProxyValueArray is always stored inline immediately after the
+  // ProxyObject header.
+  static constexpr size_t offsetOfProxyValueArray() {
+    return sizeof(ProxyObject);
   }
 
  public:
@@ -41,30 +45,14 @@ class ProxyObject : public JSObject {
                           HandleValue priv, TaggedProto proto_,
                           const JSClass* clasp);
 
+  static void swap(JSContext* cx, JS::Handle<ProxyObject*> a,
+                   JS::Handle<ProxyObject*> b,
+                   AutoEnterOOMUnsafeRegion& oomUnsafe);
+
   void init(const BaseProxyHandler* handler, HandleValue priv, JSContext* cx);
 
-  // Proxies usually store their ProxyValueArray inline in the object.
-  // There's one unfortunate exception: when a proxy is swapped with another
-  // object, and the sizes don't match, we malloc the ProxyValueArray.
-  void* inlineDataStart() const {
-    return (void*)(uintptr_t(this) + sizeof(ProxyObject));
-  }
-  bool usingInlineValueArray() const {
-    return data.values() == inlineDataStart();
-  }
-  void setInlineValueArray() {
-    data.reservedSlots =
-        &reinterpret_cast<detail::ProxyValueArray*>(inlineDataStart())
-             ->reservedSlots;
-  }
-
-  // For use from JSObject::swap.
-  [[nodiscard]] bool prepareForSwap(JSContext* cx,
-                                    MutableHandleValueVector valuesOut);
-  [[nodiscard]] bool fixupAfterSwap(JSContext* cx, HandleValueVector values);
-
   const Value& private_() const { return GetProxyPrivate(this); }
-  const Value& expando() const { return GetProxyExpando(this); }
+  JSObject* expando() const { return GetProxyExpando(this); }
 
   void setExpando(JSObject* expando);
 
@@ -76,14 +64,20 @@ class ProxyObject : public JSObject {
   const BaseProxyHandler* handler() const { return GetProxyHandler(this); }
 
   void setHandler(const BaseProxyHandler* handler) {
-    SetProxyHandler(this, handler);
+    detail::GetProxyDataLayout(this)->handler = handler;
   }
 
-  static size_t offsetOfReservedSlots() {
-    return offsetof(ProxyObject, data.reservedSlots);
-  }
-  static size_t offsetOfHandler() {
+  static constexpr size_t offsetOfHandler() {
     return offsetof(ProxyObject, data.handler);
+  }
+  static constexpr size_t offsetOfPrivateSlot() {
+    return offsetOfProxyValueArray() +
+           offsetof(detail::ProxyValueArray, privateSlot);
+  }
+  static constexpr size_t offsetOfReservedSlot(size_t n) {
+    return offsetOfProxyValueArray() +
+           offsetof(detail::ProxyValueArray, reservedSlots) +
+           n * sizeof(JS::Value);
   }
 
   size_t numReservedSlots() const { return JSCLASS_RESERVED_SLOTS(getClass()); }
@@ -91,8 +85,25 @@ class ProxyObject : public JSObject {
     return GetProxyReservedSlot(this, n);
   }
 
+  template <TypedSlotConcept TypedSlot>
+  const Value& reservedSlotTyped(TypedSlot slot) const {
+    const Value& v = GetProxyReservedSlot(this, slot.index());
+    MOZ_ASSERT(slot.isValidType(v.type()),
+               "load from TypedSlot has invalid type");
+    return v;
+  }
+
   void setReservedSlot(size_t n, const Value& extra) {
     SetProxyReservedSlot(this, n, extra);
+  }
+
+  template <TypedSlotConcept TypedSlot>
+  void setReservedSlotTyped(TypedSlot slot, const Value& v) {
+    MOZ_ASSERT(slot.isValidType(this->reservedSlot(slot.index()).type()),
+               "TypedSlot containing invalid type was overwritten");
+    MOZ_ASSERT(slot.isValidType(v.type()),
+               "value type is incompatible with TypedSlot's types");
+    SetProxyReservedSlot(this, slot.index(), v);
   }
 
   gc::AllocKind allocKindForTenure() const;
@@ -100,7 +111,7 @@ class ProxyObject : public JSObject {
  private:
   GCPtr<Value>* reservedSlotPtr(size_t n) {
     return reinterpret_cast<GCPtr<Value>*>(
-        &detail::GetProxyDataLayout(this)->reservedSlots->slots[n]);
+        &detail::GetProxyDataLayout(this)->values()->reservedSlots[n]);
   }
 
   GCPtr<Value>* slotOfPrivate() {
@@ -108,9 +119,9 @@ class ProxyObject : public JSObject {
         &detail::GetProxyDataLayout(this)->values()->privateSlot);
   }
 
-  GCPtr<Value>* slotOfExpando() {
-    return reinterpret_cast<GCPtr<Value>*>(
-        &detail::GetProxyDataLayout(this)->values()->expandoSlot);
+  GCPtr<JSObject*>* expandoPtr() {
+    return reinterpret_cast<GCPtr<JSObject*>*>(
+        &detail::GetProxyDataLayout(this)->expando);
   }
 
   void setPrivate(const Value& priv);
@@ -134,8 +145,6 @@ class ProxyObject : public JSObject {
   static void trace(JSTracer* trc, JSObject* obj);
 
   static void traceEdgeToTarget(JSTracer* trc, ProxyObject* obj);
-
-  void nurseryProxyTenured(ProxyObject* old);
 
   void nuke();
 };

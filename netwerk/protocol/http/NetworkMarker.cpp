@@ -5,10 +5,10 @@
 #include "NetworkMarker.h"
 
 #include "HttpBaseChannel.h"
-#include "nsIChannelEventSink.h"
-#include "mozilla/Perfetto.h"
 #include "mozilla/ErrorNames.h"
+#include "mozilla/Perfetto.h"
 #include "nsHttpHandler.h"
+#include "nsIChannelEventSink.h"
 #include "nsIClassOfService.h"
 
 namespace mozilla::net {
@@ -28,7 +28,8 @@ struct NetworkMarker {
       int64_t aRedirectChannelId, uint32_t aClassOfServiceFlags,
       bool aClassOfServiceIncremental, nsresult aRequestStatus,
       const mozilla::Maybe<mozilla::net::HttpVersion> aHttpVersion,
-      mozilla::Maybe<uint32_t> aResponseStatus) {
+      mozilla::Maybe<uint32_t> aResponseStatus,
+      const ProfilerString8View& aSecPurpose, bool aActivatedFromPrefetch) {
     // This payload still streams a startTime and endTime property because it
     // made the migration to MarkerTiming on the front-end easier.
     aWriter.TimeProperty("startTime", aStart);
@@ -102,6 +103,16 @@ struct NetworkMarker {
 
     if (aIsPrivateBrowsing) {
       aWriter.BoolProperty("isPrivateBrowsing", aIsPrivateBrowsing);
+    }
+
+    if (aSecPurpose.Length() != 0) {
+      aWriter.StringProperty("secPurpose", aSecPurpose);
+    }
+
+    if (aActivatedFromPrefetch) {
+      // Same vocabulary as PerformanceNavigationTiming's deliveryType.
+      aWriter.StringProperty("deliveryType",
+                             MakeStringSpan("navigational-prefetch"));
     }
 
     if (aType != NetworkLoadType::LOAD_START) {
@@ -253,7 +264,8 @@ void EmitPerfettoTrackEvent<mozilla::net::NetworkMarker, mozilla::TimeStamp,
     const uint32_t& aRedirectFlags, const uint64_t& aRedirectChannelId) {
   MOZ_ASSERT(!aOptions.IsTimingUnspecified(),
              "Timing should be properly defined.");
-  const char* nameStr = aName.StringView().data();
+  auto nameSv = aName.StringView();
+  const char* nameStr = nameSv.data();
   if (!nameStr) {
     return;
   }
@@ -262,7 +274,6 @@ void EmitPerfettoTrackEvent<mozilla::net::NetworkMarker, mozilla::TimeStamp,
   startTime = aOptions.Timing().StartTime();
   endTime = aOptions.Timing().EndTime();
 
-  perfetto::DynamicString name{nameStr};
   perfetto::DynamicCategory category{"LOAD"};
 
   MOZ_ASSERT(
@@ -271,7 +282,7 @@ void EmitPerfettoTrackEvent<mozilla::net::NetworkMarker, mozilla::TimeStamp,
 
   // Create a unique id for each marker.
   mozilla::HashNumber hash =
-      mozilla::HashStringKnownLength(nameStr, aName.StringView().length());
+      mozilla::HashString(nameStr, aName.StringView().length());
   hash = mozilla::AddToHash(hash,
                             startTime.RawClockMonotonicNanosecondsSinceBoot());
   hash =
@@ -282,7 +293,9 @@ void EmitPerfettoTrackEvent<mozilla::net::NetworkMarker, mozilla::TimeStamp,
   desc.set_name(nameStr);
   perfetto::TrackEvent::SetTrackDescriptor(track, desc);
 
-  PERFETTO_TRACE_EVENT_BEGIN(category, name, track, startTime);
+  PERFETTO_TRACE_EVENT_BEGIN(
+      category, (perfetto::DynamicString{nameStr, nameSv.length()}), track,
+      startTime);
   PERFETTO_TRACE_EVENT_END(
       category, track, endTime, [&](perfetto::EventContext ctx) {
         auto* urlArg = ctx.event()->add_debug_annotations();
@@ -400,6 +413,7 @@ void profiler_add_network_marker(
     nsICacheInfoChannel::CacheDisposition aCacheDisposition,
     uint64_t aInnerWindowID, bool aIsPrivateBrowsing,
     nsIClassOfService* aClassOfService, nsresult aRequestStatus,
+    const nsACString& aSecPurpose, bool aActivatedFromPrefetch,
     const mozilla::net::TimingStruct* aTimings,
     UniquePtr<ProfileChunkedBuffer> aSource,
     const Maybe<mozilla::net::HttpVersion> aHttpVersion,
@@ -446,6 +460,7 @@ void profiler_add_network_marker(
       redirect_spec,
       aContentType ? ProfilerString8View(*aContentType) : ProfilerString8View(),
       aRedirectFlags, aRedirectChannelId, classOfServiceFlags,
-      classOfServiceIncremental, aRequestStatus, aHttpVersion, aResponseStatus);
+      classOfServiceIncremental, aRequestStatus, aHttpVersion, aResponseStatus,
+      aSecPurpose, aActivatedFromPrefetch);
 }
 }  // namespace mozilla::net

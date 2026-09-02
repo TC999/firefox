@@ -9,15 +9,18 @@
 
 #include "gfxPlatformFontList.h"
 #include "gfxPlatformMac.h"
-
 #include "mozilla/FontPropertyTypes.h"
-#include "mozilla/gfx/UnscaledFontMac.h"
 #include "mozilla/LookAndFeel.h"
 #include "mozilla/MemoryReporting.h"
-
+#include "mozilla/gfx/UnscaledFontMac.h"
 #include "nsRefPtrHashtable.h"
 #include "nsTArray.h"
 #include "nsUnicharUtils.h"
+
+#ifdef MOZ_FONTATIONS
+#  include "mozilla/MemoryMappedFile.h"
+#  include "mozilla/gfx/fontations_glue_generated.h"
+#endif
 
 // Abstract base class for Core Text/Core Graphics-based platform font list,
 // which is subclassed to create specific macOS and iOS variants.
@@ -34,12 +37,14 @@ class CTFontEntry final : public gfxFontEntry {
 
   // for use with data fonts
   CTFontEntry(const nsACString& aPostscriptName, CGFontRef aFontRef,
-              WeightRange aWeight, StretchRange aStretch,
-              SlantStyleRange aStyle, bool aIsDataUserFont, bool aIsLocal);
-
-  virtual ~CTFontEntry() { ::CGFontRelease(mFontRef); }
+              WeightRange aWeight, WidthRange aWidth, SlantStyleRange aStyle,
+              bool aIsDataUserFont, bool aIsLocal);
 
   gfxFontEntry* Clone() const override;
+
+#if MOZ_FONTATIONS
+  void InitSkrifaFontFace() override;
+#endif
 
   // Return a non-owning reference to our CGFont; caller must not release it.
   // This will cause the fontEntry to create & retain a CGFont for the life
@@ -57,7 +62,7 @@ class CTFontEntry final : public gfxFontEntry {
 
   // override gfxFontEntry table access function to bypass table cache,
   // use CGFontRef API to get direct access to system font data
-  hb_blob_t* GetFontTable(uint32_t aTag) override;
+  hb_blob_t* GetFontTableInternal(uint32_t aTag) override;
 
   void AddSizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf,
                               FontListSizes* aSizes) const override;
@@ -66,26 +71,23 @@ class CTFontEntry final : public gfxFontEntry {
 
   bool RequiresAATLayout() const { return mRequiresAAT; }
 
-  bool HasVariations() override;
-  void GetVariationAxes(
-      nsTArray<gfxFontVariationAxis>& aVariationAxes) override;
-  void GetVariationInstances(
-      nsTArray<gfxFontVariationInstance>& aInstances) override;
-
   bool IsCFF();
 
   bool SupportsOpenTypeFeature(Script aScript, uint32_t aFeatureTag) override;
 
-  size_t ComputedSizeOfExcludingThis(
-      mozilla::MallocSizeOf aMallocSizeOf) override {
-    return gfxFontEntry::ComputedSizeOfExcludingThis(aMallocSizeOf) +
-           mComputedSizeOfUserFont;
-  }
-
  protected:
+  // Protected destructor, to discourage deletion outside of Release():
+  virtual ~CTFontEntry() { ::CGFontRelease(mFontRef); }
+
   gfxFont* CreateFontInstance(const gfxFontStyle* aFontStyle) override;
 
-  bool HasFontTable(uint32_t aTableTag) override;
+  bool HasVariationsInternal() override;
+  void GetVariationAxesInternal(
+      nsTArray<gfxFontVariationAxis>& aVariationAxes) override;
+  void GetVariationInstancesInternal(
+      nsTArray<gfxFontVariationInstance>& aInstances) override;
+
+  bool HasFontTableInternal(uint32_t aTableTag) override;
 
   static void DestroyBlobFunc(void* aUserData);
 
@@ -117,9 +119,8 @@ class CTFontEntry final : public gfxFontEntry {
 
   nsTHashtable<nsUint32HashKey> mAvailableTables MOZ_GUARDED_BY(mLock);
 
-  mozilla::ThreadSafeWeakPtr<mozilla::gfx::UnscaledFontMac> mUnscaledFont;
-
-  size_t mComputedSizeOfUserFont = 0;
+  mozilla::ThreadSafeWeakPtr<mozilla::gfx::UnscaledFontMac> mUnscaledFont
+      MOZ_GUARDED_BY(mLock);
 };
 
 class CTFontFamily : public gfxFontFamily {
@@ -160,23 +161,20 @@ class CoreTextFontList : public gfxPlatformFontList {
   using FontFamilyListEntry = mozilla::dom::SystemFontListEntry;
 
  public:
-  gfxFontFamily* CreateFontFamily(const nsACString& aName,
-                                  FontVisibility aVisibility) const override;
+  already_AddRefed<gfxFontFamily> CreateFontFamily(
+      const nsACString& aName, FontVisibility aVisibility) const override;
 
   static int32_t AppleWeightToCSSWeight(int32_t aAppleWeight);
 
-  gfxFontEntry* LookupLocalFont(FontVisibilityProvider* aFontVisibilityProvider,
-                                const nsACString& aFontName,
-                                WeightRange aWeightForEntry,
-                                StretchRange aStretchForEntry,
-                                SlantStyleRange aStyleForEntry) override;
+  already_AddRefed<gfxFontEntry> LookupLocalFont(
+      FontVisibilityProvider* aFontVisibilityProvider,
+      const nsACString& aFontName, WeightRange aWeightForEntry,
+      WidthRange aWidthForEntry, SlantStyleRange aStyleForEntry) override;
 
-  gfxFontEntry* MakePlatformFont(const nsACString& aFontName,
-                                 WeightRange aWeightForEntry,
-                                 StretchRange aStretchForEntry,
-                                 SlantStyleRange aStyleForEntry,
-                                 const uint8_t* aFontData,
-                                 uint32_t aLength) override;
+  already_AddRefed<gfxFontEntry> MakePlatformFont(
+      const nsACString& aFontName, WeightRange aWeightForEntry,
+      WidthRange aWidthForEntry, SlantStyleRange aStyleForEntry,
+      FontData* aFontData) override;
 
   bool FindAndAddFamiliesLocked(
       FontVisibilityProvider* aFontVisibilityProvider,
@@ -255,7 +253,7 @@ class CoreTextFontList : public gfxPlatformFontList {
       const nsACString& aDir,
       nsTHashSet<nsCStringHashKey>* aLoadedFamilies = nullptr);
 
-  gfxFontEntry* CreateFontEntry(
+  already_AddRefed<gfxFontEntry> CreateFontEntry(
       mozilla::fontlist::Face* aFace,
       const mozilla::fontlist::Family* aFamily) override;
 

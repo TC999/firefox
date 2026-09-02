@@ -3,37 +3,38 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "nsHTTPCompressConv.h"
+
 #include "ErrorList.h"
-#include "nsCOMPtr.h"
-#include "nsCRT.h"
-#include "nsError.h"
-#include "nsIChannel.h"
-#include "nsIForcePendingChannel.h"
-#include "nsIHttpChannel.h"
-#include "nsIRequest.h"
-#include "nsIThreadRetargetableRequest.h"
-#include "nsIThreadRetargetableStreamListener.h"
-#include "nsThreadUtils.h"
-#include "nsStreamUtils.h"
-#include "nsStringStream.h"
-#include "nsComponentManagerUtils.h"
-#include "mozilla/net/Dictionary.h"
+#include "mozilla/Logging.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/StaticPrefs_network.h"
-#include "mozilla/Logging.h"
 #include "mozilla/UniquePtrExtensions.h"
 #include "mozilla/glean/GleanPings.h"
 #include "mozilla/glean/NetwerkMetrics.h"
+#include "mozilla/net/Dictionary.h"
+#include "nsCOMPtr.h"
+#include "nsCRT.h"
+#include "nsComponentManagerUtils.h"
+#include "nsError.h"
+#include "nsIChannel.h"
 #include "nsIEffectiveTLDService.h"
+#include "nsIForcePendingChannel.h"
+#include "nsIHttpChannel.h"
 #include "nsILoadInfo.h"
-#include "nsServiceManagerUtils.h"
+#include "nsIRequest.h"
+#include "nsIThreadRetargetableRequest.h"
+#include "nsIThreadRetargetableStreamListener.h"
 #include "nsNetCID.h"
+#include "nsServiceManagerUtils.h"
+#include "nsStreamUtils.h"
+#include "nsStringStream.h"
+#include "nsThreadUtils.h"
 
 // brotli headers
 #undef assert
 #include "assert.h"
-#include "state.h"
 #include "brotli/decode.h"
+#include "state.h"
 
 #define ZSTD_STATIC_LINKING_ONLY 1
 #include "zstd/zstd.h"
@@ -56,15 +57,20 @@ class BrotliWrapper {
   BrotliWrapper() = default;
   ~BrotliWrapper() { BrotliDecoderStateCleanup(&mState); }
 
-  bool Init(nsIRequest* aRequest) {
+  bool Init(nsIRequest* aRequest, nsHTTPCompressConv::CompressMode aMode) {
     if (!BrotliDecoderStateInit(&mState, nullptr, nullptr, nullptr)) {
       return false;
+    }
+
+    if (aMode != nsHTTPCompressConv::HTTP_COMPRESS_BROTLI_DICTIONARY) {
+      return true;
     }
 
     nsCOMPtr<nsIHttpChannel> httpchannel(do_QueryInterface(aRequest));
     if (!httpchannel) {
       return false;
     }
+
     if (NS_SUCCEEDED(httpchannel->GetDecompressDictionary(
             getter_AddRefs(mDictionary))) &&
         mDictionary) {
@@ -86,6 +92,7 @@ class BrotliWrapper {
         }
       }
     }
+
     return true;
   }
 
@@ -144,9 +151,9 @@ class ZstdWrapper {
 #else
     mDStream = ZSTD_createDStream();  // fallible
     if (!mDStream) {
-      MOZ_RELEASE_ASSERT(ZSTD_defaultCMem.customAlloc == NULL &&
-                         ZSTD_defaultCMem.customFree == NULL &&
-                         ZSTD_defaultCMem.opaque == NULL);
+      MOZ_RELEASE_ASSERT(ZSTD_defaultCMem.customAlloc == nullptr &&
+                         ZSTD_defaultCMem.customFree == nullptr &&
+                         ZSTD_defaultCMem.opaque == nullptr);
       return;
     }
 #endif
@@ -227,6 +234,19 @@ void nsHTTPCompressConv::ReportDecodingErrorWithSite(const nsACString& aLabel) {
 
 NS_IMETHODIMP
 nsHTTPCompressConv::GetDecodedDataLength(uint64_t* aDecodedDataLength) {
+  // When multiple Content-Encodings are stacked (e.g. "gzip, gzip"), the
+  // converters form a chain where this instance's mDecodedDataLength only
+  // reflects the bytes emitted after a single decoding pass. The fully
+  // decoded body size is what the innermost converter forwards to the real
+  // listener, so walk the chain to return that.
+  nsCOMPtr<nsIStreamListener> listener;
+  {
+    MutexAutoLock lock(mMutex);
+    listener = mListener;
+  }
+  if (nsCOMPtr<nsICompressConvStats> inner = do_QueryInterface(listener)) {
+    return inner->GetDecodedDataLength(aDecodedDataLength);
+  }
   *aDecodedDataLength = mDecodedDataLength;
   return NS_OK;
 }
@@ -884,7 +904,7 @@ nsHTTPCompressConv::OnDataAvailable(nsIRequest* request, nsIInputStream* iStr,
     case HTTP_COMPRESS_BROTLI_DICTIONARY: {
       if (!mBrotli) {
         mBrotli = MakeUnique<BrotliWrapper>();
-        if (!mBrotli->Init(request)) {
+        if (!mBrotli->Init(request, mMode)) {
           return NS_ERROR_FAILURE;
         }
       }
@@ -1022,7 +1042,8 @@ nsresult nsHTTPCompressConv::do_OnDataAvailable(nsIRequest* request,
 #define COMMENT 0x10     /* bit 4 set: file comment present */
 #define RESERVED 0xE0    /* bits 5..7: reserved */
 
-static unsigned gz_magic[2] = {0x1f, 0x8b}; /* gzip magic header */
+static unsigned gz_magic[2] = {GZIP_MAGIC_0,
+                               GZIP_MAGIC_1}; /* gzip magic header */
 
 uint32_t nsHTTPCompressConv::check_header(nsIInputStream* iStr,
                                           uint32_t streamLen, nsresult* rs) {

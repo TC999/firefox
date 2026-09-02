@@ -7,6 +7,7 @@
 
 #include <unordered_map>
 
+#include "mozilla/Mutex.h"
 #include "mozilla/gfx/FileHandleWrapper.h"
 #include "mozilla/layers/Fence.h"
 
@@ -74,13 +75,16 @@ class FenceD3D11 final : public Fence {
   FenceD3D11(const OwnsFence aOwnsFence, const RefPtr<ID3D11Device> aDevice,
              const RefPtr<ID3D11Fence> aSignalFence,
              const RefPtr<gfx::FileHandleWrapper>& aHandle);
-  virtual ~FenceD3D11();
+  virtual ~FenceD3D11() = default;
 
   uint64_t mFenceValue = 0;
+
+  Mutex mMutex{"FenceD3D11::mMutex"};
   // Fences that are used for waiting.
   // They are opened for each D3D11 device that the fence is waited on.
   // XXX change to LRU cache
-  std::unordered_map<const ID3D11Device*, RefPtr<ID3D11Fence>> mWaitFenceMap;
+  std::unordered_map<const ID3D11Device*, RefPtr<ID3D11Fence>> mWaitFenceMap
+      MOZ_GUARDED_BY(mMutex);
 };
 
 }  // namespace layers

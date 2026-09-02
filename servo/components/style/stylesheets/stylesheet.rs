@@ -86,7 +86,7 @@ impl StylesheetContents {
             css,
             &url_data,
             origin,
-            &shared_lock,
+            shared_lock,
             stylesheet_loader,
             error_reporter,
             quirks_mode,
@@ -96,7 +96,7 @@ impl StylesheetContents {
         );
 
         Arc::new(Self {
-            rules: CssRules::new(rules, &shared_lock),
+            rules: CssRules::new(rules, shared_lock),
             origin,
             url_data,
             namespaces,
@@ -285,11 +285,8 @@ impl StylesheetInDocument for Stylesheet {
 
 /// A simple wrapper over an `Arc<Stylesheet>`, with pointer comparison, and
 /// suitable for its use in a `StylesheetSet`.
-#[derive(Clone, Debug)]
-#[cfg_attr(feature = "servo", derive(MallocSizeOf))]
-pub struct DocumentStyleSheet(
-    #[cfg_attr(feature = "servo", ignore_malloc_size_of = "Arc")] pub Arc<Stylesheet>,
-);
+#[derive(Clone, Debug, MallocSizeOf)]
+pub struct DocumentStyleSheet(#[ignore_malloc_size_of = "Arc"] pub Arc<Stylesheet>);
 
 impl PartialEq for DocumentStyleSheet {
     fn eq(&self, other: &Self) -> bool {
@@ -444,6 +441,7 @@ impl Stylesheet {
             /* namespaces = */ Default::default(),
             error_reporter,
             use_counters,
+            /* attr_taint */ Default::default(),
         );
 
         let mut rule_parser = TopLevelRuleParser {
@@ -468,7 +466,7 @@ impl Stylesheet {
                     Ok(rule_start) => {
                         // TODO(emilio, nesting): sanitize nested CSS rules, probably?
                         if let Some(ref mut data) = sanitization_data {
-                            if let Some(ref rule) = iter.parser.rules.last() {
+                            if let Some(rule) = iter.parser.rules.last() {
                                 if !data.kind.allows(rule, &shared_lock.read()) {
                                     iter.parser.rules.pop();
                                     continue;
@@ -478,8 +476,7 @@ impl Stylesheet {
                             data.output.push_str(&css[rule_start.byte_index()..end]);
                         }
                     },
-                    Err((error, slice)) => {
-                        let location = error.location;
+                    Err((error, slice, location)) => {
                         let error = ContextualParseError::InvalidRule(slice, error);
                         iter.parser.context.log_css_error(location, error);
                     },

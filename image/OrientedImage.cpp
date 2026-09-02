@@ -4,14 +4,12 @@
 
 #include "OrientedImage.h"
 
-#include <algorithm>
-
+#include "ImageRegion.h"
 #include "gfx2DGlue.h"
 #include "gfxContext.h"
 #include "gfxDrawable.h"
 #include "gfxPlatform.h"
 #include "gfxUtils.h"
-#include "ImageRegion.h"
 #include "mozilla/SVGImageContext.h"
 
 using std::swap;
@@ -90,7 +88,7 @@ already_AddRefed<SourceSurface> OrientedImage::OrientSurface(
   }
 
   // Create our drawable.
-  RefPtr<gfxDrawable> drawable = new gfxSurfaceDrawable(aSurface, originalSize);
+  auto drawable = MakeRefPtr<gfxSurfaceDrawable>(aSurface, originalSize);
 
   // Determine an appropriate format for the surface.
   gfx::SurfaceFormat surfaceFormat = IsOpaque(aSurface->GetFormat())
@@ -292,7 +290,7 @@ OrientedImage::Draw(gfxContext* aContext, const nsIntSize& aSize,
     auto oldViewport = aOldContext.GetViewportSize();
     if (oldViewport && mOrientation.SwapsWidthAndHeight()) {
       // Swap width and height:
-      CSSIntSize newViewport(oldViewport->height, oldViewport->width);
+      CSSSize newViewport(oldViewport->height, oldViewport->width);
       context.SetViewportSize(Some(newViewport));
     }
     return context;

@@ -30,7 +30,6 @@
 #include "nsColor.h"
 #include "nsCompatibility.h"
 #include "nsCoord.h"
-#include "nsGkAtoms.h"
 #include "nsIURI.h"
 
 struct RawServoAnimationValueTable;
@@ -41,7 +40,7 @@ class nsINode;
 class nsIContent;
 class nsCSSPropertyIDSet;
 class nsPresContext;
-class nsSimpleContentList;
+class nsStaticAtom;
 class imgRequestProxy;
 struct nsCSSValueSharedList;
 struct AnchorPosResolutionParams;
@@ -50,12 +49,17 @@ class gfxFontFeatureValueSet;
 struct GeckoFontMetrics;
 namespace mozilla {
 
-// Forward declaration for `StyleLengthPercentageUnion::AsCalc`, which
+// Forward declaration for `StyleLengthPercentage::AsCalc`, which
 // references the type below in the generated code.
 struct StyleCalcLengthPercentage;
 
+// Forward declaration for `StyleVariableReferenceValue`, which references the
+// the type below in the generated code.
+struct StyleUnparsedSegment;
+using StyleUnparsedValue = CopyableTArray<StyleUnparsedSegment>;
+
 // Forward declaration required due to a circular type dependency between
-// StyleNumericValue and StyleSumValue.
+// StyleNumericValue and StyleMathSum.
 // cbindgen does not currently emit this forward declaration automatically.
 struct StyleNumericValue;
 
@@ -67,6 +71,7 @@ class FontPaletteValueSet;
 }  // namespace mozilla
 using gfxFontVariation = mozilla::gfx::FontVariation;
 using gfxFontFeature = mozilla::gfx::FontFeature;
+struct gfxFontVariationAxis;
 
 enum nsCSSUnit : uint32_t;
 enum nsChangeHint : uint32_t;
@@ -129,17 +134,19 @@ class Loader;
 class LoaderReusableStyleSheets;
 class SheetLoadData;
 using SheetLoadDataHolder = nsMainThreadPtrHolder<SheetLoadData>;
-enum SheetParsingMode : uint8_t;
 }  // namespace css
 
 namespace dom {
 enum class IterationCompositeOperation : uint8_t;
 enum class CallerType : uint32_t;
+class SimpleContentList;
 
 class Element;
 class Document;
 
 }  // namespace dom
+
+using StyleSimpleContentList = dom::SimpleContentList;
 
 // Replacement for a Rust Box<T> for a non-dynamically-sized-type.
 //
@@ -186,8 +193,6 @@ struct StyleBox {
 
   bool operator==(const StyleBox& aOther) const { return *(*this) == *aOther; }
 
-  bool operator!=(const StyleBox& aOther) const { return *(*this) != *aOther; }
-
  private:
   T* mRaw;
 };
@@ -198,7 +203,6 @@ struct StyleBox {
 using StyleLoader = css::Loader;
 using StyleLoaderReusableStyleSheets = css::LoaderReusableStyleSheets;
 using StyleCallerType = dom::CallerType;
-using StyleSheetParsingMode = css::SheetParsingMode;
 using StyleSheetLoadData = css::SheetLoadData;
 using StyleSheetLoadDataHolder = css::SheetLoadDataHolder;
 using StyleGeckoMallocSizeOf = MallocSizeOf;
@@ -206,6 +210,7 @@ using StyleDomStyleSheet = StyleSheet;
 
 using StyleRawGeckoNode = nsINode;
 using StyleRawGeckoElement = dom::Element;
+using StyleRawShadowRoot = dom::ShadowRoot;
 using StyleDocument = dom::Document;
 using StyleComputedValues = ComputedStyle;
 using StyleIterationCompositeOperation = dom::IterationCompositeOperation;

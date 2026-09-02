@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim:set ts=2 sw=2 sts=2 et cindent: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -17,7 +15,6 @@
 static float sProgressVal;  // between 0 and 100
 static mozilla::Atomic<gboolean> sQuit(FALSE);
 static gboolean sEnableUI;
-static guint sTimerID;
 
 static GtkWidget* sWin;
 static GtkWidget* sLabel;
@@ -30,6 +27,7 @@ static gboolean UpdateDialog(gpointer data) {
   if (sQuit) {
     gtk_widget_hide(sWin);
     gtk_main_quit();
+    return G_SOURCE_REMOVE;
   }
 
   float progress = sProgressVal;
@@ -37,7 +35,7 @@ static gboolean UpdateDialog(gpointer data) {
   gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(sProgressBar),
                                 progress / 100.0);
 
-  return TRUE;
+  return G_SOURCE_CONTINUE;
 }
 
 static gboolean OnDeleteEvent(GtkWidget* widget, GdkEvent* event,
@@ -104,7 +102,7 @@ int ShowProgressUI() {
   gtk_box_pack_start(GTK_BOX(vbox), sLabel, FALSE, FALSE, 0);
   gtk_box_pack_start(GTK_BOX(vbox), sProgressBar, TRUE, TRUE, 0);
 
-  sTimerID = g_timeout_add(TIMER_INTERVAL, UpdateDialog, nullptr);
+  g_timeout_add(TIMER_INTERVAL, UpdateDialog, nullptr);
 
   gtk_container_set_border_width(GTK_CONTAINER(sWin), 10);
   gtk_container_add(GTK_CONTAINER(sWin), vbox);

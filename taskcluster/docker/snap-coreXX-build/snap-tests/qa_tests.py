@@ -349,10 +349,12 @@ class QATests(SnapTestsBase):
         )
 
         self._wait.until(
-            lambda d: d.execute_script(
-                'return window.getComputedStyle(document.querySelector(".loadingInput.start"), "::after").getPropertyValue("visibility");'
+            lambda d: (
+                d.execute_script(
+                    'return window.getComputedStyle(document.querySelector(".loadingInput.start"), "::after").getPropertyValue("visibility");'
+                )
+                != "visible"
             )
-            != "visible"
         )
         # PDF.js can take time to settle and we don't have a nice way to wait
         # for an event on it
@@ -652,11 +654,13 @@ class QATests(SnapTestsBase):
         if context_change:
             self._driver.set_context("chrome")
         self._wait.until(
-            lambda d: self._driver.execute_script(
-                "return Services.clipboard.hasDataMatchingFlavors([arguments[0]], Ci.nsIClipboard.kGlobalClipboard);",
-                mime_type,
+            lambda d: (
+                self._driver.execute_script(
+                    "return Services.clipboard.hasDataMatchingFlavors([arguments[0]], Ci.nsIClipboard.kGlobalClipboard);",
+                    mime_type,
+                )
+                is True
             )
-            is True
         )
         if context_change:
             self._driver.set_context("content")
@@ -880,17 +884,29 @@ class QATests(SnapTestsBase):
         download_name = self.accept_download()
         self.wait_for_download()
 
-        self.open_tab("about:preferences")
+        # The download folder control is only in the document once the
+        # Downloads settings page is selected, and the hash selects it.
+        #
+        # Firefox versions that have no Downloads page treat the hash as an
+        # unknown category and open their default page, which is where their
+        # own control is, so the same URL serves the older snaps we test.
+        self.open_tab("about:preferences#downloads")
+
         download_folder = self._wait.until(
             EC.presence_of_element_located((By.ID, "chooseFolder"))
         )
-        if not download_folder.get_property("value"):
-            # Fallback to "downloadFoler" for older Firefox versions
+        try:
+            # The path comes from an asynchronous lookup of the download
+            # directory, so an empty value only means "not filled in yet".
+            self._wait.until(lambda d: download_folder.get_property("value"))
+        except TimeoutException:
+            # Fallback to "downloadFolder" for older Firefox versions
             download_folder = self._wait.until(
                 EC.presence_of_element_located((By.ID, "downloadFolder"))
             )
         previous_folder = (
-            download_folder.get_property("value")
+            download_folder
+            .get_property("value")
             .replace("\u2066", "")
             .replace("\u2069", "")
         )

@@ -6,7 +6,6 @@
 
 #include <fstream>
 #include <limits>
-#include <sstream>
 #include <string>
 #include <utility>
 
@@ -264,7 +263,6 @@ nsProfiler::WaitOnePeriodicSampling(JSContext* aCx, Promise** aPromise) {
                       promiseHandleInMT->MaybeReject(NS_ERROR_FAILURE);
                       break;
 
-                    case SamplingState::NoStackSamplingCompleted:
                     case SamplingState::SamplingCompleted:
                       // The parent process has succesfully done a sampling,
                       // check the child processes (if any).
@@ -352,6 +350,25 @@ nsProfiler::GetActiveConfiguration(JSContext* aCx,
 NS_IMETHODIMP
 nsProfiler::DumpProfileToFile(const char* aFilename) {
   profiler_save_profile_to_file(aFilename);
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsProfiler::ScheduleDumpToFile(double aDelaySeconds, const char* aFilename,
+                               bool aExitAfterDump) {
+  profiler_schedule_dump_to_file(aDelaySeconds, aFilename, aExitAfterDump);
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsProfiler::WaitForScheduledDump() {
+  profiler_wait_for_scheduled_dump();
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsProfiler::CancelScheduledDump() {
+  profiler_cancel_scheduled_dump();
   return NS_OK;
 }
 
@@ -1224,29 +1241,35 @@ RefPtr<nsProfiler::GatheringPromise> nsProfiler::StartGathering(
   mWriter->StartArrayProperty("processes");
 
   // If we have any process exit profiles, add them immediately.
-  if (Vector<nsCString> exitProfiles = profiler_move_exit_profiles();
+  if (Vector<ProfileAndAdditionalInformation> exitProfiles =
+          profiler_move_exit_profiles();
       !exitProfiles.empty()) {
     for (auto& exitProfile : exitProfiles) {
-      if (!exitProfile.IsEmpty()) {
-        if (exitProfile[0] == '*') {
+      const nsCString& profile = exitProfile.mProfile;
+      if (!profile.IsEmpty()) {
+        if (profile[0] == '*') {
           LogEvent([&](Json::Value& aEvent) {
             aEvent.append(
                 Json::StaticString{"Exit non-profile with error message:"});
-            aEvent.append(Json::String(Substring(exitProfile, 1).View()));
+            aEvent.append(Json::String(Substring(profile, 1).View()));
           });
-        } else if (mWriter->ChunkedWriteFunc().Length() + exitProfile.Length() <
+        } else if (mWriter->ChunkedWriteFunc().Length() + profile.Length() <
                    scLengthAccumulationThreshold) {
-          mWriter->Splice(exitProfile);
+          mWriter->Splice(profile);
+          if (exitProfile.mAdditionalInformation.isSome()) {
+            mProfileGenerationAdditionalInformation->Append(
+                std::move(*exitProfile.mAdditionalInformation));
+          }
           LogEvent([&](Json::Value& aEvent) {
             aEvent.append(Json::StaticString{"Added exit profile with size:"});
-            aEvent.append(Json::Value::UInt64{exitProfile.Length()});
+            aEvent.append(Json::Value::UInt64{profile.Length()});
           });
         } else {
           LogEvent([&](Json::Value& aEvent) {
             aEvent.append(
                 Json::StaticString{"Discarded an exit profile that would make "
                                    "the full profile too big, size:"});
-            aEvent.append(Json::Value::UInt64{exitProfile.Length()});
+            aEvent.append(Json::Value::UInt64{profile.Length()});
           });
         }
       }

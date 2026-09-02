@@ -5,11 +5,10 @@
 #ifndef GFX_SHARED_MEMORYSURFACE_H
 #define GFX_SHARED_MEMORYSURFACE_H
 
-#include "mozilla/gfx/2D.h"
-#include "mozilla/ipc/Shmem.h"
-
 #include "gfxASurface.h"
 #include "gfxImageSurface.h"
+#include "mozilla/gfx/2D.h"
+#include "mozilla/ipc/Shmem.h"
 #include "pratom.h"
 
 typedef struct _cairo_user_data_key cairo_user_data_key_t;
@@ -38,6 +37,11 @@ class gfxBaseSharedMemorySurface : public Base {
   }
 
  public:
+  // Calling these is very bad, disallow it
+  gfxBaseSharedMemorySurface(const gfxBaseSharedMemorySurface&) = delete;
+  gfxBaseSharedMemorySurface& operator=(const gfxBaseSharedMemorySurface&) =
+      delete;
+
   /**
    * Return a new gfxSharedImageSurface around a shmem segment newly
    * allocated by this function.  |aAllocator| is the object used to
@@ -152,10 +156,6 @@ class gfxBaseSharedMemorySurface : public Base {
   }
 
   Shmem mShmem;
-
-  // Calling these is very bad, disallow it
-  gfxBaseSharedMemorySurface(const gfxBaseSharedMemorySurface&);
-  gfxBaseSharedMemorySurface& operator=(const gfxBaseSharedMemorySurface&);
 };
 
 #endif /* GFX_SHARED_MEMORYSURFACE_H */

@@ -9,7 +9,7 @@ add_setup(async () => {
     set: [[VERTICAL_TABS_PREF, true]],
   });
   DOMFullscreenTestUtils.init(this, window);
-  await waitForTabstripOrientation("vertical");
+  await SidebarTestUtils.waitForTabstripOrientation(window, "vertical");
 });
 
 add_task(async function test_dom_fullscreen() {
@@ -63,4 +63,36 @@ add_task(async function test_dom_fullscreen() {
       "tabbrowser-tabbox has sidebar-shown attribute after exiting DOMFullscreen"
     );
   });
+});
+
+add_task(async function dom_fullscreen_has_no_extra_margins() {
+  // Ensure that DOM fullscreen takes up the entire window with no unnecessary
+  // gaps. (Bug 2057087)
+  await SpecialPowers.pushPrefEnv({
+    set: [
+      ["browser.nova.enabled", true],
+      ["sidebar.visibility", "expand-on-hover"],
+    ],
+  });
+  const tabbox = document.getElementById("tabbrowser-tabbox");
+
+  await BrowserTestUtils.withNewTab(
+    { gBrowser, url: "https://example.com/" },
+    async browser => {
+      await DOMFullscreenTestUtils.changeFullscreen(browser, true);
+      const { marginInlineStart, marginInlineEnd } = getComputedStyle(tabbox);
+      Assert.equal(
+        parseInt(marginInlineStart),
+        0,
+        "Tabbox has no start margins while in DOM fullscreen."
+      );
+      Assert.equal(
+        parseInt(marginInlineEnd),
+        0,
+        "Tabbox has no end margins while in DOM fullscreen."
+      );
+    }
+  );
+
+  await SpecialPowers.popPrefEnv();
 });

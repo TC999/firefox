@@ -1,5 +1,3 @@
-/* -*- Mode: indent-tabs-mode: nil; js-indent-level: 2 -*- */
-/* vim: set sts=2 sw=2 et tw=80: */
 "use strict";
 
 let extData = {
@@ -25,11 +23,14 @@ let extData = {
   },
 
   background: function () {
-    browser.contextMenus.create({
-      id: "clickme-page",
-      title: "Click me!",
-      contexts: ["all"],
-    });
+    browser.contextMenus.create(
+      {
+        id: "clickme-page",
+        title: "Click me!",
+        contexts: ["all"],
+      },
+      () => browser.test.sendMessage("menus-created")
+    );
     browser.tabs.query({ active: true, currentWindow: true }, tabs => {
       const tabId = tabs[0].id;
 
@@ -60,11 +61,16 @@ if (AppConstants.platform == "macosx") {
 add_task(async function pageaction_popup_contextmenu() {
   let extension = ExtensionTestUtils.loadExtension(extData);
   await extension.startup();
+  await extension.awaitMessage("menus-created");
   await extension.awaitMessage("action-shown");
 
-  await clickPageAction(extension, window);
+  // Deliberately not awaited: awaitExtensionPanel, called from
+  // openContextMenuInPopup, has to start listening for WebExtPopupLoaded before
+  // the popup is shown.
+  let clicked = clickPageAction(extension, window);
 
   let contentAreaContextMenu = await openContextMenuInPopup(extension);
+  await clicked;
   let item = contentAreaContextMenu.getElementsByAttribute(
     "label",
     "Click me!"
@@ -78,11 +84,16 @@ add_task(async function pageaction_popup_contextmenu() {
 add_task(async function pageaction_popup_contextmenu_hidden_items() {
   let extension = ExtensionTestUtils.loadExtension(extData);
   await extension.startup();
+  await extension.awaitMessage("menus-created");
   await extension.awaitMessage("action-shown");
 
-  await clickPageAction(extension, window);
+  // Deliberately not awaited: awaitExtensionPanel, called from
+  // openContextMenuInPopup, has to start listening for WebExtPopupLoaded before
+  // the popup is shown.
+  let clicked = clickPageAction(extension, window);
 
   let contentAreaContextMenu = await openContextMenuInPopup(extension, "#text");
+  await clicked;
 
   let item, state;
   for (const itemID in contextMenuItems) {
@@ -109,14 +120,19 @@ add_task(async function pageaction_popup_contextmenu_hidden_items() {
 add_task(async function pageaction_popup_image_contextmenu() {
   let extension = ExtensionTestUtils.loadExtension(extData);
   await extension.startup();
+  await extension.awaitMessage("menus-created");
   await extension.awaitMessage("action-shown");
 
-  await clickPageAction(extension, window);
+  // Deliberately not awaited: awaitExtensionPanel, called from
+  // openContextMenuInPopup, has to start listening for WebExtPopupLoaded before
+  // the popup is shown.
+  let clicked = clickPageAction(extension, window);
 
   let contentAreaContextMenu = await openContextMenuInPopup(
     extension,
     "#testimg"
   );
+  await clicked;
 
   let item = contentAreaContextMenu.querySelector("#context-copyimage");
   ok(!item.hidden);

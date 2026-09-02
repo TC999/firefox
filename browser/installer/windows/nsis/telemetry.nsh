@@ -2,6 +2,16 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+!define DESKTOP_LAUNCHER_STATUS_UNKNOWN 0
+!define DESKTOP_LAUNCHER_STATUS_NOT_ENABLED 1
+!define DESKTOP_LAUNCHER_STATUS_NOT_CHECKED 2
+!define DESKTOP_LAUNCHER_STATUS_NOT_INSTALLED 3
+!define DESKTOP_LAUNCHER_STATUS_INSTALLED 4
+!define DESKTOP_LAUNCHER_STATUS_REINSTALLED 5
+!define DESKTOP_LAUNCHER_STATUS_REMOVED 6
+
+!include "control_utils.nsh"
+
 !ifndef GenerateUUID ; mock out when testing
 !define GenerateUUID "Call GenerateUUID_dontcall"
 !endif
@@ -85,6 +95,7 @@ Function PrepareTelemetryPing
     nsJSON::Set /tree ping "Data" "distribution_version" /value '"0"'
   ${EndIf}
 
+  ClearErrors
   ReadRegDWORD $0 HKLM "SOFTWARE\Microsoft\Windows NT\CurrentVersion" "UBR"
   ${If} ${Errors}
     StrCpy $0 "-1" ; Assign -1 if an error occured during registry read
@@ -92,17 +103,12 @@ Function PrepareTelemetryPing
 
   nsJSON::Set /tree ping "Data" "windows_ubr" /value '$0'
 
+  ClearErrors
   ${GetParameters} $0
   ${GetOptions} $0 "/LaunchedFromMSI" $0
   ${IfNot} ${Errors}
     nsJSON::Set /tree ping "Data" "from_msi" /value true
   ${EndIf}
-
-  !ifdef HAVE_64BIT_BUILD
-    nsJSON::Set /tree ping "Data" "64bit_build" /value true
-  !else
-    nsJSON::Set /tree ping "Data" "64bit_build" /value false
-  !endif
 
   ${If} ${RunningX64}
     nsJSON::Set /tree ping "Data" "64bit_os" /value true
@@ -164,12 +170,6 @@ Function PrepareTelemetryPing
     nsJSON::Set /tree ping "Data" "attribution" /value $0
   ${EndIf}
 
-  ${If} ${Silent}
-    nsJSON::Set /tree ping "Data" "silent" /value true
-  ${Else}
-    nsJSON::Set /tree ping "Data" "silent" /value false
-  ${EndIf}
-
   ClearErrors
   ${GetParameters} $0
   ${GetOptions} $0 "/TelemetryDebug:" $0
@@ -201,6 +201,12 @@ Function PrepareFullInstallPing
 
   nsJSON::Set /tree ping "Data" "installer_type" /value '"full"'
   nsJSON::Set /tree ping "Data" "installer_version" /value '"${AppVersion}"'
+
+  !ifdef HAVE_64BIT_BUILD
+    nsJSON::Set /tree ping "Data" "64bit_build" /value true
+  !else
+    nsJSON::Set /tree ping "Data" "64bit_build" /value false
+  !endif
 
   nsJSON::Set /tree ping "Data" "had_old_install" /value "$HadOldInstall"
 
@@ -267,8 +273,42 @@ Function PrepareFullInstallPing
 
   nsJSON::Set /tree ping "Data" "new_launched" /value "$LaunchedNewApp"
 
+  ${If} ${Silent}
+    nsJSON::Set /tree ping "Data" "silent" /value true
+  ${Else}
+    nsJSON::Set /tree ping "Data" "silent" /value false
+  ${EndIf}
+
+  Call GetDesktopLauncherStatus
+  Pop $0
+  nsJSON::Set /tree ping "Data" "desktop_launcher_status" /value "$0"
+
   Pop $1
   Pop $0
+FunctionEnd
+
+Function IsFreshInstall
+  ${If} $InstallExisted != "true"
+    Push 1
+  ${Else}
+    Push 0
+  ${EndIf}
+FunctionEnd
+
+Function IsShortcutInstallationChecked
+  ${If} $AddDesktopSC != 0
+    Push 1
+  ${Else}
+    Push 0
+  ${EndIf}
+FunctionEnd
+
+Function IsInstallationSuccessful
+  ${If} $InstallResult == "success"
+    Push 1
+  ${Else}
+    Push 0
+  ${EndIf}
 FunctionEnd
 !endif
 
@@ -283,6 +323,19 @@ Function PrepareStubInstallPing
 
   nsJSON::Set /tree ping "Data" "stub_build_id" /value '"${MOZ_BUILDID}"'
 
+  !ifdef FunnelcakeVersion
+    nsJSON::Quote /always "${FunnelcakeVersion}"
+    Pop $0
+    nsJSON::Set /tree ping "Data" "funnelcake" /value $0
+  !endif
+
+  ${If} $ArchToInstall == ${ARCH_AMD64}
+  ${OrIf} $ArchToInstall == ${ARCH_AARCH64}
+    nsJSON::Set /tree ping "Data" "64bit_build" /value true
+  ${Else}
+    nsJSON::Set /tree ping "Data" "64bit_build" /value false
+  ${EndIf}
+
   nsJSON::Set /tree ping "Data" "download_retries" /value "$DownloadRetryCount"
   nsJSON::Set /tree ping "Data" "bytes_downloaded" /value "$DownloadedBytes"
   nsJSON::Set /tree ping "Data" "download_size" /value "$DownloadSizeBytes"
@@ -294,6 +347,8 @@ Function PrepareStubInstallPing
   ${Select} "$ExitCode"
     ${Case} ${ERR_SUCCESS}
       nsJSON::Set /tree ping "Data" "succeeded" /value true
+    ${Case} ${ERR_USER_CANCELLED_BEFORE_DOWNLOAD}
+      nsJSON::Set /tree ping "Data" "user_cancelled_before_download" /value true
     ${Case} ${ERR_DOWNLOAD_CANCEL}
       nsJSON::Set /tree ping "Data" "user_cancelled" /value true
     ${Case} ${ERR_DOWNLOAD_TOO_MANY_RETRIES}
@@ -317,6 +372,8 @@ Function PrepareStubInstallPing
       nsJSON::Set /tree ping "Data" "disk_space_req_not_met" /value true
     ${Case} ${ERR_PREINSTALL_NOT_WRITABLE}
       nsJSON::Set /tree ping "Data" "writeable_req_not_met" /value true
+    ${Case} ${ERR_INSTALL_TIMEOUT}
+      nsJSON::Set /tree ping "Data" "install_timeout" /value true
     ${Default} ; including ERR_UNKNOWN
       nsJSON::Set /tree ping "Data" "unknown_error" /value true
   ${EndSelect}
@@ -379,12 +436,41 @@ Function PrepareStubInstallPing
 
   nsJSON::Set /tree ping "Data" "download_requests_blocked_by_server" /value "$DownloadRequestsBlockedByServer"
 
+  ${If} "$OpenedDownloadPage" == "1"
+    nsJSON::Set /tree ping "Data" "manual_download" /value true
+  ${Else}
+    nsJSON::Set /tree ping "Data" "manual_download" /value false
+  ${EndIf}
+
   Call GetHadOldInstall
   Pop $0
   ${If} "$0" == "1"
     nsJSON::Set /tree ping "Data" "had_old_install" /value true
   ${Else}
     nsJSON::Set /tree ping "Data" "had_old_install" /value false
+  ${EndIf}
+
+  nsJSON::Set /tree ping "Data" "old_running" /value false
+  ${If} "$FirefoxLaunchCode" == 2
+    nsJSON::Set /tree ping "Data" "new_launched" /value true
+  ${Else}
+    nsJSON::Set /tree ping "Data" "new_launched" /value false
+  ${EndIf}
+
+  nsJSON::Quote /always "$ExistingVersion"
+  Pop $0
+  nsJSON::Set /tree ping "Data" "old_version" /value "$0"
+
+  nsJSON::Quote /always "$ExistingBuildID"
+  Pop $0
+  nsJSON::Set /tree ping "Data" "old_build_id" /value "$0"
+
+  nsJSON::Set /tree ping "Data" "profile_cleanup_prompt" /value '"$ProfileCleanupPromptType"'
+
+  ${If} "$CheckboxCleanupProfile" == "1"
+    nsJSON::Set /tree ping "Data" "profile_cleanup_requested" /value true
+  ${Else}
+    nsJSON::Set /tree ping "Data" "profile_cleanup_requested" /value false
   ${EndIf}
 
   Call GetDesktopLauncherStatus
@@ -402,4 +488,117 @@ Function PrepareStubInstallPing
   Pop $1
   Pop $0
 FunctionEnd
+
+Function IsFreshInstall
+  ${If} $ExistingVersion == 0
+    Push 1
+  ${Else}
+    Push 0
+  ${EndIf}
+FunctionEnd
+
+Function IsShortcutInstallationChecked
+  ${If} $CheckboxShortcuts != 0
+    Push 1
+  ${Else}
+    Push 0
+  ${EndIf}
+FunctionEnd
+
+
+Function IsInstallationSuccessful
+  ${If} $ExitCode == ${ERR_SUCCESS}
+    Push 1
+  ${Else}
+    Push 0
+  ${EndIf}
+FunctionEnd
 !endif
+
+Function WasDesktopLauncherPreviouslyInstalled
+  ReadRegDWORD $0 HKCU "Software\Mozilla\${BrandFullNameInternal}" \
+    "DesktopLauncherAppInstalled"
+  ${If} $0 == 1
+    Push 1
+  ${Else}
+    Push 0
+  ${EndIf}
+FunctionEnd
+
+Function IsDesktopLauncherInstalled
+  ; TODO Use $USERDESKTOP once we've updated to NSIS 3.08:
+  ;   https://nsis.sourceforge.io/Docs/AppendixF.html#v3.08-c
+  ; This would allow avoiding SetShellVarContextToValue/SwapShellVarContext.
+  Push $0
+  ${SwapShellVarContext} current $0
+
+  ${If} ${FileExists} "$DESKTOP\${BrandShortName}.exe"
+    Push 1
+  ${Else}
+    Push 0
+  ${EndIf}
+
+  ${SetShellVarContextToValue} $0
+  Exch
+  Pop $0
+FunctionEnd
+
+Function IsDesktopLauncherEnabled
+  !ifdef DESKTOP_LAUNCHER_ENABLED
+    Push 1
+  !else
+    Push 0
+  !endif
+FunctionEnd
+
+Function GetDesktopLauncherStatus
+  Push $0
+
+  Call IsInstallationSuccessful
+  Pop $0
+  ${If} $0 == 0
+    Pop $0
+    Push ${DESKTOP_LAUNCHER_STATUS_UNKNOWN}
+    Return
+  ${EndIf}
+
+  Call IsDesktopLauncherEnabled
+  Pop $0
+  ${If} $0 == 0
+    Pop $0
+    Push ${DESKTOP_LAUNCHER_STATUS_NOT_ENABLED}
+    Return
+  ${EndIf}
+
+  Call IsShortcutInstallationChecked
+  Pop $0
+  ${If} $0 == 0
+    Pop $0
+    Push ${DESKTOP_LAUNCHER_STATUS_NOT_CHECKED}
+    Return
+  ${EndIf}
+
+  Call IsDesktopLauncherInstalled
+  Pop $0
+  ${If} $0 == 0
+    Call WasDesktopLauncherPreviouslyInstalled
+    Pop $0
+    ${If} $0 == 0
+      Pop $0
+      Push ${DESKTOP_LAUNCHER_STATUS_NOT_INSTALLED}
+    ${Else}
+      Pop $0
+      Push ${DESKTOP_LAUNCHER_STATUS_REMOVED}
+    ${EndIf}
+  ${Else}
+    Call IsFreshInstall
+    Pop $0
+    ${If} $0 == 0
+      Pop $0
+      Push ${DESKTOP_LAUNCHER_STATUS_REINSTALLED}
+    ${Else}
+      Pop $0
+      Push ${DESKTOP_LAUNCHER_STATUS_INSTALLED}
+    ${EndIf}
+  ${EndIf}
+FunctionEnd

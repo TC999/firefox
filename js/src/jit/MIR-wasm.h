@@ -22,6 +22,7 @@
 #include "jit/MIR.h"
 #include "util/DifferentialTesting.h"
 #include "wasm/WasmGcObject.h"
+#include "wasm/WasmStacks.h"
 
 namespace js {
 
@@ -33,6 +34,9 @@ extern uint32_t MIRTypeToABIResultSize(jit::MIRType);
 }  // namespace wasm
 
 namespace jit {
+
+// For a defaultable wasm type, synthesize the default constant value.
+MInstruction* NewWasmDefaultConstant(TempAllocator& alloc, wasm::ValType type);
 
 class MWasmNullConstant : public MNullaryInstruction {
   mozilla::Maybe<wasm::RefTypeHierarchy> hierarchy_;
@@ -685,36 +689,6 @@ class MWasmLoadInstance : public MUnaryInstruction, public NoTypePolicy::Data {
   AliasSet getAliasSet() const override { return aliases_; }
 };
 
-class MWasmStoreInstance : public MBinaryInstruction,
-                           public NoTypePolicy::Data {
-  uint32_t offset_;
-  AliasSet aliases_;
-
-  explicit MWasmStoreInstance(MDefinition* instance, MDefinition* value,
-                              uint32_t offset, MIRType type, AliasSet aliases)
-      : MBinaryInstruction(classOpcode, instance, value),
-        offset_(offset),
-        aliases_(aliases) {
-    // Different instance data have different alias classes and only those
-    // classes are allowed.
-    MOZ_ASSERT(aliases_.flags() ==
-               AliasSet::Store(AliasSet::WasmPendingException).flags());
-
-    // The only types supported at the moment.
-    MOZ_ASSERT(type == MIRType::Pointer || type == MIRType::Int32 ||
-               type == MIRType::Int64 || type == MIRType::WasmAnyRef);
-  }
-
- public:
-  INSTRUCTION_HEADER(WasmStoreInstance)
-  TRIVIAL_NEW_WRAPPERS
-  NAMED_OPERANDS((0, instance), (1, value))
-
-  uint32_t offset() const { return offset_; }
-
-  AliasSet getAliasSet() const override { return aliases_; }
-};
-
 class MWasmHeapReg : public MNullaryInstruction {
   AliasSet aliases_;
 
@@ -735,9 +709,9 @@ class MWasmHeapReg : public MNullaryInstruction {
   AliasSet getAliasSet() const override { return aliases_; }
 };
 
-// For memory32, bounds check nodes are of type Int32 on 32-bit systems for both
-// wasm and asm.js code, as well as on 64-bit systems for asm.js code and for
-// wasm code that is known to have a bounds check limit that fits into 32 bits.
+// For memory32, bounds check nodes are of type Int32 on 32-bit systems and
+// on 64-bit systems for wasm code that is known to have a bounds check limit
+// that fits into 32 bits.
 // They are of type Int64 only on 64-bit systems for wasm code with 4GB heaps.
 // There is no way for nodes of both types to be present in the same function.
 // Should this change, then BCE must be updated to take type into account.
@@ -991,129 +965,6 @@ class MWasmStore : public MVariadicInstruction, public NoTypePolicy::Data {
       res->replaceOperand(i, inputs[i]);
     }
     return res;
-  }
-};
-
-class MAsmJSMemoryAccess {
-  Scalar::Type accessType_;
-  bool needsBoundsCheck_;
-
- public:
-  explicit MAsmJSMemoryAccess(Scalar::Type accessType)
-      : accessType_(accessType), needsBoundsCheck_(true) {
-    MOZ_ASSERT(accessType != Scalar::Uint8Clamped);
-  }
-
-  Scalar::Type accessType() const { return accessType_; }
-  unsigned byteSize() const { return TypedArrayElemSize(accessType()); }
-  bool needsBoundsCheck() const { return needsBoundsCheck_; }
-
-  wasm::MemoryAccessDesc access() const {
-    return wasm::MemoryAccessDesc(0, accessType_, Scalar::byteSize(accessType_),
-                                  0, wasm::TrapSiteDesc(), false);
-  }
-
-  void removeBoundsCheck() { needsBoundsCheck_ = false; }
-};
-
-class MAsmJSLoadHeap
-    : public MVariadicInstruction,  // 1 plus optional memoryBase and
-                                    // boundsCheckLimit
-      public MAsmJSMemoryAccess,
-      public NoTypePolicy::Data {
-  uint32_t memoryBaseIndex_;
-
-  explicit MAsmJSLoadHeap(uint32_t memoryBaseIndex, Scalar::Type accessType)
-      : MVariadicInstruction(classOpcode),
-        MAsmJSMemoryAccess(accessType),
-        memoryBaseIndex_(memoryBaseIndex) {
-    setResultType(ScalarTypeToMIRType(accessType));
-  }
-
- public:
-  INSTRUCTION_HEADER(AsmJSLoadHeap)
-  NAMED_OPERANDS((0, base), (1, boundsCheckLimit))
-
-  static MAsmJSLoadHeap* New(TempAllocator& alloc, MDefinition* memoryBase,
-                             MDefinition* base, MDefinition* boundsCheckLimit,
-                             Scalar::Type accessType) {
-    uint32_t nextIndex = 2;
-    uint32_t memoryBaseIndex = memoryBase ? nextIndex++ : UINT32_MAX;
-
-    MAsmJSLoadHeap* load =
-        new (alloc) MAsmJSLoadHeap(memoryBaseIndex, accessType);
-    if (!load->init(alloc, nextIndex)) {
-      return nullptr;
-    }
-
-    load->initOperand(0, base);
-    load->initOperand(1, boundsCheckLimit);
-    if (memoryBase) {
-      load->initOperand(memoryBaseIndex, memoryBase);
-    }
-
-    return load;
-  }
-
-  bool hasMemoryBase() const { return memoryBaseIndex_ != UINT32_MAX; }
-  MDefinition* memoryBase() const {
-    MOZ_ASSERT(hasMemoryBase());
-    return getOperand(memoryBaseIndex_);
-  }
-
-  bool congruentTo(const MDefinition* ins) const override;
-  AliasSet getAliasSet() const override {
-    return AliasSet::Load(AliasSet::WasmHeap);
-  }
-  AliasType mightAlias(const MDefinition* def) const override;
-};
-
-class MAsmJSStoreHeap
-    : public MVariadicInstruction,  // 2 plus optional memoryBase and
-                                    // boundsCheckLimit
-      public MAsmJSMemoryAccess,
-      public NoTypePolicy::Data {
-  uint32_t memoryBaseIndex_;
-
-  explicit MAsmJSStoreHeap(uint32_t memoryBaseIndex, Scalar::Type accessType)
-      : MVariadicInstruction(classOpcode),
-        MAsmJSMemoryAccess(accessType),
-        memoryBaseIndex_(memoryBaseIndex) {}
-
- public:
-  INSTRUCTION_HEADER(AsmJSStoreHeap)
-  NAMED_OPERANDS((0, base), (1, value), (2, boundsCheckLimit))
-
-  static MAsmJSStoreHeap* New(TempAllocator& alloc, MDefinition* memoryBase,
-                              MDefinition* base, MDefinition* boundsCheckLimit,
-                              Scalar::Type accessType, MDefinition* v) {
-    uint32_t nextIndex = 3;
-    uint32_t memoryBaseIndex = memoryBase ? nextIndex++ : UINT32_MAX;
-
-    MAsmJSStoreHeap* store =
-        new (alloc) MAsmJSStoreHeap(memoryBaseIndex, accessType);
-    if (!store->init(alloc, nextIndex)) {
-      return nullptr;
-    }
-
-    store->initOperand(0, base);
-    store->initOperand(1, v);
-    store->initOperand(2, boundsCheckLimit);
-    if (memoryBase) {
-      store->initOperand(memoryBaseIndex, memoryBase);
-    }
-
-    return store;
-  }
-
-  bool hasMemoryBase() const { return memoryBaseIndex_ != UINT32_MAX; }
-  MDefinition* memoryBase() const {
-    MOZ_ASSERT(hasMemoryBase());
-    return getOperand(memoryBaseIndex_);
-  }
-
-  AliasSet getAliasSet() const override {
-    return AliasSet::Store(AliasSet::WasmHeap);
   }
 };
 
@@ -1842,7 +1693,7 @@ class MWasmStackResultArea : public MNullaryInstruction {
  public:
   class StackResult {
     // Offset in bytes from lowest address of stack result area.
-    uint32_t offset_;
+    uint32_t offset_ = 0;
     MIRType type_;
 
    public:
@@ -1873,7 +1724,6 @@ class MWasmStackResultArea : public MNullaryInstruction {
   }
 
   void assertInitialized() const {
-    MOZ_ASSERT(results_.length() != 0);
 #ifdef DEBUG
     for (size_t i = 0; i < results_.length(); i++) {
       MOZ_ASSERT(results_[i].initialized());
@@ -1889,7 +1739,6 @@ class MWasmStackResultArea : public MNullaryInstruction {
 
   [[nodiscard]] bool init(TempAllocator& alloc, size_t stackResultCount) {
     MOZ_ASSERT(results_.length() == 0);
-    MOZ_ASSERT(stackResultCount > 0);
     if (!results_.init(alloc, stackResultCount)) {
       return false;
     }
@@ -1913,6 +1762,9 @@ class MWasmStackResultArea : public MNullaryInstruction {
 
   uint32_t byteSize() const {
     assertInitialized();
+    if (resultCount() == 0) {
+      return 0;
+    }
     return result(resultCount() - 1).endOffset();
   }
 
@@ -2035,9 +1887,10 @@ class MWasmCallBase {
   static AliasSet wasmCallAliasSet() {
     // This is ok because:
     // - numElements is immutable
-    // - the GC will rewrite any array data pointers on move
+    // - the GC will rewrite any array or struct data pointers on move
     AliasSet exclude = AliasSet(AliasSet::WasmArrayNumElements) |
-                       AliasSet(AliasSet::WasmArrayDataPointer);
+                       AliasSet(AliasSet::WasmArrayDataPointer) |
+                       AliasSet(AliasSet::WasmStructOutlineDataPointer);
     return AliasSet::Store(AliasSet::Any) & ~exclude;
   }
 };
@@ -2159,6 +2012,133 @@ class MWasmCallLandingPrePad : public MNullaryInstruction {
   size_t tryNoteIndex() { return tryNoteIndex_; }
   MBasicBlock* callBlock() { return callBlock_; }
 };
+
+#ifdef ENABLE_WASM_JSPI
+
+class MWasmResume final : public MControlInstruction,
+                          public NoTypePolicy::Data {
+ private:
+  static constexpr size_t InstanceIndex = 0;
+  static constexpr size_t ContIndex = 1;
+  static constexpr size_t HandlersParamsAreaIndex = 2;
+  static constexpr size_t ContResultsAreaIndex = 3;
+  static constexpr size_t MaxArity = 4;
+
+  static constexpr size_t FallthroughBranchIndex = 0;
+
+  mozilla::Vector<MBasicBlock*, 3, JitAllocPolicy> successors_;
+  mozilla::Array<MUse, MaxArity> operands_;
+  mozilla::Vector<wasm::HandlerJitOffsets, 1, JitAllocPolicy> handlers_;
+  wasm::CallSiteDesc callSiteDesc_;
+  mozilla::Maybe<uint32_t> tryNoteIndex_;
+
+  // handlersParamsArea and contResultsArea are always present (empty areas when
+  // the resume has no handlers / the cont has no results) so the operand set is
+  // fixed.
+  MWasmResume(TempAllocator& alloc, const wasm::CallSiteDesc& callSiteDesc,
+              mozilla::Maybe<uint32_t> tryNoteIndex, MDefinition* instance,
+              MDefinition* cont, MWasmStackResultArea* handlersParamsArea,
+              MWasmStackResultArea* contResultsArea)
+      : MControlInstruction(classOpcode),
+        successors_(alloc),
+        handlers_(alloc),
+        callSiteDesc_(callSiteDesc),
+        tryNoteIndex_(tryNoteIndex) {
+    MOZ_ASSERT(instance && cont && handlersParamsArea && contResultsArea);
+    initOperand(InstanceIndex, instance);
+    initOperand(ContIndex, cont);
+    initOperand(HandlersParamsAreaIndex, handlersParamsArea);
+    initOperand(ContResultsAreaIndex, contResultsArea);
+  }
+
+  size_t prePadBranchIndex() const {
+    MOZ_ASSERT(hasTryNote());
+    return FallthroughBranchIndex + 1;
+  }
+  size_t handlerBranchIndex(size_t handlerIndex) const {
+    size_t previousIndex =
+        hasTryNote() ? prePadBranchIndex() : FallthroughBranchIndex;
+    size_t baseIndex = previousIndex + 1;
+    return baseIndex + handlerIndex;
+  }
+
+ protected:
+  MUse* getUseFor(size_t index) final { return &operands_[index]; }
+  const MUse* getUseFor(size_t index) const final { return &operands_[index]; }
+  void initOperand(size_t index, MDefinition* operand) {
+    operands_[index].init(operand, this);
+  }
+
+ public:
+  INSTRUCTION_HEADER(WasmResume)
+
+  static MWasmResume* New(TempAllocator& alloc,
+                          const wasm::CallSiteDesc& callSiteDesc,
+                          mozilla::Maybe<uint32_t> tryNoteIndex,
+                          MDefinition* instance, MDefinition* cont,
+                          MWasmStackResultArea* handlersParamsArea,
+                          MWasmStackResultArea* contResultsArea) {
+    return new (alloc) MWasmResume(alloc, callSiteDesc, tryNoteIndex, instance,
+                                   cont, handlersParamsArea, contResultsArea);
+  }
+
+  [[nodiscard]] bool init(MBasicBlock* fallthroughBlock,
+                          MBasicBlock* prePadBlock, size_t numHandlers);
+  [[nodiscard]] bool initHandler(size_t index, uint32_t tagInstanceDataOffset,
+                                 uint32_t resultsAreaOffset,
+                                 MBasicBlock* target);
+
+  size_t numHandlers() const { return handlers_.length(); }
+  mozilla::Span<wasm::HandlerJitOffsets> handlers() { return handlers_; }
+  const wasm::HandlerJitOffsets& handler(size_t index) const {
+    return handlers_[index];
+  }
+  const wasm::CallSiteDesc& callSiteDesc() const { return callSiteDesc_; }
+  bool hasTryNote() const { return tryNoteIndex_.isSome(); }
+  mozilla::Maybe<uint32_t> tryNoteIndex() const { return tryNoteIndex_; }
+  MBasicBlock* handlerBlock(size_t index) const {
+    return getSuccessor(handlerBranchIndex(index));
+  }
+  MBasicBlock* prePadBlock() const { return getSuccessor(prePadBranchIndex()); }
+  MBasicBlock* fallthroughBlock() const {
+    return getSuccessor(FallthroughBranchIndex);
+  }
+
+  MDefinition* instance() const { return getOperand(InstanceIndex); }
+  MDefinition* cont() const { return getOperand(ContIndex); }
+  MWasmStackResultArea* handlersParamsArea() const {
+    return getOperand(HandlersParamsAreaIndex)->toWasmStackResultArea();
+  }
+  MWasmStackResultArea* contResultsArea() const {
+    return getOperand(ContResultsAreaIndex)->toWasmStackResultArea();
+  }
+
+  bool possiblyCalls() const final { return true; }
+  AliasSet getAliasSet() const final {
+    return MWasmCallBase::wasmCallAliasSet();
+  }
+
+  size_t numSuccessors() const final { return successors_.length(); }
+  MBasicBlock* getSuccessor(size_t i) const final { return successors_[i]; }
+  void replaceSuccessor(size_t i, MBasicBlock* successor) final {
+    successors_[i] = successor;
+  }
+
+  MDefinition* getOperand(size_t index) const final {
+    return operands_[index].producer();
+  }
+  size_t numOperands() const final { return MaxArity; }
+  size_t indexOf(const MUse* u) const final {
+    MOZ_ASSERT(u >= &operands_[0]);
+    MOZ_ASSERT(u <= &operands_[numOperands() - 1]);
+    return u - &operands_[0];
+  }
+  void replaceOperand(size_t index, MDefinition* operand) final {
+    operands_[index].replaceProducer(operand);
+  }
+};
+
+#endif  // ENABLE_WASM_JSPI
 
 class MWasmSelect : public MTernaryInstruction, public NoTypePolicy::Data {
   MWasmSelect(MDefinition* trueExpr, MDefinition* falseExpr,
@@ -3253,33 +3233,6 @@ class MWasmRefConvertAnyExtern : public MUnaryInstruction,
   AliasSet getAliasSet() const override { return AliasSet::None(); }
 };
 
-// Represents the contents of all fields of a wasm struct.
-// This class will be used for scalar replacement of wasm structs.
-class MWasmStructState : public TempObject {
- private:
-  MDefinition* wasmStruct_;
-  // Represents the fields of this struct.
-  Vector<MDefinition*, 0, JitAllocPolicy> fields_;
-
-  explicit MWasmStructState(TempAllocator& alloc, MDefinition* structObject)
-      : wasmStruct_(structObject), fields_(alloc) {}
-
- public:
-  static MWasmStructState* New(TempAllocator& alloc, MDefinition* structObject);
-  static MWasmStructState* Copy(TempAllocator& alloc, MWasmStructState* state);
-
-  // Init the fields_ vector.
-  [[nodiscard]] bool init();
-
-  size_t numFields() const { return fields_.length(); }
-  MDefinition* wasmStruct() const { return wasmStruct_; }
-
-  // Get the field value based on the position of the field in the struct.
-  MDefinition* getField(uint32_t index) const { return fields_[index]; }
-  // Set the field offset based on the position of the field in the struct.
-  void setField(uint32_t index, MDefinition* def) { fields_[index] = def; }
-};
-
 class MWasmNewStructObject : public MBinaryInstruction,
                              public NoTypePolicy::Data {
  private:
@@ -3318,6 +3271,35 @@ class MWasmNewStructObject : public MBinaryInstruction,
   bool zeroFields() const { return zeroFields_; }
   const wasm::TrapSiteDesc& trapSiteDesc() const { return trapSiteDesc_; }
   gc::AllocKind allocKind() const { return typeDef_->structType().allocKind_; }
+};
+
+// Represents the contents of all fields of a wasm struct.
+// This class will be used for scalar replacement of wasm structs.
+class MWasmStructState : public TempObject {
+ private:
+  MWasmNewStructObject* wasmStruct_;
+  // Represents the fields of this struct.
+  Vector<MDefinition*, 0, JitAllocPolicy> fields_;
+
+  explicit MWasmStructState(TempAllocator& alloc,
+                            MWasmNewStructObject* structObject)
+      : wasmStruct_(structObject), fields_(alloc) {}
+
+  // Init the fields_ vector.
+  [[nodiscard]] bool init(TempAllocator& alloc);
+
+ public:
+  static MWasmStructState* New(TempAllocator& alloc,
+                               MWasmNewStructObject* structObject);
+  static MWasmStructState* Copy(TempAllocator& alloc, MWasmStructState* state);
+
+  size_t numFields() const { return fields_.length(); }
+  MWasmNewStructObject* wasmStruct() const { return wasmStruct_; }
+
+  // Get the field value based on the position of the field in the struct.
+  MDefinition* getField(uint32_t index) const { return fields_[index]; }
+  // Set the field offset based on the position of the field in the struct.
+  void setField(uint32_t index, MDefinition* def) { fields_[index] = def; }
 };
 
 class MWasmNewArrayObject : public MTernaryInstruction,
@@ -3389,6 +3371,7 @@ class MWasmAddSubI128HI64 : public MQuaternaryInstruction,
     return ins->isWasmAddSubI128HI64() && congruentIfOperandsEqual(ins) &&
            ins->toWasmAddSubI128HI64()->isAdd() == isAdd();
   }
+  MDefinition* foldsTo(TempAllocator& alloc) override;
 
 #ifdef JS_JITSPEW
   void getExtras(ExtrasCollector* extras) const override {

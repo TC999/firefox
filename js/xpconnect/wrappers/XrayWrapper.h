@@ -5,17 +5,17 @@
 #ifndef XrayWrapper_h
 #define XrayWrapper_h
 
+#include "mozilla/dom/ScriptSettings.h"
 #include "mozilla/Maybe.h"
-
-#include "WrapperFactory.h"
 
 #include "jsapi.h"
 #include "jsfriendapi.h"
+#include "WrapperFactory.h"
+
 #include "js/friend/XrayJitInfo.h"  // JS::XrayJitInfo
 #include "js/Object.h"              // JS::GetReservedSlot
 #include "js/Proxy.h"
 #include "js/Wrapper.h"
-#include "mozilla/dom/ScriptSettings.h"
 
 // Slot where Xray functions for Web IDL methods store a pointer to
 // the Xray wrapper they're associated with.
@@ -45,6 +45,9 @@ enum XrayType {
 class XrayTraits {
  public:
   constexpr XrayTraits() = default;
+
+  XrayTraits(XrayTraits&) = delete;
+  const XrayTraits& operator=(XrayTraits&) = delete;
 
   static JSObject* getTargetObject(JSObject* wrapper) {
     JSObject* target =
@@ -100,11 +103,8 @@ class XrayTraits {
   virtual JSObject* createHolder(JSContext* cx, JSObject* wrapper) = 0;
 
   JSObject* getExpandoChain(JS::HandleObject obj);
-  JSObject* detachExpandoChain(JS::HandleObject obj);
   bool setExpandoChain(JSContext* cx, JS::HandleObject obj,
                        JS::HandleObject chain);
-  bool cloneExpandoChain(JSContext* cx, JS::HandleObject dst,
-                         JS::HandleObject srcChain);
 
  protected:
   static const JSClass HolderClass;
@@ -133,9 +133,6 @@ class XrayTraits {
                                 JS::HandleObject exclusiveWrapper,
                                 JS::HandleObject exclusiveWrapperGlobal,
                                 nsIPrincipal* origin);
-
-  XrayTraits(XrayTraits&) = delete;
-  const XrayTraits& operator=(XrayTraits&) = delete;
 };
 
 void ExpandoObjectFinalize(JS::GCContext* gcx, JSObject* obj);
@@ -266,16 +263,16 @@ class JSXrayTraits : public XrayTraits {
   };
   virtual JSObject* createHolder(JSContext* cx, JSObject* wrapper) override;
 
-  static JSProtoKey getProtoKey(JSObject* holder) {
+  static JSProtoKey getProtoKey(const JSObject* holder) {
     int32_t key = JS::GetReservedSlot(holder, SLOT_PROTOKEY).toInt32();
     return static_cast<JSProtoKey>(key);
   }
 
-  static bool isPrototype(JSObject* holder) {
+  static bool isPrototype(const JSObject* holder) {
     return JS::GetReservedSlot(holder, SLOT_ISPROTOTYPE).toBoolean();
   }
 
-  static JSProtoKey constructorFor(JSObject* holder) {
+  static JSProtoKey constructorFor(const JSObject* holder) {
     int32_t key = JS::GetReservedSlot(holder, SLOT_CONSTRUCTOR_FOR).toInt32();
     return static_cast<JSProtoKey>(key);
   }

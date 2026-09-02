@@ -29,7 +29,7 @@ add_task(
         const item = getDisplayedPopupItems(browser)[0];
 
         is(
-          item.getAttribute("ac-value"),
+          getACItemValue(item),
           "Manage Passwords",
           "Login Manager should have priority over Form Autofill when password fields are present"
         );
@@ -52,7 +52,7 @@ add_task(
         const item = getDisplayedPopupItems(browser)[0];
 
         is(
-          item.getAttribute("ac-value"),
+          getACItemValue(item),
           "Manage Passwords",
           "Login Manager should be shown when no addresses are saved"
         );
@@ -80,7 +80,7 @@ add_task(async function test_email_field_shows_login_priority_onfocus() {
       const item = getDisplayedPopupItems(browser)[0];
 
       is(
-        item.getAttribute("ac-value"),
+        getACItemValue(item),
         "Manage Passwords",
         "Login Manager should have priority on focus due to password fields"
       );
@@ -103,7 +103,7 @@ add_task(
         const item = getDisplayedPopupItems(browser)[0];
 
         is(
-          item.getAttribute("ac-value"),
+          getACItemValue(item),
           "Manage Passwords",
           "Login Manager should be the result on focus"
         );
@@ -118,29 +118,26 @@ add_task(async function test_single_email_field_now_shows_address_autofill() {
   await removeAllRecords();
   await setStorage(TEST_ADDRESS_1);
 
-  await BrowserTestUtils.withNewTab(
-    { gBrowser, url: PAGE_URL },
-    async function (browser) {
-      // To confirm that address autofill is working for a single email field, we need to remove the password fields from the fixture.
-      await SpecialPowers.spawn(browser, [], () => {
-        content.document.getElementById("new-password").remove();
-        content.document.getElementById("new-password-repeat").remove();
-      });
+  // To confirm that address autofill is working for a single email field, we use this fixture.
+  const SINGLE_EMAIL_PAGE_URL =
+    "https://example.org/browser/browser/extensions/formautofill/test/fixtures/autocomplete_single_email.html";
 
+  await BrowserTestUtils.withNewTab(
+    { gBrowser, url: SINGLE_EMAIL_PAGE_URL },
+    async function (browser) {
       const focusInput = "#email";
-      await focusAndWaitForFieldsIdentified(browser, "#given-name");
       await openPopupOn(browser, focusInput);
 
       const items = getDisplayedPopupItems(browser);
 
       is(
-        items[0].getAttribute("ac-value"),
+        getACItemValue(items[0]),
         TEST_ADDRESS_1.email,
         "The first result should be the saved email address"
       );
 
       is(
-        items[1].getAttribute("ac-value"),
+        getACItemValue(items[1]),
         "Manage addresses",
         "The second result should be the Manage addresses footer"
       );

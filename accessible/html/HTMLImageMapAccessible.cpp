@@ -7,13 +7,12 @@
 #include "ARIAMap.h"
 #include "EventTree.h"
 #include "mozilla/a11y/Role.h"
-
+#include "mozilla/dom/HTMLAreaElement.h"
 #include "nsCoreUtils.h"
 #include "nsIFrame.h"
 #include "nsImageFrame.h"
 #include "nsImageMap.h"
 #include "nsLayoutUtils.h"
-#include "mozilla/dom/HTMLAreaElement.h"
 
 using namespace mozilla::a11y;
 
@@ -64,7 +63,7 @@ void HTMLImageMapAccessible::UpdateChildAreas(bool aDoFireEvents) {
     nsIContent* areaContent = imageMapObj->GetAreaAt(idx);
     LocalAccessible* area = mChildren.SafeElementAt(idx);
     if (!area || area->GetContent() != areaContent) {
-      RefPtr<LocalAccessible> area = new HTMLAreaAccessible(areaContent, mDoc);
+      auto area = MakeRefPtr<HTMLAreaAccessible>(areaContent, mDoc);
       mDoc->BindToDocument(area, aria::GetRoleMap(areaContent->AsElement()));
 
       if (!InsertChildAt(idx, area)) {

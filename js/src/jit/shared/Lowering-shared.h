@@ -150,10 +150,16 @@ class LIRGeneratorShared {
   // the value fits in an int32.
   inline LAllocation useRegisterOrInt32Constant(MDefinition* mir);
   inline LAllocation useAnyOrInt32Constant(MDefinition* mir);
+  inline LAllocation useAnyOrInt32ConstantAtStart(MDefinition* mir);
 
   // Like useRegisterOrInt32Constant, but uses a constant only if
   // |int32val * Scalar::byteSize(type)| doesn't overflow int32.
-  LAllocation useRegisterOrIndexConstant(MDefinition* mir, Scalar::Type type);
+  LAllocation useRegisterOrIndexConstant(MDefinition* mir, Scalar::Type type,
+                                         bool useAtStart = false);
+  LAllocation useRegisterOrIndexConstantAtStart(MDefinition* mir,
+                                                Scalar::Type type) {
+    return useRegisterOrIndexConstant(mir, type, /* useAtStart= */ true);
+  }
 
   inline LUse useRegisterForTypedLoad(MDefinition* mir, MIRType type);
 
@@ -162,11 +168,6 @@ class LIRGeneratorShared {
   inline LUse usePayload(MDefinition* mir, LUse::Policy policy);
   inline LUse usePayloadAtStart(MDefinition* mir, LUse::Policy policy);
   inline LUse usePayloadInRegisterAtStart(MDefinition* mir);
-
-  // Adds a box input to an instruction, setting operand |n| to the type and
-  // |n+1| to the payload. Does not modify the operands, instead expecting a
-  // policy to already be set.
-  inline void fillBoxUses(LInstruction* lir, size_t n, MDefinition* mir);
 #endif
 
   // Test whether mir1 and mir2 may give rise to different LIR nodes even if
@@ -272,6 +273,7 @@ class LIRGeneratorShared {
 
   inline LInt64Allocation useInt64RegisterAtStart(MDefinition* mir);
   inline LInt64Allocation useInt64RegisterOrConstantAtStart(MDefinition* mir);
+  inline LInt64Allocation useInt64RegisterOrZeroAtStart(MDefinition* mir);
   inline LInt64Allocation useInt64OrConstantAtStart(MDefinition* mir);
 
 #ifdef JS_NUNBOX32

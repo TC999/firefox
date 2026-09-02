@@ -35,11 +35,14 @@
   pref("pdfjs.enableHWA", true);
 
   pref("pdfjs.enableSplitMerge", true);
+  pref("pdfjs.enableMerge", true);
 
 #endif
 
-#if defined(EARLY_BETA_OR_EARLIER)
+pref("pdfjs.enableOptimizedPartialRendering", true);
 
-  pref("pdfjs.enableOptimizedPartialRendering", true);
-
-#endif
+// Off by default until the UX is exercised in Enterprise. Flip via
+// `about:config`, a profile pref, or the `enableSignatureVerification`
+// variable of the `pdfjs` Nimbus feature. The viewer also short-circuits its
+// own toolbar button when this is false (web/app_options.js).
+pref("pdfjs.enableSignatureVerification", false);

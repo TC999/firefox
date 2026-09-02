@@ -89,11 +89,14 @@ EXPORTS += [
 ]
 
 EXPORTS.mozilla += [
+    "AsyncPlatformPipes.h",
     "Base64.h",
     "FilePreferences.h",
     "FixedBufferOutputStream.h",
+    "Hex.h",
     "InputStreamLengthHelper.h",
     "InputStreamLengthWrapper.h",
+    "MemoryMappedFile.h",
     "NonBlockingAsyncInputStream.h",
     "SlicedInputStream.h",
     "SnappyCompressOutputStream.h",
@@ -106,11 +109,13 @@ EXPORTS.mozilla += [
 ]
 
 UNIFIED_SOURCES += [
+    "AsyncPlatformPipes.cpp",
     "Base64.cpp",
     "crc32c.c",
     "FileDescriptorFile.cpp",
     "FilePreferences.cpp",
     "FixedBufferOutputStream.cpp",
+    "Hex.cpp",
     "InputStreamLengthHelper.cpp",
     "InputStreamLengthWrapper.cpp",
     "NonBlockingAsyncInputStream.cpp",
@@ -151,6 +156,15 @@ if CONFIG["OS_ARCH"] == "Darwin":
         "DarwinFileUtils.mm",
     ]
 
+if CONFIG["OS_ARCH"] == "WINNT":
+    UNIFIED_SOURCES += [
+        "MemoryMappedFileWin32.cpp",
+    ]
+else:
+    UNIFIED_SOURCES += [
+        "MemoryMappedFileUnix.cpp",
+    ]
+
 DEFINES["MOZ_APP_BASENAME"] = '"%s"' % CONFIG["MOZ_APP_BASENAME"]
 
 include("/ipc/chromium/chromium-config.mozbuild")
@@ -162,6 +176,8 @@ if CONFIG["OS_ARCH"] == "Linux" and "lib64" in CONFIG["libdir"]:
 
 LOCAL_INCLUDES += [
     "!..",
+    "!../components",
     "../build",
+    "../components",
     "/toolkit/xre",
 ]

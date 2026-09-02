@@ -1,5 +1,4 @@
-/* vim: se cin sw=2 ts=2 et filetype=javascript :
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -27,17 +26,19 @@ export const TaskbarTabsPin = {
    * Pins the provided Taskbar Tab to the taskbar.
    *
    * @param {TaskbarTab} aTaskbarTab - A Taskbar Tab to pin to the taskbar.
-   * @param {TaskbarTabsRegistry} aRegistry - The registry to track pin resources with.
    * @param {imgIContainer} aIcon - The icon to show with this Taskbar Tab.
+   * @param {object} [aDetails] - Additional options for this pin.
+   * @param {DOMWindow} [aDetails.window] - The window to associate any UI with.
    * @returns {Promise} Resolves once finished.
    */
-  async pinTaskbarTab(aTaskbarTab, aRegistry, aIcon) {
+  async pinTaskbarTab(aTaskbarTab, aIcon, { window = null } = {}) {
     lazy.logConsole.info("Pinning Taskbar Tab to the taskbar.");
 
+    let shortcut = null;
     try {
       let iconPath = await createTaskbarIcon(aTaskbarTab, aIcon);
 
-      let shortcut = await createShortcut(aTaskbarTab, iconPath, aRegistry);
+      shortcut = await createShortcut(aTaskbarTab, iconPath, window);
 
       if (AppConstants.platform === "win" && !lazy.TaskbarTabsUtils.isMSIX()) {
         await lazy.ShellService.pinShortcutToTaskbar(
@@ -51,16 +52,17 @@ export const TaskbarTabsPin = {
       lazy.logConsole.error(`An error occurred while pinning: ${e.message}`);
       Glean.webApp.pin.record({ result: e.name ?? "Unknown exception" });
     }
+
+    return shortcut;
   },
 
   /**
    * Unpins the provided Taskbar Tab from the taskbar.
    *
    * @param {TaskbarTab} aTaskbarTab - The Taskbar Tab to unpin from the taskbar.
-   * @param {TaskbarTabsRegistry} aRegistry - remove pinned resource tracking from.
    * @returns {Promise} Resolves once finished.
    */
-  async unpinTaskbarTab(aTaskbarTab, aRegistry) {
+  async unpinTaskbarTab(aTaskbarTab) {
     let unpinError = null;
     let removalError = null;
 
@@ -99,15 +101,7 @@ export const TaskbarTabsPin = {
         );
       }
 
-      await Promise.all([
-        deleteShortcut.then(() => {
-          // Only update if that didn't throw an error.
-          aRegistry.patchTaskbarTab(aTaskbarTab, {
-            shortcutRelativePath: null,
-          });
-        }),
-        IOUtils.remove(iconFile.path),
-      ]);
+      await Promise.all([deleteShortcut, IOUtils.remove(iconFile.path)]);
     } catch (e) {
       lazy.logConsole.error(
         `An error occurred while uninstalling: ${e.message}`
@@ -160,9 +154,11 @@ async function createTaskbarIcon(aTaskbarTab, aIcon) {
  * @param {TaskbarTab} aTaskbarTab - The Taskbar Tab to generate a shortcut for.
  * @param {nsIFile} aFileIcon - The icon file to use for the shortcut.
  * @param {TaskbarTabsRegistry} aRegistry - The registry used to save the shortcut path.
+ * @param {DOMWindow?} aWindow - The window to associate any UI with, or null
+ * if no window is available.
  * @returns {Promise<string>} The path to the created shortcut.
  */
-async function createShortcut(aTaskbarTab, aFileIcon, aRegistry) {
+async function createShortcut(aTaskbarTab, aFileIcon, aRegistry, aWindow) {
   lazy.logConsole.info("Creating Taskbar Tabs shortcut.");
 
   let targetfile = Services.dirsvc.get("XREExeF", Ci.nsIFile);
@@ -188,10 +184,6 @@ async function createShortcut(aTaskbarTab, aFileIcon, aRegistry) {
       args
     );
 
-    aRegistry.patchTaskbarTab(aTaskbarTab, {
-      shortcutRelativePath: secondaryTileId,
-    });
-
     return secondaryTileId;
   }
 
@@ -213,28 +205,22 @@ async function createShortcut(aTaskbarTab, aFileIcon, aRegistry) {
       relativePath
     );
 
-    // Only update if that didn't throw an error.
-    aRegistry.patchTaskbarTab(aTaskbarTab, {
-      shortcutRelativePath: relativePath,
-    });
-
     return relativePath;
   }
 
   if (AppConstants.platform === "linux") {
-    let appId = "org.mozilla.firefox.webapp-" + aTaskbarTab.id;
+    let appId = lazy.TaskbarTabsUtils._determineNewDesktopEntryName(
+      aTaskbarTab.id
+    );
     await lazy.ShellService.createLinuxDesktopEntry(
       appId,
       aTaskbarTab.name,
       args,
-      aFileIcon.path
+      aFileIcon.path,
+      { window: aWindow }
     );
 
     let relativePath = appId + ".desktop";
-    aRegistry.patchTaskbarTab(aTaskbarTab, {
-      shortcutRelativePath: relativePath,
-    });
-
     return relativePath;
   }
 

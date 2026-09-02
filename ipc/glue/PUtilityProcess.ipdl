@@ -10,6 +10,10 @@ include protocol PProfiler;
 include protocol PUtilityMediaService;
 include protocol PJSOracle;
 
+#ifndef ANDROID
+include protocol PHWInference;
+#endif  // !ANDROID
+
 #if defined(XP_WIN)
 include protocol PWindowsUtils;
 include protocol PWinFileDialog;
@@ -26,8 +30,6 @@ include protocol PSandboxTesting;
 include "mozilla/ipc/ByteBufUtils.h";
 
 include GraphicsMessages;
-
-using mozilla::dom::NativeThreadId from "mozilla/dom/NativeThreadId.h";
 
 // Telemetry
 using mozilla::Telemetry::HistogramAccumulation from "mozilla/TelemetryComms.h";
@@ -127,6 +129,10 @@ child:
   */
   async UnblockUntrustedModulesThread();
 #endif  // defined(XP_WIN)
+
+#ifndef ANDROID
+  async StartHWInferenceService(Endpoint<PHWInferenceChild> aEndpoint);
+#endif  // !ANDROID
 
 #if defined(MOZ_SANDBOX) && defined(MOZ_DEBUG) && defined(ENABLE_TESTS)
   async InitSandboxTesting(Endpoint<PSandboxTestingChild> aEndpoint);

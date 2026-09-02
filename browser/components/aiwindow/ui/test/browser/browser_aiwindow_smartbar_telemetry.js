@@ -14,6 +14,8 @@
  * @import { SmartbarAction } from "chrome://browser/content/aiwindow/components/input-cta/input-cta.mjs"
  */
 
+let expectedModel;
+
 add_setup(async function () {
   await SpecialPowers.pushPrefEnv({
     set: [
@@ -21,6 +23,8 @@ add_setup(async function () {
       ["browser.smartwindow.firstrun.modelChoice", "1"],
     ],
   });
+
+  expectedModel = await modelFor("1");
 
   const fakeIntentEngine = {
     run({ args: [[query]] }) {
@@ -62,36 +66,6 @@ async function resetTelemetry() {
   Services.fog.testResetFOG();
 }
 
-/**
- * Stub _loadURL on the smartbar to prevent navigation during tests.
- *
- * @param {MozBrowser} browser - The browser element
- */
-async function stubLoadURL(browser) {
-  await SpecialPowers.spawn(browser, [], async () => {
-    const aiWindow = content.document.querySelector("ai-window");
-    const smartbar = aiWindow.shadowRoot.querySelector("#ai-window-smartbar");
-    smartbar._loadURL = () => {};
-  });
-}
-
-/**
- * Wait for the smartbar action to be set.
- *
- * @param {MozBrowser} browser - The browser element
- * @param {string} expectedAction - The expected action value
- */
-async function waitForSmartbarAction(browser, expectedAction) {
-  await SpecialPowers.spawn(browser, [expectedAction], async action => {
-    const aiWindow = content.document.querySelector("ai-window");
-    const smartbar = aiWindow.shadowRoot.querySelector("#ai-window-smartbar");
-    await ContentTaskUtils.waitForCondition(
-      () => smartbar.smartbarAction === action,
-      `Wait for smartbar action to be "${action}"`
-    );
-  });
-}
-
 // TODO (bug 2025792): Add tests for `extra_key`s `bounce` and `disable`.
 
 add_task(async function test_smartbar_telemetry_navigate_submit_enter() {
@@ -115,11 +89,8 @@ add_task(async function test_smartbar_telemetry_navigate_submit_enter() {
     "0",
     "navigate_submit has correct message_seq"
   );
-  Assert.equal(
-    extra.model,
-    "gemini-2.5-flash-lite",
-    "navigate_submit has correct model"
-  );
+  Assert.equal(extra.model, expectedModel, "navigate_submit has correct model");
+  Assert.equal(extra.length, "20", "navigate_submit has correct length");
   Assert.equal(
     extra.location,
     "fullpage",
@@ -190,11 +161,7 @@ add_task(async function test_smartbar_telemetry_search_submit() {
   const extra = events[0].extra;
   Assert.ok(extra.chat_id, "search_submit has chat_id");
   Assert.equal(extra.message_seq, "0", "search_submit has correct message_seq");
-  Assert.equal(
-    extra.model,
-    "gemini-2.5-flash-lite",
-    "search_submit has correct model"
-  );
+  Assert.equal(extra.model, expectedModel, "search_submit has correct model");
   Assert.equal(
     extra.location,
     "fullpage",
@@ -224,7 +191,7 @@ add_task(
     const browser = win.gBrowser.selectedBrowser;
 
     await typeInSmartbar(browser, "test");
-    await stubLoadURL(browser);
+    await stubOpenSERP(browser);
 
     await SpecialPowers.spawn(browser, [], async () => {
       const aiWindow = content.document.querySelector("ai-window");
@@ -245,6 +212,10 @@ add_task(
       searchItem.click();
     });
 
+    // Picking the action only locks the button; submit it to run the search.
+    await waitForSmartbarAction(browser, "search");
+    await submitSmartbar(browser, { useButton: true });
+
     const previewEvents = Glean.smartWindow.intentChangePreview.testGetValue();
     Assert.equal(
       previewEvents.length,
@@ -263,6 +234,11 @@ add_task(
       searchEvents[0].extra.detected_intent,
       "chat",
       "search_submit detected_intent is chat even though user picked search"
+    );
+    Assert.equal(
+      searchEvents[0].extra.submit_type,
+      "button",
+      "search_submit has correct submit_type for explicit action selection"
     );
 
     await BrowserTestUtils.closeWindow(win);
@@ -285,11 +261,7 @@ add_task(async function test_smartbar_telemetry_chat_submit_enter() {
   const extra = events[0].extra;
   Assert.ok(extra.chat_id, "chat_submit has chat_id");
   Assert.equal(extra.message_seq, "0", "chat_submit has correct message_seq");
-  Assert.equal(
-    extra.model,
-    "gemini-2.5-flash-lite",
-    "chat_submit has correct model"
-  );
+  Assert.equal(extra.model, expectedModel, "chat_submit has correct model");
   Assert.equal(extra.location, "fullpage", "chat_submit has correct location");
   Assert.equal(
     extra.detected_intent,
@@ -308,7 +280,7 @@ add_task(async function test_smartbar_telemetry_chat_submit_enter() {
   await BrowserTestUtils.closeWindow(win);
 });
 
-add_task(async function test_smartbar_telemetry_chat_submit_button() {
+add_task(async function test_smartbar_telemetry_chat_submit_button_click() {
   await resetTelemetry();
 
   const win = await openAIWindow();
@@ -336,6 +308,79 @@ add_task(async function test_smartbar_telemetry_chat_submit_button() {
 
   await BrowserTestUtils.closeWindow(win);
 });
+
+add_task(async function test_smartbar_telemetry_chat_submit_keyboard() {
+  await resetTelemetry();
+
+  const win = await openAIWindow();
+  const browser = win.gBrowser.selectedBrowser;
+
+  await typeInSmartbar(browser, "tell me a joke");
+  await waitForSmartbarAction(browser, "chat");
+  await submitSmartbar(browser);
+
+  const events = Glean.smartWindow.chatSubmit.testGetValue();
+  Assert.equal(events.length, 1, "Should have one chat_submit event");
+
+  const extra = events[0].extra;
+  Assert.equal(
+    extra.submit_type,
+    "enter",
+    "chat_submit has correct submit_type when pressing Enter"
+  );
+  Assert.equal(
+    extra.detected_intent,
+    "chat",
+    "chat_submit has correct detected_intent"
+  );
+  Assert.equal(extra.location, "fullpage", "chat_submit has correct location");
+
+  await BrowserTestUtils.closeWindow(win);
+});
+
+add_task(
+  async function test_smartbar_telemetry_chat_submit_locked_over_guess() {
+    await resetTelemetry();
+
+    const win = await openAIWindow();
+    const browser = win.gBrowser.selectedBrowser;
+
+    await stubLoadURL(browser, { captureURL: true });
+
+    // The live guess is "navigate" for URL-shaped input, but locking "chat"
+    // overrides it. The submit must still record chat_submit telemetry and must
+    // not navigate.
+    await typeInSmartbar(browser, "https://example.com");
+    await waitForSmartbarAction(browser, "navigate");
+    await selectExplicitSmartbarAction(browser, "chat");
+    await waitForSmartbarAction(browser, "chat");
+    await submitSmartbar(browser);
+
+    const events = Glean.smartWindow.chatSubmit.testGetValue();
+    Assert.equal(
+      events.length,
+      1,
+      "Locking chat over a navigate guess should still record chat_submit"
+    );
+
+    const extra = events[0].extra;
+    Assert.equal(
+      extra.detected_intent,
+      "navigate",
+      "chat_submit preserves the live detected_intent even when chat is locked"
+    );
+    Assert.equal(
+      extra.submit_type,
+      "enter",
+      "chat_submit has correct submit_type for enter key"
+    );
+
+    const { called } = await getStubLoadURLResult(browser);
+    Assert.ok(!called, "A locked chat submit should not navigate");
+
+    await BrowserTestUtils.closeWindow(win);
+  }
+);
 
 add_task(async function test_smartbar_telemetry_engagement_extra_keys() {
   await resetTelemetry();
@@ -365,10 +410,11 @@ add_task(async function test_smartbar_telemetry_engagement_extra_keys() {
       "engagement has correct window mode"
     );
     Assert.equal(extra.location, "fullpage", "engagement has correct location");
+    Assert.equal(extra.model, expectedModel, "engagement has correct model");
     Assert.equal(
-      extra.model,
-      "gemini-2.5-flash-lite",
-      "engagement has correct model"
+      extra.selected_result,
+      "ai_chat",
+      "engagement has correct selected_result"
     );
 
     await BrowserTestUtils.closeWindow(win);
@@ -377,12 +423,65 @@ add_task(async function test_smartbar_telemetry_engagement_extra_keys() {
   }
 });
 
+add_task(
+  async function test_smartbar_telemetry_engagement_ai_search_fallback() {
+    await resetTelemetry();
+
+    const win = await openAIWindow();
+    const browser = win.gBrowser.selectedBrowser;
+    await stubLoadURL(browser);
+
+    await promiseSmartbarSuggestionsOpen(browser, () =>
+      typeInSmartbar(browser, "tell me a joke")
+    );
+    await waitForSmartbarAction(browser, "chat");
+
+    // Pick the AiChat search fallback row
+    await SpecialPowers.spawn(
+      browser,
+      [UrlbarShared.RESULT_TYPE.SEARCH],
+      async searchResultType => {
+        const smartbar = content.document
+          .querySelector("ai-window")
+          .shadowRoot.querySelector("#ai-window-smartbar");
+        const fallbackRow = await ContentTaskUtils.waitForCondition(
+          () =>
+            [...smartbar.querySelectorAll(".urlbarView-row")].find(
+              row =>
+                row.result?.providerName == "UrlbarProviderAiChat" &&
+                row.result.type == searchResultType
+            ),
+          "Wait for the AiChat search fallback row to render"
+        );
+        EventUtils.synthesizeMouseAtCenter(fallbackRow, {}, content);
+      }
+    );
+
+    const events = Glean.urlbar.engagement.testGetValue() ?? [];
+    const smartbarEvent = events.find(e => e.extra.sap === "smartbar");
+    Assert.ok(smartbarEvent, "Should have a smartbar engagement event");
+    Assert.equal(
+      smartbarEvent.extra.selected_result,
+      "ai_search_fallback",
+      "engagement has correct selected_result"
+    );
+    Assert.equal(
+      smartbarEvent.extra.results,
+      "ai_chat,ai_search_fallback",
+      "smartbar lists the correct results"
+    );
+
+    await BrowserTestUtils.closeWindow(win);
+  }
+);
+
 add_task(async function test_smartbar_telemetry_abandonment_extra_keys() {
   await resetTelemetry();
 
   const { win, sidebarBrowser } = await openAIWindowWithSidebar();
 
   await typeInSmartbar(sidebarBrowser, "test");
+  await waitForSmartbarAction(sidebarBrowser, "chat");
   await SpecialPowers.spawn(sidebarBrowser, [], async () => {
     const aiWindow = content.document.querySelector("ai-window");
     const smartbar = aiWindow.shadowRoot.querySelector("#ai-window-smartbar");
@@ -403,11 +502,7 @@ add_task(async function test_smartbar_telemetry_abandonment_extra_keys() {
     "abandonment has correct window mode"
   );
   Assert.equal(extra.location, "sidebar", "abandonment has correct location");
-  Assert.equal(
-    extra.model,
-    "gemini-2.5-flash-lite",
-    "abandonment has correct model"
-  );
+  Assert.equal(extra.model, expectedModel, "abandonment has correct model");
 
   await BrowserTestUtils.closeWindow(win);
 });
@@ -463,6 +558,11 @@ add_task(async function test_smartbar_telemetry_mention_start_inline() {
   await resetTelemetry();
 
   const win = await openAIWindow();
+  await BrowserTestUtils.openNewForegroundTab(
+    win.gBrowser,
+    "https://example.com/"
+  );
+  await BrowserTestUtils.switchTab(win.gBrowser, win.gBrowser.tabs[0]);
   const browser = win.gBrowser.selectedBrowser;
 
   await typeInSmartbar(browser, "@");
@@ -492,6 +592,11 @@ add_task(async function test_smartbar_telemetry_add_tabs_click() {
   await resetTelemetry();
 
   const win = await openAIWindow();
+  await BrowserTestUtils.openNewForegroundTab(
+    win.gBrowser,
+    "https://example.com/"
+  );
+  await BrowserTestUtils.switchTab(win.gBrowser, win.gBrowser.tabs[0]);
   const browser = win.gBrowser.selectedBrowser;
 
   await SpecialPowers.spawn(browser, [], async () => {
@@ -535,6 +640,11 @@ add_task(async function test_smartbar_telemetry_mention_select_inline() {
   await resetTelemetry();
 
   const win = await openAIWindow();
+  await BrowserTestUtils.openNewForegroundTab(
+    win.gBrowser,
+    "https://example.com/"
+  );
+  await BrowserTestUtils.switchTab(win.gBrowser, win.gBrowser.tabs[0]);
   const browser = win.gBrowser.selectedBrowser;
 
   await typeInSmartbar(browser, "@");
@@ -589,6 +699,11 @@ add_task(async function test_smartbar_telemetry_add_tabs_selection() {
   await resetTelemetry();
 
   const win = await openAIWindow();
+  await BrowserTestUtils.openNewForegroundTab(
+    win.gBrowser,
+    "https://example.com/"
+  );
+  await BrowserTestUtils.switchTab(win.gBrowser, win.gBrowser.tabs[0]);
   const browser = win.gBrowser.selectedBrowser;
 
   await SpecialPowers.spawn(browser, [], async () => {
@@ -649,6 +764,11 @@ add_task(async function test_smartbar_telemetry_mention_remove_inline() {
   await resetTelemetry();
 
   const win = await openAIWindow();
+  await BrowserTestUtils.openNewForegroundTab(
+    win.gBrowser,
+    "https://example.com/"
+  );
+  await BrowserTestUtils.switchTab(win.gBrowser, win.gBrowser.tabs[0]);
   const browser = win.gBrowser.selectedBrowser;
 
   await typeInSmartbar(browser, "@");
@@ -704,6 +824,11 @@ add_task(async function test_smartbar_telemetry_remove_tab() {
   await resetTelemetry();
 
   const win = await openAIWindow();
+  await BrowserTestUtils.openNewForegroundTab(
+    win.gBrowser,
+    "https://example.com/"
+  );
+  await BrowserTestUtils.switchTab(win.gBrowser, win.gBrowser.tabs[0]);
   const browser = win.gBrowser.selectedBrowser;
 
   await SpecialPowers.spawn(browser, [], async () => {
@@ -758,6 +883,15 @@ add_task(
     await resetTelemetry();
 
     const win = await openAIWindow();
+    await BrowserTestUtils.openNewForegroundTab(
+      win.gBrowser,
+      "https://example.com/"
+    );
+    await BrowserTestUtils.openNewForegroundTab(
+      win.gBrowser,
+      "https://example.org/"
+    );
+    await BrowserTestUtils.switchTab(win.gBrowser, win.gBrowser.tabs[0]);
     const browser = win.gBrowser.selectedBrowser;
 
     await typeInSmartbar(browser, "@");
@@ -830,7 +964,9 @@ add_task(
 );
 
 add_task(async function test_smartbar_telemetry_mention_start_sidebar() {
-  const { win, sidebarBrowser } = await openAIWindowWithSidebar();
+  const { win, sidebarBrowser } = await openAIWindowWithSidebar(
+    "https://example.com/"
+  );
   await resetTelemetry();
 
   await typeInSmartbar(sidebarBrowser, "@");

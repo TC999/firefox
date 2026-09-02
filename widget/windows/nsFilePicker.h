@@ -6,15 +6,17 @@
 #ifndef nsFilePicker_h_
 #define nsFilePicker_h_
 
+// clang-format off
 #include <windows.h>
-
-#include "mozilla/MozPromise.h"
-#include "nsCOMArray.h"
-#include "nsBaseFilePicker.h"
-#include "nsString.h"
-#include "nsdefs.h"
 #include <commdlg.h>
 #include <shobjidl.h>
+// clang-format on
+
+#include "mozilla/MozPromise.h"
+#include "nsBaseFilePicker.h"
+#include "nsCOMArray.h"
+#include "nsString.h"
+#include "nsdefs.h"
 #undef LogSeverity  // SetupAPI.h #defines this as DWORD
 
 class nsIFile;
@@ -70,7 +72,8 @@ class nsFilePicker final : public nsBaseWinFilePicker {
   nsFilePicker();
 
   NS_IMETHOD Init(mozilla::dom::BrowsingContext* aBrowsingContext,
-                  const nsAString& aTitle, nsIFilePicker::Mode aMode) override;
+                  const nsAString& aTitle, nsIFilePicker::Mode aMode,
+                  nsISupports* aGlobal) override;
 
   NS_DECL_ISUPPORTS
 
@@ -88,7 +91,8 @@ class nsFilePicker final : public nsBaseWinFilePicker {
   virtual void InitNative(nsIWidget* aParent, const nsAString& aTitle) override;
   void GetFilterListArray(nsString& aFilterList);
 
-  NS_IMETHOD Open(nsIFilePickerShownCallback* aCallback) override;
+  MOZ_CAN_RUN_SCRIPT NS_IMETHOD
+  Open(nsIFilePickerShownCallback* aCallback) override;
 
  private:
   using Unit = mozilla::Ok;

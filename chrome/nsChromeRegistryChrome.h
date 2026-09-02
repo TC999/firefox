@@ -64,8 +64,8 @@ class nsChromeRegistryChrome : public nsChromeRegistry {
 
   class nsProviderArray {
    public:
-    nsProviderArray() : mArray(1) {}
-    ~nsProviderArray() {}
+    nsProviderArray() = default;
+    ~nsProviderArray() = default;
 
     // When looking up locales and skins, the "selected" locale is not always
     // available. This enum identifies what kind of match is desired/found.
@@ -84,12 +84,12 @@ class nsChromeRegistryChrome : public nsChromeRegistry {
    private:
     ProviderEntry* GetProvider(const nsACString& aPreferred, MatchType aType);
 
-    nsTArray<ProviderEntry> mArray;
+    AutoTArray<ProviderEntry, 1> mArray;
   };
 
   struct PackageEntry : public PLDHashEntryHdr {
     PackageEntry() : flags(0) {}
-    ~PackageEntry() {}
+    ~PackageEntry() = default;
 
     nsCOMPtr<nsIURI> baseURI;
     uint32_t flags;

@@ -4,10 +4,10 @@
 
 package mozilla.components.service.mars
 
+import kotlin.test.assertNotNull
 import mozilla.appservices.adsclient.MozAdsClient
 import mozilla.components.support.test.mock
 import org.junit.After
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertThrows
 import org.junit.Test
 import org.junit.runner.RunWith

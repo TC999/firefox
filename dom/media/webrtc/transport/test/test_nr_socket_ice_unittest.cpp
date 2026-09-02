@@ -143,9 +143,9 @@ class IcePeer {
 
     for (int i = 0; i < attrct; i++) {
       ret.push_back(std::string(attrs[i]));
-      RFREE(attrs[i]);
+      free(attrs[i]);
     }
-    RFREE(attrs);
+    free(attrs);
 
     return ret;
   }
@@ -166,9 +166,9 @@ class IcePeer {
 
     for (int i = 0; i < attrct; i++) {
       ret.push_back(std::string(attrs[i]));
-      RFREE(attrs[i]);
+      free(attrs[i]);
     }
-    RFREE(attrs);
+    free(attrs);
 
     return ret;
   }

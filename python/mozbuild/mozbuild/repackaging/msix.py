@@ -657,9 +657,9 @@ def repackage_msix(
 
     # Windows MSIX packages support a finite set of locales: see
     # https://docs.microsoft.com/en-us/windows/uwp/publish/supported-languages, which is encoded in
-    # https://searchfox.org/mozilla-central/source/browser/installer/windows/msix/msix-all-locales.
+    # https://searchfox.org/firefox-main/source/browser/installer/windows/msix/msix-all-locales.
     # We distribute all of the langpacks supported by the release channel in our MSIX, which is
-    # encoded in https://searchfox.org/mozilla-central/source/browser/locales/all-locales.  But we
+    # encoded in https://searchfox.org/firefox-main/source/browser/locales/all-locales.  But we
     # only advertise support in the App manifest for the intersection of that set and the set of
     # supported locales.
     #
@@ -685,6 +685,12 @@ def repackage_msix(
         f'    <Resource Language="{locale}" />' for locale in locales
     )
 
+    background_task_class_id = next(
+        get_appconstants_sys_mjs_values(
+            unpack_finder, "MOZ_BACKGROUNDTASK_ACTIVATABLE_CLASS_ID"
+        )
+    )
+
     defines = {
         "APPX_ARCH": _MSIX_ARCH[arch],
         "APPX_DISPLAYNAME": brandFullName,
@@ -705,6 +711,7 @@ def repackage_msix(
         "MOZ_APP_NAME": app_name,
         # Keep synchronized with `toolkit\mozapps\notificationserver\NotificationComServer.cpp`.
         "MOZ_INOTIFICATIONACTIVATION_CLSID": "916f9b5d-b5b2-4d36-b047-03c7a52f81c8",
+        "MOZ_BACKGROUNDTASK_ACTIVATABLE_CLASS_ID": background_task_class_id,
     }
 
     m.add_preprocess(

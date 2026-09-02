@@ -5,21 +5,22 @@
 #include "RenderCompositorLayerNative.h"
 
 #include "GLContext.h"
+#include "GLContextEGL.h"
 #include "GLContextProvider.h"
+#include "RenderCompositorRecordedFrame.h"
 #include "mozilla/ProfilerLabels.h"
 #include "mozilla/ProfilerMarkers.h"
-#include "mozilla/gfx/gfxVars.h"
+#include "mozilla/StaticPrefs_gfx.h"
 #include "mozilla/gfx/Logging.h"
+#include "mozilla/gfx/gfxVars.h"
 #include "mozilla/layers/CompositionRecorder.h"
 #include "mozilla/layers/GpuFence.h"
 #include "mozilla/layers/NativeLayer.h"
 #include "mozilla/layers/ProfilerScreenshots.h"
 #include "mozilla/layers/SurfacePool.h"
-#include "mozilla/StaticPrefs_gfx.h"
 #include "mozilla/webrender/RenderTextureHost.h"
 #include "mozilla/webrender/RenderThread.h"
 #include "mozilla/widget/CompositorWidget.h"
-#include "RenderCompositorRecordedFrame.h"
 
 #if defined(MOZ_WAYLAND)
 #  include "mozilla/layers/NativeLayerWayland.h"
@@ -80,7 +81,7 @@ RenderedFrameId RenderCompositorLayerNative::EndFrame(
 
   DoSwap();
 
-  MOZ_ASSERT(mPendingGpuFeces.empty());
+  MOZ_ASSERT(mPendingGpuFences.empty());
 
   return frameId;
 }
@@ -428,7 +429,7 @@ void RenderCompositorLayerNative::AddSurface(
   if (surface.mIsExternal) {
     RefPtr<layers::GpuFence> fence = layer->GetGpuFence();
     if (fence && BackendType() == layers::WebRenderBackend::HARDWARE) {
-      mPendingGpuFeces.emplace_back(fence);
+      mPendingGpuFences.emplace_back(fence);
     }
   }
 }
@@ -482,7 +483,22 @@ bool RenderCompositorLayerNativeOGL::InitDefaultFramebuffer() {
 
 void RenderCompositorLayerNativeOGL::DoSwap() { InsertFrameDoneSync(); }
 
-void RenderCompositorLayerNativeOGL::DoFlush() { mGL->fFlush(); }
+void RenderCompositorLayerNativeOGL::DoFlush() {
+  if (mGL->GetContextType() == gl::GLContextType::EGL) {
+    const auto* gle = gl::GLContextEGL::Cast(mGL);
+    const auto& egl = gle->mEgl;
+
+    // When setting a Metal-rendered IOSurface as a CALayer's contents, pending
+    // Metal commands must be explicitly scheduled to ensure they are committed
+    // with the next transaction.
+    // https://groups.google.com/g/angleproject/c/6UeZshVzt28/m/pRCjGEfmEwAJ
+    if (egl->IsExtensionSupported(
+            gl::EGLExtension::ANGLE_wait_until_work_scheduled)) {
+      egl->fWaitUntilWorkScheduledANGLE();
+    }
+  }
+  mGL->fFlush();
+}
 
 void RenderCompositorLayerNativeOGL::InsertFrameDoneSync() {
 #ifdef XP_DARWIN
@@ -492,7 +508,7 @@ void RenderCompositorLayerNativeOGL::InsertFrameDoneSync() {
     mGL->fDeleteSync(mThisFrameDoneFences->mSync);
   }
   mThisFrameDoneFences =
-      MakeUnique<BackPressureFences>(std::move(mPendingGpuFeces));
+      MakeUnique<BackPressureFences>(std::move(mPendingGpuFences));
   mThisFrameDoneFences->mSync =
       mGL->fFenceSync(LOCAL_GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
 #endif
@@ -500,19 +516,8 @@ void RenderCompositorLayerNativeOGL::InsertFrameDoneSync() {
 
 bool RenderCompositorLayerNativeOGL::WaitForGPU() {
   if (mPreviousFrameDoneFences) {
-    bool complete = false;
-    while (!complete) {
-      complete = true;
-      for (const auto& fence : mPreviousFrameDoneFences->mGpuFeces) {
-        if (!fence->HasCompleted()) {
-          complete = false;
-          break;
-        }
-      }
-
-      if (!complete) {
-        PR_Sleep(PR_MillisecondsToInterval(1));
-      }
+    for (const auto& fence : mPreviousFrameDoneFences->mGpuFences) {
+      fence->ClientWait(TimeDuration::Forever());
     }
 
     if (mPreviousFrameDoneFences->mSync) {

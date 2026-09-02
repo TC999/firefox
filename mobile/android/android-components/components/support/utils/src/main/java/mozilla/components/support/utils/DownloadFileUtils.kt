@@ -9,21 +9,19 @@ import android.content.Intent
 import android.net.Uri
 
 /**
- * An interface for handling downloaded files, such as opening files,
- * creating intents, and resolving content types and URIs.
+ * An interface for handling downloaded files, such as opening files, creating intents, and resolving content types and
+ * URIs.
  */
 interface DownloadFileUtils {
 
-    /**
-     * The current directory path where downloads are saved.
-     */
+    /** The current directory path where downloads are saved. */
     val currentDownloadLocation: String
 
     /**
      * Guess the name of the file that should be downloaded.
      *
-     * This method is largely identical to [android.webkit.URLUtil.guessFileName]
-     * which unfortunately does not implement RFC 5987.
+     * This method is largely identical to [android.webkit.URLUtil.guessFileName] which unfortunately does not implement
+     * RFC 5987.
      */
     fun guessFileName(
         contentDisposition: String?,
@@ -69,6 +67,18 @@ interface DownloadFileUtils {
     fun findDownloadFileUri(fileName: String?, directoryPath: String): Uri?
 
     /**
+     * Finds a shareable content URI for a downloaded file.
+     *
+     * This method ensures the returned URI can be shared with other applications, converting file URIs to content URIs
+     * via FileProvider and Storage Access Framework URIs to document URIs if necessary.
+     *
+     * @param fileName The name of the file to find.
+     * @param directoryPath The directory where the file is located.
+     * @return A shareable [Uri] of the file, or `null` if it cannot be found.
+     */
+    fun findShareableDownloadFileUri(fileName: String?, directoryPath: String): Uri?
+
+    /**
      * Determines a safe and reliable MIME type for a file.
      *
      * @param fileName The name of the file, used to infer the MIME type from its extension.
@@ -91,8 +101,8 @@ interface DownloadFileUtils {
     fun fileExists(directoryPath: String, fileName: String?): Boolean
 
     /**
-     * Generates a unique file name for a given directory to avoid overwriting existing files.
-     * This function handles both standard file paths and Storage Access Framework (SAF) URIs.
+     * Generates a unique file name for a given directory to avoid overwriting existing files. This function handles
+     * both standard file paths and Storage Access Framework (SAF) URIs.
      *
      * @param directoryPath The path or content URI of the target directory.
      * @param fileName The desired initial file name (e.g., "document.pdf").
@@ -109,8 +119,8 @@ interface DownloadFileUtils {
      * @param contentResolver The [ContentResolver] used to perform the deletion.
      * @param fileName The name of the file to be deleted.
      * @param directoryPath The path or content URI string of the directory containing the file.
-     * @return `true` if the file was successfully deleted, `false` otherwise (e.g., file not
-     * found, permission denied, or an error occurred during deletion).
+     * @return `true` if the file was successfully deleted, `false` otherwise (e.g., file not found, permission denied,
+     *   or an error occurred during deletion).
      */
     fun deleteMediaFile(
         contentResolver: ContentResolver,
@@ -119,8 +129,8 @@ interface DownloadFileUtils {
     ): Boolean
 
     /**
-     * Renames a file within a directory.
-     * This method handles both standard file paths and Storage Access Framework (SAF) URIs.
+     * Renames a file within a directory. This method handles both standard file paths and Storage Access Framework
+     * (SAF) URIs.
      *
      * @param directoryPath The path of the directory containing the file.
      * @param oldName The current name of the file to be renamed.

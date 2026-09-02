@@ -5,12 +5,12 @@
 #ifndef mozilla_TRRLoadInfo_h
 #define mozilla_TRRLoadInfo_h
 
+#include "mozilla/OriginAttributes.h"
+#include "mozilla/dom/ClientInfo.h"
+#include "mozilla/dom/ServiceWorkerDescriptor.h"
 #include "nsILoadInfo.h"
 #include "nsIURI.h"
 #include "nsTArray.h"
-#include "mozilla/dom/ClientInfo.h"
-#include "mozilla/dom/ServiceWorkerDescriptor.h"
-#include "mozilla/OriginAttributes.h"
 
 namespace mozilla {
 namespace net {
@@ -38,7 +38,7 @@ class TRRLoadInfo final : public nsILoadInfo {
   nsTArray<nsCOMPtr<nsIPrincipal>> mEmptyPrincipals;
   nsTArray<uint64_t> mEmptyBrowsingContextIDs;
   nsTArray<nsCString> mCorsUnsafeHeaders;
-  nsID mSandboxedNullPrincipalID;
+  nsID mSandboxedNullPrincipalID{};
   Maybe<mozilla::dom::ClientInfo> mClientInfo;
   Maybe<mozilla::dom::ClientInfo> mReservedClientInfo;
   Maybe<mozilla::dom::ClientInfo> mInitialClientInfo;

@@ -5,12 +5,13 @@
 #ifndef IdleTaskRunner_h
 #define IdleTaskRunner_h
 
+#include <functional>
+
 #include "mozilla/TimeStamp.h"
 #include "nsIEventTarget.h"
 #include "nsISupports.h"
 #include "nsITimer.h"
 #include "nsString.h"
-#include <functional>
 
 namespace mozilla {
 
@@ -92,6 +93,7 @@ class IdleTaskRunner {
   ~IdleTaskRunner();
   void CancelTimer();
   void SetTimerInternal(TimeDuration aDelay);
+  static void TimedOut(nsITimer* aTimer, void* aClosure);
 
   nsCOMPtr<nsITimer> mTimer;
   nsCOMPtr<nsITimer> mScheduleTimer;

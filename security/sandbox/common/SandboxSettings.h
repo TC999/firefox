@@ -4,7 +4,6 @@
 
 #ifndef mozilla_SandboxSettings_h
 #define mozilla_SandboxSettings_h
-#include <cinttypes>
 
 #if defined(MOZ_PROFILE_GENERATE)
 #  include <string>
@@ -13,8 +12,8 @@
 #include "nsIXULRuntime.h"
 
 #ifdef __OpenBSD__
-#  include "nsXULAppAPI.h"
 #  include "mozilla/ipc/UtilityProcessSandboxing.h"
+#  include "nsXULAppAPI.h"
 #endif
 
 namespace mozilla {
@@ -25,6 +24,8 @@ namespace mozilla {
 // MOZ_DISABLE_CONTENT_SANDBOX is set.
 int GetEffectiveContentSandboxLevel();
 int GetEffectiveSocketProcessSandboxLevel();
+// Returns the "security.sandbox.gpu.level" preference, or 0 (disabled) if the
+// env var MOZ_DISABLE_GPU_SANDBOX is set.
 int GetEffectiveGpuSandboxLevel();
 
 #if defined(MOZ_PROFILE_GENERATE)

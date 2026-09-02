@@ -5,6 +5,8 @@
 #ifndef mozilla_dom_Highlight_h
 #define mozilla_dom_Highlight_h
 
+#include <fmt/format.h>
+
 #include "mozilla/Attributes.h"
 #include "mozilla/dom/BindingDeclarations.h"
 #include "mozilla/dom/HighlightBinding.h"
@@ -23,6 +25,7 @@ class ErrorResult;
 namespace mozilla::dom {
 class AbstractRange;
 class Document;
+class Element;
 class HighlightRegistry;
 class Selection;
 class ShadowRoot;
@@ -34,6 +37,20 @@ class ShadowRoot;
  * to the `nsFrameSelection` and layout code.
  */
 struct HighlightSelectionData {
+  friend auto format_as(const HighlightSelectionData& aData) {
+    nsAutoCString highlightName;
+    if (aData.mHighlightName) {
+      highlightName = nsAtomCString(aData.mHighlightName);
+    }
+    return fmt::format("{{ mHighlightName=\"{}\", mHighlight={} }}",
+                       highlightName.get(),
+                       static_cast<void*>(aData.mHighlight.get()));
+  }
+  friend std::ostream& operator<<(std::ostream& aStream,
+                                  const HighlightSelectionData& aData) {
+    return aStream << format_as(aData);
+  }
+
   RefPtr<nsAtom> mHighlightName;
   RefPtr<Highlight> mHighlight;
 };
@@ -58,7 +75,7 @@ struct HighlightSelectionData {
  */
 class Highlight final : public nsISupports, public nsWrapperCache {
  public:
-  NS_DECL_CYCLE_COLLECTING_ISUPPORTS
+  NS_DECL_CYCLE_COLLECTING_ISUPPORTS_FINAL
   NS_DECL_CYCLE_COLLECTION_WRAPPERCACHE_CLASS(Highlight)
 
  protected:
@@ -177,13 +194,12 @@ class Highlight final : public nsISupports, public nsWrapperCache {
    * @param aX               x coordinate
    * @param aY               y coordinate
    * @param aShadowRoots     List of shadow roots to consider
-   * @param aPointShadowRoot Shadow root containing the hit-tested point, or
-   *                         nullptr if the point is in the light DOM.
+   * @param aElementAtPoint  The element at the hit-tested point.
    */
   nsTArray<RefPtr<AbstractRange>> RangesAtPoint(
       float aX, float aY,
       const Sequence<OwningNonNull<mozilla::dom::ShadowRoot>>& aShadowRoots,
-      mozilla::dom::ShadowRoot* aPointShadowRoot = nullptr) const;
+      mozilla::dom::Element* aElementAtPoint) const;
 
  private:
   void Repaint();

@@ -19,7 +19,6 @@
 #include "nsAtom.h"
 #include "nsCaseTreatment.h"
 #include "nsColor.h"
-#include "nsMargin.h"
 #include "nsString.h"
 #include "nsStringFwd.h"
 #include "nsTArrayForwardDeclare.h"
@@ -47,14 +46,25 @@ class SVGStringList;
 class SVGTransformList;
 
 struct AttrAtomArray {
-  AtomArray mArray;
-  mutable bool mMayContainDuplicates = false;
+  const AtomArray& Array() const { return mArray; }
+
+  bool MayContain(const nsAtom* aAtom) const {
+    return mBloomFilter & GetBloomFilterBit(aAtom);
+  }
+
+  // NOTE(emilio): Must be in sync with atom_array_may_contain() in the rust
+  // side.
+  static uint32_t GetBloomFilterBit(const nsAtom* aAtom) {
+    return 1u << ((aAtom->hash() >> 27) & 31);
+  }
+
   UniquePtr<AttrAtomArray> CreateDeduplicatedCopyIfDifferent() const {
     if (!mMayContainDuplicates) {
       return nullptr;
     }
     return CreateDeduplicatedCopyIfDifferentImpl();
   }
+
   bool operator==(const AttrAtomArray& aOther) const {
     return mArray == aOther.mArray;
   }
@@ -64,8 +74,21 @@ struct AttrAtomArray {
            mArray.ShallowSizeOfExcludingThis(aMallocSizeOf);
   }
 
+  void Append(RefPtr<nsAtom> aAtom) {
+    if (!mArray.IsEmpty()) {
+      mMayContainDuplicates = true;
+    }
+    mBloomFilter |= GetBloomFilterBit(aAtom);
+    mArray.AppendElement(std::move(aAtom));
+  }
+
  private:
   UniquePtr<AttrAtomArray> CreateDeduplicatedCopyIfDifferentImpl() const;
+
+  AtomArray mArray;
+  // Minimal bloom filter for fast rejection of CSS class selectors.
+  uint32_t mBloomFilter = 0;
+  mutable bool mMayContainDuplicates = false;
 };
 
 namespace dom {
@@ -134,7 +157,6 @@ class nsAttrValue {
     // struct.
     eCSSDeclaration = 0x10,
     eURL,
-    eImage,
     eAtomArray,
     eDoubleValue,
     // eShadowParts is refcounted in the misc container, as we do copy attribute
@@ -182,7 +204,11 @@ class nsAttrValue {
 
   void SetTo(const nsAttrValue& aOther);
   void SetTo(const nsAString& aValue);
+  // The StringBuffer must be exactly-sized so that the logical length
+  // can be computed from storage size the way nsAttrValue expects.
+  void SetToAssumeUnset(already_AddRefed<mozilla::StringBuffer> aValue);
   void SetTo(nsAtom* aValue);
+  void SetToAssumeUnset(already_AddRefed<nsAtom> aValue);
   void SetTo(int16_t aInt);
   void SetTo(int32_t aInt, const nsAString* aSerialized);
   void SetTo(double aValue, const nsAString* aSerialized);
@@ -324,8 +350,7 @@ class nsAttrValue {
     constexpr EnumTableEntry(const char* aTag, int16_t aValue)
         : tag(aTag), value(aValue) {}
 
-    template <typename T,
-              typename = typename std::enable_if<std::is_enum<T>::value>::type>
+    template <typename T, typename = std::enable_if_t<std::is_enum_v<T>>>
     constexpr EnumTableEntry(const char* aTag, T aValue)
         : tag(aTag), value(static_cast<int16_t>(aValue)) {
       static_assert(mozilla::EnumTypeFitsWithin<T, int16_t>::value,

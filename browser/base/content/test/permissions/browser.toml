@@ -2,6 +2,7 @@
 support-files = [
   "head.js",
   "permissions.html",
+  "permission_worker.js",
   "temporary_permissions_subframe.html",
   "temporary_permissions_frame.html",
 ]
@@ -25,6 +26,9 @@ skip-if = [
 ]
 
 ["browser_canvas_rfp_exclusion.js"]
+
+["browser_geolocation_replaced_prompt.js"]
+support-files = ["empty.html"]
 
 ["browser_notification_permission_telemetry.js"]
 support-files = ["empty.html"]
@@ -53,6 +57,10 @@ support-files = ["../webrtc/get_user_media.html"]
 
 ["browser_temporary_permissions_api_e2e.js"]
 
+["browser_temporary_permissions_child_clear.js"]
+
+["browser_temporary_permissions_cross_origin_navigation.js"]
+
 ["browser_temporary_permissions_expiry.js"]
 
 ["browser_temporary_permissions_navigation.js"]
@@ -61,3 +69,5 @@ skip-if = [
 ]
 
 ["browser_temporary_permissions_tabs.js"]
+
+["browser_temporary_permissions_worker.js"]

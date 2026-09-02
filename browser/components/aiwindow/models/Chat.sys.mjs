@@ -4,14 +4,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  */
 
-import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
-
-import { ToolRoleOpts } from "moz-src:///browser/components/aiwindow/ui/modules/ChatMessage.sys.mjs";
-import {
-  openAIEngine,
-  DEFAULT_MODEL,
-  MODEL_FEATURES,
-} from "moz-src:///browser/components/aiwindow/models/Utils.sys.mjs";
+import { openAIEngine } from "moz-src:///browser/components/aiwindow/models/openAIEngine.sys.mjs";
+import { MESSAGE_ROLE } from "moz-src:///browser/components/aiwindow/models/Conversation.sys.mjs";
 import {
   toolsConfig,
   toolFns,
@@ -23,13 +17,162 @@ import {
   RUN_SEARCH,
   GET_USER_MEMORIES,
   GET_NAVIGATION_INFO,
+  MANAGE_TABS,
+  AITAB_PREF,
+  AITAB_TOOLS,
+  GENERATE_AITAB,
+  ADD_MEMORY,
+  SEARCH_THE_WEB,
+  SEARCH_THE_WEB_FAST_PREF,
+  SEARCH_THE_WEB_TOOL_CONFIG_FAST,
+  GET_SKILL,
 } from "moz-src:///browser/components/aiwindow/models/Tools.sys.mjs";
-import { compactMessages } from "moz-src:///browser/components/aiwindow/models/PromptOptimizer.sys.mjs";
+import { runSearchTheWeb } from "moz-src:///browser/components/aiwindow/models/search/SearchWorkflow.sys.mjs";
 
-// Hard limit on how many times run_search can execute per conversation turn.
-// Prevents infinite tool-call loops when the model repeatedly requests search.
-// Bug 2024006.
-const MAX_RUN_SEARCH_PER_TURN = 3;
+import { expandUrlTokensInToolParams } from "moz-src:///browser/components/aiwindow/models/ChatUtils.sys.mjs";
+import { runLLMaJTelemetry } from "moz-src:///browser/components/aiwindow/models/TelemetryUtils.sys.mjs";
+
+/**
+ * Execute a specific tool and return the result
+ * Exported for testing purposes
+ *
+ * @param {string} toolName - The name of the tool to execute
+ * @param {object} toolParams - The parameters to pass to the tool
+ * @param {string} toolCallId - The ID of the tool call
+ * @param {ChatConversation} conversation - The conversation context
+ * @param {BrowsingContext} browsingContext - The browsing context (can be null for some tools)
+ * @param {string} mode - The mode of operation (e.g., "fullpage", "sidebar", "urlbar")
+ * @returns {Promise<object>} The result of the tool execution
+ * @private
+ */
+export async function executeToolByName(
+  toolName,
+  toolParams,
+  toolCallId,
+  conversation,
+  browsingContext,
+  mode
+) {
+  let result;
+  switch (toolName) {
+    case GET_PAGE_CONTENT: {
+      const startTime = new Date();
+      result = await GetPageContent.getPageContent(toolParams, conversation);
+      Glean.smartWindow.getPageContent.record({
+        location: mode,
+        chat_id: conversation.id,
+        message_seq: conversation.messageCount,
+        length: result.reduce((acc, curr) => acc + (curr?.length || 0), 0),
+        time: new Date() - startTime,
+      });
+      break;
+    }
+    case RUN_SEARCH: {
+      result = await RunSearch.runSearch(
+        toolParams,
+        browsingContext,
+        conversation
+      );
+      const engine = await lazy.SearchService.getDefault();
+      Glean.smartWindow.searchHandoff.record({
+        location: mode,
+        chat_id: conversation.id,
+        message_seq: conversation.messageCount,
+        provider: engine.name ?? "unknown",
+        model: conversation.engine?.model,
+      });
+      break;
+    }
+    case GET_OPEN_TABS:
+      result = await toolFns.getOpenTabs(conversation);
+      break;
+    case SEARCH_BROWSING_HISTORY:
+      result = await toolFns.searchBrowsingHistory(toolParams, conversation);
+      break;
+    case GET_USER_MEMORIES:
+      result = await toolFns.getUserMemories(conversation);
+      break;
+    case GET_NAVIGATION_INFO:
+      result = await toolFns.getNavigationInfo(toolParams);
+      break;
+    case GET_SKILL:
+      result = await toolFns.getSkill({
+        toolParams,
+        model: conversation.engine?.model,
+      });
+      break;
+    case MANAGE_TABS: {
+      const { toolResult, uiData } = await toolFns.manageTabs(
+        toolParams,
+        conversation,
+        mode,
+        conversation.engine?.model,
+        toolCallId
+      );
+      if (uiData) {
+        conversation.addUIToolToCurrentMessage(toolCallId, uiData);
+      }
+      result = toolResult;
+      break;
+    }
+    case ADD_MEMORY: {
+      result = await toolFns.addMemory(toolParams, conversation);
+      break;
+    }
+    default: {
+      const err = new Error(`No such tool: ${toolName}`);
+      err.clientReason = "unknownTool";
+      throw err;
+    }
+  }
+  return result;
+}
+
+/**
+ * Handlers for tools that are feature-gated by a pref and intended to be
+ * added or removed independently of the main tool dispatch. Lookups happen
+ * before the main switch so each new gated tool does not grow
+ * fetchWithHistory's cyclomatic complexity.
+ */
+const FEATURE_GATED_HANDLERS = new Map([
+  [SEARCH_THE_WEB, runSearchTheWeb],
+  [GENERATE_AITAB, toolFns.createAITab],
+]);
+
+/**
+ * Slow tools that surface the action log's pending row before their handler
+ * resolves (not the same as feature-gating). Only list tools whose action log
+ * row is body-independent, since the pending row uses a placeholder body.
+ */
+const TOOLS_WITH_PENDING_ACTION_LOG = new Set([SEARCH_THE_WEB]);
+
+/**
+ * Removes any feature-gated tools whose enable pref is currently off, so the
+ * model is never offered tools the build is not configured to support, and
+ * swaps in pref-selected variants of a tool's config.
+ *
+ * Treats `tools` as read-only: it only ever drops or substitutes whole entries,
+ * so every operation here must be non-mutating (`filter`/`map`/`toSorted`, never
+ * `splice`/`sort`/index assignment). Callers pass the shared `toolsConfig`
+ * constant, and when no gate applies it is returned by identity.
+ *
+ * @param {object[]} tools
+ * @returns {object[]}
+ */
+function filterFeatureGatedTools(tools) {
+  let filtered = tools;
+  // The two search_the_web paths return different shapes, so the description
+  // and parameters the model sees have to match the path that will run.
+  if (Services.prefs.getBoolPref(SEARCH_THE_WEB_FAST_PREF, false)) {
+    filtered = filtered.map(t =>
+      t.function?.name === SEARCH_THE_WEB ? SEARCH_THE_WEB_TOOL_CONFIG_FAST : t
+    );
+  }
+  if (!Services.prefs.getBoolPref(AITAB_PREF, false)) {
+    filtered = filtered.filter(t => !AITAB_TOOLS.has(t.function?.name));
+  }
+  return filtered;
+}
 
 const lazy = {};
 ChromeUtils.defineESModuleGetters(lazy, {
@@ -50,16 +193,44 @@ ChromeUtils.defineLazyGetter(lazy, "console", () =>
  */
 
 /**
+ * Represents a tool call request from the language model.
+ *
+ * @typedef {object} ToolCall
+ * @property {string} id - e.g. "call_91e28da3a0f4469586aaa01c"
+ * @property {"function"} type - Here just "function"
+ * @property {{name: string, arguments: unknown }} function - The name and stringified
+ *   arguments for the function, e.g. { name: "get_user_memories", arguments: "{}" }
+ */
+
+/**
+ * Records the smart_window.tool_call Glean event for any tool invocation
+ * issued by the assistant. The prompt_version extra captures the Remote
+ * Settings prompt configuration version loaded for the chat feature so
+ * tool-call behavior can be correlated with prompt revisions during
+ * debugging.
+ *
+ * @param {object} options
+ * @param {string} options.toolName
+ * @param {"fullpage" | "sidebar" | "urlbar"} options.mode
+ * @param {ChatConversation} options.conversation
+ * @param {string} options.error - Canonical error code, or "" on success
+ */
+function recordToolCallEvent({ toolName, mode, conversation, error }) {
+  Glean.smartWindow.toolCall.record({
+    location: mode,
+    chat_id: conversation.id,
+    message_seq: conversation.messageCount,
+    tool_name: toolName,
+    model: conversation.engine?.model,
+    prompt_version: conversation.systemPromptVersion,
+    error,
+  });
+}
+
+/**
  * Chat
  */
 export const Chat = {};
-
-XPCOMUtils.defineLazyPreferenceGetter(
-  Chat,
-  "modelId",
-  "browser.smartwindow.model",
-  DEFAULT_MODEL[MODEL_FEATURES.CHAT]
-);
 
 /**
  * Log chat stream traffic.
@@ -71,6 +242,26 @@ XPCOMUtils.defineLazyPreferenceGetter(
  * @param {object | Array} [data]
  * @param {string} [extraText]
  */
+/**
+ * Attach a default clientReason to a streaming error if it doesn't already
+ * carry classification info we recognize downstream.
+ *
+ * @param {unknown} err
+ */
+function classifyStreamingError(err) {
+  if (!err || (typeof err !== "object" && typeof err !== "function")) {
+    return;
+  }
+  const hasClassification =
+    err.clientReason ||
+    "status" in err ||
+    err.error ||
+    err.metadata?.errorMessage;
+  if (!hasClassification) {
+    err.clientReason = Services.io.offline ? "offline" : "connectionFailure";
+  }
+}
+
 function logConversationStream(turn, action, data = null, extraText = "") {
   try {
     let prefix = `[Chat][Turn ${turn}][${action.padEnd(10)}]`;
@@ -104,75 +295,86 @@ Object.assign(Chat, {
    *
    * @param {object} options
    * @param {ChatConversation} options.conversation
-   * @param {openAIEngine} options.engineInstance
    * @param {BrowsingContext} options.browsingContext - Omitted for tests only.
    * @param {"fullpage" | "sidebar" | "urlbar"} options.mode - See the MODE in ai-window.mjs
+   * @param {AbortSignal} [options.signal]
+   * @param {Promise<string|null>} [options.fxAccountTokenPromise] - A token
+   *   fetch the caller already started, so a cold or expired token resolves
+   *   alongside prompt construction rather than after it. Omit to fetch here.
    */
   async fetchWithHistory({
     conversation,
-    engineInstance,
     browsingContext,
     mode,
+    signal,
+    fxAccountTokenPromise,
   }) {
     if (!browsingContext && !Cu.isInAutomation) {
-      throw new Error(
+      const err = new Error(
         "The browsingContext must exist for fetchWithHistory unless we're in automation."
       );
+      err.clientReason = "missingBrowsingContext";
+      throw err;
     }
-    const fxAccountToken = await openAIEngine.getFxAccountToken();
+    const fxAccountToken = await (fxAccountTokenPromise ??
+      openAIEngine.getFxAccountToken());
     if (!fxAccountToken) {
       console.error("fetchWithHistory Account Token null or undefined");
       const fxaError = new Error("FxA token unavailable");
-      fxaError.error = 4; // ACCOUNT_ERROR: triggers FxA sign-in prompt in the UI
+      fxaError.clientReason = "fxaTokenUnavailable";
       throw fxaError;
     }
 
-    const toolRoleOpts = new ToolRoleOpts(this.modelId);
     const currentTurn = conversation.currentTurnIndex();
-    const config = engineInstance.getConfig(engineInstance.feature);
-    const inferenceParams = config?.parameters || {};
 
     /**
-     * For the first turn only, we use exactly what the user typed as the `run_search` search query.
-     * To make that work, we use a different tool definition for the first turn vs. all subsequent turns.
+     * On the first turn if `search_the_web` fallbacks to run_search, uses the
+     * user's verbatim query; later turns use a model-generated query. See
+     * comment above tool execution for further details.
      */
-    let chatToolsConfig = structuredClone(toolsConfig);
-    let isVerbatimQuery = true;
-    if (currentTurn > 0) {
-      chatToolsConfig =
-        RunSearch.setGeneratedSearchQueryDescription(chatToolsConfig);
-      isVerbatimQuery = false;
-    }
+    const isVerbatimQuery = currentTurn === 0;
+    const chatToolsConfig = filterFeatureGatedTools(toolsConfig);
 
     let fullResponseText = "";
+
+    // A search handoff sets `_searchExecutedTurn` (in executeToolByName). If a
+    // later re-entry on the same turn (openSidebarAndContinue -> fetchWithHistory)
+    // sees it, we block a repeat search_the_web so the handoff can't re-trigger
+    // itself in a loop; the model stays free to answer or call another tool.
     const searchExecuted = conversation._searchExecutedTurn === currentTurn;
-    let blockedSearchAttempts = 0;
 
     const streamModelResponse = () => {
-      const rawMessages = conversation.getMessagesInOpenAiFormat();
+      const snapshot = conversation.compactChatCompletions();
+
       lazy.console.log(
         `Request (${conversation.securityProperties.getLogText()})`,
-        rawMessages.at(-1)
+        snapshot.at(-1)
       );
-      const compactedMessages = compactMessages(rawMessages);
 
       // Debug logging: Record only the latest message being sent to the model
-      logConversationStream(currentTurn, "CHAT SEND", compactedMessages.at(-1));
+      logConversationStream(currentTurn, "CHAT SEND", snapshot.at(-1));
 
-      return engineInstance.runWithGenerator({
+      return conversation.runWithGenerator({
         streamOptions: { enabled: true },
         fxAccountToken,
         chatId: conversation.id,
-        tool_choice: "auto",
         tools: chatToolsConfig,
-        args: compactedMessages,
-        ...inferenceParams,
+        args: snapshot,
+        inferenceParams: { tool_choice: "auto" },
+        signal,
       });
     };
 
     while (true) {
+      /** @type {ToolCall[] | null} */
       let pendingToolCalls = null;
 
+      ChromeUtils.addProfilerMarker(
+        "SmartWindow",
+        {},
+        "chat-server-request-start"
+      );
+      const turnStart = ChromeUtils.now();
       try {
         this.lastUsage = null;
         const response = await conversation.receiveResponse(
@@ -180,7 +382,6 @@ Object.assign(Chat, {
         );
         fullResponseText = response.fullResponseText;
         pendingToolCalls = response.pendingToolCalls;
-        lazy.console.log("Response", { fullResponseText, pendingToolCalls });
 
         // Debug logging: Record the raw text and requested tool calls from the model
         logConversationStream(currentTurn, "CHAT RECV", {
@@ -193,50 +394,64 @@ Object.assign(Chat, {
         }
       } catch (err) {
         console.error("fetchWithHistory streaming error:", err);
+        classifyStreamingError(err);
         throw err;
+      } finally {
+        ChromeUtils.addProfilerMarker(
+          "SmartWindow",
+          { startTime: turnStart },
+          "ServerE2E"
+        );
       }
 
       if (!pendingToolCalls || pendingToolCalls.length === 0) {
+        ChromeUtils.addProfilerMarker("SmartWindow", {}, "chat-no-tool-calls");
         // Debug logging: Mark the end of the streaming loop for this turn
         logConversationStream(currentTurn, "STREAM END");
+        if (!conversation.engine?.isCustomEndpoint) {
+          // We only run telemetry on our own endpoints
+          runLLMaJTelemetry(conversation);
+        }
         return;
       }
 
-      // Guard: if the first pending tool call is a duplicate run_search,
-      // return an error tool result so the model continues without
-      // executing the search or navigating the browser.
-      // Bug 2024006: after MAX_RUN_SEARCH_PER_TURN blocked attempts, remove
-      // the tool entirely so the model is forced to respond with text.
-      // @todo Bug 2006159 - Check all pending tool calls, not just the first
+      if (signal?.aborted) {
+        logConversationStream(currentTurn, "STREAM END", null, "aborted");
+        return;
+      }
+
       const firstPending = pendingToolCalls[0]?.function;
-      if (firstPending?.name === RUN_SEARCH && searchExecuted) {
-        blockedSearchAttempts++;
-
-        const blockedCalls = pendingToolCalls.slice(0, 1).map(tc => ({
-          id: tc.id,
-          type: "function",
-          function: {
-            name: tc.function.name,
-            arguments: tc.function.arguments || "{}",
-          },
-        }));
-        conversation.addAssistantMessage("function", {
-          tool_calls: blockedCalls,
-        });
-
+      // A search handoff already ran this turn (a prior fetchWithHistory that
+      // openSidebarAndContinue re-entered on the same turn). Block a repeat
+      // search_the_web and force a text-only turn so the assistant wraps up
+      // rather than re-triggering the handoff, which would loop indefinitely.
+      if (firstPending?.name === SEARCH_THE_WEB && searchExecuted) {
         for (const tc of pendingToolCalls.slice(0, 1)) {
-          const content = {
+          // Append the tool_call before the error result so the message order
+          // satisfies OpenAI's assistant-then-tool sequence.
+          conversation.addAssistantMessage("function", {
+            tool_calls: [
+              {
+                id: tc.id,
+                type: "function",
+                function: {
+                  name: tc.function.name,
+                  arguments: tc.function.arguments || "{}",
+                },
+              },
+            ],
+          });
+          conversation.addToolCallMessage({
             tool_call_id: tc.id,
-            body: "ERROR: run_search tool call error: You may only run one search per user message. Respond to the user with what you have already found and ask if they want you to proceed with the next search. Do not hallucinate search results.",
+            body: "ERROR: search_the_web tool call error: You have already searched this turn. Respond to the user with what you found and ask if they want you to search again.",
             name: tc.function.name,
-          };
-          conversation.addToolCallMessage(content, currentTurn, toolRoleOpts);
-        }
-
-        if (blockedSearchAttempts === MAX_RUN_SEARCH_PER_TURN) {
-          chatToolsConfig = chatToolsConfig.filter(
-            t => t.function?.name !== RUN_SEARCH
-          );
+          });
+          recordToolCallEvent({
+            toolName: tc.function.name,
+            mode,
+            conversation,
+            error: "duplicate_search",
+          });
         }
         continue;
       }
@@ -244,7 +459,8 @@ Object.assign(Chat, {
       // should not be able to retrieve them using the get_user_memories tool
       else if (firstPending?.name === GET_USER_MEMORIES) {
         const lastUserMessage =
-          conversation.messages.findLast(m => m.role === 0) ?? null;
+          conversation.messages.findLast(m => m.role === MESSAGE_ROLE.USER) ??
+          null;
         if (lastUserMessage.memoriesEnabled === false) {
           for (const tc of pendingToolCalls.slice(0, 1)) {
             const content = {
@@ -252,50 +468,94 @@ Object.assign(Chat, {
               body: "ERROR: get_user_memories tool call error: inform the user that they have disabled memories, so they cannot be retrieved.",
               name: tc.function.name,
             };
-            conversation.addToolCallMessage(content, currentTurn, toolRoleOpts);
+            // Append the tool_call BEFORE the error result so the message order
+            // satisfies OpenAI's assistant-then-tool sequence.
+            conversation.addAssistantMessage("function", {
+              tool_calls: [
+                {
+                  id: tc.id,
+                  type: "function",
+                  function: {
+                    name: tc.function.name,
+                    arguments: tc.function.arguments || "{}",
+                  },
+                },
+              ],
+            });
+            conversation.addToolCallMessage(content);
+            recordToolCallEvent({
+              toolName: tc.function.name,
+              mode,
+              conversation,
+              error: "memories_disabled",
+            });
           }
           continue;
         }
       }
 
       // @todo Bug 2006159 - Implement parallel tool calling
-      const tool_calls = pendingToolCalls.slice(0, 1).map(toolCall => ({
-        id: toolCall.id,
-        type: "function",
-        function: {
-          name: toolCall.function.name,
-          arguments: toolCall.function.arguments || "{}",
-        },
-      }));
-      conversation.addAssistantMessage("function", { tool_calls });
+
+      // Take the last tool call and ensure the serialized tool calls expand any
+      // URL tokens.
+      const lastToolCall = structuredClone(pendingToolCalls[0]);
+      if (!lastToolCall.function.arguments) {
+        // Ensure that the arguments are always present.
+        lastToolCall.function.arguments = "{}";
+      }
+      expandUrlTokensInToolParams(
+        lastToolCall.function,
+        conversation.tokenToUrl
+      );
+
+      conversation.addAssistantMessage("function", {
+        tool_calls: [lastToolCall],
+      });
 
       lazy.AIWindow.chatStore?.updateConversation(conversation).catch(() => {});
+
+      ChromeUtils.addProfilerMarker(
+        "SmartWindow",
+        {},
+        `chat-tools-detected(${pendingToolCalls.length})`
+      );
 
       for (const toolCall of pendingToolCalls) {
         const { id, function: functionSpec } = toolCall;
         const toolName = functionSpec?.name || "";
         let toolParams = {};
 
+        ChromeUtils.addProfilerMarker(
+          "SmartWindow",
+          {},
+          `chat-run-tool-start(${toolName})`
+        );
+        const toolStart = ChromeUtils.now();
+
         try {
           toolParams = functionSpec?.arguments
             ? JSON.parse(functionSpec.arguments)
             : {};
-        } catch {
+
+          expandUrlTokensInToolParams(toolParams, conversation.tokenToUrl);
+        } catch (e) {
+          ChromeUtils.addProfilerMarker(
+            "SmartWindow",
+            {},
+            `chat-run-tool-error(${toolName}:argument-parse)`
+          );
           const content = {
             tool_call_id: id,
             body: { error: "Invalid JSON arguments" },
           };
-          conversation.addToolCallMessage(content, currentTurn, toolRoleOpts);
+          conversation.addToolCallMessage(content);
+          recordToolCallEvent({
+            toolName,
+            mode,
+            conversation,
+            error: "invalid_arguments",
+          });
           continue;
-        }
-
-        // Make sure we aren't using a generated query when we shouldn't be
-        if (
-          toolName === RUN_SEARCH &&
-          isVerbatimQuery &&
-          toolParams.hasOwnProperty("query")
-        ) {
-          delete toolParams.query;
         }
 
         // Capture the embedder element before running tools, as navigation during
@@ -305,60 +565,56 @@ Object.assign(Chat, {
         // Dispatch the required arguments to different tool calls. Wrap this in a
         // try/catch so the conversation can be updated for failed calls.
         let result;
+        let toolCallError = "";
+        let isSearchHandoff = false;
+        const featureGatedHandler = FEATURE_GATED_HANDLERS.get(toolName);
+        const dispatchTool = name =>
+          executeToolByName(
+            name,
+            toolParams,
+            id,
+            conversation,
+            browsingContext,
+            mode
+          );
+
+        // Emit the tool message up front with a `pending`-marked placeholder
+        // body so the action log renders its pending row while the slow work
+        // runs; the real result is reconciled into the same row below.
+        let pendingToolMessage = null;
+        if (TOOLS_WITH_PENDING_ACTION_LOG.has(toolName)) {
+          pendingToolMessage = conversation.addToolCallMessage({
+            tool_call_id: id,
+            body: { pending: true },
+            name: toolName,
+          });
+        }
+
         try {
-          switch (toolName) {
-            case GET_PAGE_CONTENT: {
-              const startTime = new Date();
-              result = await GetPageContent.getPageContent(
-                toolParams,
-                conversation
-              );
-              Glean.smartWindow.getPageContent.record({
-                location: mode,
-                chat_id: conversation.id,
-                message_seq: conversation.messageCount,
-                length: result.reduce(
-                  (acc, curr) => acc + (curr?.length || 0),
-                  0
-                ),
-                time: new Date() - startTime,
-              });
-              break;
-            }
-            case RUN_SEARCH: {
-              result = await RunSearch.runSearch(
-                toolParams,
-                browsingContext,
-                conversation
-              );
-              const engine = await lazy.SearchService.getDefault();
-              Glean.smartWindow.searchHandoff.record({
-                location: mode,
-                chat_id: conversation.id,
-                message_seq: conversation.messageCount,
-                provider: engine.name ?? "unknown",
-                model: engineInstance?.model,
-              });
+          if (featureGatedHandler) {
+            result = await featureGatedHandler(
+              toolParams,
+              conversation,
+              signal
+            );
+            /**
+             * On the first invocation of search_the_web, SearchProvider-powered
+             * web search is done. On the second invocation, search handoff (previously
+             * run_search tool) is called. The logic for run_search is maintained, including
+             * the instruction to use the user's original query if this is the first turn
+             */
+            if (result.requiresSearchHandoff) {
+              isSearchHandoff = true;
+              // Mark the turn as having handed off, so a re-entry on the same
+              // turn (via openSidebarAndContinue) blocks a repeat search.
               conversation._searchExecutedTurn = currentTurn;
-              break;
+              if (isVerbatimQuery) {
+                delete toolParams.query;
+              }
+              result = await dispatchTool(RUN_SEARCH);
             }
-            case GET_OPEN_TABS:
-              result = await toolFns.getOpenTabs(conversation);
-              break;
-            case SEARCH_BROWSING_HISTORY:
-              result = await toolFns.searchBrowsingHistory(
-                toolParams,
-                conversation
-              );
-              break;
-            case GET_USER_MEMORIES:
-              result = await toolFns.getUserMemories(conversation);
-              break;
-            case GET_NAVIGATION_INFO:
-              result = await toolFns.getNavigationInfo(toolParams);
-              break;
-            default:
-              throw new Error(`No such tool: ${toolName}`);
+          } else {
+            result = await dispatchTool(toolName);
           }
 
           // Debug logging: Record the data returned by the tool before feeding it to the model
@@ -369,21 +625,52 @@ Object.assign(Chat, {
             toolName
           );
 
+          ChromeUtils.addProfilerMarker(
+            "SmartWindow",
+            { startTime: toolStart },
+            `chat-run-tool-complete(${toolName})`
+          );
+
           const content = { tool_call_id: id, body: result, name: toolName };
-          conversation.addToolCallMessage(content, currentTurn, toolRoleOpts);
+          conversation.updateToolCallMessage(pendingToolMessage, content);
         } catch (error) {
           console.error(error);
+          toolCallError = "execution_failed";
           result = { error: `Tool execution failed: ${String(error)}` };
+          ChromeUtils.addProfilerMarker(
+            "SmartWindow",
+            { startTime: toolStart },
+            `chat-run-tool-error(${toolName})`
+          );
+          // Only carry `name` (which drives the action-log card) when we
+          // already showed a pending row, so it resolves. Otherwise a failed
+          // call renders nothing, as before.
           const content = { tool_call_id: id, body: result };
-          conversation.addToolCallMessage(content, currentTurn, toolRoleOpts);
+          if (pendingToolMessage) {
+            content.name = toolName;
+          }
+          conversation.updateToolCallMessage(pendingToolMessage, content);
         }
+
+        recordToolCallEvent({
+          toolName,
+          mode,
+          conversation,
+          error: toolCallError,
+        });
 
         lazy.AIWindow.chatStore
           ?.updateConversation(conversation)
           .catch(() => {});
 
+        // MANAGE_TABS is terminal - UI handles the interaction.
+        if (toolName === MANAGE_TABS) {
+          conversation.securityProperties.commit();
+          return;
+        }
+
         // Perform the search handoff if the RUN_SEARCH tool was run.
-        if (toolName === RUN_SEARCH) {
+        if (isSearchHandoff) {
           // Commit here because we return early below and never reach the
           // post-loop commit.
           conversation.securityProperties.commit();
@@ -391,25 +678,12 @@ Object.assign(Chat, {
             `Security commit ${conversation.securityProperties.getLogText()}`
           );
 
-          const win = originalEmbedderElement?.ownerGlobal;
+          const win = originalEmbedderElement?.documentGlobal;
           if (!win || win.closed) {
             console.error(
-              "run_search: Associated window not available or closed, aborting search handoff"
+              "search_the_web: Associated window not available or closed, aborting search handoff"
             );
             return;
-          }
-
-          const searchHandoffTab = win.gBrowser.getTabForBrowser(
-            originalEmbedderElement
-          );
-          if (!searchHandoffTab) {
-            console.error(
-              "run_search: Original tab no longer exists, aborting search handoff"
-            );
-            return;
-          }
-          if (!searchHandoffTab.selected) {
-            win.gBrowser.selectedTab = searchHandoffTab;
           }
 
           lazy.AIWindow.openSidebarAndContinue(win, conversation);

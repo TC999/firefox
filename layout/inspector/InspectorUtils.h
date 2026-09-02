@@ -13,7 +13,6 @@
 
 class nsAtom;
 class nsINode;
-class nsINodeList;
 class nsRange;
 
 namespace mozilla {
@@ -30,6 +29,7 @@ class Document;
 class Element;
 class GlobalObject;
 class InspectorFontFace;
+class NodeList;
 class OwningCSSRuleOrInspectorDeclaration;
 }  // namespace dom
 }  // namespace mozilla
@@ -142,6 +142,10 @@ class InspectorUtils {
   // Check whether a given color is a valid CSS color.
   static bool IsValidCSSColor(GlobalObject& aGlobal,
                               const nsACString& aColorString);
+
+  // Check whether a given string is a valid CSS <image> value.
+  static bool IsValidCSSImage(GlobalObject& aGlobal,
+                              const nsACString& aImageString);
 
   // Utilities for obtaining information about a CSS property.
 
@@ -257,7 +261,7 @@ class InspectorUtils {
                                  Nullable<nsTArray<uint32_t>>& aResult);
 
   MOZ_CAN_RUN_SCRIPT
-  static already_AddRefed<nsINodeList> GetOverflowingChildrenOfElement(
+  static already_AddRefed<NodeList> GetOverflowingChildrenOfElement(
       GlobalObject& aGlobal, Element& element);
 
   /**
@@ -327,6 +331,12 @@ class InspectorUtils {
                            Nullable<InspectorAnchorElement>&);
   static void GetAnchorNamesFor(GlobalObject& aGlobal, Element&,
                                 nsTArray<nsString>& aResult);
+  static void GetComputationStepsSupportedCSSFunctions(
+      GlobalObject& aGlobal, nsTArray<nsCString>& aResult);
+  static void GetComputationSteps(GlobalObject& aGlobal,
+                                  const nsAString& aExpression, Element&,
+                                  const nsAString& aPseudo,
+                                  nsTArray<nsString>& aResult);
 };
 
 }  // namespace mozilla::dom

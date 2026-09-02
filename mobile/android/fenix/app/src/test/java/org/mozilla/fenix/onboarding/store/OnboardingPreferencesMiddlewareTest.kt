@@ -18,14 +18,12 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.mozilla.fenix.onboarding.view.ThemeOptionType
 import org.mozilla.fenix.onboarding.view.ToolbarOptionType
 
 @RunWith(AndroidJUnit4::class)
 class OnboardingPreferencesMiddlewareTest {
 
-    @MockK
-    private lateinit var repository: OnboardingPreferencesRepository
+    @MockK private lateinit var repository: OnboardingPreferencesRepository
 
     @Before
     fun setup() {
@@ -33,42 +31,18 @@ class OnboardingPreferencesMiddlewareTest {
     }
 
     @Test
-    fun `GIVEN init action WHEN middleware is invoked THEN the repo is initialized`() =
-        runTest {
-            val middleware = OnboardingPreferencesMiddleware(repository, this)
+    fun `GIVEN init action WHEN middleware is invoked THEN the repo is initialized`() = runTest {
+        val middleware = OnboardingPreferencesMiddleware(repository, this)
 
-            every { repository.onboardingPreferenceUpdates } returns emptyFlow()
-            every { repository.init() } just Runs
-            middleware.invoke(store = mockk(), next = {}, action = OnboardingAction.Init)
-            testScheduler.advanceUntilIdle()
+        every { repository.onboardingPreferenceUpdates } returns emptyFlow()
+        every { repository.init() } just Runs
+        middleware.invoke(store = mockk(), next = {}, action = OnboardingAction.Init)
+        testScheduler.advanceUntilIdle()
 
-            verify { repository.init() }
-            verify { repository.onboardingPreferenceUpdates }
-            confirmVerified(repository)
-        }
-
-    @Test
-    fun `GIVEN update selected theme action with WHEN middleware is invoked THEN the repo update function is called with the selected theme`() =
-        runTest {
-            val middleware = OnboardingPreferencesMiddleware(repository, this)
-
-            every { repository.updateOnboardingPreference(any()) } just Runs
-            middleware.invoke(
-                store = mockk(),
-                next = {},
-                action = OnboardingAction.OnboardingThemeAction.UpdateSelected(ThemeOptionType.THEME_DARK),
-            )
-            testScheduler.advanceUntilIdle()
-
-            verify {
-                repository.updateOnboardingPreference(
-                    OnboardingPreferencesRepository.OnboardingPreferenceUpdate(
-                        OnboardingPreferencesRepository.OnboardingPreference.DarkTheme,
-                    ),
-                )
-            }
-            confirmVerified(repository)
-        }
+        verify { repository.init() }
+        verify { repository.onboardingPreferenceUpdates }
+        confirmVerified(repository)
+    }
 
     @Test
     fun `GIVEN update selected toolbar action with WHEN middleware is invoked THEN the repo update function is called with the selected toolbar`() =
@@ -86,8 +60,8 @@ class OnboardingPreferencesMiddlewareTest {
             verify {
                 repository.updateOnboardingPreference(
                     OnboardingPreferencesRepository.OnboardingPreferenceUpdate(
-                        OnboardingPreferencesRepository.OnboardingPreference.BottomToolbar,
-                    ),
+                        OnboardingPreferencesRepository.OnboardingPreference.BottomToolbar
+                    )
                 )
             }
             confirmVerified(repository)

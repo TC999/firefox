@@ -381,6 +381,11 @@ void LIRGeneratorShared::redefine(MDefinition* def, MDefinition* as) {
       }
       def->block()->insertBefore(def->toInstruction(), replacement);
       emitAtUses(replacement->toInstruction());
+    } else if (as->isWasmNullConstant() && as->wasmRefType().hierarchy() !=
+                                               def->wasmRefType().hierarchy()) {
+      replacement = MWasmNullConstant::New(alloc(), def->wasmRefType());
+      def->block()->insertBefore(def->toInstruction(), replacement);
+      emitAtUses(replacement->toInstruction());
     } else {
       replacement = as->toInstruction();
     }
@@ -498,6 +503,13 @@ LAllocation LIRGeneratorShared::useAnyOrInt32Constant(MDefinition* mir) {
     return LAllocation(mir->toConstant());
   }
   return useAny(mir);
+}
+
+LAllocation LIRGeneratorShared::useAnyOrInt32ConstantAtStart(MDefinition* mir) {
+  if (CanUseInt32Constant(mir)) {
+    return LAllocation(mir->toConstant());
+  }
+  return useAnyAtStart(mir);
 }
 
 LAllocation LIRGeneratorShared::useRegisterOrZero(MDefinition* mir) {
@@ -727,15 +739,6 @@ LUse LIRGeneratorShared::usePayloadAtStart(MDefinition* mir,
 LUse LIRGeneratorShared::usePayloadInRegisterAtStart(MDefinition* mir) {
   return usePayloadAtStart(mir, LUse::REGISTER);
 }
-
-void LIRGeneratorShared::fillBoxUses(LInstruction* lir, size_t n,
-                                     MDefinition* mir) {
-  ensureDefined(mir);
-  lir->getOperand(n)->toUse()->setVirtualRegister(mir->virtualRegister() +
-                                                  VREG_TYPE_OFFSET);
-  lir->getOperand(n + 1)->toUse()->setVirtualRegister(
-      VirtualRegisterOfPayload(mir));
-}
 #endif
 
 LUse LIRGeneratorShared::useRegisterForTypedLoad(MDefinition* mir,
@@ -887,6 +890,19 @@ LInt64Allocation LIRGeneratorShared::useInt64RegisterAtStart(MDefinition* mir) {
 LInt64Allocation LIRGeneratorShared::useInt64RegisterOrConstantAtStart(
     MDefinition* mir) {
   return useInt64RegisterOrConstant(mir, /* useAtStart = */ true);
+}
+
+LInt64Allocation LIRGeneratorShared::useInt64RegisterOrZeroAtStart(
+    MDefinition* mir) {
+  if (mir->isConstant() &&
+      (mir->toConstant()->isInt32(0) || mir->toConstant()->isInt64(0))) {
+#if defined(JS_NUNBOX32)
+    return LInt64Allocation(LAllocation(), LAllocation());
+#else
+    return LInt64Allocation(LAllocation());
+#endif
+  }
+  return useInt64Register(mir, /* useAtStart = */ true);
 }
 
 LInt64Allocation LIRGeneratorShared::useInt64OrConstantAtStart(

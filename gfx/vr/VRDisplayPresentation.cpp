@@ -3,11 +3,12 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "VRDisplayPresentation.h"
+
+#include "VRDisplayClient.h"
+#include "VRLayerChild.h"
 #include "mozilla/dom/DocGroup.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/XRWebGLLayer.h"
-#include "VRDisplayClient.h"
-#include "VRLayerChild.h"
 
 using namespace mozilla;
 using namespace mozilla::gfx;
@@ -40,10 +41,12 @@ void VRDisplayPresentation::UpdateXRWebGLLayer(dom::XRWebGLLayer* aLayer) {
 
   if (mLayers.Length() == 0) {
     // WebXR uses a single layer for now.
-    RefPtr<VRLayerChild> vrLayer =
-        static_cast<VRLayerChild*>(manager->CreateVRLayer(
-            mDisplayClient->GetDisplayInfo().GetDisplayID(), mGroup));
-    mLayers.AppendElement(vrLayer);
+    RefPtr<VRLayerChild> vrLayer = manager->CreateVRLayer(
+        mDisplayClient->GetDisplayInfo().GetDisplayID(), mGroup);
+    if (NS_WARN_IF(!vrLayer)) {
+      return;
+    }
+    mLayers.AppendElement(std::move(vrLayer));
   }
   RefPtr<VRLayerChild> vrLayer = mLayers[0];
 
@@ -101,15 +104,14 @@ void VRDisplayPresentation::CreateLayers() {
 
     if (mLayers.Length() <= iLayer) {
       // Not enough layers, let's add one
-      RefPtr<VRLayerChild> vrLayer =
-          static_cast<VRLayerChild*>(manager->CreateVRLayer(
-              mDisplayClient->GetDisplayInfo().GetDisplayID(), mGroup));
+      RefPtr<VRLayerChild> vrLayer = manager->CreateVRLayer(
+          mDisplayClient->GetDisplayInfo().GetDisplayID(), mGroup);
       if (!vrLayer) {
         NS_WARNING("CreateVRLayer returned null!");
         continue;
       }
       vrLayer->Initialize(canvasElement, leftBounds, rightBounds);
-      mLayers.AppendElement(vrLayer);
+      mLayers.AppendElement(std::move(vrLayer));
     } else {
       // We already have a layer, let's update it
       mLayers[iLayer]->Initialize(canvasElement, leftBounds, rightBounds);
@@ -123,7 +125,7 @@ void VRDisplayPresentation::CreateLayers() {
 
 void VRDisplayPresentation::DestroyLayers() {
   for (VRLayerChild* layer : mLayers) {
-    if (layer->IsIPCOpen()) {
+    if (layer->CanSend()) {
       (void)layer->SendDestroy();
     }
   }

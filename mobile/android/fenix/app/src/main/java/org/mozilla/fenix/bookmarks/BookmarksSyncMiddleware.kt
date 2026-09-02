@@ -29,16 +29,20 @@ internal class BookmarksSyncMiddleware(
     ) {
         next(action)
         when (action) {
-            Init -> {
+            is ViewAppeared -> {
+                if (action.bookmarkToLoad != null) return
+
                 // Observe for the account to become signed-in, and then wait for the first
                 // instance of the Sync Engine to finish so we know it's safe to load bookmarks
-                syncStore.flow()
+                syncStore
+                    .flow()
                     .map { it.account != null }
                     .distinctUntilChanged()
                     .onEach { isSignedIn ->
                         store.dispatch(ReceivedSyncSignInUpdate(isSignedIn))
                         if (isSignedIn) {
-                            syncStore.flow()
+                            syncStore
+                                .flow()
                                 .map { it.status == SyncStatus.Idle }
                                 .onEach { isIdle ->
                                     if (isIdle) {

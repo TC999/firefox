@@ -10,21 +10,25 @@ import { actionCreators as ac, actionTypes as at } from "common/Actions.mjs";
 import {
   useIntersectionObserver,
   getActiveColumnLayout,
+  getNovaColumnLayout,
 } from "../../../lib/utils";
+import { shouldShowOMCHighlight } from "../../../lib/asrouter-message-utils.mjs";
 import { SectionContextMenu } from "../SectionContextMenu/SectionContextMenu";
 import { SectionFollowButton } from "../SectionFollowButton/SectionFollowButton";
 import { InterestPicker } from "../InterestPicker/InterestPicker";
+// @nova-cleanup(move-directory): Update import path after NovaInterestPicker moves to InterestPicker/
+import { InterestPicker as NovaInterestPicker } from "content-src/components/Nova/InterestPicker/InterestPicker";
 import { AdBanner } from "../AdBanner/AdBanner.jsx";
+import { CardCarousel } from "../CardCarousel/CardCarousel";
+import { TopicNavigation } from "../TopicNavigation/TopicNavigation";
 import { PersonalizedCard } from "../PersonalizedCard/PersonalizedCard";
 import { FollowSectionButtonHighlight } from "../FeatureHighlight/FollowSectionButtonHighlight";
 import { MessageWrapper } from "content-src/components/MessageWrapper/MessageWrapper";
-import { BriefingCard } from "../BriefingCard/BriefingCard.jsx";
 
 // Prefs
 const PREF_SECTIONS_CARDS_ENABLED = "discoverystream.sections.cards.enabled";
 const PREF_SECTIONS_PERSONALIZATION_ENABLED =
   "discoverystream.sections.personalization.enabled";
-const PREF_TOPICS_ENABLED = "discoverystream.topicLabels.enabled";
 const PREF_TOPICS_SELECTED = "discoverystream.topicSelection.selectedTopics";
 const PREF_TOPICS_AVAILABLE = "discoverystream.topicSelection.topics";
 const PREF_INTEREST_PICKER_ENABLED =
@@ -37,38 +41,88 @@ const PREF_LEADERBOARD_ENABLED = "newtabAdSize.leaderboard";
 const PREF_LEADERBOARD_POSITION = "newtabAdSize.leaderboard.position";
 const PREF_INFERRED_PERSONALIZATION_USER =
   "discoverystream.sections.personalization.inferred.user.enabled";
-const PREF_DAILY_BRIEF_SECTIONID = "discoverystream.dailyBrief.sectionId";
-const PREF_DAILY_BRIEF_ENABLED = "discoverystream.dailyBrief.enabled";
 const PREF_SPOCS_STARTUPCACHE_ENABLED =
   "discoverystream.spocs.startupCache.enabled";
+const PREF_CAROUSEL_ENABLED = "discoverystream.carousel.enabled";
+const PREF_CAROUSEL_SLIDE_COUNT = "discoverystream.carousel.slideCount";
+const PREF_TOPIC_NAVIGATION_ENABLED =
+  "discoverystream.sections.topicNavigation.enabled";
 // @nova-cleanup(remove-pref): Remove PREF_NOVA_ENABLED
 const PREF_NOVA_ENABLED = "nova.enabled";
 
-// Feed URL
-const CURATED_RECOMMENDATIONS_FEED_URL =
-  "https://merino.services.mozilla.com/api/v1/curated-recommendations";
+// Divides evenly by 2, 3, and 4 to avoid orphan cards in any column layout.
+const DEFAULT_MAX_TILES = 12;
+
+// Each card's footprint in grid units, sized so a medium reads as the square it
+// is: a small is half a medium (2x1), a large is two mediums wide (4x2). A grid
+// column is 2 units wide, so a full row spans columnCount * 2 units.
+const CARD_SIZE = {
+  small: { width: 2, height: 1 },
+  medium: { width: 2, height: 2 },
+  large: { width: 4, height: 2 },
+};
+
+const sizeOf = tile => CARD_SIZE[tile.size] ?? CARD_SIZE.medium;
+
+// Return the tileIndexes that fall into an incomplete final row at this
+// breakpoint. These are the orphan cards to hide.
+function getOrphanTileIndexes(tiles, columnCount) {
+  const rowWidth = columnCount * 2; // a grid column is 2 units wide
+  let currentRow = []; // tile indexes in the row we're filling
+  let filled = 0; // units used in this row, including tall cards from above
+  let carry = 0; // units this row's tall cards reserve in the next row
+
+  // Walks each tile, filling currentRow until the row is filled,
+  // then clears it and goes to the next row.
+  // At the end if currentRow is not empty, we have a remainder.
+  tiles.forEach((tile, index) => {
+    const { width, height } = sizeOf(tile);
+    currentRow.push(index);
+    filled += width;
+    if (height > 1) {
+      carry += width;
+    }
+
+    // This row is complete, we can reset and keep looking.
+    if (filled >= rowWidth) {
+      currentRow = [];
+      filled = carry; // next row starts seeded by tall cards from above
+      carry = 0;
+      // The carry alone filled the whole next row (all-tall row), so reset it.
+      if (filled >= rowWidth) {
+        filled = 0;
+      }
+    }
+  });
+
+  return new Set(currentRow);
+}
 
 function getLayoutData(responsiveLayouts, index) {
   let layoutData = {
     classNames: [],
     imageSizes: {},
     cardPositions: {},
-    allowsWidget: false,
+    isCarousel: false,
   };
 
   responsiveLayouts.forEach(layout => {
+    const orphanTiles = getOrphanTileIndexes(layout.tiles, layout.columnCount);
     layout.tiles.forEach((tile, tileIndex) => {
       if (tile.position === index) {
+        if (tile.carousel) {
+          layoutData.isCarousel = true;
+        }
+
+        if (orphanTiles.has(tileIndex)) {
+          layoutData.classNames.push(`col-${layout.columnCount}-hidden`);
+        }
         layoutData.classNames.push(`col-${layout.columnCount}-${tile.size}`);
         layoutData.classNames.push(
           `col-${layout.columnCount}-position-${tileIndex}`
         );
         layoutData.imageSizes[layout.columnCount] = tile.size;
         layoutData.cardPositions[layout.columnCount] = tileIndex;
-
-        if (tile.allowsWidget) {
-          layoutData.allowsWidget = true;
-        }
 
         // The API tells us whether the tile should show the excerpt or not.
         // Apply extra styles accordingly.
@@ -94,17 +148,29 @@ function getLayoutData(responsiveLayouts, index) {
 
 // function to determine amount of tiles shown per section per viewport
 function getMaxTiles(responsiveLayouts) {
-  return responsiveLayouts
-    .flatMap(responsiveLayout => responsiveLayout)
-    .reduce((acc, t) => {
-      acc[t.columnCount] = t.tiles.length;
+  return (
+    responsiveLayouts
+      .flatMap(responsiveLayout => responsiveLayout)
+      .reduce((max, t) => Math.max(max, t.tiles.length), 0) || DEFAULT_MAX_TILES
+  );
+}
 
-      // Update maxTile if current tile count is greater
-      if (!acc.maxTile || t.tiles.length > acc.maxTile) {
-        acc.maxTile = t.tiles.length;
-      }
-      return acc;
-    }, {});
+// How many stories the section consumes. This is more than the tile
+// count when a section contains a carousel.
+function getMaxRecs(responsiveLayouts, slideCount) {
+  return (
+    responsiveLayouts.reduce(
+      (max, layout) =>
+        Math.max(
+          max,
+          layout.tiles.reduce(
+            (total, tile) => total + (tile.carousel ? slideCount : 1),
+            0
+          )
+        ),
+      0
+    ) || DEFAULT_MAX_TILES
+  );
 }
 
 /**
@@ -122,13 +188,6 @@ const prefToArray = (pref = "") => {
     .filter(item => item);
 };
 
-function shouldShowOMCHighlight(messageData, componentId) {
-  if (!messageData || Object.keys(messageData).length === 0) {
-    return false;
-  }
-  return messageData?.content?.messageType === componentId;
-}
-
 function CardSection({
   sectionPosition,
   section,
@@ -137,16 +196,17 @@ function CardSection({
   ctaButtonVariant,
   ctaButtonSponsors,
   anySectionsFollowed,
-  placeholder,
+  spocsLoading,
   activeColumnLayout,
   syncLayoutOnFocus,
   gridRef,
 }) {
   const prefs = useSelector(state => state.Prefs.values);
 
-  const { messageData } = useSelector(state => state.Messages);
+  const Messages = useSelector(state => state.Messages);
+  const { messageData } = Messages;
 
-  const { sectionPersonalization, feeds } = useSelector(
+  const { sectionPersonalization } = useSelector(
     state => state.DiscoveryStream
   );
   const { isForStartupCache } = useSelector(state => state.App);
@@ -193,41 +253,45 @@ function CardSection({
         ? currentPosition - 1
         : currentPosition + 1;
 
-      // Find card with target position
-      const parentEl = currentCardEl.parentElement;
-      if (parentEl) {
-        const targetSelector = `article.ds-card.${activeColumnLayout}-position-${targetPosition}`;
-        const targetCardEl = parentEl.querySelector(targetSelector);
+      // Find card with target position. Searching from the grid rather than the
+      // card's parent lets a card nested in a carousel reach the rest of the row.
+      const positionClass = `${activeColumnLayout}-position-${targetPosition}`;
+      const targetSelector = `:scope > article.ds-card.${positionClass}`;
+      const carouselSelector = `:scope > .ds-carousel.${positionClass} .ds-carousel-slide.is-active article.ds-card`;
+      const targetCardEl =
+        e.currentTarget.querySelector(targetSelector) ||
+        e.currentTarget.querySelector(carouselSelector);
 
-        if (targetCardEl) {
-          const link = targetCardEl.querySelector("a.ds-card-link");
-          if (link) {
-            link.focus();
-          }
+      if (targetCardEl) {
+        const link = targetCardEl.querySelector("a.ds-card-link");
+        if (link) {
+          link.focus();
         }
       }
     }
   };
 
-  const showTopics = prefs[PREF_TOPICS_ENABLED];
   const mayHaveSectionsCards = prefs[PREF_SECTIONS_CARDS_ENABLED];
   const selectedTopics = prefs[PREF_TOPICS_SELECTED];
   const availableTopics = prefs[PREF_TOPICS_AVAILABLE];
   const spocsStartupCacheEnabled = prefs[PREF_SPOCS_STARTUPCACHE_ENABLED];
-  const dailyBriefEnabled =
-    prefs.trainhopConfig?.dailyBriefing?.enabled ||
-    prefs[PREF_DAILY_BRIEF_ENABLED];
-  const dailyBriefSectionId =
-    prefs.trainhopConfig?.dailyBriefing?.sectionId ||
-    prefs[PREF_DAILY_BRIEF_SECTIONID];
 
   const mayHaveSectionsPersonalization =
     prefs[PREF_SECTIONS_PERSONALIZATION_ENABLED];
   // @nova-cleanup(remove-conditional): Remove novaEnabled, always use Nova layout
   const novaEnabled = prefs[PREF_NOVA_ENABLED];
+  // @nova-cleanup(remove-conditional): Drop the novaEnabled check
+  const carouselEnabled =
+    (prefs.trainhopConfig?.carousel?.enabled || prefs[PREF_CAROUSEL_ENABLED]) &&
+    novaEnabled;
+  const carouselSlideCount =
+    prefs.trainhopConfig?.carousel?.slideCount ??
+    prefs[PREF_CAROUSEL_SLIDE_COUNT];
 
   const { sectionKey, title, subtitle, followable } = section;
   const { responsiveLayouts, name: layoutName } = section.layout;
+  // A carousel takes its accessible name from the section heading.
+  const sectionTitleId = `section-title-${sectionKey}`;
 
   const following = sectionPersonalization[sectionKey]?.isFollowed;
 
@@ -328,44 +392,97 @@ function CardSection({
     );
   }, [dispatch, sectionPersonalization, sectionKey, sectionPosition, title]);
 
-  let { maxTile } = getMaxTiles(responsiveLayouts);
-  if (placeholder) {
-    // We need a number that divides evenly by 2, 3, and 4.
-    // So it can be displayed without orphans in grids with 2, 3, and 4 columns.
-    maxTile = 12;
+  let maxTile = DEFAULT_MAX_TILES;
+  let maxRecs = DEFAULT_MAX_TILES;
+  if (!spocsLoading) {
+    maxTile = getMaxTiles(responsiveLayouts);
+    maxRecs = getMaxRecs(responsiveLayouts, carouselSlideCount);
   }
 
-  const shouldShowBriefingCard =
-    sectionKey === dailyBriefSectionId && dailyBriefEnabled;
-
-  const getBriefingData = () => {
-    const EMPTY_BRIEFING = { headlines: [], lastUpdated: null };
-
-    if (!shouldShowBriefingCard) {
-      return EMPTY_BRIEFING;
-    }
-
-    const sections = feeds?.data[CURATED_RECOMMENDATIONS_FEED_URL];
-    if (!sections) {
-      return EMPTY_BRIEFING;
-    }
-
-    const headlines = sections.data.recommendations.filter(
-      rec => rec.section === dailyBriefSectionId && rec.isHeadline
-    );
-    return { headlines, lastUpdated: sections.lastUpdated };
-  };
-
-  const { headlines: briefingHeadlines, lastUpdated: briefingLastUpdated } =
-    getBriefingData();
-  const hasBriefingHeadlines = briefingHeadlines.length === 3;
-
-  const displaySections = section.data.slice(0, maxTile);
+  const displaySections = section.data.slice(0, maxRecs);
   const isSectionEmpty = !displaySections?.length;
-  const shouldShowLabels = sectionKey === dailyBriefSectionId && showTopics;
 
   if (isSectionEmpty) {
     return null;
+  }
+
+  function renderDSCard({
+    rec,
+    key,
+    classNames,
+    imageSizes,
+    tabIndex,
+    onFocus,
+    isActive,
+  }) {
+    return (
+      <DSCard
+        key={key}
+        pos={rec.pos}
+        flightId={rec.flight_id}
+        image_src={rec.image_src}
+        raw_image_src={rec.raw_image_src}
+        icon_src={rec.icon_src}
+        word_count={rec.word_count}
+        time_to_read={rec.time_to_read}
+        title={rec.title}
+        topic={rec.topic}
+        features={rec.features}
+        excerpt={rec.excerpt}
+        url={rec.url}
+        id={rec.id}
+        shim={rec.shim}
+        type={type}
+        context={rec.context}
+        sponsor={rec.sponsor}
+        sponsored_by_override={rec.sponsored_by_override}
+        dispatch={dispatch}
+        source={rec.domain}
+        publisher={rec.publisher}
+        pocket_id={rec.pocket_id}
+        context_type={rec.context_type}
+        bookmarkGuid={rec.bookmarkGuid}
+        corpus_item_id={rec.corpus_item_id}
+        scheduled_corpus_item_id={rec.scheduled_corpus_item_id}
+        recommended_at={rec.recommended_at}
+        received_rank={rec.received_rank}
+        format={rec.format}
+        alt_text={rec.alt_text}
+        mayHaveSectionsCards={mayHaveSectionsCards}
+        selectedTopics={selectedTopics}
+        availableTopics={availableTopics}
+        ctaButtonSponsors={ctaButtonSponsors}
+        ctaButtonVariant={ctaButtonVariant}
+        sectionsClassNames={classNames.join(" ")}
+        sectionsCardImageSizes={imageSizes}
+        section={sectionKey}
+        sectionPosition={sectionPosition}
+        sectionFollowed={following}
+        sectionLayoutName={layoutName}
+        isTimeSensitive={rec.isTimeSensitive}
+        tabIndex={tabIndex}
+        onFocus={onFocus}
+        attribution={rec.attribution}
+        isActive={isActive}
+      />
+    );
+  }
+
+  // Render a placeholder card when:
+  // 1. No recommendation is available.
+  // 2. The item is flagged as a placeholder.
+  // 3. Spocs are loading for with spocs startup cache disabled.
+  // Shared so a carousel slide and a grid card agree on what counts as
+  // renderable.
+  function needsPlaceholder(rec) {
+    return (
+      !rec ||
+      rec.placeholder ||
+      spocsLoading ||
+      (rec.flight_id &&
+        !spocsStartupCacheEnabled &&
+        isForStartupCache.DiscoveryStream)
+    );
   }
 
   function buildCards() {
@@ -380,28 +497,51 @@ function CardSection({
     for (let position = 0; position < maxTile; position++) {
       const layoutData = getLayoutData(responsiveLayouts, position);
       const { classNames, imageSizes, cardPositions } = layoutData;
-      const shouldRenderWidget =
-        shouldShowBriefingCard &&
-        layoutData.allowsWidget &&
-        hasBriefingHeadlines;
 
-      if (shouldRenderWidget) {
+      if (dataIndex >= displaySections.length) {
+        break;
+      }
+
+      if (layoutData.isCarousel && carouselEnabled) {
+        const slice = displaySections.slice(
+          dataIndex,
+          dataIndex + carouselSlideCount
+        );
+        // Consume the whole slice, including anything filtered out below, so
+        // the tiles after the carousel don't re-show one it already took.
+        dataIndex += slice.length;
+
+        const carouselRecs = slice.filter(rec => !needsPlaceholder(rec));
+        if (!carouselRecs.length) {
+          cards.push(
+            <PlaceholderDSCard key={`carousel-placeholder-${position}`} />
+          );
+          continue;
+        }
+
         cards.push(
-          <BriefingCard
-            key="briefing-card"
+          <CardCarousel
+            key={`carousel-${position}`}
+            recs={carouselRecs}
+            labelledBy={sectionTitleId}
             sectionClassNames={classNames.join(" ")}
-            headlines={briefingHeadlines}
-            lastUpdated={briefingLastUpdated}
-            selectedTopics={selectedTopics}
-            isFollowed={following}
+            section={sectionKey}
+            sectionPosition={sectionPosition}
+            dispatch={dispatch}
+            renderCard={(rec, { isActive }) =>
+              renderDSCard({
+                rec,
+                key: `dscard-${rec.id}`,
+                classNames,
+                imageSizes,
+                isActive,
+              })
+            }
           />
         );
         continue;
       }
 
-      if (dataIndex >= displaySections.length) {
-        break;
-      }
       const rec = displaySections[dataIndex];
       const currentIndex = dataIndex;
       const mappedFocusPosition = cardPositions[activeColumnCount];
@@ -410,17 +550,7 @@ function CardSection({
         ? mappedFocusPosition
         : currentIndex;
 
-      // Render a placeholder card when:
-      // 1. No recommendation is available.
-      // 2. The item is flagged as a placeholder.
-      // 3. Spocs are loading for with spocs startup cache disabled.
-      const isPlaceholder =
-        !rec ||
-        rec.placeholder ||
-        placeholder ||
-        (rec.flight_id &&
-          !spocsStartupCacheEnabled &&
-          isForStartupCache.DiscoveryStream);
+      const isPlaceholder = needsPlaceholder(rec);
 
       if (isPlaceholder) {
         cards.push(<PlaceholderDSCard key={`dscard-${currentIndex}`} />);
@@ -452,59 +582,14 @@ function CardSection({
 
       const { rec, classNames, imageSizes, activeFocusPosition } = card;
 
-      return (
-        <DSCard
-          key={card.key}
-          pos={rec.pos}
-          flightId={rec.flight_id}
-          image_src={rec.image_src}
-          raw_image_src={rec.raw_image_src}
-          icon_src={rec.icon_src}
-          word_count={rec.word_count}
-          time_to_read={rec.time_to_read}
-          title={rec.title}
-          topic={rec.topic}
-          features={rec.features}
-          excerpt={rec.excerpt}
-          url={rec.url}
-          id={rec.id}
-          shim={rec.shim}
-          type={type}
-          context={rec.context}
-          sponsor={rec.sponsor}
-          sponsored_by_override={rec.sponsored_by_override}
-          dispatch={dispatch}
-          source={rec.domain}
-          publisher={rec.publisher}
-          pocket_id={rec.pocket_id}
-          context_type={rec.context_type}
-          bookmarkGuid={rec.bookmarkGuid}
-          recommendation_id={rec.recommendation_id}
-          corpus_item_id={rec.corpus_item_id}
-          scheduled_corpus_item_id={rec.scheduled_corpus_item_id}
-          recommended_at={rec.recommended_at}
-          received_rank={rec.received_rank}
-          format={rec.format}
-          alt_text={rec.alt_text}
-          mayHaveSectionsCards={mayHaveSectionsCards}
-          showTopics={shouldShowLabels}
-          selectedTopics={selectedTopics}
-          availableTopics={availableTopics}
-          ctaButtonSponsors={ctaButtonSponsors}
-          ctaButtonVariant={ctaButtonVariant}
-          sectionsClassNames={classNames.join(" ")}
-          sectionsCardImageSizes={imageSizes}
-          section={sectionKey}
-          sectionPosition={sectionPosition}
-          sectionFollowed={following}
-          sectionLayoutName={layoutName}
-          isTimeSensitive={rec.isTimeSensitive}
-          tabIndex={activeFocusPosition === activeRovingIndex ? 0 : -1}
-          onFocus={() => onCardFocus(activeFocusPosition)}
-          attribution={rec.attribution}
-          isDailyBrief={shouldShowBriefingCard}
-        />
-      );
+      return renderDSCard({
+        rec,
+        key: card.key,
+        classNames,
+        imageSizes,
+        tabIndex: activeFocusPosition === activeRovingIndex ? 0 : -1,
+        onFocus: () => onCardFocus(activeFocusPosition),
+      });
     });
   }
 
@@ -518,10 +603,7 @@ function CardSection({
         {followable !== false &&
           !anySectionsFollowed &&
           sectionPosition === 0 &&
-          shouldShowOMCHighlight(
-            messageData,
-            "FollowSectionButtonHighlight"
-          ) && (
+          shouldShowOMCHighlight(Messages, "FollowSectionButtonHighlight") && (
             <MessageWrapper dispatch={dispatch}>
               <FollowSectionButtonHighlight
                 verticalPosition="inset-block-center"
@@ -536,7 +618,7 @@ function CardSection({
           !anySectionsFollowed &&
           sectionPosition === 0 &&
           shouldShowOMCHighlight(
-            messageData,
+            Messages,
             "FollowSectionButtonAltHighlight"
           ) && (
             <MessageWrapper dispatch={dispatch}>
@@ -579,6 +661,7 @@ function CardSection({
         title={title}
         type={type}
         sectionPosition={sectionPosition}
+        learnMoreUrl={prefs["sectionsLearnMore.url"]}
       />
     </div>
   );
@@ -591,7 +674,9 @@ function CardSection({
     >
       <div className="section-heading">
         <div className="section-title-wrapper">
-          <h2 className="section-title">{title}</h2>
+          <h2 className="section-title" id={sectionTitleId}>
+            {title}
+          </h2>
           {mayHaveSectionsPersonalization &&
             novaEnabled &&
             followable !== false && (
@@ -599,6 +684,7 @@ function CardSection({
                 following={following}
                 onFollowClick={onFollowClick}
                 onUnfollowClick={onUnfollowClick}
+                title={title}
               />
             )}
           {subtitle && <p className="section-subtitle">{subtitle}</p>}
@@ -615,6 +701,7 @@ function CardSection({
               type={type}
               sectionPosition={sectionPosition}
               buttonType="ghost"
+              learnMoreUrl={prefs["sectionsLearnMore.url"]}
             />
           ) : (
             sectionContextWrapper
@@ -639,17 +726,23 @@ function CardSections({
   type,
   ctaButtonVariant,
   ctaButtonSponsors,
-  placeholder,
+  spocsLoading,
 }) {
   const prefs = useSelector(state => state.Prefs.values);
   const { spocs, sectionPersonalization } = useSelector(
     state => state.DiscoveryStream
   );
-  const { messageData } = useSelector(state => state.Messages);
+  const Messages = useSelector(state => state.Messages);
+  const { messageData } = Messages;
   const personalizationEnabled = prefs[PREF_SECTIONS_PERSONALIZATION_ENABLED];
   const interestPickerEnabled = prefs[PREF_INTEREST_PICKER_ENABLED];
   // @nova-cleanup(remove-conditional): Remove novaEnabled check once classic path is gone
   const novaEnabled = prefs[PREF_NOVA_ENABLED];
+  // @nova-cleanup(remove-conditional): Drop the novaEnabled check
+  const topicNavigationEnabled =
+    (prefs.trainhopConfig?.topicNavigation?.enabled ||
+      prefs[PREF_TOPIC_NAVIGATION_ENABLED]) &&
+    novaEnabled;
   const gridRef = useRef(null);
   const [activeColumnLayout, setActiveColumnLayout] = useState(() =>
     getActiveColumnLayout(window.innerWidth)
@@ -659,14 +752,9 @@ function CardSections({
     if (!novaEnabled || !gridRef.current) {
       return;
     }
-    const val = parseInt(
-      getComputedStyle(gridRef.current).getPropertyValue(
-        "--sections-col-count"
-      ),
-      10
-    );
-    if (Number.isInteger(val)) {
-      setActiveColumnLayout(`col-${val}`);
+    const columnLayout = getNovaColumnLayout(gridRef.current);
+    if (columnLayout) {
+      setActiveColumnLayout(columnLayout);
     }
   }, [novaEnabled]);
 
@@ -674,15 +762,7 @@ function CardSections({
     e => {
       let nextLayout = getActiveColumnLayout(window.innerWidth);
       if (novaEnabled) {
-        const val = parseInt(
-          getComputedStyle(e.currentTarget).getPropertyValue(
-            "--sections-col-count"
-          ),
-          10
-        );
-        if (Number.isInteger(val)) {
-          nextLayout = `col-${val}`;
-        }
+        nextLayout = getNovaColumnLayout(e.currentTarget);
       }
       setActiveColumnLayout(currLayout =>
         currLayout === nextLayout ? currLayout : nextLayout
@@ -706,7 +786,7 @@ function CardSections({
 
   let sectionsData = data.sections;
 
-  if (placeholder) {
+  if (spocsLoading) {
     // To clean up the placeholder state for sections if the whole section is loading still.
     sectionsData = [
       {
@@ -748,7 +828,7 @@ function CardSections({
       ctaButtonVariant={ctaButtonVariant}
       ctaButtonSponsors={ctaButtonSponsors}
       anySectionsFollowed={anySectionsFollowed}
-      placeholder={placeholder}
+      spocsLoading={spocsLoading}
       activeColumnLayout={activeColumnLayout}
       syncLayoutOnFocus={syncLayoutOnFocus}
       gridRef={sectionPosition === 0 ? gridRef : undefined}
@@ -801,11 +881,15 @@ function CardSections({
   ) {
     const index = interestPicker.receivedFeedRank - 1;
 
+    // @nova-cleanup(remove-conditional): Remove novaEnabled check, always use NovaInterestPicker
+    const InterestPickerComponent = novaEnabled
+      ? NovaInterestPicker
+      : InterestPicker;
     sectionsToRender.splice(
       // Math.min is used here to ensure the given row stays within the bounds of the sectionsToRender array.
       Math.min(sectionsToRender.length - 1, index),
       0,
-      <InterestPicker
+      <InterestPickerComponent
         title={interestPicker.title}
         subtitle={interestPicker.subtitle}
         interests={interestPicker.sections || []}
@@ -817,7 +901,7 @@ function CardSections({
   function displayP13nCard() {
     if (messageData && Object.keys(messageData).length >= 1) {
       if (
-        shouldShowOMCHighlight(messageData, "PersonalizedCard") &&
+        shouldShowOMCHighlight(Messages, "PersonalizedCard") &&
         prefs[PREF_INFERRED_PERSONALIZATION_USER]
       ) {
         const row = messageData.content.position;
@@ -845,8 +929,13 @@ function CardSections({
       <DSEmptyState status={data.status} dispatch={dispatch} feed={feed} />
     </div>
   ) : (
-    <div className="ds-section-wrapper">{sectionsToRender}</div>
+    <div className="ds-section-wrapper">
+      {topicNavigationEnabled && !spocsLoading && (
+        <TopicNavigation sections={filteredSections} dispatch={dispatch} />
+      )}
+      {sectionsToRender}
+    </div>
   );
 }
 
-export { CardSections };
+export { CardSections, getOrphanTileIndexes };

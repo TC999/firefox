@@ -3,6 +3,8 @@ support-files = ["head.js"]
 
 ["browser_about_downloads.js"]
 
+["browser_blocked_and_deleted_status.js"]
+
 ["browser_basic_functionality.js"]
 
 ["browser_confirm_unblock_download.js"]
@@ -80,9 +82,6 @@ support-files = [
 ]
 
 ["browser_downloads_pauseResume.js"]
-skip-if = [
-  "os == 'win' && standalone", # Bug 2028645
-]
 
 ["browser_downloads_taskbar.js"]
 

@@ -4,28 +4,30 @@
 
 #include "TRRServiceChannel.h"
 
-#include "HttpLog.h"
 #include "AltServiceChild.h"
-#include "mozilla/glean/NetwerkMetrics.h"
-#include "mozilla/glean/NetwerkProtocolHttpMetrics.h"
+#include "HttpLog.h"
+#include "ProxyConfigLookup.h"
+#include "ReferrerInfo.h"
+#include "TRR.h"
+#include "TRRLoadInfo.h"
+#include "TRRService.h"
 #include "mozilla/ScopeExit.h"
 #include "mozilla/StaticPrefs_network.h"
+#include "mozilla/glean/NetwerkMetrics.h"
+#include "mozilla/glean/NetwerkProtocolHttpMetrics.h"
 #include "nsDNSPrefetch.h"
 #include "nsEscape.h"
 #include "nsHttpConnectionMgr.h"
+#include "nsHttpHeaderArray.h"
 #include "nsHttpTransaction.h"
-#include "nsThreadUtils.h"
-#include "nsICancelable.h"
 #include "nsICachingChannel.h"
-#include "nsIProtocolProxyService2.h"
+#include "nsICancelable.h"
 #include "nsIOService.h"
+#include "nsIProtocolProxyService2.h"
 #include "nsISeekableStream.h"
+#include "nsSocketTransportService2.h"
+#include "nsThreadUtils.h"
 #include "nsURLHelper.h"
-#include "ProxyConfigLookup.h"
-#include "TRRLoadInfo.h"
-#include "ReferrerInfo.h"
-#include "TRR.h"
-#include "TRRService.h"
 
 namespace mozilla::net {
 
@@ -458,6 +460,17 @@ nsresult TRRServiceChannel::BeginConnect() {
         .Add();
   }
 
+  // TRRServiceChannel does not use nsHttpChannelAuthProvider, so seed
+  // Proxy-Authorization onto mRequestHead here for https/masque proxies.
+  if (proxyInfo && mConnectionInfo->UsingConnect()) {
+    const nsCString& pa = proxyInfo->ProxyAuthorizationHeader();
+    if (!pa.IsEmpty()) {
+      DebugOnly<nsresult> rvSet =
+          mRequestHead.SetHeader(nsHttp::Proxy_Authorization, pa);
+      MOZ_ASSERT(NS_SUCCEEDED(rvSet));
+    }
+  }
+
   // Need to re-ask the handler, since mConnectionInfo may not be the connInfo
   // we used earlier
   if (gHttpHandler->IsHttp2Excluded(mConnectionInfo)) {
@@ -682,12 +695,12 @@ nsresult TRRServiceChannel::SetupTransaction() {
 
   struct LNAPerms perms{};
 
-  rv = mTransaction->Init(
-      mCaps, mConnectionInfo, &mRequestHead, mUploadStream, mReqContentLength,
-      LoadUploadStreamHasHeaders(), mCurrentEventTarget, callbacks, this,
-      mBrowserId, HttpTrafficCategory::eInvalid, mRequestContext,
-      mClassOfService, mInitialRwin, LoadResponseTimeoutEnabled(), mChannelId,
-      nullptr, nsILoadInfo::IPAddressSpace::Unknown, perms);
+  rv = mTransaction->Init(mCaps, mConnectionInfo, &mRequestHead, mUploadStream,
+                          mReqContentLength, mCurrentEventTarget, callbacks,
+                          this, mBrowserId, HttpTrafficCategory::eInvalid,
+                          mRequestContext, mClassOfService, mInitialRwin,
+                          LoadResponseTimeoutEnabled(), mChannelId, nullptr,
+                          nsILoadInfo::IPAddressSpace::Unknown, perms);
 
   if (NS_FAILED(rv)) {
     mTransaction = nullptr;
@@ -719,6 +732,12 @@ void TRRServiceChannel::MaybeStartDNSPrefetch() {
   nsIDNSService::DNSFlags dnsFlags = nsIDNSService::RESOLVE_DEFAULT_FLAGS;
   if (mCaps & NS_HTTP_REFRESH_DNS) {
     dnsFlags |= nsIDNSService::RESOLVE_BYPASS_CACHE;
+  }
+  // When negative addr entries are no longer refreshed on use, refuse a cached
+  // negative for the DoH server so TRR can't get stuck on a transient negative
+  // for the negative-record TTL.
+  if (!StaticPrefs::network_dns_refresh_negative_addr_on_use()) {
+    dnsFlags |= nsIDNSService::RESOLVE_REFRESH_NEGATIVE_CACHE;
   }
   nsresult rv = mDNSPrefetch->PrefetchHigh(dnsFlags);
   NS_ENSURE_SUCCESS_VOID(rv);
@@ -911,23 +930,25 @@ void TRRServiceChannel::ProcessAltService(
   }
 
   RefPtr<nsHttpConnectionInfo> connectionInfo = aTransConnInfo;
-  auto processHeaderTask = [altSvc, scheme, originHost, originPort,
-                            userName(mUsername),
-                            privateBrowsing(mPrivateBrowsing), callbacks,
-                            proxyInfo, caps(mCaps), connectionInfo]() {
-    if (XRE_IsSocketProcess()) {
-      AltServiceChild::ProcessHeader(altSvc, scheme, originHost, originPort,
+  auto processHeaderTask =
+      [altSvc = std::move(altSvc), scheme = std::move(scheme),
+       originHost = std::move(originHost), originPort, userName(mUsername),
+       privateBrowsing(mPrivateBrowsing), callbacks = std::move(callbacks),
+       proxyInfo = std::move(proxyInfo), caps(mCaps),
+       connectionInfo = std::move(connectionInfo)]() {
+        if (XRE_IsSocketProcess()) {
+          AltServiceChild::ProcessHeader(
+              altSvc, scheme, originHost, originPort, userName, privateBrowsing,
+              callbacks, proxyInfo, caps & NS_HTTP_DISALLOW_SPDY,
+              OriginAttributes(), connectionInfo);
+          return;
+        }
+
+        AltSvcMapping::ProcessHeader(altSvc, scheme, originHost, originPort,
                                      userName, privateBrowsing, callbacks,
                                      proxyInfo, caps & NS_HTTP_DISALLOW_SPDY,
                                      OriginAttributes(), connectionInfo);
-      return;
-    }
-
-    AltSvcMapping::ProcessHeader(altSvc, scheme, originHost, originPort,
-                                 userName, privateBrowsing, callbacks,
-                                 proxyInfo, caps & NS_HTTP_DISALLOW_SPDY,
-                                 OriginAttributes(), connectionInfo);
-  };
+      };
 
   if (NS_IsMainThread()) {
     processHeaderTask();
@@ -1025,7 +1046,7 @@ nsresult TRRServiceChannel::SyncProcessRedirection(uint32_t aHttpStatus) {
   nsAutoCString locationBuf;
   if (NS_EscapeURL(location.get(), -1, esc_OnlyNonASCII | esc_Spaces,
                    locationBuf)) {
-    location = locationBuf;
+    location = std::move(locationBuf);
   }
 
   LOG(("redirecting to: %s [redirection-limit=%u]\n", location.get(),
@@ -1151,8 +1172,8 @@ TRRServiceChannel::OnDataAvailable(nsIRequest* request, nsIInputStream* input,
 
   MOZ_ASSERT(mResponseHead, "No response head in ODA!!");
 
-  if (mListener) {
-    return mListener->OnDataAvailable(this, input, offset, count);
+  if (nsCOMPtr<nsIStreamListener> listener = mListener) {
+    return listener->OnDataAvailable(this, input, offset, count);
   }
 
   return NS_ERROR_ABORT;
@@ -1270,7 +1291,8 @@ TRRServiceChannel::OnStopRequest(nsIRequest* request, nsresult status) {
     MOZ_ASSERT(!LoadOnStopRequestCalled(),
                "We should not call OnStopRequest twice");
     StoreOnStopRequestCalled(true);
-    mListener->OnStopRequest(this, status);
+    nsCOMPtr<nsIStreamListener> listener = mListener;
+    listener->OnStopRequest(this, status);
   }
   StoreOnStopRequestCalled(true);
 
@@ -1436,6 +1458,11 @@ NS_IMETHODIMP TRRServiceChannel::GetHttpProxyConnectResponseCode(
 
   *aResponseCode = -1;
   return NS_OK;
+}
+
+NS_IMETHODIMP TRRServiceChannel::GetHttpProxyResponseHeader(const nsACString&,
+                                                            nsACString&) {
+  return NS_ERROR_NOT_AVAILABLE;
 }
 
 NS_IMETHODIMP

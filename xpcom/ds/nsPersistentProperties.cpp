@@ -2,16 +2,15 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "nsArrayEnumerator.h"
-#include "nsID.h"
-#include "nsCOMArray.h"
-#include "nsUnicharInputStream.h"
-#include "nsPrintfCString.h"
-
 #include "nsPersistentProperties.h"
-#include "nsIProperties.h"
 
 #include "mozilla/ArenaAllocatorExtensions.h"
+#include "nsArrayEnumerator.h"
+#include "nsCOMArray.h"
+#include "nsID.h"
+#include "nsIProperties.h"
+#include "nsPrintfCString.h"
+#include "nsUnicharInputStream.h"
 
 using mozilla::ArenaStrdup;
 
@@ -364,10 +363,6 @@ nsresult nsPropertiesParser::ParseBuffer(const char16_t* aBuffer,
   return NS_OK;
 }
 
-nsPersistentProperties::nsPersistentProperties() : mIn(nullptr), mTable(16) {}
-
-nsPersistentProperties::~nsPersistentProperties() = default;
-
 size_t nsPersistentProperties::SizeOfIncludingThis(
     mozilla::MallocSizeOf aMallocSizeOf) {
   // The memory used by mTable is accounted for in mArena.
@@ -459,7 +454,7 @@ nsPersistentProperties::Enumerate(nsISimpleEnumerator** aResult) {
 
   // Step through hash entries populating a transient array
   for (auto& entry : mTable) {
-    RefPtr<nsPropertyElement> element = new nsPropertyElement(
+    RefPtr element = mozilla::MakeRefPtr<nsPropertyElement>(
         nsDependentCString(entry.GetKey()), nsDependentString(entry.GetData()));
 
     if (!props.AppendObject(element)) {
@@ -505,7 +500,7 @@ nsPersistentProperties::GetKeys(nsTArray<nsCString>& aKeys) {
 ////////////////////////////////////////////////////////////////////////////////
 
 nsresult nsPropertyElement::Create(REFNSIID aIID, void** aResult) {
-  RefPtr<nsPropertyElement> propElem = new nsPropertyElement();
+  RefPtr propElem = mozilla::MakeRefPtr<nsPropertyElement>();
   return propElem->QueryInterface(aIID, aResult);
 }
 

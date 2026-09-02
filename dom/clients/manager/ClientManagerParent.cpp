@@ -9,11 +9,13 @@
 #include "ClientManagerService.h"
 #include "ClientSourceParent.h"
 #include "ClientValidation.h"
+#include "mozilla/dom/ContentParent.h"
 #include "mozilla/dom/PClientNavigateOpParent.h"
 #include "mozilla/ipc/BackgroundParent.h"
 
 namespace mozilla::dom {
 
+using mozilla::ipc::BackgroundParent;
 using mozilla::ipc::IPCResult;
 
 IPCResult ClientManagerParent::RecvTeardown() {
@@ -34,8 +36,7 @@ ClientManagerParent::AllocPClientHandleParent(
 IPCResult ClientManagerParent::RecvPClientHandleConstructor(
     PClientHandleParent* aActor, const IPCClientInfo& aClientInfo) {
   ClientHandleParent* actor = static_cast<ClientHandleParent*>(aActor);
-  actor->Init(aClientInfo);
-  return IPC_OK();
+  return actor->Init(aClientInfo);
 }
 
 PClientManagerOpParent* ClientManagerParent::AllocPClientManagerOpParent(
@@ -52,8 +53,9 @@ bool ClientManagerParent::DeallocPClientManagerOpParent(
 IPCResult ClientManagerParent::RecvPClientManagerOpConstructor(
     PClientManagerOpParent* aActor, const ClientOpConstructorArgs& aArgs) {
   ClientManagerOpParent* actor = static_cast<ClientManagerOpParent*>(aActor);
-  actor->Init(aArgs);
-  return IPC_OK();
+  RefPtr<ThreadsafeContentParentHandle> contentParentHandle =
+      ::mozilla::ipc::BackgroundParent::GetContentParentHandle(Manager());
+  return actor->Init(aArgs, contentParentHandle);
 }
 
 PClientNavigateOpParent* ClientManagerParent::AllocPClientNavigateOpParent(
@@ -72,14 +74,10 @@ bool ClientManagerParent::DeallocPClientNavigateOpParent(
 already_AddRefed<PClientSourceParent>
 ClientManagerParent::AllocPClientSourceParent(
     const ClientSourceConstructorArgs& aArgs) {
-  Maybe<ContentParentId> contentParentId;
+  RefPtr<ThreadsafeContentParentHandle> contentParentHandle =
+      ::mozilla::ipc::BackgroundParent::GetContentParentHandle(Manager());
 
-  uint64_t childID = ::mozilla::ipc::BackgroundParent::GetChildID(Manager());
-  if (childID) {
-    contentParentId = Some(ContentParentId(childID));
-  }
-
-  return MakeAndAddRef<ClientSourceParent>(aArgs, contentParentId);
+  return MakeAndAddRef<ClientSourceParent>(aArgs, contentParentHandle);
 }
 
 IPCResult ClientManagerParent::RecvPClientSourceConstructor(
@@ -103,6 +101,12 @@ void ClientManagerParent::Init() { mService->AddManager(this); }
 
 IPCResult ClientManagerParent::RecvExpectFutureClientSource(
     const IPCClientInfo& aClientInfo) {
+  if (BackgroundParent::IsOtherProcessActor(Manager())) {
+    return IPC_FAIL(
+        this,
+        "ExpectFutureClientSource can only be used by the parent process");
+  }
+
   RefPtr<ClientManagerService> cms =
       ClientManagerService::GetOrCreateInstance();
   (void)NS_WARN_IF(!cms->ExpectFutureSource(aClientInfo));
@@ -111,6 +115,12 @@ IPCResult ClientManagerParent::RecvExpectFutureClientSource(
 
 IPCResult ClientManagerParent::RecvForgetFutureClientSource(
     const IPCClientInfo& aClientInfo) {
+  if (BackgroundParent::IsOtherProcessActor(Manager())) {
+    return IPC_FAIL(
+        this,
+        "ForgetFutureClientSource can only be used by the parent process");
+  }
+
   RefPtr<ClientManagerService> cms = ClientManagerService::GetInstance();
   cms->ForgetFutureSource(aClientInfo);
   return IPC_OK();

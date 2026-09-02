@@ -16,7 +16,7 @@ import mozilla.components.service.fxa.manager.FxaAccountManager
 import mozilla.components.support.base.feature.LifecycleAwareFeature
 import mozilla.components.support.base.observer.Observable
 import mozilla.components.support.base.observer.ObserverRegistry
-import org.mozilla.fenix.ext.settings
+import org.mozilla.fenix.ext.components
 import org.mozilla.fenix.tabstray.ext.toComposeList
 import org.mozilla.fenix.tabstray.ext.toSyncedTabsListItem
 import org.mozilla.fenix.tabstray.redux.action.TabsTrayAction
@@ -42,9 +42,7 @@ class SyncedTabsIntegration(
     commands: SyncedTabsCommands,
     accountManager: FxaAccountManager,
     lifecycleOwner: LifecycleOwner,
-) : LifecycleAwareFeature,
-    SyncedTabsView,
-    Observable<SyncedTabsView.Listener> by ObserverRegistry() {
+) : LifecycleAwareFeature, SyncedTabsView, Observable<SyncedTabsView.Listener> by ObserverRegistry() {
 
     private val syncedTabsFeature by lazy {
         SyncedTabsFeature(
@@ -99,12 +97,12 @@ class SyncedTabsIntegration(
             TabsTrayAction.UpdateSyncedTabs(
                 syncedTabs.toComposeList(
                     buildSet {
-                        if (context.settings().enableCloseSyncedTabs) {
+                        if (context.components.settings.enableCloseSyncedTabs) {
                             add(SyncedTabsListSupportedFeature.CLOSE_TABS)
                         }
-                    },
-                ),
-            ),
+                    }
+                )
+            )
         )
     }
 }

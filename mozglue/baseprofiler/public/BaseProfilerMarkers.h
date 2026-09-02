@@ -141,7 +141,7 @@ struct TextMarker : public BaseMarkerType<TextMarker> {
           "name",
           MS::InputType::CString,
           "Details",
-          MS::Format::String,
+          MS::Format::UniqueString,
       }};
 
   static constexpr MS::Location Locations[] = {MS::Location::MarkerChart,
@@ -153,7 +153,7 @@ struct TextMarker : public BaseMarkerType<TextMarker> {
 
   static void StreamJSONMarkerData(baseprofiler::SpliceableJSONWriter& aWriter,
                                    const ProfilerString8View& aText) {
-    aWriter.StringProperty("name", aText);
+    aWriter.UniqueStringProperty("name", aText);
   }
 };
 
@@ -172,7 +172,7 @@ struct TextStackMarker : public BaseMarkerType<TextStackMarker> {
           "name",
           MS::InputType::CString,
           "Details",
-          MS::Format::String,
+          MS::Format::UniqueString,
       }};
 
   static constexpr MS::Location Locations[] = {MS::Location::MarkerChart,
@@ -186,7 +186,7 @@ struct TextStackMarker : public BaseMarkerType<TextStackMarker> {
 
   static void StreamJSONMarkerData(baseprofiler::SpliceableJSONWriter& aWriter,
                                    const ProfilerString8View& aText) {
-    aWriter.StringProperty("name", aText);
+    aWriter.UniqueStringProperty("name", aText);
   }
 };
 
@@ -264,13 +264,14 @@ class MOZ_RAII AutoProfilerTextMarker {
                          MarkerOptions&& aOptions, const std::string& aText)
       : mMarkerName(aMarkerName),
         mCategory(aCategory),
-        mOptions(std::move(aOptions)),
-        mText(aText) {
+        mOptions(std::move(aOptions)) {
     MOZ_ASSERT(mOptions.Timing().EndTime().IsNull(),
                "AutoProfilerTextMarker options shouldn't have an end time");
-    if (profiler_is_active_and_unpaused() &&
-        mOptions.Timing().StartTime().IsNull()) {
-      mOptions.Set(MarkerTiming::InstantNow());
+    if (profiler_is_active_and_unpaused()) {
+      mText = aText;
+      if (mOptions.Timing().StartTime().IsNull()) {
+        mOptions.Set(MarkerTiming::InstantNow());
+      }
     }
   }
 

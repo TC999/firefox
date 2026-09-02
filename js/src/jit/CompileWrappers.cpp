@@ -70,6 +70,11 @@ const void* CompileRuntime::addressOfJitStackLimit() {
   return runtime()->mainContextFromAnyThread()->addressOfJitStackLimit();
 }
 
+const void* CompileRuntime::addressOfJitStackLimitNoInterrupt() {
+  JSContext* cx = runtime()->mainContextFromAnyThread();
+  return cx->addressOfJitStackLimitNoInterrupt();
+}
+
 const void* CompileRuntime::addressOfInterruptBits() {
   return runtime()->mainContextFromAnyThread()->addressOfInterruptBits();
 }
@@ -166,6 +171,8 @@ bool CompileZone::allocNurseryStrings() {
 bool CompileZone::allocNurseryBigInts() {
   return zone()->allocNurseryBigInts();
 }
+
+void* CompileZone::addressOfZone() { return zone(); }
 
 void* CompileZone::addressOfNurseryPosition() {
   return zone()->runtimeFromAnyThread()->gc.addressOfNurseryPosition();

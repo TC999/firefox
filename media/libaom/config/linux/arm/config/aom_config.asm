@@ -1,5 +1,5 @@
 ;
-; Copyright (c) 2026, Alliance for Open Media. All rights reserved.
+; Copyright (c) 2017, Alliance for Open Media. All rights reserved.
 ;
 ; This source code is subject to the terms of the BSD 2 Clause License and
 ; the Alliance for Open Media Patent License 1.0. If the BSD 2 Clause License
@@ -67,7 +67,6 @@
 .equ CONFIG_SHARED, 0
 .equ CONFIG_SIZE_LIMIT, 0
 .equ CONFIG_SPEED_STATS, 0
-.equ CONFIG_SVT_AV1, 1
 .equ CONFIG_TFLITE, 0
 .equ CONFIG_THREE_PASS, 0
 .equ CONFIG_TUNE_BUTTERAUGLI, 0

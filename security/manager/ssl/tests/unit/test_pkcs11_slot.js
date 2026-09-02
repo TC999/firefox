@@ -89,8 +89,8 @@ add_task(async function run_test() {
   );
   ok(!testToken.isInternalKeyToken, "This token is not the internal key token");
 
-  testToken.login(true);
-  ok(testToken.isLoggedIn(), "Should have 'logged in' successfully");
+  await testToken.login();
+  ok(testToken.isLoggedIn, "Should have 'logged in' successfully");
 
   testSlot = findSlotByName(testModule, "Empty PKCS11 Slot");
   notEqual(testSlot, null, "should be able to find 'Empty PKCS11 Slot'");
@@ -99,6 +99,11 @@ add_task(async function run_test() {
     testSlot.status,
     Ci.nsIPKCS11Slot.SLOT_NOT_PRESENT,
     "Actual and expected status should match"
+  );
+  throws(
+    () => testSlot.getToken(),
+    /NS_ERROR_NOT_AVAILABLE/,
+    "Attempting to get a token when it isn't present should throw."
   );
 
   let bundle = Services.strings.createBundle(

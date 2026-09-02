@@ -7,8 +7,8 @@
 #include "IMEData.h"
 #include "PuppetWidget.h"
 #include "TextEvents.h"
-
 #include "mozilla/StaticPrefs_dom.h"
+#include "mozilla/Utf16.h"
 #include "nsCharTraits.h"
 #include "nsIFrame.h"
 #include "nsIWidget.h"
@@ -21,7 +21,6 @@ namespace widget {
  *****************************************************************************/
 TextEventDispatcher::TextEventDispatcher(nsIWidget* aWidget)
     : mWidget(aWidget),
-      mDispatchingEvent(0),
       mInputTransactionType(eNoInputTransaction),
       mIsComposing(false),
       mIsHandlingComposition(false),
@@ -86,8 +85,19 @@ nsresult TextEventDispatcher::BeginInputTransactionInternal(
 
 nsresult TextEventDispatcher::BeginInputTransactionFor(
     const WidgetGUIEvent* aEvent, PuppetWidget* aPuppetWidget) {
-  MOZ_ASSERT(XRE_IsContentProcess());
-  MOZ_ASSERT(!IsDispatchingEvent());
+  // If the event is dispatched by this instance, we need to do nothing.
+  if (IsDispatching(*aEvent)) {
+    return NS_OK;
+  }
+
+  // If we're the dispatcher for native text input, we shouldn't begin new
+  // transaction nor manage composition state here unless we're dispatching a
+  // synthesized event for tests because the owner must use the methods for the
+  // parent process in the case.
+  if (aPuppetWidget->HasExternalNativeTextEventDispatcherListener() &&
+      !aEvent->mFlags.mIsSynthesizedForTests) {
+    return NS_OK;
+  }
 
   switch (aEvent->mMessage) {
     case eKeyDown:
@@ -105,28 +115,37 @@ nsresult TextEventDispatcher::BeginInputTransactionFor(
       return NS_ERROR_INVALID_ARG;
   }
 
-  if (aEvent->mFlags.mIsSynthesizedForTests) {
+  const nsresult rv = [&]() {
+    // We don't dispatch events via TextEventDispatcher::DispatchEvent(), but
+    // let's check it.
+    if (IsDispatchingEvent()) [[unlikely]] {
+      return NS_OK;
+    }
+
+    if (!aEvent->mFlags.mIsSynthesizedForTests) {
+      nsresult rv = BeginNativeInputTransaction();
+      NS_WARNING_ASSERTION(NS_SUCCEEDED(rv),
+                           "BeginNativeInputTransaction() failed");
+      return rv;
+    }
     // If the event is for an automated test and this instance dispatched
     // an event to the parent process, we can assume that this is already
     // initialized properly.
-    if (mInputTransactionType == eAsyncTestInputTransaction) {
+    if (mInputTransactionType == eAsyncTestInputTransaction &&
+        !aEvent->CameFromAnotherProcess()) {
       return NS_OK;
     }
-    // Even if the event coming from the parent process is synthesized for
-    // tests, this process should treat it as "sync" test here because
-    // it won't be go back to the parent process.
+    // Even if the event is a synthesized for tests and coming from the parent
+    // process, this process should treat it as "sync" test here because it
+    // won't be go back to the parent process.
     nsresult rv = BeginInputTransactionInternal(
         static_cast<TextEventDispatcherListener*>(aPuppetWidget),
         eSameProcessSyncTestInputTransaction);
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
-  } else {
-    nsresult rv = BeginNativeInputTransaction();
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
-  }
+    NS_WARNING_ASSERTION(NS_SUCCEEDED(rv),
+                         "BeginInputTransactionInternal("
+                         "eSameProcessSyncTestInputTransaction) failed");
+    return rv;
+  }();
 
   // Emulate modifying members which indicate the state of composition.
   // If we need to manage more states and/or more complexly, we should create
@@ -136,23 +155,23 @@ nsresult TextEventDispatcher::BeginInputTransactionFor(
     case eKeyDown:
     case eKeyPress:
     case eKeyUp:
-      return NS_OK;
+      return rv;
     case eCompositionStart:
       MOZ_ASSERT(!mIsComposing);
       mIsComposing = mIsHandlingComposition = true;
-      return NS_OK;
+      return rv;
     case eCompositionChange:
       MOZ_ASSERT(mIsComposing);
       MOZ_ASSERT(mIsHandlingComposition);
       mIsComposing = mIsHandlingComposition = true;
-      return NS_OK;
+      return rv;
     case eCompositionCommit:
     case eCompositionCommitAsIs:
       MOZ_ASSERT(mIsComposing);
       MOZ_ASSERT(mIsHandlingComposition);
       mIsComposing = false;
       mIsHandlingComposition = true;
-      return NS_OK;
+      return rv;
     default:
       MOZ_ASSERT_UNREACHABLE("You forgot to handle the event");
       return NS_ERROR_UNEXPECTED;
@@ -261,19 +280,16 @@ nsEventStatus TextEventDispatcher::DispatchEvent(nsIWidget* aWidget,
                                                  WidgetGUIEvent& aEvent) {
   MOZ_ASSERT(!aEvent.AsInputEvent(), "Use DispatchInputEvent()");
 
-  RefPtr<TextEventDispatcher> kungFuDeathGrip(this);
   nsCOMPtr<nsIWidget> widget(aWidget);
-  mDispatchingEvent++;
+  AutoDispatchingEvent storeDispatchingEvent(*this, aEvent);
   auto status = widget->DispatchEvent(&aEvent);
-  mDispatchingEvent--;
   return status;
 }
 
 nsEventStatus TextEventDispatcher::DispatchInputEvent(
     nsIWidget* aWidget, WidgetInputEvent& aEvent) {
-  RefPtr<TextEventDispatcher> kungFuDeathGrip(this);
   nsCOMPtr<nsIWidget> widget(aWidget);
-  mDispatchingEvent++;
+  AutoDispatchingEvent storeDispatchingEvent(*this, aEvent);
 
   // If the event is dispatched via nsIWidget::DispatchInputEvent(), it
   // sends the event to the parent process first since APZ needs to handle it
@@ -284,7 +300,6 @@ nsEventStatus TextEventDispatcher::DispatchInputEvent(
           ? widget->DispatchInputEvent(&aEvent).mContentStatus
           : widget->DispatchEvent(&aEvent);
 
-  mDispatchingEvent--;
   return status;
 }
 
@@ -559,23 +574,23 @@ bool TextEventDispatcher::DispatchKeyboardEventInternal(
   // emulates real text input or synthesizing keyboard events for tests,
   // the arrays may be initialized all commands already.  If so, we need to
   // duplicate the arrays here, but we should do this only when we're
-  // dispatching eKeyPress events because BrowserParent::SendRealKeyEvent()
-  // does this only for eKeyPress event.  Note that this is not required if
-  // we're in the main process because in the parent process, the edit commands
-  // will be initialized by `ExecuteEditCommands()` (when the event is handled
-  // by editor event listener) or `InitAllEditCommands()` (when the event is
-  // set to a content process).  We should test whether these pathes work or
-  // not too.
+  // dispatching eKeyPress and eKeyDown events because
+  // BrowserParent::SendRealKeyEvent() does this only for eKeyPress and eKeyDown
+  // event.  Note that this is not required if we're in the main process because
+  // in the parent process, the edit commands will be initialized by
+  // `ExecuteEditCommands()` (when the event is handled by editor event
+  // listener) or `InitAllEditCommands()` (when the event is set to a content
+  // process).  We should test whether these pathes work or not too.
   if (XRE_IsContentProcess() && keyEvent.mIsSynthesizedByTIP) {
-    if (aMessage == eKeyPress) {
+    if (aMessage == eKeyPress || aMessage == eKeyDown) {
       keyEvent.AssignCommands(aKeyboardEvent);
     } else {
       // Prevent retriving native edit commands if we're in a content process
-      // because only `eKeyPress` events coming from the main process have
-      // edit commands (See `BrowserParent::SendRealKeyEvent`).  And also
-      // retriving edit commands from a content process requires synchonous
-      // IPC and that makes running tests slower.  Therefore, we should mark
-      // the `eKeyPress` event does not need to retrieve edit commands anymore.
+      // because only `eKeyPress` and `eKeyDown` events coming from the main
+      // process have edit commands (See `BrowserParent::SendRealKeyEvent`). And
+      // also retriving edit commands from a content process requires synchonous
+      // IPC and that makes running tests slower.  Therefore, we should mark the
+      // other events as no longer needing to retrieve edit commands.
       keyEvent.PreventNativeKeyBindings();
     }
   }
@@ -623,17 +638,17 @@ bool TextEventDispatcher::DispatchKeyboardEventInternal(
       // eKeyPress events are dispatched for every character.
       // So, each key value of eKeyPress events should be a character.
       if (ch) {
-        if (!IS_SURROGATE(ch)) {
+        if (!IsSurrogate(ch)) {
           keyEvent.mKeyValue.Assign(ch);
         } else {
           const bool isHighSurrogateFollowedByLowSurrogate =
               aIndexOfKeypress + 1 < keyEvent.mKeyValue.Length() &&
-              NS_IS_HIGH_SURROGATE(ch) &&
-              NS_IS_LOW_SURROGATE(keyEvent.mKeyValue[aIndexOfKeypress + 1]);
+              IsHighSurrogate(ch) &&
+              IsLowSurrogate(keyEvent.mKeyValue[aIndexOfKeypress + 1]);
           const bool isLowSurrogateFollowingHighSurrogate =
               !isHighSurrogateFollowedByLowSurrogate && aIndexOfKeypress > 0 &&
-              NS_IS_LOW_SURROGATE(ch) &&
-              NS_IS_HIGH_SURROGATE(keyEvent.mKeyValue[aIndexOfKeypress - 1]);
+              IsLowSurrogate(ch) &&
+              IsHighSurrogate(keyEvent.mKeyValue[aIndexOfKeypress - 1]);
           NS_WARNING_ASSERTION(isHighSurrogateFollowedByLowSurrogate ||
                                    isLowSurrogateFollowingHighSurrogate,
                                "Lone surrogate input should not happen");
@@ -642,8 +657,7 @@ bool TextEventDispatcher::DispatchKeyboardEventInternal(
             if (isHighSurrogateFollowedByLowSurrogate) {
               keyEvent.mKeyValue.Assign(
                   keyEvent.mKeyValue.BeginReading() + aIndexOfKeypress, 2);
-              keyEvent.SetCharCode(
-                  SURROGATE_TO_UCS4(ch, keyEvent.mKeyValue[1]));
+              keyEvent.SetCharCode(SurrogateToUCS4(ch, keyEvent.mKeyValue[1]));
             } else if (isLowSurrogateFollowingHighSurrogate) {
               // Although not dispatching eKeyPress event (because it's already
               // dispatched for the low surrogate above), the caller should

@@ -1,8 +1,12 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
 package org.mozilla.fenix.downloads.listscreen.middleware
 
+import kotlin.test.assertNotNull
 import mozilla.components.support.test.robolectric.testContext
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Rule
 import org.junit.Test
@@ -18,8 +22,7 @@ import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
 class DownloadTelemetryMiddlewareTest {
-    @get:Rule
-    val gleanTestRule = FenixGleanTestRule(testContext)
+    @get:Rule val gleanTestRule = FenixGleanTestRule(testContext)
 
     @Test
     fun `WHEN the user enters in DownloadScreen THEN record screen viewed telemetry`() {
@@ -173,12 +176,9 @@ class DownloadTelemetryMiddlewareTest {
         assertEquals("delete_snackbar_undo_clicked", snapshot.single().name)
     }
 
-    private fun createStore(
-        downloadUIState: DownloadUIState = DownloadUIState.INITIAL,
-    ) = DownloadUIStore(
-        initialState = downloadUIState,
-        middleware = listOf(
-            DownloadTelemetryMiddleware(),
-        ),
-    )
+    private fun createStore(downloadUIState: DownloadUIState = DownloadUIState.INITIAL) =
+        DownloadUIStore(
+            initialState = downloadUIState,
+            middleware = listOf(DownloadTelemetryMiddleware()),
+        )
 }

@@ -143,23 +143,25 @@ static void ReplaceAllUsesWith(MDefinition* from, MDefinition* to) {
   // somewhat moot because we directly set WasmNullConstants to have type (ref
   // null none) anyway, but it demonstrates the principle.)
   //
-  // However, nulls can also trigger strange GVN situations downstream. For
-  // example, consider this test case that we exercise in wasm/gc/ref-gvn.js:
+  // It is possible for stranger situations to happen downstream if the GLB is
+  // applied naively. For example, consider the following:
   //
   // ```
-  // ref.null $s1
-  // struct.get $s1 0
-  // ref.null $s2
-  // struct.get $s2 0
+  // ref.null $s1         ;; (ref null none)
+  // struct.get $s1 0     ;; (ref i31)
+  // ref.null $s2         ;; (ref null none)
+  // struct.get $s2 0     ;; (ref struct)
   // ```
   //
-  // The nulls may be combined by GVN, and then the struct.gets may also be
-  // combined because they have the same input and offset. GVN needs some kind
-  // of type for the new struct.get, and the input types may be anything
-  // depending on the struct's field types, so a general GLB is the natural
-  // solution. Does it make sense to find the common ref type between `(field
-  // i31ref)` and `(field structref)`, potentially? Not really, but since
-  // struct.get will trap on a null input anyway, it doesn't really matter.
+  // The nulls may be combined by GVN (as they both have type (ref null none)),
+  // and then the struct.gets could theoretically also be combined because they
+  // have the same input and offset. However, what ref type would the resulting
+  // struct.get have? The GLB tells us (ref none), which is technically correct,
+  // but this type is uninhabitable: there is no value that matches it. An
+  // uninhabitably-typed MIR value is an oxymoron, and while this case can arise
+  // by construction in some cases, we don't want GVN to produce it. Therefore,
+  // we guard this case from happening upstream, and here assert that the GLB is
+  // always inhabitable.
   wasm::MaybeRefType glb = wasm::MaybeRefType::greatestLowerBound(
       from->wasmRefType(), to->wasmRefType());
   MOZ_RELEASE_ASSERT(glb.isNothing() || glb.value().isInhabitable());
@@ -217,7 +219,7 @@ static bool BlockHasInterestingDefs(MBasicBlock* block) {
 // which look potentially interesting to GVN.
 static bool ScanDominatorsForDefs(MBasicBlock* block) {
   for (MBasicBlock* i = block;;) {
-    if (BlockHasInterestingDefs(block)) {
+    if (BlockHasInterestingDefs(i)) {
       return true;
     }
 
@@ -797,6 +799,10 @@ bool ValueNumberer::visitDefinition(MDefinition* def) {
     wasm::MaybeRefType glb = wasm::MaybeRefType::greatestLowerBound(
         def->wasmRefType(), sim->wasmRefType());
     if (glb.isSome() && !glb.value().isInhabitable()) {
+      // If the simplified version of a node would have an uninhabitable wasm
+      // ref type, then we are in a sufficiently weird situation that we should
+      // not mess with this value. (This can happen with e.g. (ref none) params
+      // or struct fields.) See the comment in ReplaceAllUsesWith.
       return true;
     }
 
@@ -805,15 +811,8 @@ bool ValueNumberer::visitDefinition(MDefinition* def) {
     // If |sim| doesn't belong to a block, insert it next to |def|.
     if (isNewInstruction) {
 #ifdef DEBUG
-      if (sim->isObjectKeysLength() && def->isArrayLength()) {
-        // /!\ Exception: MArrayLength::foldsTo replaces a sequence of
-        // instructions containing an effectful instruction by an effectful
-        // instruction.
-      } else {
-        // Otherwise, a new |sim| node mustn't be effectful when |def| wasn't
-        // effectful.
-        MOZ_ASSERT_IF(sim->isEffectful(), def->isEffectful());
-      }
+      // A new |sim| node mustn't be effectful when |def| wasn't effectful.
+      MOZ_ASSERT_IF(sim->isEffectful(), def->isEffectful());
 #endif
 
       // If both instructions are effectful, |sim| must have stolen the resume
@@ -906,6 +905,10 @@ bool ValueNumberer::visitDefinition(MDefinition* def) {
     wasm::MaybeRefType glb = wasm::MaybeRefType::greatestLowerBound(
         def->wasmRefType(), rep->wasmRefType());
     if (glb.isSome() && !glb.value().isInhabitable()) {
+      // If two definitions would combine to produce an uninhabitable wasm ref
+      // type, then we are in a weird dead code situation where mysterious type
+      // things are happening. In this case it is better not to do anything
+      // further. See the comment in ReplaceAllUsesWith.
       return true;
     }
 

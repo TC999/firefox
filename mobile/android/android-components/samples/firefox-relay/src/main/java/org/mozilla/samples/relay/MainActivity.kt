@@ -20,16 +20,15 @@ import mozilla.components.concept.sync.AuthType
 import mozilla.components.concept.sync.DeviceConfig
 import mozilla.components.concept.sync.DeviceType
 import mozilla.components.concept.sync.OAuthAccount
+import mozilla.components.concept.sync.PeriodicSyncConfig
 import mozilla.components.concept.sync.Profile
+import mozilla.components.concept.sync.SyncConfig
+import mozilla.components.concept.sync.SyncEngine
 import mozilla.components.lib.fetch.httpurlconnection.HttpURLConnectionClient
 import mozilla.components.lib.state.ext.flow
 import mozilla.components.service.fxa.FxaAuthData
-import mozilla.components.service.fxa.PeriodicSyncConfig
-import mozilla.components.service.fxa.SyncConfig
-import mozilla.components.service.fxa.SyncEngine
 import mozilla.components.service.fxa.manager.FxaAccountManager
 import mozilla.components.service.fxa.manager.SCOPE_PROFILE
-import mozilla.components.service.fxa.manager.SCOPE_SESSION
 import mozilla.components.service.fxa.manager.SCOPE_SYNC
 import mozilla.components.service.fxa.sync.SyncReason
 import mozilla.components.service.fxa.toAuthType
@@ -50,9 +49,7 @@ const val CONFIG_URL = "https://accounts.firefox.com"
 const val REDIRECT_URL = "$CONFIG_URL/oauth/success/3c49430b43dfba77"
 const val SCOPE_RELAY = "https://identity.mozilla.com/apps/relay"
 
-/**
- * The main activity of the project.
- */
+/** The main activity of the project. */
 open class MainActivity : AppCompatActivity(), LoginFragment.OnLoginCompleteListener {
     private val accountManager by lazy {
         FxaAccountManager(
@@ -62,7 +59,6 @@ open class MainActivity : AppCompatActivity(), LoginFragment.OnLoginCompleteList
             SyncConfig(setOf(SyncEngine.Passwords), PeriodicSyncConfig()),
             setOf(
                 SCOPE_SYNC,
-                SCOPE_SESSION,
                 SCOPE_RELAY,
                 SCOPE_PROFILE,
             ),
@@ -76,25 +72,26 @@ open class MainActivity : AppCompatActivity(), LoginFragment.OnLoginCompleteList
             store = relayEligibilityStore,
         )
     }
-    private val accountObserver = object : AccountObserver {
-        override fun onAuthenticated(account: OAuthAccount, authType: AuthType) {
-            lifecycleScope.launch {
-                accountManager.syncNow(SyncReason.User)
+    private val accountObserver =
+        object : AccountObserver {
+            override fun onAuthenticated(account: OAuthAccount, authType: AuthType) {
+                lifecycleScope.launch {
+                    accountManager.syncNow(SyncReason.User)
+                }
             }
-        }
 
-        override fun onProfileUpdated(profile: Profile) {
-            lifecycleScope.launch {
-                displayProfile(profile = profile)
+            override fun onProfileUpdated(profile: Profile) {
+                lifecycleScope.launch {
+                    displayProfile(profile = profile)
+                }
             }
-        }
 
-        override fun onAuthenticationProblems() {
-            lifecycleScope.launch {
-                Toast.makeText(this@MainActivity, "Account auth problem", Toast.LENGTH_LONG).show()
+            override fun onAuthenticationProblems() {
+                lifecycleScope.launch {
+                    Toast.makeText(this@MainActivity, "Account auth problem", Toast.LENGTH_LONG).show()
+                }
             }
         }
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -126,10 +123,11 @@ open class MainActivity : AppCompatActivity(), LoginFragment.OnLoginCompleteList
                 val authUrl = accountManager.beginAuthentication(entrypoint = SampleFxAEntryPoint.HomeMenu)
                 if (authUrl == null) {
                     Toast.makeText(
-                        this@MainActivity,
-                        "Couldn't get the authUrl. Already logged in?",
-                        Toast.LENGTH_LONG,
-                    ).show()
+                            this@MainActivity,
+                            "Couldn't get the authUrl. Already logged in?",
+                            Toast.LENGTH_LONG,
+                        )
+                        .show()
                     return@launch
                 }
                 openWebView(authUrl)
@@ -148,16 +146,17 @@ open class MainActivity : AppCompatActivity(), LoginFragment.OnLoginCompleteList
             lifecycleScope.launch {
                 val eligibilityState = relayEligibilityStore.state.eligibilityState
 
-                val message = if (eligibilityState is Eligible) {
-                    val emailMasks = relayFeature.fetchEmailMasks()
-                    if (emailMasks == null) {
-                        "Failed to fetch email masks"
+                val message =
+                    if (eligibilityState is Eligible) {
+                        val emailMasks = relayFeature.fetchEmailMasks()
+                        if (emailMasks == null) {
+                            "Failed to fetch email masks"
+                        } else {
+                            "Fetched ${emailMasks.size} email masks"
+                        }
                     } else {
-                        "Fetched ${emailMasks.size} email masks"
+                        "Not eligible for Relay (state=$eligibilityState)"
                     }
-                } else {
-                    "Not eligible for Relay (state=$eligibilityState)"
-                }
 
                 Toast.makeText(applicationContext, message, Toast.LENGTH_SHORT).show()
             }
@@ -172,9 +171,7 @@ open class MainActivity : AppCompatActivity(), LoginFragment.OnLoginCompleteList
     override fun onLoginComplete(code: String, state: String, action: String, fragment: LoginFragment) {
         lifecycleScope.launch {
             val authType = action.takeIf { it.isNotEmpty() }?.toAuthType() ?: AuthType.Signin
-            accountManager.finishAuthentication(
-                FxaAuthData(authType, code = code, state = state),
-            )
+            accountManager.finishAuthentication(FxaAuthData(authType, code = code, state = state))
             supportFragmentManager.popBackStack()
         }
     }
@@ -195,12 +192,13 @@ open class MainActivity : AppCompatActivity(), LoginFragment.OnLoginCompleteList
     private fun observeRelayEligibility() {
         lifecycleScope.launch {
             relayEligibilityStore.flow().collectLatest { state ->
-                val msg = when (val e = state.eligibilityState) {
-                    is Ineligible.FirefoxAccountNotLoggedIn -> "Relay: not logged in"
-                    is Ineligible.NoRelay -> "Relay: not eligible / no Relay"
-                    is Eligible.Free -> "Relay: eligible (free), remaining=${e.totalMasksUsed}"
-                    is Eligible.Premium -> "Relay: eligible (premium)"
-                }
+                val msg =
+                    when (val e = state.eligibilityState) {
+                        is Ineligible.FirefoxAccountNotLoggedIn -> "Relay: not logged in"
+                        is Ineligible.NoRelay -> "Relay: not eligible / no Relay"
+                        is Eligible.Free -> "Relay: eligible (free), remaining=${e.totalMasksUsed}"
+                        is Eligible.Premium -> "Relay: eligible (premium)"
+                    }
                 findViewById<TextView>(R.id.txtView).text = msg
             }
         }

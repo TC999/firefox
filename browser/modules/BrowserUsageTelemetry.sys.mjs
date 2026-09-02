@@ -1,4 +1,3 @@
-/* -*- js-indent-level: 2; indent-tabs-mode: nil -*- */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -20,7 +19,8 @@ ChromeUtils.defineESModuleGetters(lazy, {
     "moz-src:///browser/components/search/SearchSERPTelemetry.sys.mjs",
   SearchSERPTelemetryUtils:
     "moz-src:///browser/components/search/SearchSERPTelemetry.sys.mjs",
-  SessionStore: "resource:///modules/sessionstore/SessionStore.sys.mjs",
+  SessionStore:
+    "moz-src:///browser/components/sessionstore/SessionStore.sys.mjs",
   TabMetrics: "moz-src:///browser/components/tabbrowser/TabMetrics.sys.mjs",
   WindowsInstallsInfo:
     "resource://gre/modules/components-utils/WindowsInstallsInfo.sys.mjs",
@@ -68,6 +68,7 @@ const TELEMETRY_SUBSESSIONSPLIT_TOPIC =
 const DOMWINDOW_OPENED_TOPIC = "domwindowopened";
 const SESSION_STORE_SAVED_TAB_GROUPS_TOPIC =
   "sessionstore-saved-tab-groups-changed";
+const IDLE_DAILY_TOPIC = "idle-daily";
 
 export const MINIMUM_TAB_COUNT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes, in ms
 
@@ -145,16 +146,24 @@ const ENTRYPOINT_TRACKED_CONTEXT_MENU_IDS = {
 
 // A list of the expected panes in about:preferences
 const PREFERENCES_PANES = [
-  "paneHome",
+  "paneAbout",
+  "paneAccessibility",
+  "paneAi",
+  "paneAppearance",
+  "paneContainers",
+  "paneDownloads",
+  "paneExperimental",
   "paneGeneral",
+  "paneHome",
+  "paneLanguages",
+  "paneMoreFromMozilla",
+  "panePasswordsAutofill",
+  "panePermissionsData",
   "panePrivacy",
   "paneSearch",
   "paneSearchResults",
   "paneSync",
-  "paneContainers",
-  "paneExperimental",
-  "paneMoreFromMozilla",
-  "paneAi",
+  "paneTabsBrowsing",
 ];
 
 const IGNORABLE_EVENTS = new WeakMap();
@@ -296,9 +305,7 @@ function getPinnedTabsCount() {
   let pinnedTabs = 0;
 
   for (let win of Services.wm.getEnumerator("navigator:browser")) {
-    pinnedTabs += [...win.ownerGlobal.gBrowser.tabs].filter(
-      t => t.pinned
-    ).length;
+    pinnedTabs += [...win.gBrowser.tabs].filter(t => t.pinned).length;
   }
 
   return pinnedTabs;
@@ -362,7 +369,7 @@ export let URICountListener = {
 
     // Don't include URI and domain counts when in private mode.
     let shouldCountURI =
-      !lazy.PrivateBrowsingUtils.isWindowPrivate(browser.ownerGlobal) ||
+      !lazy.PrivateBrowsingUtils.isWindowPrivate(browser.documentGlobal) ||
       Services.prefs.getBoolPref(
         "browser.engagement.total_uri_count.pbm",
         false
@@ -383,7 +390,7 @@ export let URICountListener = {
 
     // Don't count about:blank and similar pages, as they would artificially
     // inflate the counts.
-    if (browser.ownerGlobal.gInitialPages.includes(uriSpec)) {
+    if (browser.documentGlobal.gInitialPages.includes(uriSpec)) {
       return;
     }
 
@@ -407,16 +414,12 @@ export let URICountListener = {
     }
 
     if (!(flags & Ci.nsIWebProgressListener.LOCATION_CHANGE_SAME_DOCUMENT)) {
-      lazy.SearchSERPTelemetry.updateTrackingStatus(
-        browser,
-        uriSpec,
-        webProgress.loadType
-      );
+      lazy.SearchSERPTelemetry.updateTrackingStatus(browser, uri, webProgress);
     } else {
       lazy.SearchSERPTelemetry.updateTrackingSinglePageApp(
         browser,
         uriSpec,
-        webProgress.loadType,
+        webProgress,
         flags
       );
     }
@@ -532,10 +535,10 @@ export let BrowserUsageTelemetry = {
     this._inited = true;
 
     Services.prefs.addObserver("browser.tabs.inTitlebar", this);
-    Services.prefs.addObserver("idle-daily", this);
+    Services.obs.addObserver(this, IDLE_DAILY_TOPIC, true);
 
     this._recordUITelemetry();
-    this._recordInitialPrefValues();
+    this._recordPrefValues();
     this.recordPinnedTabsCount();
 
     this._onTabsOpenedTask = new lazy.DeferredTask(
@@ -622,6 +625,7 @@ export let BrowserUsageTelemetry = {
     Services.obs.removeObserver(this, DOMWINDOW_OPENED_TOPIC);
     Services.obs.removeObserver(this, TELEMETRY_SUBSESSIONSPLIT_TOPIC);
     Services.obs.removeObserver(this, SESSION_STORE_SAVED_TAB_GROUPS_TOPIC);
+    Services.obs.removeObserver(this, IDLE_DAILY_TOPIC);
   },
 
   observe(subject, topic, data) {
@@ -635,6 +639,9 @@ export let BrowserUsageTelemetry = {
       case SESSION_STORE_SAVED_TAB_GROUPS_TOPIC:
         this._onSavedTabGroupsChange();
         break;
+      case IDLE_DAILY_TOPIC:
+        this._recordPrefValues();
+        break;
       case "nsPref:changed":
         switch (data) {
           case "browser.tabs.inTitlebar":
@@ -643,9 +650,6 @@ export let BrowserUsageTelemetry = {
               Services.appinfo.drawInTitlebar ? "off" : "on",
               "pref"
             );
-            break;
-          case "idle-daily":
-            this._recordInitialPrefValues();
             break;
         }
         break;
@@ -835,6 +839,14 @@ export let BrowserUsageTelemetry = {
       return shareItem.browsersToShare !== null
         ? "context-copy-multiple-urls"
         : "context-copy-url";
+    }
+
+    if (node.classList?.contains("share-qrcode-item")) {
+      return "generate-qr-code";
+    }
+
+    if (node.classList?.contains("share-windows-item")) {
+      return "microsoft-system-share";
     }
 
     if (node.hasAttribute("data-share-name")) {
@@ -1077,7 +1089,7 @@ export let BrowserUsageTelemetry = {
     if (item && source) {
       this.recordInteractionEvent(item, source);
       if (isAboutPreferences) {
-        node.ownerGlobal.recordSettingChangeTelemetry?.(item);
+        node.documentGlobal.recordSettingChangeTelemetry?.(item);
       }
       let name = source
         .replace(/-/g, "_")
@@ -1265,11 +1277,13 @@ export let BrowserUsageTelemetry = {
   },
 
   /**
-   * Records the startup values of prefs that govern important browser behavior
-   * options.
+   * Records the current values of prefs that govern important browser behavior
+   * options. Runs at startup and again on each daily idle, so mid-session
+   * changes are picked up.
    */
-  _recordInitialPrefValues() {
+  _recordPrefValues() {
     this._recordOpenNextToActiveTabSettingValue();
+    this._recordNovaEnabledValue();
   },
 
   /**
@@ -1288,6 +1302,12 @@ export let BrowserUsageTelemetry = {
   _recordOpenNextToActiveTabSettingValue() {
     Glean.linkHandling.openNextToActiveTabSettingsEnabled.set(
       this._isOpenNextToActiveTabSettingEnabled()
+    );
+  },
+
+  _recordNovaEnabledValue() {
+    Glean.nova.enabled.set(
+      Services.prefs.getBoolPref("browser.nova.enabled", false)
     );
   },
 
@@ -1391,6 +1411,7 @@ export let BrowserUsageTelemetry = {
     if (userContextId) {
       Glean.containers.containerTabOpened.record({
         container_id: String(userContextId),
+        source: event.detail?.containerSource ?? "unknown",
       });
     }
 
@@ -1420,13 +1441,20 @@ export let BrowserUsageTelemetry = {
    */
   _onTabClosed(event) {
     const group = event.target?.group;
-    const isUserTriggered = event.detail?.isUserTriggered;
-    const source = event.detail?.telemetrySource;
+    const metricsContext = event.detail.metricsContext;
 
-    if (group && isUserTriggered) {
-      if (source == lazy.TabMetrics.METRIC_SOURCE.TAB_STRIP) {
+    if (group && metricsContext.isUserTriggered) {
+      if (
+        metricsContext.telemetrySource ==
+        lazy.TabMetrics.METRIC_SOURCE.TAB_STRIP
+      ) {
         Glean.tabgroup.tabInteractions.close_tabstrip.add();
-      } else if (source == lazy.TabMetrics.METRIC_SOURCE.TAB_OVERFLOW_MENU) {
+      } else if (
+        metricsContext.telemetrySource ==
+          lazy.TabMetrics.METRIC_SOURCE.TAB_MENU ||
+        metricsContext.telemetrySource ==
+          lazy.TabMetrics.METRIC_SOURCE.TAB_OVERFLOW_MENU
+      ) {
         Glean.tabgroup.tabInteractions.close_tabmenu.add();
       } else {
         Glean.tabgroup.tabInteractions.close_tab_other.add();
@@ -1469,7 +1497,7 @@ export let BrowserUsageTelemetry = {
     this.recordPinnedTabsCount(pinnedTabs);
     Glean.pinnedTabs.pin.record({
       layout: lazy.sidebarVerticalTabs ? "vertical" : "horizontal",
-      source: event.detail?.telemetrySource,
+      source: event.detail.metricsContext.telemetrySource,
     });
   },
 
@@ -1483,7 +1511,7 @@ export let BrowserUsageTelemetry = {
       layout: lazy.sidebarVerticalTabs
         ? lazy.TabMetrics.METRIC_TABS_LAYOUT.VERTICAL
         : lazy.TabMetrics.METRIC_TABS_LAYOUT.HORIZONTAL,
-      source: event.detail.telemetryUserCreateSource,
+      source: event.detail.metricsContext.telemetrySource,
       tabs: event.target.tabs.length,
     });
 
@@ -1491,14 +1519,14 @@ export let BrowserUsageTelemetry = {
   },
 
   _onTabGroupSave(event) {
-    const { isUserTriggered } = event.detail;
+    const { metricsContext } = event.detail;
 
     Glean.tabgroup.save.record({
-      user_triggered: isUserTriggered,
+      user_triggered: metricsContext.isUserTriggered,
       id: event.target.id,
     });
 
-    if (isUserTriggered) {
+    if (metricsContext.isUserTriggered) {
       Glean.tabgroup.groupInteractions.save.add(1);
     }
 
@@ -1514,13 +1542,16 @@ export let BrowserUsageTelemetry = {
    * @param {CustomEvent} event `TabGroupUngroup` event
    */
   _onTabGroupUngroup(event) {
-    const { isUserTriggered, telemetrySource } = event.detail;
-    if (isUserTriggered) {
-      Glean.tabgroup.ungroup.record({ source: telemetrySource });
+    const { metricsContext } = event.detail;
+    if (metricsContext.isUserTriggered) {
+      Glean.tabgroup.ungroup.record({ source: metricsContext.telemetrySource });
       // Only count explicit user actions (i.e. "Ungroup tabs" in the tab group
       // context menu) toward the total number of tab group ungroup interations.
       // This excludes implicit user actions, e.g. canceling tab group creation.
-      if (telemetrySource == lazy.TabMetrics.METRIC_SOURCE.TAB_GROUP_MENU) {
+      if (
+        metricsContext.telemetrySource ==
+        lazy.TabMetrics.METRIC_SOURCE.TAB_GROUP_MENU
+      ) {
         Glean.tabgroup.groupInteractions.ungroup.add(1);
       }
     }
@@ -1619,15 +1650,12 @@ export let BrowserUsageTelemetry = {
    * @param {CustomEvent} event
    */
   _onTabGroupRemoveRequested(event) {
-    let {
-      isUserTriggered = false,
-      telemetrySource = lazy.TabMetrics.METRIC_SOURCE.UNKNOWN,
-    } = event.detail;
+    let { metricsContext = lazy.TabMetrics.UNKNOWN_CONTEXT } = event.detail;
 
-    if (isUserTriggered) {
+    if (metricsContext.isUserTriggered) {
       Glean.tabgroup.delete.record({
         id: event.target.id,
-        source: telemetrySource,
+        source: metricsContext.telemetrySource,
       });
       Glean.tabgroup.groupInteractions.delete.add(1);
     }
@@ -1644,9 +1672,9 @@ export let BrowserUsageTelemetry = {
    * @param {CustomEvent} event
    */
   _onTabMove(event) {
-    let { isUserTriggered, telemetrySource } = event.detail;
+    let { metricsContext } = event.detail;
 
-    if (!isUserTriggered) {
+    if (!metricsContext.isUserTriggered) {
       return;
     }
 
@@ -1657,14 +1685,14 @@ export let BrowserUsageTelemetry = {
         : lazy.TabMetrics.METRIC_GROUP_TYPE.EXPANDED;
     }
 
-    let segmentKey = [telemetrySource, groupType].join(",");
+    let segmentKey = [metricsContext.telemetrySource, groupType].join(",");
 
     let tabMovementsRecord = this._tabMovementsBySegment.get(segmentKey);
     if (!tabMovementsRecord) {
       let deferredTask = new lazy.DeferredTask(() => {
         if (tabMovementsRecord.numberAddedToTabGroup) {
           Glean.tabgroup.addTab.record({
-            source: telemetrySource,
+            source: metricsContext.telemetrySource,
             tabs: tabMovementsRecord.numberAddedToTabGroup,
             layout: lazy.sidebarVerticalTabs
               ? lazy.TabMetrics.METRIC_TABS_LAYOUT.VERTICAL
@@ -2098,7 +2126,7 @@ export let BrowserUsageTelemetry = {
       if (data?.installer_type) {
         let { installer_type, extra } = data;
 
-        // Record the event (mirrored to legacy telemetry using GIFFT)
+        // Record the event
         if (installer_type == "full") {
           Glean.installation.firstSeenFull.record(extra);
         } else if (installer_type == "stub") {

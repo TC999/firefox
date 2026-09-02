@@ -1,31 +1,27 @@
-From: Nico Grunbaum <na-g@nostrum.com>
-Date: Thu, 23 May 2024 17:28:00 +0000
-Subject: Bug 1897459 - P0 - for BSD do not build physical_socket_server in
- libwebrtc;r=mjf,webrtc-reviewers
+From: Andreas Pehrson <apehrson@mozilla.com>
+Date: Thu, 29 Aug 2024 08:31:00 +0000
+Subject: Bug 1914837 - Always initialize DesktopCapturer::pid.
+ r=webrtc-reviewers,ng
 
-libwebrtc added the use of several non-portable socket options in this code.
-Firefox does not use any of the code in this file, but there is a header dependency chain leading from code that is used.
+This member is patched on top of libwebrtc. New backends could be added from
+under us. It needs to be initialized.
 
-Differential Revision: https://phabricator.services.mozilla.com/D210858
-Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/4e7b3c485e549e7e35b227b517acadbbad957004
+Differential Revision: https://phabricator.services.mozilla.com/D220265
+Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/fdf5b0a81b0c0e87d31c5963091681a0e5960678
 ---
- rtc_base/BUILD.gn | 6 ++++++
- 1 file changed, 6 insertions(+)
+ modules/desktop_capture/desktop_capturer.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
 
-diff --git a/rtc_base/BUILD.gn b/rtc_base/BUILD.gn
-index a775652e52..3f2b0161da 100644
---- a/rtc_base/BUILD.gn
-+++ b/rtc_base/BUILD.gn
-@@ -1025,6 +1025,12 @@ rtc_library("threading") {
-     "thread.cc",
-     "thread.h",
-   ]
-+  if (is_bsd && build_with_mozilla) {
-+    sources -= [
-+      "physical_socket_server.cc",
-+      "physical_socket_server.h",
-+    ]
-+  }
-   deps = [
-     ":async_dns_resolver",
-     ":byte_order",
+diff --git a/modules/desktop_capture/desktop_capturer.h b/modules/desktop_capture/desktop_capturer.h
+index 0e32474543..c85d0eba7a 100644
+--- a/modules/desktop_capture/desktop_capturer.h
++++ b/modules/desktop_capture/desktop_capturer.h
+@@ -80,7 +80,7 @@ class RTC_EXPORT DesktopCapturer {
+   struct Source {
+     // The unique id to represent a Source of current DesktopCapturer.
+     SourceId id;
+-    pid_t pid;
++    pid_t pid = 0;
+ 
+     // Title of the window or screen in UTF-8 encoding, maybe empty. This field
+     // should not be used to identify a source.

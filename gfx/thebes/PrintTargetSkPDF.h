@@ -5,12 +5,12 @@
 #ifndef MOZILLA_GFX_PRINTTARGETSKPDF_H
 #define MOZILLA_GFX_PRINTTARGETSKPDF_H
 
+#include "PrintTarget.h"
 #include "mozilla/UniquePtr.h"
 #include "nsCOMPtr.h"
-#include "PrintTarget.h"
 #include "skia/include/core/SkCanvas.h"
-#include "skia/include/docs/SkPDFDocument.h"
 #include "skia/include/core/SkStream.h"
+#include "skia/include/docs/SkPDFDocument.h"
 
 namespace mozilla {
 namespace gfx {
@@ -27,7 +27,7 @@ class PrintTargetSkPDF final : public PrintTarget {
 
   nsresult BeginPrinting(const nsAString& aTitle,
                          const nsAString& aPrintToFileName,
-                         uint64_t aBrowsingContextId, int32_t aStartPage,
+                         uint64_t aInnerWindowId, int32_t aStartPage,
                          int32_t aEndPage) override;
   nsresult EndPrinting() override;
   void Finish() override;

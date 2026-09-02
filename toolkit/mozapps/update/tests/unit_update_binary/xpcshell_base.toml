@@ -133,6 +133,26 @@ reason = "Unix only test"
 
 ["marFailurePartialZucchini.js"]
 
+["marFailurePartialZucchiniBadAlloc_win.js"]
+skip-if = [
+  "os != 'win'",
+  "tsan", # TSan intercepts operator new and aborts on OOM before bad_alloc
+  "asan", # Same issue with ASan
+]
+reason = "Windows only test, POSIX planned for bug 2043122"
+
+["marFailurePartialZucchiniCheck_win.js"]
+run-if = [
+  "os == 'win'",
+]
+reason = "Windows only test, POSIX planned for bug 2043122"
+
+["marFailurePartialZucchiniCheckDestructor_win.js"]
+run-if = [
+  "os == 'win'",
+]
+reason = "Windows only test, POSIX planned for bug 2043122"
+
 ["marFileInUseStageFailureComplete_win.js"]
 run-if = [
   "os == 'win'",
@@ -170,6 +190,12 @@ run-if = [
 reason = "Windows only test"
 
 ["marFileLockedFailureComplete_win.js"]
+run-if = [
+  "os == 'win'",
+]
+reason = "Windows only test"
+
+["marRemoveAddRollbackFailureComplete_win.js"]
 run-if = [
   "os == 'win'",
 ]
@@ -215,12 +241,24 @@ run-if = [
 ]
 reason = "Windows only test"
 
+["marPostUpdateDesktopLauncher.js"]
+run-if = [
+  "os == 'win'",
+]
+reason = "Desktop launcher isn't supported on non-Windows systems"
+
 ["marPostUpdateEnvironment.js"]
 run-if = [
   "os == 'mac'",
   "os == 'win'",
 ]
 reason = "Post-update only supported  on Windows and macOS"
+
+["marPostUpdateTarget.js"]
+run-if = [
+  "os == 'win'",
+]
+reason = "Only Windows runs the post-updater twice"
 
 ["marRMRFDirFileInUseStageFailureComplete_win.js"]
 run-if = [
@@ -258,6 +296,18 @@ run-if = [
 ]
 reason = "Windows only test"
 
+["marRollbackFileLockedForDeletePartialZucchini_win.js"]
+run-if = [
+  "os == 'win'",
+]
+reason = "Windows only test"
+
+["marRollbackFileLockedForDeletePartial_win.js"]
+run-if = [
+  "os == 'win'",
+]
+reason = "Windows only test"
+
 ["marStageFailurePartial.js"]
 
 ["marStageFailurePartialZucchini.js"]
@@ -267,11 +317,27 @@ run-sequentially = ["os == 'linux'"] # frequent fail in parallel on Linux
 
 ["marStageSuccessPartial.js"]
 
+["marStageSuccessPartialStaleDraft.js"]
+
 ["marStageSuccessPartialZucchini.js"]
 
 ["marSuccessComplete.js"]
 
 ["marSuccessPartial.js"]
+
+["marSuccessPartialStaleDraft.js"]
+
+["marSuccessPartialStaleDraftLockedForDeleteAdd_win.js"]
+run-if = [
+  "os == 'win'",
+]
+reason = "Windows only test"
+
+["marSuccessPartialStaleDraftLockedForDeletePatch_win.js"]
+run-if = [
+  "os == 'win'",
+]
+reason = "Windows only test"
 
 ["marSuccessPartialWhileBackgroundTaskRunning.js"]
 

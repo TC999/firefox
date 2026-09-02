@@ -14,7 +14,8 @@
 const lazy = {};
 ChromeUtils.defineESModuleGetters(lazy, {
   cosSim: "chrome://global/content/ml/NLPUtils.sys.mjs",
-  EmbeddingsGenerator: "chrome://global/content/ml/EmbeddingsGenerator.sys.mjs",
+  embeddingsGeneratorFactory:
+    "chrome://global/content/ml/EmbeddingsGenerator.sys.mjs",
   PREFERENCES_NAV_MAP:
     "moz-src:///browser/components/aiwindow/models/PreferencesNavMap.sys.mjs",
 });
@@ -68,10 +69,7 @@ class NavigationInfoImpl {
     }
 
     if (!this.#embeddingsGenerator) {
-      this.#embeddingsGenerator = new lazy.EmbeddingsGenerator({
-        backend: "onnx-native",
-        embeddingSize: 384,
-      });
+      this.#embeddingsGenerator = lazy.embeddingsGeneratorFactory.forGeneral();
     }
 
     if (!this.#navEmbeddings) {

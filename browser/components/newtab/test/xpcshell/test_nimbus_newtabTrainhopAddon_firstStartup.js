@@ -76,11 +76,9 @@ add_task(
     const { nimbusFeatureCleanup } = await setupNimbusTrainhopAddon({
       updateAddonVersion,
     });
-    assertTrainhopAddonVersionPref(updateAddonVersion);
 
     // Track whether firstStartupNewProfile was called
     let sandbox = sinon.createSandbox();
-    sandbox.stub(ExperimentAPI._rsLoader, "updateRecipes");
 
     let firstStartupNewProfileSpy = sandbox.spy(
       AboutNewTabResourceMapping,
@@ -98,15 +96,11 @@ add_task(
       });
     });
 
-    Assert.ok(
-      ExperimentAPI._rsLoader.updateRecipes.notCalled,
-      "Have not yet called updateRecipes"
-    );
-
     // Run FirstStartup which should trigger our category hook
     FirstStartup.init(true /* newProfile */);
 
     await submissionPromise;
+    assertTrainhopAddonVersionPref(updateAddonVersion);
 
     Assert.ok(
       firstStartupNewProfileSpy.calledOnce,
@@ -130,19 +124,6 @@ add_task(
       await AddonManager.getAllInstalls(),
       [],
       "Expect no pending install for restartless install"
-    );
-
-    Assert.ok(
-      ExperimentAPI._rsLoader.updateRecipes.calledWith(
-        "newtab-trainhop",
-        sinon.match({
-          onlyFeatureIds: sinon.match(
-            s => s.size === 1 && s.has("newtabTrainhop"),
-            'Set {"newtabTrainhop"}'
-          ),
-        })
-      ),
-      "Re-computed Experiment recipes"
     );
 
     sandbox.restore();
@@ -302,7 +283,6 @@ add_task(
     const { nimbusFeatureCleanup } = await setupNimbusTrainhopAddon({
       updateAddonVersion,
     });
-    assertTrainhopAddonVersionPref(updateAddonVersion);
 
     // Stub updateTrainhopAddonState to call init() in the middle of its execution
     let sandbox = sinon.createSandbox();
@@ -344,6 +324,7 @@ add_task(
 
     FirstStartup.init(true /* newProfile */);
     await submissionPromise;
+    assertTrainhopAddonVersionPref(updateAddonVersion);
 
     Assert.ok(
       updateTrainhopStarted,
@@ -380,6 +361,7 @@ add_task(
     await cancelPendingInstall(pendingInstall);
     sandbox.restore();
     await nimbusFeatureCleanup();
+    await AboutNewTabResourceMapping.updateTrainhopAddonState();
     assertTrainhopAddonVersionPref("");
     Services.prefs.clearUserPref(PREF_CATEGORY_TASKS);
   }
@@ -411,7 +393,6 @@ add_task(
     const { nimbusFeatureCleanup } = await setupNimbusTrainhopAddon({
       updateAddonVersion,
     });
-    assertTrainhopAddonVersionPref(updateAddonVersion);
 
     const firstStartupFeatureCleanup =
       await NimbusTestUtils.enrollWithFeatureConfig(

@@ -8,8 +8,10 @@
 #include "mozilla/FloatingPoint.h"
 #include "mozilla/dom/Animation.h"
 #include "mozilla/dom/AnimationEffectBinding.h"
+#include "mozilla/dom/CSSUnitValue.h"
 #include "mozilla/dom/KeyframeEffect.h"
 #include "mozilla/dom/MutationObservers.h"
+#include "mozilla/dom/ScrollTimeline.h"  // For PROGRESS_TIMELINE_DURATION_MILLISEC
 #include "nsDOMMutationObserver.h"
 
 namespace mozilla::dom {
@@ -43,9 +45,23 @@ nsISupports* AnimationEffect::GetParentObject() const {
   return ToSupports(mDocument);
 }
 
-// https://drafts.csswg.org/web-animations/#current
+// https://drafts.csswg.org/web-animations-1/#current
 bool AnimationEffect::IsCurrent() const {
-  if (!mAnimation || mAnimation->PlayState() == AnimationPlayState::Finished) {
+  if (!mAnimation) {
+    return false;
+  }
+
+  const AnimationTimeline* timeline = mAnimation->GetTimeline();
+  // An animation effect is current if it is associated with an animation not
+  // in the idle play state with a non-null associated timeline that is not
+  // monotonically increasing.
+  // https://drafts.csswg.org/web-animations-1/#current (fourth bullet)
+  if (timeline && !timeline->IsMonotonicallyIncreasing() &&
+      mAnimation->PlayState() != AnimationPlayState::Idle) {
+    return true;
+  }
+
+  if (mAnimation->PlayState() == AnimationPlayState::Finished) {
     return false;
   }
 
@@ -62,6 +78,12 @@ bool AnimationEffect::IsCurrent() const {
 
 // https://drafts.csswg.org/web-animations/#in-effect
 bool AnimationEffect::IsInEffect() const {
+  const auto* timeline = mAnimation ? mAnimation->GetTimeline() : nullptr;
+  // https://github.com/w3c/csswg-drafts/issues/9256
+  // Start time is indeterminate, so our progress cannot possibly be resolved.
+  if (timeline && timeline->IsUnresolvedTimeline()) {
+    return false;
+  }
   ComputedTiming computedTiming = GetComputedTiming();
   return !computedTiming.mProgress.IsNull();
 }
@@ -260,7 +282,10 @@ ComputedTiming AnimationEffect::GetComputedTimingAt(
     progress = fn->At(progress, result.mBeforeFlag);
   }
 
-  MOZ_ASSERT(std::isfinite(progress), "Progress value should be finite");
+  if (!std::isfinite(progress)) {
+    return result;
+  }
+
   result.mProgress.SetValue(progress);
   return result;
 }
@@ -300,27 +325,62 @@ void AnimationEffect::GetTiming(EffectTiming& aRetVal) const {
   GetEffectTimingDictionary(SpecifiedTiming(), aRetVal);
 }
 
+// https://drafts.csswg.org/web-animations-1/#dom-animationeffect-getcomputedtiming
+// https://drafts.csswg.org/web-animations-2/#dom-animationeffect-getcomputedtiming
 void AnimationEffect::GetComputedTimingAsDict(
     ComputedEffectTiming& aRetVal) const {
   // Specified timing
   GetEffectTimingDictionary(SpecifiedTiming(), aRetVal);
 
-  // Computed timing
+  // Computed timing. For progress-based timelines, use the normalized timing
+  // so duration/endTime reflect the timeline's progress range (100%).
   double playbackRate = mAnimation ? mAnimation->PlaybackRateInternal() : 1;
   const Nullable<TimeDuration> currentTime = GetLocalTime();
   const auto progressTimelinePosition =
       mAnimation ? mAnimation->AtProgressTimelineBoundary()
                  : Animation::ProgressTimelinePosition::NotBoundary;
   ComputedTiming computedTiming = GetComputedTimingAt(
-      currentTime, SpecifiedTiming(), playbackRate, progressTimelinePosition);
+      currentTime, NormalizedTiming(), playbackRate, progressTimelinePosition);
 
-  aRetVal.mDuration.SetAsUnrestrictedDouble() =
-      computedTiming.mDuration.ToMilliseconds();
+  const bool hasProgressTimeline =
+      mAnimation && mAnimation->AcceptsPercentageBasedTime();
+  // Needed to construct CSSUnitValues.
+  auto* progressGlobal =
+      hasProgressTimeline ? mAnimation->GetParentObject() : nullptr;
+
+  if (progressGlobal) {
+    aRetVal.mDuration.SetAsCSSNumericValue() = MakeCSSUnitValue(
+        progressGlobal, StyleNumericType::Percent(),
+        computedTiming.mDuration.ToMilliseconds() /
+            static_cast<double>(PROGRESS_TIMELINE_DURATION_MILLISEC) * 100.0,
+        "percent"_ns);
+  } else {
+    aRetVal.mDuration.SetAsUnrestrictedDouble() =
+        computedTiming.mDuration.ToMilliseconds();
+  }
+  // TODO: for "auto", 'fill' should depend on whether we are a keyframe effect.
   aRetVal.mFill = computedTiming.mFill;
-  aRetVal.mActiveDuration = computedTiming.mActiveDuration.ToMilliseconds();
-  aRetVal.mEndTime = computedTiming.mEndTime.ToMilliseconds();
-  aRetVal.mLocalTime =
-      AnimationUtils::TimeDurationToDouble(currentTime, mRTPCallerType);
+  // For a top-level (non-grouped) effect the start time is always 0. See
+  // https://drafts.csswg.org/web-animations-2/#animation-effect-start-time
+  // Once we implement group effects (sequence effects, specifically) this code
+  // will change. See https://bugzilla.mozilla.org/show_bug.cgi?id=1778417
+  AnimationUtils::DoubleToCSSNumberish(0.0, hasProgressTimeline, progressGlobal,
+                                       aRetVal.mStartTime.Construct());
+  AnimationUtils::DoubleToCSSNumberish(
+      computedTiming.mActiveDuration.ToMilliseconds(), hasProgressTimeline,
+      progressGlobal, aRetVal.mActiveDuration.Construct());
+  AnimationUtils::DoubleToCSSNumberish(computedTiming.mEndTime.ToMilliseconds(),
+                                       hasProgressTimeline, progressGlobal,
+                                       aRetVal.mEndTime.Construct());
+  Nullable<OwningCSSNumberish>& localTime = aRetVal.mLocalTime.Construct();
+  if (currentTime.IsNull()) {
+    localTime.SetNull();
+  } else {
+    AnimationUtils::DoubleToCSSNumberish(
+        AnimationUtils::TimeDurationToDouble(currentTime, mRTPCallerType)
+            .Value(),
+        hasProgressTimeline, progressGlobal, localTime.SetValue());
+  }
   aRetVal.mProgress = computedTiming.mProgress;
 
   if (!aRetVal.mProgress.IsNull()) {
@@ -336,6 +396,14 @@ void AnimationEffect::GetComputedTimingAsDict(
 
 void AnimationEffect::UpdateTiming(const OptionalEffectTiming& aTiming,
                                    ErrorResult& aRv) {
+  const bool isFiniteTimeline =
+      mAnimation ? mAnimation->HasFiniteTimeline() : false;
+
+  if (isFiniteTimeline && aTiming.mIterations.WasPassed() &&
+      aTiming.mIterations.Value() >= double(UINT64_MAX)) {
+    aRv.ThrowTypeError("Infinite iterations for finite timeline");
+    return;
+  }
   TimingParams timing =
       TimingParams::MergeOptionalEffectTiming(mTiming, aTiming, aRv);
   if (aRv.Failed()) {

@@ -245,6 +245,13 @@ already_AddRefed<DOMSVGPoint> DOMSVGPointList::IndexedGetter(uint32_t aIndex,
   return nullptr;
 }
 
+void DOMSVGPointList::IndexedSetter(uint32_t aIndex, DOMSVGPoint& aNewValue,
+                                    ErrorResult& aRv) {
+  // Need to take a ref to the return value so it does not leak.
+  RefPtr<DOMSVGPoint> ignored = ReplaceItem(aNewValue, aIndex, aRv);
+  (void)ignored;
+}
+
 already_AddRefed<DOMSVGPoint> DOMSVGPointList::InsertItemBefore(
     DOMSVGPoint& aNewItem, uint32_t aIndex, ErrorResult& aRv) {
   if (IsAnimValList()) {
@@ -280,11 +287,14 @@ already_AddRefed<DOMSVGPoint> DOMSVGPointList::InsertItemBefore(
 
   aIndex = std::min(aIndex, LengthNoFlush());
 
-  AutoChangePointListNotifier notifier(this);
-  // Now that we know we're inserting, keep animVal list in sync as necessary.
-  MaybeInsertNullInAnimValListAt(aIndex);
+  // Keep animVal list in sync as necessary.
+  if (!MaybeInsertNullInAnimValListAt(aIndex)) {
+    aRv.ThrowIndexSizeError("List too long");
+    return nullptr;
+  }
 
-  InternalList().InsertItem(aIndex, domItem->ToSVGPoint());
+  AutoChangePointListNotifier notifier(this);
+  InternalList().InsertItem(aIndex, domItem->ToPoint());
   MOZ_ALWAYS_TRUE(mItems.InsertElementAt(aIndex, domItem, fallible));
 
   // This MUST come after the insertion into InternalList(), or else under the
@@ -321,10 +331,10 @@ already_AddRefed<DOMSVGPoint> DOMSVGPointList::ReplaceItem(
     mItems[aIndex]->RemovingFromList();
   }
 
-  InternalList()[aIndex] = domItem->ToSVGPoint();
+  InternalList()[aIndex] = domItem->ToPoint();
   mItems[aIndex] = domItem;
 
-  // This MUST come after the ToSVGPoint() call, otherwise that call
+  // This MUST come after the ToPoint() call, otherwise that call
   // would end up reading bad data from InternalList()!
   domItem->InsertingIntoList(this, aIndex, IsAnimValList());
 
@@ -374,23 +384,28 @@ already_AddRefed<DOMSVGPoint> DOMSVGPointList::GetItemAt(uint32_t aIndex) {
   return result.forget();
 }
 
-void DOMSVGPointList::MaybeInsertNullInAnimValListAt(uint32_t aIndex) {
+bool DOMSVGPointList::MaybeInsertNullInAnimValListAt(uint32_t aIndex) {
   MOZ_ASSERT(!IsAnimValList(), "call from baseVal to animVal");
 
   if (!AnimListMirrorsBaseList()) {
-    return;
+    return true;
   }
-
   // The anim val list is in sync with the base val list
   DOMSVGPointList* animVal =
       GetDOMWrapperIfExists(InternalAList().GetAnimValKey());
-
   MOZ_ASSERT(animVal, "AnimListMirrorsBaseList() promised a non-null animVal");
+
+  if (animVal->mItems.Length() >= DOMSVGPoint::MaxListIndex()) {
+    return false;
+  }
+
   MOZ_ASSERT(animVal->mItems.Length() == mItems.Length(),
              "animVal list not in sync!");
   MOZ_ALWAYS_TRUE(animVal->mItems.InsertElementAt(aIndex, nullptr, fallible));
 
   UpdateListIndicesFromIndex(animVal->mItems, aIndex + 1);
+
+  return true;
 }
 
 void DOMSVGPointList::MaybeRemoveItemFromAnimValListAt(uint32_t aIndex) {

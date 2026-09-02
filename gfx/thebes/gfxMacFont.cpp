@@ -4,24 +4,23 @@
 
 #include "gfxMacFont.h"
 
+#include <algorithm>
+
+#include "AppleUtils.h"
+#include "CoreTextFontList.h"
+#include "cairo-quartz.h"
+#include "gfxContext.h"
+#include "gfxCoreTextShaper.h"
+#include "gfxFontConstants.h"
+#include "gfxFontUtils.h"
+#include "gfxHarfBuzzShaper.h"
+#include "gfxPlatformMac.h"
+#include "gfxTextRun.h"
+#include "gfxUtils.h"
 #include "mozilla/MemoryReporting.h"
 #include "mozilla/Sprintf.h"
 #include "mozilla/StaticPrefs_gfx.h"
 #include "mozilla/gfx/ScaledFontMac.h"
-
-#include <algorithm>
-
-#include "CoreTextFontList.h"
-#include "gfxCoreTextShaper.h"
-#include "gfxPlatformMac.h"
-#include "gfxContext.h"
-#include "gfxFontUtils.h"
-#include "gfxHarfBuzzShaper.h"
-#include "gfxFontConstants.h"
-#include "gfxTextRun.h"
-#include "gfxUtils.h"
-#include "AppleUtils.h"
-#include "cairo-quartz.h"
 
 using namespace mozilla;
 using namespace mozilla::gfx;
@@ -142,10 +141,9 @@ gfxMacFont::~gfxMacFont() {
   }
 }
 
-bool gfxMacFont::ShapeText(DrawTarget* aDrawTarget, const char16_t* aText,
-                           uint32_t aOffset, uint32_t aLength, Script aScript,
-                           nsAtom* aLanguage, bool aVertical,
-                           RoundingFlags aRounding,
+bool gfxMacFont::ShapeText(const char16_t* aText, uint32_t aOffset,
+                           uint32_t aLength, Script aScript, nsAtom* aLanguage,
+                           bool aVertical, RoundingFlags aRounding,
                            gfxShapedText* aShapedText) {
   if (!mIsValid) {
     NS_WARNING("invalid font! expect incorrect text rendering");
@@ -160,11 +158,9 @@ bool gfxMacFont::ShapeText(DrawTarget* aDrawTarget, const char16_t* aText,
     if (!mCoreTextShaper) {
       mCoreTextShaper = MakeUnique<gfxCoreTextShaper>(this);
     }
-    if (mCoreTextShaper->ShapeText(aDrawTarget, aText, aOffset, aLength,
-                                   aScript, aLanguage, aVertical, aRounding,
-                                   aShapedText)) {
-      PostShapingFixup(aDrawTarget, aText, aOffset, aLength, aVertical,
-                       aShapedText);
+    if (mCoreTextShaper->ShapeText(aText, aOffset, aLength, aScript, aLanguage,
+                                   aVertical, aRounding, aShapedText)) {
+      PostShapingFixup(aText, aOffset, aLength, aVertical, aShapedText);
       if (ctFontEntry->HasTrackingTable()) {
         // Convert font size from device pixels back to CSS px
         // to use in selecting tracking value
@@ -183,8 +179,8 @@ bool gfxMacFont::ShapeText(DrawTarget* aDrawTarget, const char16_t* aText,
     }
   }
 
-  return gfxFont::ShapeText(aDrawTarget, aText, aOffset, aLength, aScript,
-                            aLanguage, aVertical, aRounding, aShapedText);
+  return gfxFont::ShapeText(aText, aOffset, aLength, aScript, aLanguage,
+                            aVertical, aRounding, aShapedText);
 }
 
 gfxFont::RunMetrics gfxMacFont::Measure(const gfxTextRun* aTextRun,
@@ -192,10 +188,11 @@ gfxFont::RunMetrics gfxMacFont::Measure(const gfxTextRun* aTextRun,
                                         BoundingBoxType aBoundingBoxType,
                                         DrawTarget* aRefDrawTarget,
                                         Spacing* aSpacing,
+                                        nscoord aLetterSpacing,
                                         gfx::ShapedTextFlags aOrientation) {
   gfxFont::RunMetrics metrics =
       gfxFont::Measure(aTextRun, aStart, aEnd, aBoundingBoxType, aRefDrawTarget,
-                       aSpacing, aOrientation);
+                       aSpacing, aLetterSpacing, aOrientation);
 
   // if aBoundingBoxType is not TIGHT_HINTED_OUTLINE_EXTENTS then we need to add
   // a pixel column each side of the bounding box in case of antialiasing
@@ -262,7 +259,11 @@ void gfxMacFont::InitMetrics() {
 
   // Try to read 'sfnt' metrics; for local, non-sfnt fonts ONLY, fall back to
   // platform APIs. The InitMetrics...() functions will set mIsValid on success.
-  if (!InitMetricsFromSfntTables(mMetrics) &&
+  if (
+#if MOZ_FONTATIONS
+      !InitMetricsFromSkrifa(mMetrics) &&
+#endif
+      !InitMetricsFromSfntTables(mMetrics) &&
       (!mFontEntry->IsUserFont() || mFontEntry->IsLocalUserFont())) {
     InitMetricsFromPlatform();
   }

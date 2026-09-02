@@ -13,17 +13,286 @@ ChromeUtils.defineESModuleGetters(this, {
   Chat: "moz-src:///browser/components/aiwindow/models/Chat.sys.mjs",
   ChatConversation:
     "moz-src:///browser/components/aiwindow/ui/modules/ChatConversation.sys.mjs",
+  getModelForChoice:
+    "moz-src:///browser/components/aiwindow/models/Utils.sys.mjs",
   IntentClassifier:
     "moz-src:///browser/components/aiwindow/models/IntentClassifier.sys.mjs",
+  MemoriesManager:
+    "moz-src:///browser/components/aiwindow/models/memories/MemoriesManager.sys.mjs",
+  MENTION_TYPE:
+    "moz-src:///browser/components/urlbar/SmartbarMentionsPanelSearch.sys.mjs",
   openAIEngine: "moz-src:///browser/components/aiwindow/models/Utils.sys.mjs",
-  SessionStore: "resource:///modules/sessionstore/SessionStore.sys.mjs",
-  SessionWindowUI: "resource:///modules/sessionstore/SessionWindowUI.sys.mjs",
+  SmartbarMentionsPanelSearch:
+    "moz-src:///browser/components/urlbar/SmartbarMentionsPanelSearch.sys.mjs",
+  PlacesTestUtils: "resource://testing-common/PlacesTestUtils.sys.mjs",
+  Region: "resource://gre/modules/Region.sys.mjs",
+  SearchTestUtils: "resource://testing-common/SearchTestUtils.sys.mjs",
+  SessionStore:
+    "moz-src:///browser/components/sessionstore/SessionStore.sys.mjs",
+  SessionWindowUI:
+    "moz-src:///browser/components/sessionstore/SessionWindowUI.sys.mjs",
   sinon: "resource://testing-common/Sinon.sys.mjs",
 });
 
+SearchTestUtils.init(this);
+
+const { _setLoadPromptForTesting } = ChromeUtils.importESModule(
+  "moz-src:///browser/components/aiwindow/ui/modules/ChatConversation.sys.mjs"
+);
+
+const { _setRemoteClientForTesting, _clearRemoteClientForTesting } =
+  ChromeUtils.importESModule(
+    "moz-src:///browser/components/aiwindow/models/Utils.sys.mjs"
+  );
+
+// Aliased to avoid colliding with ChatConversation.sys.mjs's own _setLoadPromptForTesting above.
+const {
+  _setLoadPromptForTesting: _setConversationSuggestionsLoadPromptForTesting,
+  _setBuildConversationForTesting,
+  _setGetConversationsByIdForTesting,
+  _clearResumeActivityCacheForTesting,
+} = ChromeUtils.importESModule(
+  "moz-src:///browser/components/aiwindow/models/ConversationSuggestions.sys.mjs"
+);
+
+/**
+ * @import { SmartbarAction } from "chrome://browser/content/aiwindow/components/input-cta/input-cta.mjs"
+ */
+
+async function modelFor(choiceId) {
+  return (await getModelForChoice(choiceId)).model;
+}
+
 const AIWINDOW_URL = "chrome://browser/content/aiwindow/aiWindow.html";
+const FIRSTRUN_URL = "chrome://browser/content/aiwindow/firstrun.html";
 
 let gIntentEngineStub;
+
+// Minimal RS records returned by the global getRemoteClient stub.
+// Version numbers must match FEATURE_MAJOR_VERSIONS in models/Utils.sys.mjs.
+const MOCK_RS_RECORDS = [
+  ["chat", 11],
+  ["title-generation", 1],
+  ["tab-group-naming", 1],
+  ["conversation-starters-sidebar-system", 1],
+  ["conversation-suggestions-sidebar-starter", 3],
+  ["conversation-suggestions-followup", 1],
+  ["conversation-suggestions-assistant-limitations", 1],
+  ["conversation-suggestions-memories", 1],
+  ["memories-initial-generation-system", 2],
+  ["memories-initial-generation-user", 2],
+  ["memories-sensitivity-filter-system", 1],
+  ["memories-sensitivity-filter-user", 1],
+  ["memories-quality-filter-system", 1],
+  ["memories-quality-filter-user", 1],
+  ["memories-message-classification-system", 1],
+  ["memories-message-classification-user", 1],
+  ["search-answer-generation", 1],
+]
+  .map(([feature, major]) => ({
+    feature,
+    // chat uses "generic" as the fallback model name (see selectMainConfig);
+    // all other features use "test-model" with is_default: true.
+    model: feature === "chat" ? "generic" : "test-model",
+    service_type: "ai",
+    parameters: {},
+    prompts:
+      feature === "conversation-suggestions-sidebar-starter"
+        ? "Generate {n} prompts for {current_tab}.\nOpen tabs: {open_tabs}"
+        : "Test system prompt.",
+    version: `v${major}.0`,
+    is_default: true,
+  }))
+  // Chat resolves model+params from v2 kind:"params" records (one generic
+  // fallback + one per model choice).
+  .concat([
+    {
+      kind: "params",
+      feature: "chat",
+      model: "generic",
+      model_choice_id: "0",
+      service_type: "ai",
+      purpose: "chat",
+      parameters: {},
+      is_default: true,
+      version: "v10.0",
+    },
+    {
+      kind: "params",
+      feature: "chat",
+      model: "gemini-3.1-flash-lite",
+      model_choice_id: "1",
+      model_details: {
+        model: "gemini-3.1-flash-lite",
+        ownerName: "Google",
+        labelId: "fast",
+        shortName: "Gemini 3.1 Flash Lite",
+        brandName: "Gemini",
+      },
+      service_type: "ai",
+      purpose: "chat",
+      parameters: {},
+      prompts: "Test system prompt.",
+      version: "v10.0",
+    },
+    {
+      kind: "params",
+      feature: "chat",
+      model: "qwen3-235b-a22b-instruct-2507-maas",
+      model_choice_id: "2",
+      model_details: {
+        model: "qwen3-235b-a22b-instruct-2507-maas",
+        ownerName: "Alibaba",
+        labelId: "allpurpose",
+        shortName: "Qwen 3 235B",
+        brandName: "Qwen",
+      },
+      service_type: "ai",
+      purpose: "chat",
+      parameters: {},
+      prompts: "Test system prompt.",
+      version: "v10.0",
+    },
+    {
+      kind: "params",
+      feature: "chat",
+      model: "gpt-oss-120b",
+      model_choice_id: "3",
+      model_details: {
+        model: "gpt-oss-120b",
+        ownerName: "OpenAI",
+        labelId: "personal",
+        shortName: "GPT OSS 120B",
+        brandName: "GPT OSS",
+      },
+      service_type: "ai",
+      purpose: "chat",
+      parameters: {},
+      prompts: "Test system prompt.",
+      version: "v10.0",
+    },
+    // TODO 2053495
+    // v11 records for mistral release (browser.smartwindow.mistralRelease pref)
+    {
+      kind: "params",
+      feature: "chat",
+      model: "generic",
+      model_choice_id: "0",
+      service_type: "ai",
+      purpose: "chat",
+      parameters: {},
+      prompts: "Test system prompt.",
+      version: "v11.0",
+      is_default: true,
+    },
+    {
+      kind: "params",
+      feature: "chat",
+      model: "mistral-small-2603",
+      model_choice_id: "3",
+      model_details: {
+        model: "mistral-small-2603",
+        ownerName: "Mistral",
+        labelId: "personal",
+        shortName: "Mistral Small 4",
+        brandName: "Mistral",
+      },
+      service_type: "ai",
+      purpose: "chat",
+      parameters: {},
+      version: "v11.0",
+    },
+    {
+      kind: "params",
+      feature: "chat",
+      model: "gemini-3.1-flash-lite",
+      model_choice_id: "1",
+      model_details: {
+        model: "gemini-3.1-flash-lite",
+        ownerName: "Google",
+        labelId: "fast",
+        shortName: "Gemini 3.1 Flash Lite",
+        brandName: "Gemini",
+      },
+      service_type: "ai",
+      purpose: "chat",
+      parameters: {},
+      prompts: "Test system prompt.",
+      version: "v11.0",
+    },
+    {
+      kind: "params",
+      feature: "chat",
+      model: "qwen3-235b-a22b-instruct-2507-maas",
+      model_choice_id: "2",
+      model_details: {
+        model: "qwen3-235b-a22b-instruct-2507-maas",
+        ownerName: "Alibaba",
+        labelId: "allpurpose",
+        shortName: "Qwen 3 235B",
+        brandName: "Qwen",
+      },
+      service_type: "ai",
+      purpose: "chat",
+      parameters: {},
+      version: "v11.0",
+    },
+    // The relevant-memories module is loaded for the chat model, so it resolves
+    // via the "generic" fallback rather than is_default like the v1 records.
+    {
+      kind: "params",
+      feature: "memories-context",
+      model: "generic",
+      service_type: "memories",
+      parameters: {},
+      is_default: true,
+      modules: [{ name: "relevant-memories", version: "1.0" }],
+      version: "v1.0",
+    },
+    {
+      kind: "module",
+      feature: "memories-context",
+      module: "relevant-memories",
+      model: "generic",
+      // The prompt renders the retrieved memory list, so it needs the
+      // placeholder the real prompt has.
+      prompts:
+        "# Existing Memories\n\n## Existing Memories\n{relevantMemoriesList}",
+      version: "v1.0",
+    },
+    // tab-group-naming resolves through the v2 modular path: a params manifest
+    // plus one module record per prompt module (system-instructions, user-data).
+    {
+      kind: "params",
+      feature: "tab-group-naming",
+      model: "test-model",
+      service_type: "ai",
+      purpose: "auto-tab-grouping",
+      parameters: {},
+      modules: [
+        { name: "system-instructions", version: "v1.0" },
+        { name: "user-data", version: "v1.0" },
+      ],
+      version: "v1.0",
+      is_default: true,
+    },
+    {
+      kind: "module",
+      feature: "tab-group-naming",
+      module: "system-instructions",
+      model: "test-model",
+      prompts: "Name this group of tabs.",
+      version: "v1.0",
+    },
+    {
+      kind: "module",
+      feature: "tab-group-naming",
+      module: "user-data",
+      model: "test-model",
+      prompts: "Tabs:\n{titles}",
+      version: "v1.0",
+    },
+  ]);
 
 add_setup(async function () {
   await SpecialPowers.pushPrefEnv({
@@ -34,6 +303,20 @@ add_setup(async function () {
       ["browser.smartwindow.chat.interactionCount", 0],
     ],
   });
+
+  // The smartbar submits a real SERP navigation whenever it resolves to the
+  // "search" action, which no amount of engine stubbing prevents. Point the
+  // default engine at a local host so a stray search can never reach the
+  // network and crash the harness (bug 2050017).
+  await SearchTestUtils.installSearchExtension(
+    {
+      name: "AIWindowTestEngine",
+      search_url: "https://example.org/aiwindow-test-serp/",
+      search_url_get_params: "?q={searchTerms}",
+      favicon_url: "https://example.com/favicon.ico",
+    },
+    { setAsDefault: true }
+  );
 
   // Stub intent engine so it doesn't attempt network requests
   const fakeIntentEngine = {
@@ -48,13 +331,24 @@ add_setup(async function () {
     .stub(IntentClassifier, "_createEngine")
     .resolves(fakeIntentEngine);
   registerCleanupFunction(() => gIntentEngineStub.restore());
+
+  // Stub the RS client so PromptLoader.buildConversation never hits real Remote Settings.
+  _setRemoteClientForTesting({ get: async () => MOCK_RS_RECORDS });
+  registerCleanupFunction(() => _clearRemoteClientForTesting());
+
+  // Stub ChatConversation's loadPrompt so loadSystemPrompt and
+  // injectRealTimeContext don't hit RS.
+  _setLoadPromptForTesting(async () => "Test system prompt.");
+  registerCleanupFunction(() => {
+    _setLoadPromptForTesting(null);
+  });
 });
 
 /**
  * Opens a new AI Window
  *
  * @param {object} options
- * @param {string|boolean} options.waitForTabURL - URL to wait for or false to skip waiting
+ * @param {string} [options.waitForTabURL] - URL to wait for, or empty string to skip waiting
  * @returns {Promise<Window>}
  */
 async function openAIWindow({ waitForTabURL = AIWINDOW_URL } = {}) {
@@ -75,29 +369,87 @@ async function openAIWindow({ waitForTabURL = AIWINDOW_URL } = {}) {
 }
 
 /**
+ * Waits for the sidebar ai-window element to connect.
+ *
+ * @param {Window} win - Window reference
+ * @returns {Promise<MozBrowser>} - The sidebar browser element
+ */
+async function waitForSidebarReady(win) {
+  const sidebarBrowser = win.document.getElementById("ai-window-browser");
+  await TestUtils.waitForCondition(
+    () => sidebarBrowser.contentDocument?.querySelector("ai-window:defined"),
+    "Sidebar ai-window should be loaded"
+  );
+  return sidebarBrowser;
+}
+
+/**
+ * Waits for the sidebar slide animation to settle into its closed state. The
+ * close animation keeps the box uncollapsed until the slide finishes, so
+ * `box.collapsed` (set by AIWindowUI._commitSidebarCollapsed) is the only
+ * reliable signal that the sidebar is fully closed.
+ *
+ * @param {Window} win - Window reference
+ * @returns {Promise<Element>} - The sidebar box element
+ */
+async function waitForSidebarClosed(win) {
+  const box = win.document.getElementById("ai-window-box");
+  await TestUtils.waitForCondition(
+    () => box.collapsed,
+    "Wait for AI sidebar slide-close to finish"
+  );
+  return box;
+}
+
+/**
+ * Waits for the sidebar slide animation to settle into its open state. During an
+ * open slide the box is uncollapsed up-front while the splitter stays hidden, so
+ * the splitter becoming visible (in AIWindowUI._commitSidebarCollapsed) is the
+ * signal that the slide has fully committed.
+ *
+ * @param {Window} win - Window reference
+ * @returns {Promise<Element>} - The sidebar box element
+ */
+async function waitForSidebarOpen(win) {
+  const box = win.document.getElementById("ai-window-box");
+  const splitter = win.document.getElementById("ai-window-splitter");
+  await TestUtils.waitForCondition(
+    () =>
+      !box.collapsed && !splitter.collapsed && AIWindowUI.isSidebarOpen(win),
+    "Wait for AI sidebar slide-open to finish"
+  );
+  return box;
+}
+
+/**
  * Opens a new AI Window with about:blank
  * and the chat assistant sidebar open
  *
+ * @param {string} [url] - URL to navigate the tab to
  * @returns {Promise<{win: Window, sidebarBrowser: MozBrowser}>}
  */
-async function openAIWindowWithSidebar() {
+async function openAIWindowWithSidebar(url = "about:blank") {
   const win = await openAIWindow();
-  BrowserTestUtils.startLoadingURIString(
-    win.gBrowser.selectedBrowser,
-    "about:blank"
-  );
+  return openAIWindowSidebar(win, url);
+}
+
+/**
+ * Navigates an AI Window to the given URL and opens the sidebar.
+ *
+ * @param {Window} win
+ * @param {string} [url] - URL to navigate the tab to
+ * @returns {Promise<{win: Window, sidebarBrowser: MozBrowser}>}
+ */
+async function openAIWindowSidebar(win, url = "about:blank") {
+  BrowserTestUtils.startLoadingURIString(win.gBrowser.selectedBrowser, url);
   await BrowserTestUtils.browserLoaded(win.gBrowser.selectedBrowser, {
-    wantLoad: "about:blank",
+    wantLoad: url,
   });
   if (!AIWindowUI.isSidebarOpen(win)) {
     info("Opening sidebar");
     AIWindowUI.toggleSidebar(win);
   }
-  const sidebarBrowser = win.document.getElementById("ai-window-browser");
-  await BrowserTestUtils.waitForCondition(
-    () => sidebarBrowser.contentDocument?.querySelector("ai-window:defined"),
-    "Sidebar ai-window should be loaded"
-  );
+  const sidebarBrowser = await waitForSidebarReady(win);
   return { win, sidebarBrowser };
 }
 
@@ -134,6 +486,133 @@ async function getConversationId(browser) {
     "Wait for ai-window element"
   );
   return aiWindow.conversationId.toString();
+}
+
+async function stubResumeActivityGeneration(sb) {
+  const urls = [1, 2, 3, 4, 5].map(id => ({
+    url: `https://example.com/${id}`,
+    title: `Example ${id}`,
+  }));
+  for (const [index, page] of urls.entries()) {
+    await PlacesUtils.history.insert({
+      ...page,
+      visits: [
+        {
+          date: new Date(Date.now() - (urls.length - index) * 60_000),
+          transition: PlacesUtils.history.TRANSITIONS.LINK,
+        },
+      ],
+    });
+  }
+
+  const memories = [
+    {
+      id: "memory-1",
+      memory_summary: "Research project",
+      source_ids: {
+        history_source_ids: urls
+          .slice(0, 4)
+          .map(({ url }) => PlacesUtils.history.hashURL(url)),
+      },
+    },
+    {
+      id: "memory-2",
+      memory_summary: "Trip planning",
+      source_ids: {
+        history_source_ids: [PlacesUtils.history.hashURL(urls[4].url)],
+      },
+    },
+  ];
+
+  const getMemoriesStub = sb
+    .stub(MemoriesManager, "getMemoriesByAttribute")
+    .resolves(memories);
+  // Keep cached results from being filtered as deleted.
+  sb.stub(MemoriesManager, "getAllMemories").resolves(memories);
+  // Prevent cached results from leaking between tests.
+  _clearResumeActivityCacheForTesting();
+  _setGetConversationsByIdForTesting(async () => []);
+  _setConversationSuggestionsLoadPromptForTesting(async () => ({
+    prompt: "Test prompt",
+  }));
+  _setBuildConversationForTesting(async () => ({
+    setSystemMessage() {},
+    addUserMessage() {},
+    securityProperties: {
+      setPrivateData() {},
+      setUntrustedInput() {},
+      commit() {},
+    },
+    run: sb.stub().resolves({
+      finalOutput: JSON.stringify([
+        {
+          id: 0,
+          headline: "Pick up your research",
+          status: "Continue reading",
+        },
+      ]),
+    }),
+  }));
+  sb.stub(openAIEngine, "getFxAccountToken").resolves(null);
+
+  const originalAvailableLocales = Services.locale.availableLocales;
+  const originalRequestedLocales = Services.locale.requestedLocales;
+  Services.locale.availableLocales = ["en-US"];
+  Services.locale.requestedLocales = ["en-US"];
+
+  return {
+    getMemoriesStub,
+    memories,
+    async cleanup() {
+      _setGetConversationsByIdForTesting(null);
+      _setConversationSuggestionsLoadPromptForTesting(null);
+      _setBuildConversationForTesting(null);
+      _clearResumeActivityCacheForTesting();
+      for (const { url } of urls) {
+        await PlacesUtils.history.remove(url);
+      }
+      Services.locale.availableLocales = originalAvailableLocales;
+      Services.locale.requestedLocales = originalRequestedLocales;
+    },
+  };
+}
+
+/**
+ * Shared setup/teardown for tests that click a resume pill: enables the
+ * memories prefs, stubs resume-activity generation so a real pill renders,
+ * opens the AI Window, and hands the caller its buttons to click. `run`
+ * supplies whatever additional stubs it needs (engine build, fetchWithHistory,
+ * etc.) via its own sandbox before calling this.
+ *
+ * @param {object} sb - Sinon sandbox, owned and restored by the caller
+ * @param {Function} run - Async callback invoked with
+ *   {win, browser, aiWindow, buttons}
+ */
+async function testResumeActivityClick(sb, run) {
+  await SpecialPowers.pushPrefEnv({
+    set: [
+      ["browser.smartwindow.memories.generateFromConversation", true],
+      ["browser.smartwindow.memories.generateFromHistory", true],
+    ],
+  });
+  const resumeActivityStubs = await stubResumeActivityGeneration(sb);
+  let win;
+  try {
+    win = await openAIWindow();
+    const browser = win.gBrowser.selectedBrowser;
+    const aiWindow = browser.contentDocument.querySelector("ai-window");
+    const buttons = await TestUtils.waitForCondition(async () => {
+      const found = await getPromptButtons(browser);
+      return found.length ? found : false;
+    }, "Wait for prompt buttons to replace loading skeletons");
+    await run({ win, browser, aiWindow, buttons });
+  } finally {
+    if (win) {
+      await BrowserTestUtils.closeWindow(win);
+    }
+    await resumeActivityStubs.cleanup();
+    await SpecialPowers.popPrefEnv();
+  }
 }
 
 /**
@@ -188,6 +667,8 @@ async function getConversationId(browser) {
  * Call the returned async restore function to clean up stubs, pop prefs, and
  * stop the server.
  *
+ * @deprecated Please use MockEngineManager in AIWindowTestUtils.sys.mjs.
+ *   TODO (Bug 2045844): Remove and replace existing usages across test files.
  * @param {StubEngineNetworkBoundariesConfig} [config]
  * @returns {Promise<StubEngineNetworkBoundariesResult>}
  */
@@ -203,19 +684,26 @@ async function stubEngineNetworkBoundaries({
   const originalBuild = openAIEngine.build.bind(openAIEngine);
   const buildStub = sinon
     .stub(openAIEngine, "build")
-    .callsFake(async (feature, ...rest) => {
+    .callsFake(async (featureOrConfig, ...rest) => {
+      const feature =
+        typeof featureOrConfig === "object" && featureOrConfig !== null
+          ? featureOrConfig.feature
+          : featureOrConfig;
       if (passthroughFeatures.has(feature)) {
-        return originalBuild(feature, ...rest);
+        return originalBuild(featureOrConfig, ...rest);
       }
       // Non-passthrough features get a mock engine whose methods resolve
       // synchronously, preventing dangling async chains.
       return {
-        loadPrompt: () => "",
-        getConfig: () => ({}),
         feature,
+        model:
+          typeof featureOrConfig === "object"
+            ? featureOrConfig.model
+            : "test-model",
         async run() {
           return engineRunResponse;
         },
+        runWithGenerator() {},
       };
     });
 
@@ -263,6 +751,22 @@ function skipSignIn() {
     .stub(AIWindowAccountAuth, "ensureAIWindowAccess")
     .resolves(true);
   return () => stub.restore();
+}
+
+/**
+ * Clicks the New Chat button in the sidebar
+ *
+ * @param {Window} win
+ */
+async function clickNewChatButton(win) {
+  const sidebarBrowser = win.document.getElementById("ai-window-browser");
+  await TestUtils.waitForCondition(
+    () => sidebarBrowser.contentDocument?.querySelector("ai-window:defined"),
+    "Wait for ai-window to be defined in sidebar"
+  );
+  const aiWindow = sidebarBrowser.contentDocument.querySelector("ai-window");
+  const newChatBtn = aiWindow.shadowRoot.querySelector(".new-chat-icon-button");
+  newChatBtn.click();
 }
 
 /**
@@ -316,7 +820,7 @@ async function openTabContextMenuAndClickTabByLabel(sidebarBrowser, label) {
 }
 
 async function getSmartbarContextChipLabels(browser, expectedUrl) {
-  await BrowserTestUtils.waitForCondition(
+  await TestUtils.waitForCondition(
     () => browser.contentDocument?.querySelector("ai-window:defined"),
     "Sidebar ai-window should be loaded"
   );
@@ -369,21 +873,228 @@ async function getSmartbarContextChipLabels(browser, expectedUrl) {
  */
 async function submitSmartbar(browser, { useButton = false } = {}) {
   await SpecialPowers.spawn(browser, [useButton], async clickButton => {
-    const aiWindowElement = content.document.querySelector("ai-window");
-    const smartbar = aiWindowElement.shadowRoot.querySelector(
-      "#ai-window-smartbar"
+    const aiWindow = content.document.querySelector("ai-window");
+    await ContentTaskUtils.waitForMutationCondition(
+      aiWindow.shadowRoot,
+      { childList: true, subtree: true },
+      () => aiWindow.shadowRoot.querySelector("#ai-window-smartbar")
     );
+    const smartbar = aiWindow.shadowRoot.querySelector("#ai-window-smartbar");
     if (clickButton) {
       const inputCta = smartbar.querySelector("input-cta");
       const mozButton = inputCta.shadowRoot.querySelector("moz-button");
       const button = mozButton.shadowRoot.querySelector("button");
       button.click();
     } else {
+      const inputCta = smartbar.querySelector("input-cta");
+      await ContentTaskUtils.waitForCondition(
+        () => inputCta.getAttribute("action") !== "stop",
+        "Wait for generation to complete before submitting via Enter"
+      );
       const inputField = smartbar.inputField;
       inputField.focus();
       EventUtils.synthesizeKey("KEY_Enter", {}, content);
     }
   });
+}
+
+/**
+ * Select an explicit action from the smartbar CTA dropdown menu.
+ *
+ * @param {MozBrowser} browser - The browser element
+ * @param {SmartbarAction} action - The action to select
+ */
+async function selectExplicitSmartbarAction(browser, action) {
+  await SpecialPowers.spawn(browser, [action], async actionType => {
+    const aiWindow = content.document.querySelector("ai-window");
+    await ContentTaskUtils.waitForMutationCondition(
+      aiWindow.shadowRoot,
+      { childList: true, subtree: true },
+      () => aiWindow.shadowRoot.querySelector("#ai-window-smartbar")
+    );
+    const smartbar = aiWindow.shadowRoot.querySelector("#ai-window-smartbar");
+    const inputCta = smartbar.querySelector("input-cta");
+    const mozButton = inputCta.shadowRoot.querySelector("moz-button");
+
+    await ContentTaskUtils.waitForMutationCondition(
+      mozButton.shadowRoot,
+      { childList: true, subtree: true },
+      () => mozButton.shadowRoot.querySelector("#chevron-button")
+    );
+    const chevronButton = mozButton.shadowRoot.querySelector("#chevron-button");
+    const panelList = inputCta.shadowRoot.querySelector("panel-list");
+    const shownPromise = ContentTaskUtils.waitForEvent(panelList, "shown");
+    chevronButton.click();
+    await shownPromise;
+
+    const actionItem = panelList.querySelector(
+      `panel-item[icon="${actionType}"]`
+    );
+    actionItem.click();
+  });
+}
+
+/**
+ * Select the first search engine from the smartbar CTA "Search with…" submenu.
+ *
+ * @param {MozBrowser} browser - The browser element
+ */
+async function selectSmartbarSearchEngine(browser) {
+  const inputCta = BrowserTestUtils.querySelectorDeep(
+    browser.contentDocument,
+    "input-cta"
+  );
+  const mozButton = BrowserTestUtils.querySelectorDeep(inputCta, "moz-button");
+
+  const chevronButton = await TestUtils.waitForCondition(() =>
+    mozButton.shadowRoot.querySelector("#chevron-button")
+  );
+  const [mainPanel, searchSubpanel] =
+    inputCta.shadowRoot.querySelectorAll("panel-list");
+
+  const mainShown = BrowserTestUtils.waitForEvent(mainPanel, "shown");
+  chevronButton.click();
+  await mainShown;
+
+  const subpanelShown = BrowserTestUtils.waitForEvent(searchSubpanel, "shown");
+  mainPanel.querySelector('panel-item[icon="search-with"]').click();
+  await subpanelShown;
+
+  const engineItem = await TestUtils.waitForCondition(() =>
+    searchSubpanel.querySelector('panel-item[icon="engine"]')
+  );
+  engineItem.click();
+}
+
+/**
+ * Wait for the smartbar action to be set.
+ *
+ * @param {MozBrowser} browser - The browser element
+ * @param {string} expectedAction - The expected action value
+ */
+async function waitForSmartbarAction(browser, expectedAction) {
+  await SpecialPowers.spawn(browser, [expectedAction], async action => {
+    const aiWindow = content.document.querySelector("ai-window");
+    await ContentTaskUtils.waitForMutationCondition(
+      aiWindow.shadowRoot,
+      { childList: true, subtree: true },
+      () => aiWindow.shadowRoot.querySelector("#ai-window-smartbar")
+    );
+    const smartbar = aiWindow.shadowRoot.querySelector("#ai-window-smartbar");
+    await ContentTaskUtils.waitForCondition(
+      () => smartbar.smartbarAction === action,
+      `Wait for smartbar action to be "${action}"`
+    );
+  });
+}
+
+/**
+ * Stub the smartbar's load path to prevent navigation. The load funnels through
+ * the private #loadURL into controller.loadURL, so the controller is the seam.
+ *
+ * @param {MozBrowser} browser - The browser element
+ * @param {object} [options] - Options for the stub
+ * @param {boolean} [options.captureURL=false] - If true, capture the URL
+ */
+async function stubLoadURL(browser, { captureURL = false } = {}) {
+  await SpecialPowers.spawn(browser, [captureURL], async capture => {
+    const aiWindow = content.document.querySelector("ai-window");
+    await ContentTaskUtils.waitForMutationCondition(
+      aiWindow.shadowRoot,
+      { childList: true, subtree: true },
+      () => aiWindow.shadowRoot.querySelector("#ai-window-smartbar")
+    );
+    const smartbar = aiWindow.shadowRoot.querySelector("#ai-window-smartbar");
+    if (capture) {
+      content._stubLoadURLCalled = false;
+      content._stubLoadedURL = null;
+      smartbar.controller.loadURL = ({ loadRequest }) => {
+        content._stubLoadURLCalled = true;
+        content._stubLoadedURL = loadRequest.urlLoad?.url ?? null;
+        return {};
+      };
+    } else {
+      smartbar.controller.loadURL = () => ({});
+    }
+  });
+}
+
+/**
+ * Get the result of a stubbed and captured stubLoadURL call.
+ *
+ * @param {MozBrowser} browser - The browser element
+ * @returns {Promise<{called: boolean, url: string|null}>}
+ */
+async function getStubLoadURLResult(browser) {
+  return SpecialPowers.spawn(browser, [], async () => {
+    return {
+      called: content._stubLoadURLCalled,
+      url: content._stubLoadedURL,
+    };
+  });
+}
+
+/**
+ * Stub the controller's openSERP method to capture the search terms instead of
+ * running a real search.
+ *
+ * @param {MozBrowser} browser - The browser element
+ */
+async function stubOpenSERP(browser) {
+  await SpecialPowers.spawn(browser, [], async () => {
+    const aiWindow = content.document.querySelector("ai-window");
+    const smartbar = await ContentTaskUtils.waitForCondition(() =>
+      ContentTaskUtils.querySelectorDeep(aiWindow, "#ai-window-smartbar")
+    );
+    content._stubOpenSERPCalled = false;
+    content._stubOpenSERPTerms = null;
+    content._stubOpenSERPEngine = null;
+    smartbar.controller.openSERP = (engineId, searchTerms) => {
+      content._stubOpenSERPCalled = true;
+      content._stubOpenSERPTerms = searchTerms;
+      content._stubOpenSERPEngine = engineId;
+    };
+  });
+}
+
+/**
+ * Get the result of a stubbed openSERP call.
+ *
+ * @param {MozBrowser} browser - The browser element
+ * @returns {Promise<{called: boolean, terms: ?string, engineId: ?string}>}
+ */
+async function getStubOpenSERPResult(browser) {
+  return SpecialPowers.spawn(browser, [], async () => {
+    return {
+      called: content._stubOpenSERPCalled,
+      terms: content._stubOpenSERPTerms,
+      engineId: content._stubOpenSERPEngine,
+    };
+  });
+}
+
+/**
+ * Assert the current smartbar value.
+ *
+ * @param {MozBrowser} browser - The browser element
+ * @param {string} expectedValue - The expected value
+ * @param {string} message - The assertion message
+ */
+async function assertSmartbarValue(browser, expectedValue, message) {
+  await SpecialPowers.spawn(
+    browser,
+    [expectedValue, message],
+    async (val, msg) => {
+      const aiWindow = content.document.querySelector("ai-window");
+      await ContentTaskUtils.waitForMutationCondition(
+        aiWindow.shadowRoot,
+        { childList: true, subtree: true },
+        () => aiWindow.shadowRoot.querySelector("#ai-window-smartbar")
+      );
+      const smartbar = aiWindow.shadowRoot.querySelector("#ai-window-smartbar");
+      Assert.equal(smartbar.value, val, msg);
+    }
+  );
 }
 
 /**
@@ -400,7 +1111,7 @@ async function typeInSmartbar(browser, text) {
       "Wait for Smartbar to be rendered"
     );
     info("typeInSmartbar: smartbar found, calling focus()");
-    smartbar.focus();
+    smartbar.inputField.focus();
     await ContentTaskUtils.waitForCondition(
       () => smartbar.matches(":focus-within"),
       "Wait for smartbar to receive focus"
@@ -645,6 +1356,66 @@ async function getSmartbarContextChips(browser) {
 }
 
 /**
+ * Gets the smartbar model select data.
+ *
+ * @param {MozBrowser} browser - The browser element
+ * @returns {Promise<object>} Returns model select data
+ */
+async function getSmartbarModelSelectData(browser) {
+  return SpecialPowers.spawn(browser, [], async () => {
+    const aiWindowElement = content.document.querySelector("ai-window");
+    const smartbar = aiWindowElement.shadowRoot.querySelector(
+      "#ai-window-smartbar"
+    );
+    const modelSelect = smartbar.querySelector("input-model-select");
+
+    return {
+      availableModels: modelSelect.availableModels,
+      selectedModelId: aiWindowElement.selectedModelId,
+    };
+  });
+}
+
+/**
+ * Switches to a model in the smartbar by choice ID.
+ *
+ * @param {MozBrowser} browser - The browser element
+ * @param {string} modelChoiceId - Model choice id to switch to
+ */
+async function switchSmartbarModel(browser, modelChoiceId) {
+  return SpecialPowers.spawn(browser, [modelChoiceId], async choiceId => {
+    const aiWindowElement = content.document.querySelector("ai-window");
+    const smartbar = aiWindowElement.shadowRoot.querySelector(
+      "#ai-window-smartbar"
+    );
+    const modelSelect = smartbar.querySelector("input-model-select");
+    const triggerButton = modelSelect.shadowRoot.querySelector("moz-button");
+    triggerButton.click();
+
+    const panelList = modelSelect.shadowRoot.querySelector("panel-list");
+    await ContentTaskUtils.waitForMutationCondition(
+      panelList,
+      { attributes: true },
+      () => panelList.hasAttribute("open")
+    );
+
+    const modelKeys = Object.keys(modelSelect.availableModels);
+    const index = modelKeys.indexOf(choiceId);
+    if (index === -1) {
+      throw new Error(`Model choice "${choiceId}" not available`);
+    }
+    const targetModelId = modelSelect.availableModels[choiceId].model;
+    panelList.querySelectorAll("button.model-item")[index].click();
+
+    await ContentTaskUtils.waitForMutationCondition(
+      aiWindowElement,
+      { attributes: true },
+      () => aiWindowElement.selectedModelId === targetModelId
+    );
+  });
+}
+
+/**
  * Returns the chat messages currently displayed in the sidebar.
  *
  * @param {MozBrowser} sidebarBrowser - The sidebar browser element
@@ -666,11 +1437,192 @@ async function getSidebarChatMessages(sidebarBrowser) {
     );
     await contentEl.updateComplete;
     const messageEls = contentEl.shadowRoot.querySelectorAll("ai-chat-message");
-    return Array.from(messageEls, el => ({
-      role: el.role,
-      message: el.message,
-    }));
+    return Array.from(messageEls, el => {
+      const elJS = el.wrappedJSObject || el;
+      return {
+        role: elJS.role,
+        message: elJS.message,
+        hasRendered: !!el.shadowRoot?.querySelector(
+          ".message-assistant, .message-user"
+        ),
+      };
+    });
   });
+}
+
+/**
+ * Default bound for the render waits below. Generous enough to never false-fail
+ * behind the mock LLM round-trip, but a fraction of the harness timeout so a
+ * genuine stall fails fast with a clear message rather than hanging.
+ */
+const RENDER_TIMEOUT_MS = 15000;
+
+/**
+ * Resolves the #aichat-browser frame for the AI Window hosted in the given
+ * browser. By the time the post-response helpers below run, both ai-window and
+ * #aichat-browser already exist, so the check resolves immediately; the bound
+ * just guarantees a fast, clear failure if they ever don't.
+ *
+ * @param {MozBrowser} browser - The browser hosting the AI Window
+ *
+ * @returns {Promise<MozBrowser>} The #aichat-browser frame
+ */
+function getAIChatBrowser(browser) {
+  return BrowserTestUtils.waitForMutationCondition(
+    browser.contentDocument.documentElement,
+    { childList: true, subtree: true },
+    () =>
+      browser.contentDocument
+        ?.querySelector("ai-window")
+        ?.shadowRoot?.querySelector("#aichat-browser"),
+    { msg: "ai-window #aichat-browser", timeout: RENDER_TIMEOUT_MS }
+  );
+}
+
+/**
+ * Runs a SpecialPowers.spawn task bounded by a timeout. The content task can use
+ * plain ContentTaskUtils.waitForMutationCondition (event-driven, no polling),
+ * which never rejects on its own; this wrapper races the spawn against a timer so
+ * a task that never settles fails fast with a clear message instead of hanging
+ * until the harness aborts the SpecialPowers actor.
+ *
+ * @param {MozBrowser} browser - The frame to run the task in
+ * @param {Array} args - Arguments forwarded to the task
+ * @param {Function} task - The content task
+ * @param {string} label - Description used in the timeout error message
+ * @param {number} [timeoutMs=RENDER_TIMEOUT_MS]
+ *
+ * @returns {Promise<any>} The task's return value
+ */
+function spawnBounded(
+  browser,
+  args,
+  task,
+  label,
+  timeoutMs = RENDER_TIMEOUT_MS
+) {
+  const spawned = SpecialPowers.spawn(browser, args, task);
+  // If the timeout wins, the spawn promise is abandoned; handle its eventual
+  // rejection (the actor is torn down at cleanup) so it isn't surfaced as an
+  // unhandled rejection. A real task error still propagates through the race.
+  spawned.catch(() => {});
+
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`Timed out waiting for: ${label}`)),
+      timeoutMs
+    );
+  });
+  return Promise.race([spawned, timeout]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * Checks for presence of a selector within the chat messages, either at a
+ * specific message element or in any message element
+ *
+ * @param {MozBrowser} browser - browser that the messages are in
+ * @param {string} selector - The selector to look for
+ * @param {number} [nthElement] - Which message index to check for the selector,
+ *                                defaults to last item
+ *
+ * @returns {boolean} Whether the selector was found
+ */
+async function checkForElementInChatMessage(
+  browser,
+  selector,
+  nthElement = -1
+) {
+  const aiChatBrowser = await getAIChatBrowser(browser);
+
+  return spawnBounded(
+    aiChatBrowser,
+    [selector, nthElement],
+    async (sel, nthEl) => {
+      await ContentTaskUtils.waitForMutationCondition(
+        content.document.documentElement,
+        { childList: true, subtree: true },
+        () => content.document.querySelector("ai-chat-content")
+      );
+      const contentEl = content.document.querySelector("ai-chat-content");
+
+      await ContentTaskUtils.waitForMutationCondition(
+        contentEl.shadowRoot,
+        { childList: true, subtree: true },
+        () => {
+          const messages = Array.from(
+            contentEl.shadowRoot.querySelectorAll("ai-chat-message")
+          );
+          const message = messages.at(nthEl);
+          return message && ContentTaskUtils.querySelectorDeep(message, sel);
+        }
+      );
+
+      const messages = Array.from(
+        contentEl.shadowRoot.querySelectorAll("ai-chat-message")
+      );
+      return !!ContentTaskUtils.querySelectorDeep(messages.at(nthEl), sel);
+    },
+    `${selector} in chat message ${nthElement}`
+  );
+}
+
+async function checkForNumberOfElementsInChatMessage(
+  browser,
+  selector,
+  amount,
+  nthElement = -1
+) {
+  const aiChatBrowser = await getAIChatBrowser(browser);
+
+  return spawnBounded(
+    aiChatBrowser,
+    [selector, nthElement, amount],
+    async (sel, nthEl, amt) => {
+      await ContentTaskUtils.waitForMutationCondition(
+        content.document.documentElement,
+        { childList: true, subtree: true },
+        () => content.document.querySelector("ai-chat-content")
+      );
+      const contentEl = content.document.querySelector("ai-chat-content");
+
+      await ContentTaskUtils.waitForMutationCondition(
+        contentEl.shadowRoot,
+        { childList: true, subtree: true },
+        () => {
+          const messages = Array.from(
+            contentEl.shadowRoot.querySelectorAll("ai-chat-message")
+          );
+          const message = messages.at(nthEl);
+          return (
+            message &&
+            ContentTaskUtils.querySelectorDeep(message, "ai-chat-grid")
+          );
+        }
+      );
+
+      const messages = Array.from(
+        contentEl.shadowRoot.querySelectorAll("ai-chat-message")
+      );
+      const aiChatGrid = ContentTaskUtils.querySelectorDeep(
+        messages.at(nthEl),
+        "ai-chat-grid"
+      );
+
+      // The counted children render asynchronously inside the grid's own shadow
+      // root, so observe there.
+      await ContentTaskUtils.waitForMutationCondition(
+        aiChatGrid.shadowRoot,
+        { childList: true, subtree: true },
+        () =>
+          ContentTaskUtils.querySelectorDeep(aiChatGrid, sel)?.children
+            .length === amt
+      );
+
+      return true;
+    },
+    `${amount} ${selector} in chat message ${nthElement}`
+  );
 }
 
 /**
@@ -721,6 +1673,9 @@ function readRequestBody(request) {
  * a tool-use round-trip: the first request returns the tool call, and the
  * follow-up request (containing the tool result) returns followupChunks.
  *
+ * @deprecated - Please use MockEngineManager in AIWindowTestUtils.sys.mjs unless
+ * a test is explicitly needing to test the network layer of the OpenAI chat protocol.
+ *   TODO (Bug 2045844): Remove and replace existing usages across test files.
  * @param {MockOpenAIServerOptions} [options]
  * @returns {{ server: HttpServer, port: number }} The running server and
  *   its port number.
@@ -927,13 +1882,13 @@ function stopMockOpenAI(server) {
  *   website-chip-container in the selected user message
  */
 async function getUserMessageChipLabels(sidebarBrowser, messageIndex = 0) {
-  await BrowserTestUtils.waitForCondition(
+  await TestUtils.waitForCondition(
     () => sidebarBrowser.contentDocument?.querySelector("ai-window:defined"),
     "Sidebar ai-window should be loaded"
   );
 
   const aiWindowEl = sidebarBrowser.contentDocument.querySelector("ai-window");
-  const aichatBrowser = await BrowserTestUtils.waitForCondition(
+  const aichatBrowser = await TestUtils.waitForCondition(
     () => aiWindowEl.shadowRoot?.querySelector("#aichat-browser"),
     "Wait for aichat-browser"
   );
@@ -980,7 +1935,10 @@ async function getUserMessageChipLabels(sidebarBrowser, messageIndex = 0) {
 async function withServer(serverOptions, task) {
   const { server, port } = startMockOpenAI(serverOptions);
   await SpecialPowers.pushPrefEnv({
-    set: [["browser.smartwindow.endpoint", `http://localhost:${port}/v1`]],
+    set: [
+      ["browser.smartwindow.endpoint", `http://localhost:${port}/v1`],
+      ["browser.smartwindow.customEndpoint", `http://localhost:${port}/v1`],
+    ],
   });
 
   const getFxAccountTokenStub = sinon
@@ -994,4 +1952,43 @@ async function withServer(serverOptions, task) {
     await SpecialPowers.popPrefEnv();
     await stopMockOpenAI(server);
   }
+}
+
+/**
+ * Waits for ai-window, then its shadowRoot, then the loaded #aichat-browser.
+ *
+ * @param {object} browser - The chrome browser element hosting ai-window
+ * @returns {Promise<object>} The aichat browser element
+ */
+async function getAichatBrowser(browser) {
+  const aiWindowEl = await TestUtils.waitForCondition(
+    () => browser.contentDocument?.querySelector("ai-window"),
+    "Wait for ai-window element to exist"
+  );
+
+  await TestUtils.waitForCondition(
+    () => aiWindowEl.shadowRoot,
+    "Wait for ai-window shadowRoot to be ready"
+  );
+
+  const aichatBrowser = await TestUtils.waitForCondition(
+    () => aiWindowEl.shadowRoot.querySelector("#aichat-browser"),
+    "Wait for aichat-browser element"
+  );
+
+  if (aichatBrowser.currentURI?.spec !== "about:aichatcontent") {
+    await BrowserTestUtils.browserLoaded(
+      aichatBrowser,
+      false,
+      "about:aichatcontent"
+    );
+  }
+
+  Assert.equal(
+    aichatBrowser.currentURI.spec,
+    "about:aichatcontent",
+    "aichat-browser should be loaded with about:aichatcontent"
+  );
+
+  return aichatBrowser;
 }

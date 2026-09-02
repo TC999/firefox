@@ -4,6 +4,8 @@
 
 "use strict";
 
+const BASE_URL = "https://example.com/browser/netwerk/test/browser/";
+
 add_task(async function test_103_cancel_parent_connect() {
   await SpecialPowers.pushPrefEnv({
     set: [
@@ -12,37 +14,32 @@ add_task(async function test_103_cancel_parent_connect() {
     ],
   });
 
-  let callback;
-  let promise = new Promise(resolve => {
-    callback = resolve;
-  });
-  let observed_cancel_reason = "";
-  let observer = {
-    QueryInterface: ChromeUtils.generateQI(["nsIObserver"]),
-    observe(aSubject, aTopic) {
-      aSubject = aSubject.QueryInterface(Ci.nsIChannel);
-      if (
-        aTopic == "http-on-stop-request" &&
-        aSubject.URI.spec ==
-          "https://example.com/browser/netwerk/test/browser/square2.png"
-      ) {
-        observed_cancel_reason = aSubject.canceledReason;
-        Services.obs.removeObserver(observer, "http-on-stop-request");
-        callback();
-      }
-    },
+  // The preload must be cancelled by the parent-connect timeout, never adopted
+  // by the content process. Without this the test would silently go back to
+  // racing the timeout if early hints ever start being processed here.
+  let connectedBack = false;
+  let observer = () => {
+    connectedBack = true;
   };
-  Services.obs.addObserver(observer, "http-on-stop-request");
+  Services.obs.addObserver(observer, "earlyhints-connectback");
+  registerCleanupFunction(() => {
+    Services.obs.removeObserver(observer, "earlyhints-connectback");
+  });
 
-  // test that no crash or memory leak happens when cancelling before
+  let observed = TestUtils.topicObserved("http-on-stop-request", subject => {
+    subject = subject.QueryInterface(Ci.nsIChannel);
+    return subject.URI.spec == BASE_URL + "square2.png";
+  });
+
   await BrowserTestUtils.withNewTab(
-    {
-      gBrowser,
-      url: "https://example.com/browser/netwerk/test/browser/103_preload_no_img.html",
-      waitForLoad: true,
-    },
-    async function () {}
+    { gBrowser, url: BASE_URL + "103_cleanup.sjs", waitForLoad: true },
+    () => {}
   );
-  await promise;
-  Assert.equal(observed_cancel_reason, "parent-connect-timeout");
+
+  let [subject] = await observed;
+  Assert.equal(
+    subject.QueryInterface(Ci.nsIChannel).canceledReason,
+    "parent-connect-timeout"
+  );
+  Assert.ok(!connectedBack, "the content process must not connect back");
 });

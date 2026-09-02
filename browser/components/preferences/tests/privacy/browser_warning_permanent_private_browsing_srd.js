@@ -3,13 +3,14 @@
 
 "use strict";
 
+requestLongerTimeout(3);
+
 function checkForPrompt(prefVal) {
   return async function () {
     await SpecialPowers.pushPrefEnv({
       set: [
         ["privacy.history.custom", true],
         ["browser.privatebrowsing.autostart", !prefVal],
-        ["browser.settings-redesign.history2.enabled", true],
       ],
     });
 
@@ -45,11 +46,7 @@ function checkForPrompt(prefVal) {
     checkbox.scrollIntoView();
 
     // Toggle the state.
-    await EventUtils.synthesizeMouseAtCenter(
-      checkbox,
-      {},
-      checkbox.ownerGlobal
-    );
+    EventUtils.synthesizeMouseAtCenter(checkbox, {}, checkbox.documentGlobal);
 
     // Now the prompt should have shown.
     ok(

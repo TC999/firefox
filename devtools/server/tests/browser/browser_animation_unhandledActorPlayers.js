@@ -3,7 +3,7 @@
 
 "use strict";
 
-// Check that calling AnimationsActor method taking AnimationPlayerActor arrays (pauseSome,
+// Check that calling AnimationsActor method taking AnimationActor arrays (pauseSome,
 // playSome, setCurrentTimes) with instances that are not handled by
 // the AnimationsActor anymore doesn't throw nor trigger unexpected animations (see Bug 2001590).
 
@@ -30,13 +30,13 @@ add_task(async function () {
   info("Retrieve an animated node");
   const node = await walker.querySelector(walker.rootNode, "#target");
 
-  const getAnimationPlayersForTargetNode = () =>
+  const getAnimationFrontsForTargetNode = () =>
     animations.getAnimationPlayersForNode(node);
 
-  info("Retrieve the animation player for the node");
-  const players = await getAnimationPlayersForTargetNode();
-  is(players.length, 1, "Got one animation player");
-  const animationPlayer = players[0];
+  info("Retrieve the animation fronts for the node");
+  const animationFronts = await getAnimationFrontsForTargetNode();
+  is(animationFronts.length, 1, "Got one animation front");
+  const animationFront = animationFronts[0];
 
   info("Stop the animation on the node");
   await node.modifyAttributes([
@@ -48,14 +48,14 @@ add_task(async function () {
 
   // Wait until we're not getting the animation anymore
   await waitFor(async () => {
-    return (await getAnimationPlayersForTargetNode()).length === 0;
+    return (await getAnimationFrontsForTargetNode()).length === 0;
   });
 
-  info("Call methodes with outdated animationplayer front");
-  const onPause = animations.pauseSome([animationPlayer]);
-  const onPlay = animations.playSome([animationPlayer]);
+  info("Call methodes with outdated animation front");
+  const onPause = animations.pauseSome([animationFront]);
+  const onPlay = animations.playSome([animationFront]);
   const onCurrentTimeSet = animations.setCurrentTimes(
-    [animationPlayer],
+    [animationFront],
     1,
     true
   );
@@ -72,9 +72,9 @@ add_task(async function () {
   // wait for a bit so we would get notified about new animations
   await wait(500);
   is(
-    (await getAnimationPlayersForTargetNode()).length,
+    (await getAnimationFrontsForTargetNode()).length,
     0,
-    "No players were created after calling those methods"
+    "No animation fronts were created after calling those methods"
   );
 
   await target.destroy();

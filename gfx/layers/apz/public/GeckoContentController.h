@@ -30,7 +30,7 @@ class GeckoContentController {
  public:
   using APZStateChange = GeckoContentController_APZStateChange;
   using TapType = GeckoContentController_TapType;
-  NS_INLINE_DECL_THREADSAFE_REFCOUNTING(GeckoContentController)
+  NS_INLINE_DECL_PURE_VIRTUAL_REFCOUNTING
 
   /**
    * Notifies the content side of the most recently computed transforms for
@@ -124,7 +124,7 @@ class GeckoContentController {
   /**
    * Notify content of a MozMouseScrollFailed event.
    */
-  virtual void NotifyMozMouseScrollEvent(
+  MOZ_CAN_RUN_SCRIPT virtual void NotifyMozMouseScrollEvent(
       const ScrollableLayerGuid::ViewID& aScrollId, const nsString& aEvent) {}
 
   /**

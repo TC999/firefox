@@ -4,19 +4,22 @@
 
 #include "ImportMap.h"
 
-#include "js/Array.h"                 // IsArrayObject
-#include "js/friend/ErrorMessages.h"  // js::GetErrorMessage, JSMSG_*
-#include "js/JSON.h"                  // JS_ParseJSON
-#include "js/PropertyDescriptor.h"    // JS::PropertyDescriptor
 #include "mozilla/StaticPrefs_dom.h"
+
 #include "LoadedScript.h"
-#include "ModuleLoaderBase.h"  // ScriptLoaderInterface
+#include "ModuleLoaderBase.h"
 #include "nsContentUtils.h"
 #include "nsIScriptElement.h"
 #include "nsIScriptError.h"
 #include "nsJSUtils.h"  // nsAutoJSString
 #include "nsNetUtil.h"  // NS_NewURI
+#include "ScriptLoaderInterface.h"
 #include "ScriptLoadRequest.h"
+
+#include "js/Array.h"                 // IsArrayObject
+#include "js/friend/ErrorMessages.h"  // js::GetErrorMessage, JSMSG_*
+#include "js/JSON.h"                  // JS_ParseJSON
+#include "js/PropertyDescriptor.h"    // JS::PropertyDescriptor
 
 using JS::SourceText;
 using mozilla::Err;
@@ -905,11 +908,11 @@ static UniquePtr<SpecifierResolutionRecord> CreateResolutionRecord(
 // static
 ResolveResult ImportMap::ResolveModuleSpecifier(ImportMap* aImportMap,
                                                 ScriptLoaderInterface* aLoader,
-                                                LoadedScript* aScript,
+                                                ScriptFetchInfo* aFetchInfo,
                                                 const nsAString& aSpecifier) {
   nsCOMPtr<nsIURI> baseURL;
-  if (aScript && !aScript->IsEventScript()) {
-    baseURL = aScript->BaseURL();
+  if (aFetchInfo && !aFetchInfo->IsForEvent()) {
+    baseURL = aFetchInfo->BaseURL();
   } else {
     baseURL = aLoader->GetBaseURI();
   }

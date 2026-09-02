@@ -7,8 +7,8 @@
 use std::time::Duration;
 
 use neqo_common::{Encoder, event::Provider as _};
-use neqo_crypto::AuthenticationStatus;
 use neqo_transport::{CloseReason, Connection, StreamType};
+use nss::AuthenticationStatus;
 use test_fixture::{default_server_h3, now};
 
 use super::{connect, default_http3_client, default_http3_server, exchange_packets};
@@ -16,6 +16,7 @@ use crate::{
     Error, HFrame, Http3Client, Http3ClientEvent, Http3Parameters, Http3Server, Http3State,
     WebTransportEvent,
     settings::{HSetting, HSettingType, HSettings},
+    webtransport::ClientSession as _,
 };
 
 fn check_wt_event(client: &mut Http3Client, wt_enable_client: bool, wt_enable_server: bool) {

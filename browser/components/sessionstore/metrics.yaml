@@ -170,9 +170,6 @@ session_restore:
     description: >
       Session restore: Duration of session history collection in the parent
       process (ms).
-
-      This metric was generated to correspond to the Legacy Telemetry
-      exponential histogram FX_SESSION_RESTORE_COLLECT_SESSION_HISTORY_MS.
     time_unit: millisecond
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1810704
@@ -182,7 +179,6 @@ session_restore:
       - session-restore-telemetry-alerts@mozilla.com
       - farre@mozilla.com
     expires: never
-    telemetry_mirror: FX_SESSION_RESTORE_COLLECT_SESSION_HISTORY_MS
 
   read_file:
     type: timing_distribution
@@ -438,6 +434,46 @@ session_restore:
     labels:
       - sessionRestoreInitialized
       - sessionRestoreRestoring
+
+  new_tab_on_restore_enabled:
+    type: boolean
+    lifetime: application
+    description: >
+      Whether the browser.sessionstore.newTabOnRestore pref is enabled.
+      Set on startup and updated when the pref changes.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2023459
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2023459
+    notification_emails:
+      - hsohaney@mozilla.com
+    expires: never
+    data_sensitivity:
+      - interaction
+
+  startup_session_auto_restored:
+    type: event
+    description: >
+      Recorded each time "Open previous windows and tabs" triggers session
+      restore at startup. The new_tab_action extra indicates what happened
+      with the new-tab-on-restore feature.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2023459
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2023459
+    notification_emails:
+      - hsohaney@mozilla.com
+    expires: never
+    extra_keys:
+      new_tab_action:
+        description: >
+          "disabled" if the new-tab-on-restore feature was not enabled,
+          "opened" if a new tab was created, "reused" if the
+          selected or rightmost tab was already a new tab page,
+          "preempted" if a command-line URL took precedence.
+        type: string
+    data_sensitivity:
+      - interaction
 
 browser.engagement:
   sessionrestore_interstitial:

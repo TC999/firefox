@@ -7,7 +7,6 @@
 #include "ServiceWorkerManager.h"
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/StaticPrefs_dom.h"
-#include "mozilla/StaticPrefs_privacy.h"
 #include "mozilla/StorageAccess.h"
 #include "mozilla/StoragePrincipalHelper.h"
 #include "mozilla/dom/CanonicalBrowsingContext.h"
@@ -88,33 +87,19 @@ ServiceWorkerInterceptController::ShouldPrepareForIntercept(
       registration->MaybeScheduleTimeCheckAndUpdate();
     }
 
-    RefPtr<net::HttpBaseChannel> httpChannel = do_QueryObject(aChannel);
-
     RequestMode requestMode =
         InternalRequest::MapChannelToRequestMode(aChannel);
 
-    if (httpChannel &&
+    // Block ServiceWorker interception for ranged request from media, see bug
+    // 1762078. Other request with Range header would be intercepted, ex.
+    // Author-issued fetch() range request.
+    RefPtr<net::HttpBaseChannel> httpChannel = do_QueryObject(aChannel);
+    if (requestMode == RequestMode::No_cors && loadInfo->GetIsMediaRequest() &&
+        httpChannel &&
         httpChannel->GetRequestHead()->HasHeader(net::nsHttp::Range)) {
       bool mayLoad = nsContentUtils::CheckMayLoad(
           loadInfo->GetLoadingPrincipal(), aChannel,
           /*allowIfInheritsPrincipal*/ false);
-      if (requestMode == RequestMode::No_cors && !mayLoad) {
-        *aShouldIntercept = false;
-      }
-    }
-
-    RequestDestination requestDest =
-        InternalRequest::MapContentPolicyTypeToRequestDestination(
-            loadInfo->GetExternalContentPolicyType());
-    // Skip no_cors Cross-Origin sub-resource request from CSS.
-    if (requestMode == RequestMode::No_cors &&
-        requestDest == RequestDestination::Style) {
-      nsCOMPtr<nsIPrincipal> triggeringPrincipal;
-      (void)loadInfo->GetTriggeringPrincipal(
-          getter_AddRefs(triggeringPrincipal));
-      MOZ_ASSERT(triggeringPrincipal);
-      bool mayLoad = nsContentUtils::CheckMayLoad(
-          triggeringPrincipal, aChannel, /*allowIfInheritsPrincipal*/ false);
       if (!mayLoad) {
         *aShouldIntercept = false;
       }
@@ -125,10 +110,7 @@ ServiceWorkerInterceptController::ShouldPrepareForIntercept(
 
   nsCOMPtr<nsIPrincipal> principal;
   nsresult rv = StoragePrincipalHelper::GetPrincipal(
-      aChannel,
-      StaticPrefs::privacy_partition_serviceWorkers()
-          ? StoragePrincipalHelper::eForeignPartitionedPrincipal
-          : StoragePrincipalHelper::eRegularPrincipal,
+      aChannel, StoragePrincipalHelper::eForeignPartitionedPrincipal,
       getter_AddRefs(principal));
   NS_ENSURE_SUCCESS(rv, rv);
 
@@ -157,7 +139,6 @@ ServiceWorkerInterceptController::ShouldPrepareForIntercept(
       (storageAccess == StorageAccess::ePrivateBrowsing &&
        StaticPrefs::dom_serviceWorkers_privateBrowsing_enabled()) ||
       (ShouldPartitionStorage(storageAccess) &&
-       StaticPrefs::privacy_partition_serviceWorkers() &&
        StoragePartitioningEnabled(storageAccess, cookieJarSettings) &&
        (!principal->GetIsInPrivateBrowsing() ||
         StaticPrefs::dom_serviceWorkers_privateBrowsing_enabled()));

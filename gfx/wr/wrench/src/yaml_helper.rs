@@ -20,6 +20,7 @@ pub trait YamlHelper {
     fn as_pipeline_id(&self) -> Option<PipelineId>;
     fn as_rect(&self) -> Option<LayoutRect>;
     fn as_size(&self) -> Option<LayoutSize>;
+    fn as_side_offsets(&self) -> Option<LayoutSideOffsets>;
     fn as_point(&self) -> Option<LayoutPoint>;
     fn as_vector(&self) -> Option<LayoutVector2D>;
     fn as_matrix4d(&self) -> Option<LayoutTransform>;
@@ -41,9 +42,15 @@ pub trait YamlHelper {
     fn as_vec_filter_data(&self) -> Option<Vec<FilterData>>;
     fn as_complex_clip_region(&self) -> ComplexClipRegion;
     fn as_sticky_offset_bounds(&self) -> StickyOffsetBounds;
-    fn as_gradient(&self, dl: &mut DisplayListBuilder) -> Gradient;
-    fn as_radial_gradient(&self, dl: &mut DisplayListBuilder) -> RadialGradient;
-    fn as_conic_gradient(&self, dl: &mut DisplayListBuilder) -> ConicGradient;
+    fn as_gradient(&self, dl: &mut DisplayListBuilder) -> (Gradient, Vec<GradientStop>);
+    fn as_radial_gradient(
+        &self,
+        dl: &mut DisplayListBuilder,
+    ) -> (RadialGradient, Vec<GradientStop>);
+    fn as_conic_gradient(
+        &self,
+        dl: &mut DisplayListBuilder,
+    ) -> (ConicGradient, Vec<GradientStop>);
     fn as_complex_clip_regions(&self) -> Vec<ComplexClipRegion>;
     fn as_rotation(&self) -> Option<Rotation>;
 }
@@ -208,6 +215,8 @@ impl YamlHelper for Yaml {
         match *self {
             Yaml::Integer(iv) => Some(iv as f32),
             Yaml::Real(ref sv) => f32::from_str(sv.as_str()).ok(),
+            Yaml::String(ref sv) if sv == "+Inf" => Some(f32::INFINITY),
+            Yaml::String(ref sv) if sv == "-Inf" => Some(f32::NEG_INFINITY),
             _ => None,
         }
     }
@@ -286,6 +295,18 @@ impl YamlHelper for Yaml {
         }
 
         None
+    }
+
+    fn as_side_offsets(&self) -> Option<LayoutSideOffsets> {
+        self.as_vec_f32().and_then(|v| match v.as_slice() {
+            &[top, right, bottom, left] => Some(LayoutSideOffsets::new(
+                top,
+                right,
+                bottom,
+                left
+            )),
+            _ => None,
+        })
     }
 
     fn as_point(&self) -> Option<LayoutPoint> {
@@ -479,6 +500,30 @@ impl YamlHelper for Yaml {
                     top_right,
                     bottom_left,
                     bottom_right,
+                    shape_top_left: 1.0,
+                    shape_top_right: 1.0,
+                    shape_bottom_left: 1.0,
+                    shape_bottom_right: 1.0,
+                })
+            }
+            Yaml::Array(ref array) if array.len() == 8 => {
+                let top_left = array[0].as_border_radius_component();
+                let top_right = array[1].as_border_radius_component();
+                let bottom_left = array[2].as_border_radius_component();
+                let bottom_right = array[3].as_border_radius_component();
+                let shape_top_left = array[4].as_f32().unwrap();
+                let shape_top_right = array[5].as_f32().unwrap();
+                let shape_bottom_left = array[6].as_f32().unwrap();
+                let shape_bottom_right = array[7].as_f32().unwrap();
+                Some(BorderRadius {
+                    top_left,
+                    top_right,
+                    bottom_left,
+                    bottom_right,
+                    shape_top_left,
+                    shape_top_right,
+                    shape_bottom_left,
+                    shape_bottom_right,
                 })
             }
             Yaml::Hash(_) => {
@@ -486,11 +531,19 @@ impl YamlHelper for Yaml {
                 let top_right = self["top-right"].as_border_radius_component();
                 let bottom_left = self["bottom-left"].as_border_radius_component();
                 let bottom_right = self["bottom-right"].as_border_radius_component();
+                let shape_top_left = self["shape-top-left"].as_f32().unwrap_or(1.0);
+                let shape_top_right = self["shape-top-right"].as_f32().unwrap_or(1.0);
+                let shape_bottom_left = self["shape-bottom-left"].as_f32().unwrap_or(1.0);
+                let shape_bottom_right = self["shape-bottom-right"].as_f32().unwrap_or(1.0);
                 Some(BorderRadius {
                     top_left,
                     top_right,
                     bottom_left,
                     bottom_right,
+                    shape_top_left,
+                    shape_top_right,
+                    shape_bottom_left,
+                    shape_bottom_right,
                 })
             }
             _ => {
@@ -865,7 +918,7 @@ impl YamlHelper for Yaml {
                     Some(FilterOp::ComponentTransfer)
                 }
                 ("blur", ref args, _) if args.len() == 2 => {
-                    Some(FilterOp::Blur(args[0].parse().unwrap(), args[1].parse().unwrap()))
+                    Some(FilterOp::Blur(args[0].parse().unwrap(), args[1].parse().unwrap(), true))
                 }
                 ("brightness", ref args, _) if args.len() == 1 => {
                     Some(FilterOp::Brightness(args[0].parse().unwrap()))
@@ -885,6 +938,18 @@ impl YamlHelper for Yaml {
                 ("opacity", ref args, _) if args.len() == 1 => {
                     let amount: f32 = args[0].parse().unwrap();
                     Some(FilterOp::Opacity(amount.into(), amount))
+                }
+                // A second argument is a property binding id, which makes the
+                // filter animated rather than static. The bound value is the
+                // amount above; nothing needs to update it for the binding to
+                // count as animating.
+                ("opacity", ref args, _) if args.len() == 2 => {
+                    let amount: f32 = args[0].parse().unwrap();
+                    let id: u64 = args[1].parse().unwrap();
+                    Some(FilterOp::Opacity(
+                        PropertyBinding::Binding(PropertyBindingKey::new(id), amount),
+                        amount,
+                    ))
                 }
                 ("saturate", ref args, _) if args.len() == 1 => {
                     Some(FilterOp::Saturate(args[0].parse().unwrap()))
@@ -986,10 +1051,13 @@ impl YamlHelper for Yaml {
         let radius = self["radius"]
             .as_border_radius()
             .unwrap_or_else(BorderRadius::zero);
+        let inset = self["inset"]
+            .as_side_offsets()
+            .unwrap_or_else(LayoutSideOffsets::zero);
         let mode = self["clip-mode"]
             .as_clip_mode()
             .unwrap_or(ClipMode::Clip);
-        ComplexClipRegion::new(rect, radius, mode)
+        ComplexClipRegion::new(rect, radius, inset, mode)
     }
 
     fn as_sticky_offset_bounds(&self) -> StickyOffsetBounds {
@@ -1002,7 +1070,7 @@ impl YamlHelper for Yaml {
         }
     }
 
-    fn as_gradient(&self, dl: &mut DisplayListBuilder) -> Gradient {
+    fn as_gradient(&self, dl: &mut DisplayListBuilder) -> (Gradient, Vec<GradientStop>) {
         let start = self["start"].as_point().expect("gradient must have start");
         let end = self["end"].as_point().expect("gradient must have end");
         let stops = self["stops"]
@@ -1029,7 +1097,7 @@ impl YamlHelper for Yaml {
         dl.create_gradient(start, end, stops, extend_mode)
     }
 
-    fn as_radial_gradient(&self, dl: &mut DisplayListBuilder) -> RadialGradient {
+    fn as_radial_gradient(&self, dl: &mut DisplayListBuilder) -> (RadialGradient, Vec<GradientStop>) {
         let center = self["center"].as_point().expect("radial gradient must have center");
         let radius = self["radius"].as_size().expect("radial gradient must have a radius");
         let stops = self["stops"]
@@ -1056,7 +1124,7 @@ impl YamlHelper for Yaml {
         dl.create_radial_gradient(center, radius, stops, extend_mode)
     }
 
-    fn as_conic_gradient(&self, dl: &mut DisplayListBuilder) -> ConicGradient {
+    fn as_conic_gradient(&self, dl: &mut DisplayListBuilder) -> (ConicGradient, Vec<GradientStop>) {
         let center = self["center"].as_point().expect("conic gradient must have center");
         let angle = self["angle"].as_force_f32().expect("conic gradient must have an angle");
         let stops = self["stops"]

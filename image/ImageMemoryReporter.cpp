@@ -3,11 +3,12 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "ImageMemoryReporter.h"
+
 #include "Image.h"
 #include "base/process_util.h"
+#include "mozilla/StaticPrefs_image.h"
 #include "mozilla/ipc/SharedMemoryMapping.h"
 #include "mozilla/layers/SharedSurfacesParent.h"
-#include "mozilla/StaticPrefs_image.h"
 #include "nsIMemoryReporter.h"
 #include "nsISupportsImpl.h"
 
@@ -42,7 +43,7 @@ void ImageMemoryReporter::InitForWebRender() {
   MOZ_ASSERT(XRE_IsParentProcess() || XRE_IsGPUProcess());
   if (!sWrReporter) {
     sWrReporter = new WebRenderReporter();
-    RegisterStrongMemoryReporter(sWrReporter);
+    RegisterStrongMemoryReporter(do_AddRef(sWrReporter));
   }
 }
 

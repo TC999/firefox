@@ -4,12 +4,12 @@
 
 #include "mozilla/MemoryMapping.h"
 
+#include <fstream>
+#include <sstream>
+#include <string>
+
 #include "mozilla/BinarySearch.h"
 #include "mozilla/FileUtils.h"
-
-#include <fstream>
-#include <string>
-#include <sstream>
 
 namespace mozilla {
 
@@ -175,6 +175,10 @@ nsresult GetMemoryMappings(nsTArray<MemoryMapping>& aMappings, pid_t aPid) {
     }
 
     const char* rest = strtok_r(nullptr, "\n", &savePtr);
+    if (!rest) {
+      continue;
+    }
+
     size_t value;
     if (sscanf(rest, "%zd kB", &value) > 0) {
       current->ValueForField(*field) = value * 1024;

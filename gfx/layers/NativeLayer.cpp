@@ -7,8 +7,8 @@
 #include "GLBlitHelper.h"
 #include "GLContext.h"
 #include "MozFramebuffer.h"
-#include "mozilla/gfx/Swizzle.h"
 #include "ScopedGLHelpers.h"
+#include "mozilla/gfx/Swizzle.h"
 
 namespace mozilla::layers {
 
@@ -20,7 +20,7 @@ DownscaleTargetNLRS::DownscaleTargetNLRS(
     gl::GLContext* aGL, UniquePtr<gl::MozFramebuffer>&& aFramebuffer)
     : profiler_screenshots::DownscaleTarget(aFramebuffer->mSize),
       mGL(aGL),
-      mRenderSource(new RenderSourceNLRS(std::move(aFramebuffer))) {}
+      mRenderSource(MakeRefPtr<RenderSourceNLRS>(std::move(aFramebuffer))) {}
 
 bool DownscaleTargetNLRS::DownscaleFrom(
     profiler_screenshots::RenderSource* aSource,
@@ -58,7 +58,7 @@ void AsyncReadbackBufferNLRS::CopyFrom(
   const gl::ScopedBindFramebuffer bindFB(
       mGL, static_cast<RenderSourceNLRS*>(aSource)->FB().mFB);
   mGL->fReadPixels(0, 0, size.width, size.height, LOCAL_GL_RGBA,
-                   LOCAL_GL_UNSIGNED_BYTE, 0);
+                   LOCAL_GL_UNSIGNED_BYTE, nullptr);
 }
 
 bool AsyncReadbackBufferNLRS::MapAndCopyInto(gfx::DataSourceSurface* aSurface,

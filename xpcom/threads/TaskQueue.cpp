@@ -4,12 +4,12 @@
 
 #include "mozilla/TaskQueue.h"
 
-#include "mozilla/ProfilerRunnable.h"
 #include "mozilla/FlowMarkers.h"
+#include "mozilla/ProfilerRunnable.h"
 #include "nsIEventTarget.h"
 #include "nsITargetShutdownTask.h"
-#include "nsThreadUtils.h"
 #include "nsQueryObject.h"
+#include "nsThreadUtils.h"
 
 namespace mozilla {
 
@@ -18,23 +18,23 @@ static LazyLogModule sTaskQueueLog("TaskQueue");
 #define LOG_TQ(level, msg, ...) \
   MOZ_LOG(sTaskQueueLog, level, (msg, ##__VA_ARGS__))
 
-RefPtr<TaskQueue> TaskQueue::Create(already_AddRefed<nsIEventTarget> aTarget,
-                                    StaticString aName,
-                                    bool aSupportsTailDispatch) {
+RefPtr<TaskQueue> TaskQueue::Create(
+    already_AddRefed<nsIEventTarget> aTarget, StaticString aName,
+    enum TailDispatchPolicy aTailDispatchPolicy) {
   nsCOMPtr<nsIEventTarget> target(std::move(aTarget));
   LOG_TQ(LogLevel::Debug,
-         "Creating TaskQueue '%s' on target %p (supportsTailDispatch=%d)",
-         aName.get(), target.get(), aSupportsTailDispatch);
+         "Creating TaskQueue '%s' on target %p (tail-dispatch policy %s)",
+         aName.get(), target.get(), EnumValueToString(aTailDispatchPolicy));
 
   RefPtr<TaskQueue> queue =
-      new TaskQueue(do_AddRef(target), aName, aSupportsTailDispatch);
+      new TaskQueue(do_AddRef(target), aName, aTailDispatchPolicy);
 
   return queue;
 }
 
 TaskQueue::TaskQueue(already_AddRefed<nsIEventTarget> aTarget,
-                     const char* aName, bool aSupportsTailDispatch)
-    : AbstractThread(aSupportsTailDispatch),
+                     const char* aName, enum TailDispatchPolicy aPolicy)
+    : AbstractThread(aPolicy),
       mTarget(aTarget),
       mQueueMonitor("TaskQueue::Queue"),
       mTailDispatcher(nullptr),
@@ -116,12 +116,12 @@ nsresult TaskQueue::DispatchLocked(nsCOMPtr<nsIRunnable>& aRunnable,
                       profiler_feature_active(ProfilerFeature::Flows))},
                   FlowMarker, Flow::FromPointer(aRunnable.get()));
   LogRunnable::LogDispatch(aRunnable);
-  mTasks.Push({std::move(aRunnable), aFlags});
+  mTasks.EmplaceBack(TaskStruct{std::move(aRunnable), aFlags});
 
   if (mIsRunning) {
     return NS_OK;
   }
-  RefPtr<nsIRunnable> runner(new Runner(this));
+  auto runner = MakeRefPtr<Runner>(this, mTarget, mObserver, std::move(mTasks));
   nsresult rv =
       mTarget->Dispatch(runner.forget(), aFlags | NS_DISPATCH_FALLIBLE);
   if (NS_FAILED(rv)) {
@@ -264,7 +264,10 @@ void TaskQueue::MaybeResolveShutdown() {
 
 bool TaskQueue::IsEmpty() {
   MonitorAutoLock mon(mQueueMonitor);
-  return mTasks.IsEmpty();
+  // NOTE: If `mTasks` is empty, we may still have queued tasks which are owned
+  // by the active runner. As we will always start running as soon as a task has
+  // been added, we can skip checking `mTasks` and can just check `mIsRunning`.
+  return !mIsRunning;
 }
 
 bool TaskQueue::IsCurrentThreadIn() const {
@@ -279,69 +282,62 @@ void TaskQueue::SetObserver(Observer* aObserver) {
 }
 
 nsresult TaskQueue::Runner::Run() {
-  TaskStruct event;
-  RefPtr<Observer> observer;
+  MOZ_ASSERT(mNextTask < mTasks.Length(), "No tasks to do?");
+
+  // Process mTasks[mNextTask] with an AutoTaskGuard on the stack.
   {
+    AutoTaskGuard g(mQueue, mObserver);
+
+    TaskStruct& task = mTasks[mNextTask++];
+    MOZ_ASSERT(task.event);
+
+    LogRunnable::Run log(task.event);
+
+    AUTO_PROFILE_FOLLOWING_RUNNABLE(task.event);
+    task.event->Run();
+
+    // Drop the reference to task.event before AutoTaskGuard is destroyed. The
+    // event will hold a reference to the object it's calling, and we don't want
+    // to keep it alive, it may be making assumptions what holds references to
+    // it. This is especially the case if the object is waiting for us to
+    // shutdown, so that it can shutdown (like in the MediaDecoderStateMachine's
+    // SHUTDOWN case).
+    task.event = nullptr;
+  }
+
+  // If mTasks is exhausted, check to see if new tasks have been dispatched.
+  if (mNextTask >= mTasks.Length()) {
     MonitorAutoLock mon(mQueue->mQueueMonitor);
     MOZ_ASSERT(mQueue->mIsRunning);
+
+    // If mQueue->mTasks is empty, we're done for now, and can stop running.
     if (mQueue->mTasks.IsEmpty()) {
       mQueue->mIsRunning = false;
       mQueue->MaybeResolveShutdown();
       mon.NotifyAll();
       return NS_OK;
     }
-    event = mQueue->mTasks.Pop();
-    observer = mQueue->mObserver;
-  }
-  MOZ_ASSERT(event.event);
 
-  // Note that dropping the queue monitor before running the task, and
-  // taking the monitor again after the task has run ensures we have memory
-  // fences enforced. This means that if the object we're calling wasn't
-  // designed to be threadsafe, it will be, provided we're only calling it
-  // in this task queue.
-  {
-    AutoTaskGuard g(mQueue, observer);
-    {
-      LogRunnable::Run log(event.event);
-
-      AUTO_PROFILE_FOLLOWING_RUNNABLE(event.event);
-      event.event->Run();
-
-      // Drop the reference to event. The event will hold a reference to the
-      // object it's calling, and we don't want to keep it alive, it may be
-      // making assumptions what holds references to it. This is especially
-      // the case if the object is waiting for us to shutdown, so that it
-      // can shutdown (like in the MediaDecoderStateMachine's SHUTDOWN case).
-      event.event = nullptr;
-    }
+    // Otherwise, reload from mQueue and continue running.
+    mTarget = mQueue->mTarget;
+    mObserver = mQueue->mObserver;
+    mTasks = std::move(mQueue->mTasks);
+    mNextTask = 0;
   }
 
-  {
-    MonitorAutoLock mon(mQueue->mQueueMonitor);
-    if (mQueue->mTasks.IsEmpty()) {
-      // No more events to run. Exit the task runner.
-      mQueue->mIsRunning = false;
-      mQueue->MaybeResolveShutdown();
-      mon.NotifyAll();
-      return NS_OK;
-    }
-  }
-
-  // There's at least one more event that we can run. Dispatch this Runner
-  // to the target again to ensure it runs again. Note that we don't just
-  // run in a loop here so that we don't hog the target. This means we may
-  // run on another thread next time, but we rely on the memory fences from
-  // mQueueMonitor for thread safety of non-threadsafe tasks.
-  nsresult rv;
-  {
-    MonitorAutoLock mon(mQueue->mQueueMonitor);
-    rv = mQueue->mTarget->Dispatch(this, mQueue->mTasks.FirstElement().flags |
-                                             NS_DISPATCH_AT_END |
-                                             NS_DISPATCH_FALLIBLE);
-  }
+  // We still have tasks to execute. Dispatch this Runner to the target to
+  // ensure it runs again. Note that we don't just run in a loop here. This
+  // keeps the ratio of Runnables dispatched to the TaskQueue and the underlying
+  // EventTarget as 1:1, hopefully avoiding flooding.
+  MOZ_ASSERT(mNextTask < mTasks.Length());
+  nsresult rv =
+      mTarget->Dispatch(this, mTasks[mNextTask].flags | NS_DISPATCH_AT_END |
+                                  NS_DISPATCH_FALLIBLE);
   if (NS_FAILED(rv)) {
-    // Failed to dispatch, immediate shutdown!
+    NS_WARNING("Underlying EventTarget for TaskQueue not accepting new tasks");
+
+    // The Dispatch to mTarget failed. Unfortunately we cannot recover at this
+    // point, so shut down the TaskQueue, as we can no longer accept new events.
     MonitorAutoLock mon(mQueue->mQueueMonitor);
     mQueue->mIsRunning = false;
     mQueue->mIsShutdown = true;

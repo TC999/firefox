@@ -17,7 +17,7 @@ class DestinationTest {
     fun `page summary feature maps to pageSummariesSettingsFragment destination`() {
         val destination = PageSummaryFeature.destination
 
-        assertEquals(R.id.pageSummariesSettingsFragment, (destination as Destination).id)
+        assertEquals(R.id.action_aiControlsFragment_to_pageSummariesSettingsFragment, (destination as Destination).id)
     }
 
     @Test
@@ -29,10 +29,11 @@ class DestinationTest {
 
     @Test
     fun `unknown feature id returns null destination`() {
-        val metadata = object : AIFeatureMetadata {
-            override val id = AIFeatureMetadata.FeatureId("unknown.feature")
-            override val description = AIFeatureMetadata.Description(0, 0, 0)
-        }
+        val metadata =
+            object : AIFeatureMetadata {
+                override val id = AIFeatureMetadata.FeatureId("unknown.feature")
+                override val description = AIFeatureMetadata.Description(0, 0, 0)
+            }
 
         assertNull(metadata.destination)
     }

@@ -8,6 +8,7 @@ import {
   ref,
   classMap,
   ifDefined,
+  styleMap,
 } from "../vendor/lit.all.mjs";
 import { MozBaseInputElement, MozLitElement } from "../lit-utils.mjs";
 
@@ -27,6 +28,8 @@ import { MozBaseInputElement, MozLitElement } from "../lit-utils.mjs";
  *
  * @tagname moz-select
  * @property {string} label - The text of the label element
+ * @property {string} size - The select size.
+ *   Options: default, small.
  * @property {string} name - The name of the input control
  * @property {string} value - The value of the selected option
  * @property {boolean} disabled - The disabled state of the input control
@@ -35,6 +38,7 @@ import { MozBaseInputElement, MozLitElement } from "../lit-utils.mjs";
  * @property {string} supportPage - Name of the SUMO support page to link to.
  * @property {string} ariaLabel - The aria-label text when there is no visible label.
  * @property {string} ariaDescription - The aria-description text when there is no visible description.
+ * @property {string} title - The title attribute, mapped onto the inner control.
  * @property {SelectOption[]} options - The array of options, populated by <moz-option> children in the
  *     default slot. Do not set directly, these will be overridden by <moz-option> children.
  * @property {SelectOption} selectedOption - The currently selected option object.
@@ -43,6 +47,7 @@ import { MozBaseInputElement, MozLitElement } from "../lit-utils.mjs";
  */
 export default class MozSelect extends MozBaseInputElement {
   static properties = {
+    size: { type: String, reflect: true },
     options: { type: Array, state: true },
     selectedOption: { type: Object, state: true },
     selectedIndex: { type: Number, state: true },
@@ -57,6 +62,7 @@ export default class MozSelect extends MozBaseInputElement {
 
   constructor() {
     super();
+    this.size = "default";
     this.value = "";
     this.options = [];
     this.usePanelList = false;
@@ -202,7 +208,7 @@ export default class MozSelect extends MozBaseInputElement {
     if (navigator.platform.includes("Mac")) {
       this.panelTrigger?.focus();
     }
-    this.panelList?.toggle(event);
+    this.panelList?.toggle(event, this.panelTrigger);
   }
 
   /**
@@ -324,9 +330,11 @@ export default class MozSelect extends MozBaseInputElement {
       name=${this.name}
       .value=${this.value}
       accesskey=${this.accessKey}
+      title=${ifDefined(this.title)}
       @input=${this.handleStateChange}
       @change=${this.redispatchEvent}
       ?disabled=${this.disabled || this.parentDisabled}
+      size=${this.size}
       aria-label=${ifDefined(this.ariaLabel ?? undefined)}
       aria-describedby="description"
       aria-description=${ifDefined(
@@ -372,12 +380,14 @@ export default class MozSelect extends MozBaseInputElement {
       aria-haspopup="menu"
       aria-expanded=${this.panelList?.open ? "true" : "false"}
       accesskey=${ifDefined(this.accessKey)}
+      title=${ifDefined(this.title)}
       @mousedown=${this.handlePanelMousedown}
       @click=${this.handlePanelClick}
       @keydown=${this.handlePanelKeydown}
       ?disabled=${this.disabled || this.parentDisabled}
+      size=${this.size}
     >
-      ${this.selectedOption?.label}
+      <span class="panel-trigger-text">${this.selectedOption?.label}</span>
     </button>`;
   }
 
@@ -390,6 +400,7 @@ export default class MozSelect extends MozBaseInputElement {
     return html`<panel-list
       .value=${this.value}
       min-width-from-anchor
+      click-on-mouseup
       @click=${this.handlePanelChange}
       @hidden=${this.handlePanelHidden}
     >
@@ -402,9 +413,11 @@ export default class MozSelect extends MozBaseInputElement {
               ?disabled=${option.disabled}
               ?hidden=${option.hidden}
               icon=${ifDefined(option.iconSrc)}
-              style=${option.iconSrc
-                ? `--select-item-icon-url: url(${option.iconSrc})`
-                : ""}
+              style=${styleMap(
+                option.iconSrc
+                  ? { "--select-item-icon-url": `url(${option.iconSrc})` }
+                  : {}
+              )}
             >
               ${option.label}
             </panel-item>`

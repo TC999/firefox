@@ -26,6 +26,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
 
 const SHOW_ALL_ANONYMOUS_CONTENT_PREF =
   "devtools.inspector.showAllAnonymousContent";
+const SHOW_COMMENTS_PREF = "devtools.markup.showComments";
 
 /**
  * Client side of the inspector actor, which is used to create
@@ -82,18 +83,16 @@ class InspectorFront extends FrontClassWithSpec(inspectorSpec) {
     const showAllAnonymousContent = Services.prefs.getBoolPref(
       SHOW_ALL_ANONYMOUS_CONTENT_PREF
     );
+    const showComments = Services.prefs.getBoolPref(SHOW_COMMENTS_PREF);
     this.walker = await this.getWalker({
       showAllAnonymousContent,
+      showComments,
     });
 
     // We need to reparent the RootNode of remote iframe Walkers
     // so that their parent is the NodeFront of the <iframe>
     // element, coming from another process/target/WalkerFront.
     await this.walker.reparentRemoteFrame();
-  }
-
-  hasHighlighter(type) {
-    return this._highlighters.has(type);
   }
 
   async _getPageStyle() {
@@ -131,27 +130,41 @@ class InspectorFront extends FrontClassWithSpec(inspectorSpec) {
 
     // CustomHighlighter fronts are managed by InspectorFront and so will be
     // automatically destroyed. But we have to clear the `_highlighters`
-    // Map as well as explicitly call `finalize` request on all of them.
+    // Map as well as explicitly call `destroy` request on all of them.
     this.destroyHighlighters();
     super.destroy();
   }
 
   destroyHighlighters() {
     for (const type of this._highlighters.keys()) {
-      if (this._highlighters.has(type)) {
-        const highlighter = this._highlighters.get(type);
-        if (!highlighter.isDestroyed()) {
-          highlighter.finalize();
-        }
-        this._highlighters.delete(type);
-      }
+      this.destroyHighlighterByType(type);
     }
   }
 
-  async getHighlighterByType(typeName) {
+  destroyHighlighterByType(type) {
+    if (!this._highlighters.has(type)) {
+      return;
+    }
+
+    const highlighter = this._highlighters.get(type);
+    highlighter.destroy();
+    this._highlighters.delete(type);
+  }
+
+  /**
+   * Retrieve the HighlighterFront for a given highlighter type.
+   *
+   * @param {string} typeName
+   *        Highlighter type coming from devtools/shared/highlighters.mjs
+   * @param {boolean} forceNew
+   *        In case you are always expecting to instantiate a new Front instance,
+   *        set this argument to true.
+   * @return {HighlighterFront}
+   */
+  async getHighlighterByType(typeName, forceNew = false) {
     let highlighter = null;
     try {
-      highlighter = await super.getHighlighterByType(typeName);
+      highlighter = await super.getHighlighterByType(typeName, forceNew);
     } catch (_) {
       throw new Error(
         "The target doesn't support " +
@@ -182,7 +195,7 @@ class InspectorFront extends FrontClassWithSpec(inspectorSpec) {
     let front = this._highlighters.get(type);
     let pendingGetHighlighter = this._pendingGetHighlighterMap.get(type);
 
-    if (!front && !pendingGetHighlighter) {
+    if ((!front || front.isDestroyed()) && !pendingGetHighlighter) {
       pendingGetHighlighter = (async () => {
         const highlighter = await this.getHighlighterByType(type);
         this._highlighters.set(type, highlighter);

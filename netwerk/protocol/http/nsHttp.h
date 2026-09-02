@@ -6,15 +6,16 @@
 #define nsHttp_h_
 
 #include <stdint.h>
-#include "prtime.h"
-#include "nsString.h"
-#include "nsError.h"
-#include "nsTArray.h"
+
+#include "NSSErrorsService.h"
 #include "mozilla/OriginAttributes.h"
 #include "mozilla/TimeStamp.h"
-
 #include "mozilla/UniquePtr.h"
-#include "NSSErrorsService.h"
+#include "nsError.h"
+#include "nsIHttpChannelInternal.h"
+#include "nsString.h"
+#include "nsTArray.h"
+#include "prtime.h"
 
 class nsICacheEntry;
 
@@ -526,15 +527,8 @@ void DisallowHTTPSRR(uint32_t& aCaps);
 
 nsLiteralCString HttpVersionToTelemetryLabel(HttpVersion version);
 
-enum class ProxyDNSStrategy : uint8_t {
-  // To resolve the origin of the end server we are connecting
-  // to.
-  ORIGIN = 1 << 0,
-  // To resolve the host name of the proxy.
-  PROXY = 1 << 1
-};
-
-ProxyDNSStrategy GetProxyDNSStrategyHelper(const char* aType, uint32_t aFlag);
+nsIHttpChannelInternal::ProxyDNSStrategy GetProxyDNSStrategyHelper(
+    const char* aType, uint32_t aFlag);
 
 }  // namespace net
 }  // namespace mozilla

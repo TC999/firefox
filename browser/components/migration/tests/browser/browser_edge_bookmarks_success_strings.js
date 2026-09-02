@@ -3,6 +3,13 @@
 
 "use strict";
 
+add_setup(async () => {
+  // The EdgeHTML Edge migrator is disabled by default.
+  await SpecialPowers.pushPrefEnv({
+    set: [["browser.migrate.edge.enabled", true]],
+  });
+});
+
 /**
  * Tests that the progress strings that the Migration Wizard shows
  * during migrations for Edge uses the term "Favorites" rather
@@ -57,7 +64,7 @@ add_task(async function test_edge_bookmarks_success_strings() {
       let messageTextElement =
         bookmarksProgressGroup.querySelector(".message-text");
 
-      await BrowserTestUtils.waitForCondition(() => {
+      await TestUtils.waitForCondition(() => {
         return messageTextElement.textContent.trim();
       });
 

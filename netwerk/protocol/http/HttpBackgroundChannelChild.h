@@ -5,8 +5,8 @@
 #ifndef mozilla_net_HttpBackgroundChannelChild_h
 #define mozilla_net_HttpBackgroundChannelChild_h
 
-#include "mozilla/net/PHttpBackgroundChannelChild.h"
 #include "mozilla/ipc/Endpoint.h"
+#include "mozilla/net/PHttpBackgroundChannelChild.h"
 #include "nsIRunnable.h"
 #include "nsTArray.h"
 
@@ -136,7 +136,7 @@ class HttpBackgroundChannelChild final : public PHttpBackgroundChannelChild {
   // We need to know the first ODA will be from socket process or parent
   // process. This information is from OnStartRequest message from parent
   // process.
-  ODASource mFirstODASource;
+  ODASource mFirstODASource = ODA_PENDING;
 
   // Indicate whether HttpChannelChild::ProcessOnStopRequest is called.
   bool mOnStopRequestCalled = false;

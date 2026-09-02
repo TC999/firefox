@@ -231,6 +231,15 @@ class TextDirectiveUtil final {
                                                 uint32_t aWordEnd);
 
   /**
+   * @brief Returns true if `aString` contains at least two words.
+   *
+   * Words which are just whitespace or punctuation are not counted, following
+   * the same definition of a word as the word boundary algorithms in this
+   * class.
+   */
+  static bool ContainsAtLeastTwoWords(const nsAString& aString);
+
+  /**
    * @brief Finds the position of the beginning of the second word (in
    *        `direction`), then removes everything up to that position from
    *       `aString` and `aWordDistances`.
@@ -361,8 +370,10 @@ template <TextScanDirection direction>
 
   Maybe<int32_t> compare =
       direction == TextScanDirection::Left
-          ? nsContentUtils::ComparePoints(aRange.StartRef(), boundary)
-          : nsContentUtils::ComparePoints(boundary, aRange.EndRef());
+          ? nsContentUtils::ComparePoints<TreeKind::ShadowIncludingDOM>(
+                aRange.StartRef(), boundary)
+          : nsContentUtils::ComparePoints<TreeKind::ShadowIncludingDOM>(
+                boundary, aRange.EndRef());
   if (compare && *compare == -1) {
     // *compare == -1 means that the found boundary is after the range start
     // when looking left, and before the range end when looking right.

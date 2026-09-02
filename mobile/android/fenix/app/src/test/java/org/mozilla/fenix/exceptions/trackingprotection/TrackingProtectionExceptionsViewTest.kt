@@ -16,6 +16,7 @@ import io.mockk.mockk
 import io.mockk.mockkConstructor
 import io.mockk.unmockkConstructor
 import io.mockk.verify
+import kotlin.test.assertIs
 import mozilla.components.concept.engine.content.blocking.TrackingProtectionException
 import mozilla.components.support.test.robolectric.testContext
 import org.junit.After
@@ -44,10 +45,11 @@ class TrackingProtectionExceptionsViewTest {
         container = FrameLayout(testContext)
         interactor = mockk()
 
-        exceptionsView = TrackingProtectionExceptionsView(
-            container,
-            interactor,
-        )
+        exceptionsView =
+            TrackingProtectionExceptionsView(
+                container,
+                interactor,
+            )
         binding = ComponentExceptionsBinding.bind(container)
     }
 
@@ -58,8 +60,8 @@ class TrackingProtectionExceptionsViewTest {
 
     @Test
     fun `binds exception text`() {
-        assertTrue(binding.exceptionsLearnMore.movementMethod is LinkMovementMethod)
-        assertTrue(binding.exceptionsLearnMore.text is Spannable)
+        assertIs<LinkMovementMethod>(binding.exceptionsLearnMore.movementMethod)
+        assertIs<Spannable>(binding.exceptionsLearnMore.text)
         assertEquals("Learn more", binding.exceptionsLearnMore.text.toString())
 
         every { interactor.onLearnMore() } just Runs

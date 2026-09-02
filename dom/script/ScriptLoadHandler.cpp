@@ -132,6 +132,7 @@ ScriptLoadHandler::ScriptLoadHandler(
       mSRIDataVerifier(std::move(aSRIDataVerifier)),
       mSRIStatus(NS_OK) {
   MOZ_ASSERT(aRequest->IsUnknownDataType());
+  MOZ_ASSERT(!aRequest->IsRetrievedFromMemoryCache());
   MOZ_ASSERT(aRequest->IsFetching());
 }
 
@@ -184,11 +185,11 @@ ScriptLoadHandler::OnIncrementalData(nsIIncrementalStreamLoader* aLoader,
     NS_ENSURE_SUCCESS(rv, rv);
   }
 
-  if (mRequest->IsSerializedStencil() && firstTime) {
+  if (mRequest->IsRetrievedAsSerializedStencil() && firstTime) {
     PerfStats::RecordMeasurementStart(PerfStats::Metric::JSBC_IO_Read);
   }
 
-  if (mRequest->IsTextSource()) {
+  if (mRequest->IsFetchedAsTextSource()) {
 #ifdef NIGHTLY_BUILD
     // If we have a resource hasher, update it with the new data.
     if (mResourceHasher) {
@@ -223,7 +224,7 @@ ScriptLoadHandler::OnIncrementalData(nsIIncrementalStreamLoader* aLoader,
 
     *aConsumedLength = aDataLength;
   } else {
-    MOZ_ASSERT(mRequest->IsSerializedStencil());
+    MOZ_ASSERT(mRequest->IsRetrievedAsSerializedStencil());
     if (!mRequest->SRIAndSerializedStencil().append(aData, aDataLength)) {
       return NS_ERROR_OUT_OF_MEMORY;
     }
@@ -350,6 +351,7 @@ nsresult ScriptLoadHandler::MaybeDecodeSRI(uint32_t* sriLength) {
 
 nsresult ScriptLoadHandler::EnsureKnownDataType(nsIChannel* aChannel) {
   MOZ_ASSERT(mRequest->IsUnknownDataType());
+  MOZ_ASSERT(!mRequest->IsRetrievedFromMemoryCache());
   MOZ_ASSERT(mRequest->IsFetching());
 
 #ifdef NIGHTLY_BUILD
@@ -402,8 +404,8 @@ nsresult ScriptLoadHandler::EnsureKnownDataType(nsIChannel* aChannel) {
 NS_IMETHODIMP
 ScriptLoadHandler::OnStreamComplete(nsIIncrementalStreamLoader* aLoader,
                                     nsISupports* aContext, nsresult aStatus,
-                                    uint32_t aDataLength,
-                                    const uint8_t* aData) {
+                                    uint32_t aDataLength, const uint8_t* aData)
+    MOZ_CAN_RUN_SCRIPT_BOUNDARY {
   nsCOMPtr<nsIRequest> channelRequest;
   aLoader->GetRequest(getter_AddRefs(channelRequest));
   nsCOMPtr<nsIChannel> channel = do_QueryInterface(channelRequest);
@@ -446,9 +448,9 @@ ScriptLoadHandler::OnStreamComplete(nsIIncrementalStreamLoader* aLoader,
 
   integrity->WaitForManifestLoad()->Then(
       GetCurrentSerialEventTarget(), __func__,
-      [self = RefPtr{this}, channel, integrity = RefPtr{integrity},
-       computedHash = nsCString(computedHash), aStatus, aDataLength,
-       aData](bool) {
+      [self = RefPtr{this}, channel = std::move(channel),
+       integrity = RefPtr{integrity}, computedHash = std::move(computedHash),
+       aStatus, aDataLength, aData](bool) MOZ_CAN_RUN_SCRIPT_BOUNDARY {
         MOZ_LOG_FMT(gWaictLog, LogLevel::Debug,
                     "ScriptLoadHandler::OnStreamComplete: WaitForManifestLoad "
                     "promise resolved");
@@ -515,13 +517,13 @@ nsresult ScriptLoadHandler::DoOnStreamComplete(nsIChannel* aChannel,
       NS_ENSURE_SUCCESS(rv, rv);
     }
 
-    if (mRequest->IsSerializedStencil() && !firstMessage) {
+    if (mRequest->IsRetrievedAsSerializedStencil() && !firstMessage) {
       // if firstMessage, then entire stream is in aData, and PerfStats would
       // measure 0 time
       PerfStats::RecordMeasurementEnd(PerfStats::Metric::JSBC_IO_Read);
     }
 
-    if (mRequest->IsTextSource()) {
+    if (mRequest->IsFetchedAsTextSource()) {
       DebugOnly<bool> encoderSet = EnsureDecoder(aChannel, aData, aDataLength,
                                                  /* aEndOfStream = */ true);
       MOZ_ASSERT(encoderSet);
@@ -542,7 +544,7 @@ nsresult ScriptLoadHandler::DoOnStreamComplete(nsIChannel* aChannel,
         return NS_ERROR_OUT_OF_MEMORY;
       }
     } else {
-      MOZ_ASSERT(mRequest->IsSerializedStencil());
+      MOZ_ASSERT(mRequest->IsRetrievedAsSerializedStencil());
       JS::TranscodeBuffer& buf = mRequest->SRIAndSerializedStencil();
       if (!buf.append(aData, aDataLength)) {
         return NS_ERROR_OUT_OF_MEMORY;
@@ -588,8 +590,10 @@ nsresult ScriptLoadHandler::DoOnStreamComplete(nsIChannel* aChannel,
   // Everything went well, keep the CacheInfoChannel alive such that we can
   // later save the serialized stencil on the cache entry.
   // we have to mediate and use mRequest.
-  rv = mScriptLoader->OnStreamComplete(aChannel, mRequest, aStatus, mSRIStatus,
-                                       mSRIDataVerifier.get());
+  const RefPtr<ScriptLoader> scriptLoader = mScriptLoader;
+  const RefPtr<JS::loader::ScriptLoadRequest> request = mRequest;
+  rv = scriptLoader->OnStreamComplete(aChannel, request, aStatus, mSRIStatus,
+                                      mSRIDataVerifier.get());
 
   return rv;
 }

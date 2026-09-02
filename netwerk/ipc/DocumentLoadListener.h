@@ -5,12 +5,13 @@
 #ifndef mozilla_net_DocumentLoadListener_h
 #define mozilla_net_DocumentLoadListener_h
 
+#include "EarlyHintsService.h"
 #include "mozilla/MozPromise.h"
 #include "mozilla/Variant.h"
 #include "mozilla/WeakPtr.h"
-#include "mozilla/ipc/Endpoint.h"
+#include "mozilla/dom/RemoteType.h"
 #include "mozilla/dom/SessionHistoryEntry.h"
-#include "EarlyHintsService.h"
+#include "mozilla/ipc/Endpoint.h"
 #include "mozilla/net/NeckoCommon.h"
 #include "mozilla/net/NeckoParent.h"
 #include "mozilla/net/PDocumentChannelParent.h"
@@ -32,6 +33,7 @@
 namespace mozilla {
 namespace dom {
 class CanonicalBrowsingContext;
+class ParentProcessChannelHandle;
 struct NavigationIsolationOptions;
 }  // namespace dom
 namespace net {
@@ -180,26 +182,20 @@ class DocumentLoadListener : public nsIInterfaceRequestor,
 
   // Creates a DocumentLoadListener directly in the parent process and opens it,
   // without needing an existing DocumentChannel.
-  // If successful it registers a unique identifier (return in aOutIdent) to
-  // keep it alive until a future DocumentChannel can attach to it, or we fail
-  // and clean up.
+  // If successful, aLoadState will be given a SpeculativeListener, which will
+  // be used for the load when the DocumentChannel is connected from the content
+  // process.
   static bool SpeculativeLoadInParent(
       dom::CanonicalBrowsingContext* aBrowsingContext,
       nsDocShellLoadState* aLoadState);
 
-  // Ensures that a load identifier allocated by OpenFromParent has
-  // been deregistered if it hasn't already been claimed.
-  // This also cancels the load.
-  static void CleanupParentLoadAttempt(uint64_t aLoadIdent);
+  // Called when we were created without a document channel, and the
+  // nsDocShellLoadState was destroyed without the load being claimed.
+  void CleanupParentLoadAttempt();
 
-  // Looks up aLoadIdent to find the associated, cleans up the registration
-  static RefPtr<OpenPromise> ClaimParentLoad(DocumentLoadListener** aListener,
-                                             uint64_t aLoadIdent,
-                                             Maybe<uint64_t> aChannelId);
-
-  // Called by the DocumentChannelParent if actor got destroyed or the parent
-  // channel got deleted.
-  void Abort();
+  // Called to associate a document channel with the DocumentLoadListener when
+  // creation has succeeded.
+  RefPtr<OpenPromise> ClaimParentLoad(Maybe<uint64_t> aChannelId);
 
   NS_DECL_ISUPPORTS
   NS_DECL_NSIREQUESTOBSERVER
@@ -339,10 +335,6 @@ class DocumentLoadListener : public nsIInterfaceRequestor,
   void DisconnectListeners(nsresult aStatus, nsresult aLoadGroupStatus,
                            bool aContinueNavigating = false);
 
-  // Called when we were created without a document channel, and creation has
-  // failed, and won't ever be attached.
-  void NotifyDocumentChannelFailed();
-
   // Initiates the switch from DocumentChannel to the real protocol-specific
   // channel, and ensures that RedirectToRealChannelFinished is called when
   // this is complete.
@@ -418,6 +410,14 @@ class DocumentLoadListener : public nsIInterfaceRequestor,
   // Return the Window Context which which contains the element which the load
   // is being performed in. For toplevel loads, this will return `nullptr`.
   dom::WindowGlobalParent* GetParentWindowContext() const;
+
+  // Checks for a completed speculation rules prefetch record matching aURI.
+  // If found, copies the prefetch's cookies into the destination partition
+  // and marks the navigation timing as activated from a prefetch.
+  // Only called for document (navigational) loads.
+  // Spec:
+  // https://wicg.github.io/nav-speculation/prefetch.html#create-navigation-params-from-a-prefetch-record
+  void TryActivateFromPrefetch(nsIURI* aURI);
 
   void AddURIVisit(nsIChannel* aChannel, uint32_t aLoadFlags);
   bool HasCrossOriginOpenerPolicyMismatch() const;
@@ -569,6 +569,11 @@ class DocumentLoadListener : public nsIInterfaceRequestor,
   // Indicates if we are loading a javascript URI.
   bool mIsLoadingJSURI = false;
 
+  // Set to true if this load was moved into a container other than the one of
+  // the browsing context it started in, because its URI is bound to that
+  // container. Such a load must be retargeted into a new tab.
+  bool mSwitchedContainer = false;
+
   // Corresponding redirect channel registrar Id for the final channel that
   // we want to use when redirecting the child, or doing a process switch.
   // 0 means redirection is not started.
@@ -599,7 +604,12 @@ class DocumentLoadListener : public nsIInterfaceRequestor,
   // Parent-initiated loads do not support redirects to real channels.
   bool mSupportsRedirectToRealChannel = true;
 
-  Maybe<nsCString> mRemoteTypeOverride;
+  // Handle which will be passed to the content process. This will be passed to
+  // the WindowGlobalParent via. the content process to allow correlating the
+  // channel to the final document.
+  RefPtr<dom::ParentProcessChannelHandle> mParentProcessChannelHandle;
+
+  Maybe<dom::RemoteType> mRemoteTypeOverride;
 
   // The ContentParent which this channel is currently connected to, or nullptr
   // if connected to the parent process.

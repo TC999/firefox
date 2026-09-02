@@ -1,6 +1,3 @@
-/* -*- Mode: indent-tabs-mode: nil; js-indent-level: 2 -*- */
-/* vim: set sts=2 sw=2 et tw=80: */
-
 "use strict";
 
 requestLongerTimeout(4);
@@ -50,6 +47,21 @@ async function promiseNewTab(expectUrl = AboutNewTab.newTabURL, win = window) {
   const browser = await newTabCreatedPromise;
   await newtabShown;
   const tab = win.gBrowser.selectedTab;
+
+  // Wait for the New Tab page to be done loading. While it is still loading the
+  // tab is not "empty" as far as switchToTabHavingURI is concerned, so clicking
+  // the doorhanger's Manage button would open about:preferences in a new tab
+  // instead of replacing the New Tab page in this one.
+  await BrowserTestUtils.waitForMutationCondition(
+    tab,
+    { attributes: true, attributeFilter: ["busy"] },
+    () => !tab.hasAttribute("busy"),
+    { msg: `Should finish loading ${expectUrl}.` }
+  );
+  // The wait above can resolve from the mutation callback, which runs while
+  // tabbrowser is still handling that busy removal and still needs the tab.
+  // Yield first, so callers can remove the tab without tripping over it.
+  await TestUtils.waitForTick();
 
   Assert.deepEqual(
     browser,
@@ -405,6 +417,12 @@ add_task(async function test_new_tab_restore_settings() {
   await popupHidden;
   await preferencesShown;
 
+  is(
+    gBrowser.selectedTab,
+    tab,
+    "about:preferences replaced the New Tab page in the same tab"
+  );
+
   // Ensure panel is closed, settings haven't changed and add-on is disabled.
   Assert.notEqual(
     panel.getAttribute("panelopen"),
@@ -507,6 +525,12 @@ add_task(async function test_new_tab_restore_settings_multiple() {
   await popupHidden;
   await preferencesShown;
 
+  is(
+    gBrowser.selectedTab,
+    tab1,
+    "about:preferences replaced the New Tab page in the same tab"
+  );
+
   // Disable the second addon then refresh the new tab expect to see a new addon dropdown.
   let addonDisabled = waitForAddonDisabled(addonTwo);
   addonTwo.disable();
@@ -557,7 +581,14 @@ add_task(async function test_new_tab_restore_settings_multiple() {
   clickManage(notification);
   await popupHidden;
   await preferencesShown;
-  // remove the extra preferences tab.
+
+  is(
+    gBrowser.selectedTab,
+    tab1,
+    "Switched back to the tab already showing about:preferences"
+  );
+
+  // remove the extra new tab.
   BrowserTestUtils.removeTab(tab2);
 
   addonDisabled = waitForAddonDisabled(addonOne);

@@ -6,14 +6,14 @@
 
 #include <d3d11.h>
 
+#include "mozilla/ProfilerMarkers.h"
+#include "mozilla/SharedThreadPool.h"
 #include "mozilla/gfx/DeviceManagerDx.h"
 #include "mozilla/layers/AsyncImagePipelineManager.h"
 #include "mozilla/layers/CompositorThread.h"
 #include "mozilla/layers/GpuProcessD3D11TextureMap.h"
 #include "mozilla/layers/TextureD3D11.h"
 #include "mozilla/layers/WebRenderTextureHost.h"
-#include "mozilla/ProfilerMarkers.h"
-#include "mozilla/SharedThreadPool.h"
 
 namespace mozilla {
 namespace layers {
@@ -269,11 +269,11 @@ RefPtr<TextureHost> TextureHostWrapperD3D11::CreateFromBufferTexture(
   auto descD3D10 = SurfaceDescriptorD3D10(
       nullptr, Some(id),
       /* arrayIndex */ 0, outputFormat, size, colorSpace, colorRange,
-      transferFunction, /* hasKeyedMutex */ false,
+      transferFunction, /* hdrMetadata */ Nothing(),
+      /* hasKeyedMutex */ false,
       /* fencesHolderId */ Nothing());
 
-  RefPtr<DXGITextureHostD3D11> textureHostD3D11 =
-      new DXGITextureHostD3D11(flags, descD3D10);
+  RefPtr textureHostD3D11 = MakeRefPtr<DXGITextureHostD3D11>(flags, descD3D10);
 
   RefPtr<TextureHostWrapperD3D11> textureHostWrapper =
       new TextureHostWrapperD3D11(flags, aAllocator, id, textureHostD3D11,

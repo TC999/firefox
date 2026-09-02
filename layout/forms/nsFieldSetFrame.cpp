@@ -11,6 +11,7 @@
 #include "mozilla/Likely.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/PresShell.h"
+#include "mozilla/ReflowInput.h"
 #include "mozilla/ScrollContainerFrame.h"
 #include "mozilla/dom/HTMLLegendElement.h"
 #include "mozilla/gfx/2D.h"
@@ -19,7 +20,6 @@
 #include "nsCSSFrameConstructor.h"
 #include "nsCSSRendering.h"
 #include "nsDisplayList.h"
-#include "nsGkAtoms.h"
 #include "nsIFrameInlines.h"
 #include "nsLayoutUtils.h"
 #include "nsStyleConsts.h"
@@ -111,7 +111,7 @@ class nsDisplayFieldSetBorder final : public nsPaintedDisplayItem {
   MOZ_COUNTED_DTOR_FINAL(nsDisplayFieldSetBorder)
 
   void Paint(nsDisplayListBuilder* aBuilder, gfxContext* aCtx) override;
-  bool CreateWebRenderCommands(
+  WebRenderCommandsResult CreateWebRenderCommands(
       mozilla::wr::DisplayListBuilder& aBuilder,
       mozilla::wr::IpcResourceUpdateQueue& aResources,
       const StackingContextHelper& aSc,
@@ -139,7 +139,7 @@ nsRect nsDisplayFieldSetBorder::GetBounds(nsDisplayListBuilder* aBuilder,
   return Frame()->InkOverflowRectRelativeToSelf() + ToReferenceFrame();
 }
 
-bool nsDisplayFieldSetBorder::CreateWebRenderCommands(
+WebRenderCommandsResult nsDisplayFieldSetBorder::CreateWebRenderCommands(
     mozilla::wr::DisplayListBuilder& aBuilder,
     mozilla::wr::IpcResourceUpdateQueue& aResources,
     const StackingContextHelper& aSc,
@@ -175,6 +175,7 @@ bool nsDisplayFieldSetBorder::CreateWebRenderCommands(
           LayoutDeviceRect::FromAppUnits(legendRect, appUnitsPerDevPixel));
       region.mode = wr::ClipMode::ClipOut;
       region.radii = wr::EmptyBorderRadius();
+      region.inset = wr::EmptyLayoutSideOffsets();
 
       std::array<wr::WrClipId, 2> clips = {
           aBuilder.DefineRectClip(Nothing(), layoutRect),
@@ -192,9 +193,9 @@ bool nsDisplayFieldSetBorder::CreateWebRenderCommands(
       this, mFrame, rect, aBuilder, aResources, aSc, aManager,
       aDisplayListBuilder);
   if (drawResult == ImgDrawResult::NOT_SUPPORTED) {
-    return false;
+    return Err("fieldset border is not WebRender-representable");
   }
-  return true;
+  return Ok();
 };
 
 }  // namespace mozilla
@@ -249,8 +250,8 @@ void nsFieldSetFrame::BuildDisplayList(nsDisplayListBuilder* aBuilder,
     BuildDisplayListForChild(aBuilder, legend, set);
   }
 
-  if (GetPrevInFlow()) {
-    DisplayPushedAbsoluteFrames(aBuilder, aLists);
+  if (GetPrevInFlow() || GetNextInFlow()) {
+    DisplayAbsoluteFramesNotBuiltByPlaceholder(aBuilder, aLists);
   }
 
   // Put the inner frame's display items on the master list. Note that this

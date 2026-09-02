@@ -3,52 +3,45 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 // for strtod()
-#include <stdlib.h>
-#include <dlfcn.h>
-
 #include "nsLookAndFeel.h"
 
-#include <gtk/gtk.h>
-#include <gdk/gdk.h>
-
-#include <pango/pango.h>
-#include <pango/pango-fontmap.h>
+#include <cairo-gobject.h>
+#include <dlfcn.h>
 #include <fontconfig/fontconfig.h>
+#include <gdk/gdk.h>
+#include <gtk/gtk.h>
+#include <pango/pango-fontmap.h>
+#include <pango/pango.h>
+#include <stdlib.h>
 
 #include "GRefPtr.h"
 #include "GSettings.h"
 #include "GUniquePtr.h"
-#include "gtk/gtk.h"
-#include "nsGtkUtils.h"
+#include "GtkWidgets.h"
+#include "ScreenHelperGTK.h"
+#include "ScrollbarDrawing.h"
+#include "WidgetUtils.h"
+#include "gfxFontConstants.h"
 #include "gfxPlatformGtk.h"
+#include "gtk/gtk.h"
+#include "mozilla/AutoRestore.h"
 #include "mozilla/FontPropertyTypes.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/RelativeLuminanceUtils.h"
+#include "mozilla/ScopeExit.h"
+#include "mozilla/StaticPrefs_browser.h"
 #include "mozilla/StaticPrefs_layout.h"
 #include "mozilla/StaticPrefs_widget.h"
-#include "mozilla/StaticPrefs_browser.h"
-#include "mozilla/AutoRestore.h"
-#include "mozilla/glean/WidgetGtkMetrics.h"
-#include "mozilla/ScopeExit.h"
 #include "mozilla/WidgetUtilsGtk.h"
-#include "ScreenHelperGTK.h"
-#include "ScrollbarDrawing.h"
+#include "mozilla/gfx/2D.h"
+#include "mozilla/glean/WidgetGtkMetrics.h"
 #include "nsAppShell.h"
-
-#include "GtkWidgets.h"
+#include "nsCSSColorUtils.h"
+#include "nsGtkUtils.h"
 #include "nsString.h"
 #include "nsStyleConsts.h"
-#include "gfxFontConstants.h"
-#include "WidgetUtils.h"
 #include "nsWindow.h"
-
-#include "mozilla/gfx/2D.h"
-
-#include <cairo-gobject.h>
-#include <dlfcn.h>
 #include "prenv.h"
-#include "nsCSSColorUtils.h"
-#include "mozilla/Preferences.h"
 
 #ifdef MOZ_X11
 #  include <X11/XKBlib.h>
@@ -62,9 +55,9 @@ using namespace mozilla;
 using namespace mozilla::widget;
 
 #ifdef MOZ_LOGGING
+#  include "Units.h"
 #  include "mozilla/Logging.h"
 #  include "nsTArray.h"
-#  include "Units.h"
 static LazyLogModule gLnfLog("LookAndFeel");
 #  define LOGLNF(...) MOZ_LOG(gLnfLog, LogLevel::Debug, (__VA_ARGS__))
 #  define LOGLNF_ENABLED() MOZ_LOG_TEST(gLnfLog, LogLevel::Debug)
@@ -117,7 +110,12 @@ static float GetGtkTextScaleFactor() {
   if (!s) {
     return 1.0f;
   }
-  return float(gdk_screen_get_resolution(s) / 96.0);
+  // A non-positive resolution means "unset", not a real DPI.
+  const gdouble resolution = gdk_screen_get_resolution(s);
+  if (resolution <= 0.0) {
+    return 1.0f;
+  }
+  return float(resolution / 96.0);
 }
 
 static bool sCSDAvailable;
@@ -390,8 +388,8 @@ nsLookAndFeel::nsLookAndFeel() {
     GUniquePtr<gchar> path(
         g_strconcat(g_get_user_config_dir(), "/gtk-3.0/colors.css", NULL));
     mKdeColors = dont_AddRef(g_file_new_for_path(path.get()));
-    mKdeColorsMonitor = dont_AddRef(
-        g_file_monitor_file(mKdeColors.get(), G_FILE_MONITOR_NONE, NULL, NULL));
+    mKdeColorsMonitor = dont_AddRef(g_file_monitor_file(
+        mKdeColors.get(), G_FILE_MONITOR_NONE, nullptr, nullptr));
     if (mKdeColorsMonitor) {
       g_signal_connect(mKdeColorsMonitor.get(), "changed",
                        G_CALLBACK(kde_colors_changed), NULL);
@@ -1280,8 +1278,8 @@ static void GetSystemFontInfo(GtkStyleContext* aStyle, nsString* aFontName,
   aFontStyle->weight =
       FontWeight::FromInt(pango_font_description_get_weight(desc));
 
-  // FIXME: Set aFontStyle->stretch correctly!
-  aFontStyle->stretch = FontStretch::NORMAL;
+  // FIXME: Set aFontStyle->width correctly!
+  aFontStyle->width = FontWidth::NORMAL;
 
   float size = float(pango_font_description_get_size(desc)) / PANGO_SCALE;
 
@@ -1337,6 +1335,7 @@ bool nsLookAndFeel::PerThemeData::GetFont(FontID aID, nsString& aFontName,
       aFontStyle = mDefaultFontStyle;
       break;
   }
+  aFontStyle.systemFont = true;
 
   // Convert GDK pixels to CSS pixels.
   // Note that this is generally a no-op, except when text scale factor is

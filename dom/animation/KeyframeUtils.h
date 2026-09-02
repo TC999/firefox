@@ -7,6 +7,7 @@
 
 #include "NonCustomCSSPropertyId.h"
 #include "js/RootingAPI.h"                 // For JS::Handle
+#include "mozilla/Keyframe.h"              // For Keyframe::OffsetType
 #include "mozilla/KeyframeEffectParams.h"  // For CompositeOperation
 #include "nsTArrayForwardDeclare.h"        // For nsTArray
 
@@ -18,13 +19,16 @@ struct AnimationProperty;
 class ComputedStyle;
 struct CSSPropertyId;
 
-enum class PseudoStyleType : uint8_t;
 class ErrorResult;
-struct Keyframe;
 struct PropertyStyleAnimationValuePair;
 struct PseudoStyleRequest;
 
+enum class PseudoStyleType : uint8_t;
+enum class StyleTimelineRangeName : uint8_t;
+
 namespace dom {
+struct AnimationRange;
+class AnimationTimeline;
 class Document;
 class Element;
 }  // namespace dom
@@ -64,14 +68,35 @@ class KeyframeUtils {
 
   /**
    * Calculate the computed offset of keyframes by evenly distributing keyframes
-   * with a missing offset.
+   * with a missing offset. Note that the distribution doesn't take
+   * TimelineRangeOffset into account. We distribute the keyframes by using
+   * percentage (i.e. double) offset only.
    *
    * @see
-   * https://drafts.csswg.org/web-animations/#calculating-computed-keyframes
+   * https://drafts.csswg.org/web-animations-1/#compute-missing-keyframe-offsets
    *
    * @param aKeyframes The set of keyframes to adjust.
+   * @param aTimeline The animation timeline.
+   * @param aRange The animation attachment range.
+   * @return The preprocess info for quickly checking the keyframes whether they
+   *   use timeline range offsets.
    */
-  static void DistributeKeyframes(nsTArray<Keyframe>& aKeyframes);
+  static KeyframeOffsetsHasRangeOffset ComputeMissingKeyframeOffsets(
+      nsTArray<Keyframe>& aKeframes, const dom::AnimationTimeline* aTimeline,
+      const dom::AnimationRange* aRange);
+
+  /**
+   * Calculate the computed offset for view timelines.
+   *
+   * @param aOffset The timeline range offset of the specified keyframe offset.
+   * @param aTimeline The animation timeline.
+   * @param aRange The animation attachment range.
+   * @return The computed offset for |aOffset|. It returns unresolved offset if
+   *   the timeline isn't ViewTimeline.
+   */
+  static double GetComputedOffset(const Keyframe::OffsetType& aOffset,
+                                  const dom::AnimationTimeline* aTimeline,
+                                  const dom::AnimationRange* aRange);
 
   /**
    * Converts an array of Keyframe objects into an array of AnimationProperty
@@ -85,13 +110,15 @@ class KeyframeUtils {
    * @param aEffectComposite The composite operation specified on the effect.
    *   For any keyframes in |aKeyframes| that do not specify a composite
    *   operation, this value will be used.
+   * @param aTimeline The associated timeline.
    * @return The set of animation properties. If an error occurs, the returned
    *   array will be empty.
    */
   static nsTArray<AnimationProperty> GetAnimationPropertiesFromKeyframes(
       const nsTArray<Keyframe>& aKeyframes, dom::Element* aElement,
       const PseudoStyleRequest& aPseudoRequest, const ComputedStyle* aStyle,
-      dom::CompositeOperation aEffectComposite);
+      dom::CompositeOperation aEffectComposite,
+      const dom::AnimationTimeline* aTimeline);
 
   /**
    * Check if the property or, for shorthands, one or more of

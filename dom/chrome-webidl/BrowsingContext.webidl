@@ -64,6 +64,15 @@ enum ForcedColorsOverride {
 };
 
 /**
+ * CSS prefers-reduced-motion values override.
+ */
+enum PrefersReducedMotionOverride {
+  "none",
+  "reduce",
+  "no-preference",
+};
+
+/**
  * Allowed overrides of platform/pref default behaviour for touch events.
  */
 enum TouchEventsOverride {
@@ -240,6 +249,9 @@ interface BrowsingContext {
   // Color-scheme simulation, for DevTools.
   [SetterThrows] attribute PrefersColorSchemeOverride prefersColorSchemeOverride;
 
+  // Reduced-motion simulation, for DevTools.
+  [SetterThrows] attribute PrefersReducedMotionOverride prefersReducedMotionOverride;
+
   // Forced-colors simulation, for DevTools
   [SetterThrows] attribute ForcedColorsOverride forcedColorsOverride;
 
@@ -316,6 +328,12 @@ BrowsingContext includes LoadContextMixin;
 
 [Exposed=Window, ChromeOnly]
 interface CanonicalBrowsingContext : BrowsingContext {
+  // Whether enterprise policy has disabled service workers for the top-level site.
+  readonly attribute boolean serviceWorkersDisabledByPolicy;
+
+  // Top-level only download folder override for WebDriver BiDi's.
+  [SetterThrows] attribute DOMString downloadFolderOverride;
+
   sequence<WindowGlobalParent> getWindowGlobals();
 
   readonly attribute WindowGlobalParent? currentWindowGlobal;
@@ -331,7 +349,6 @@ interface CanonicalBrowsingContext : BrowsingContext {
   readonly attribute WindowGlobalParent? embedderWindowGlobal;
 
   undefined notifyStartDelayedAutoplayMedia();
-  [Throws] undefined notifyMediaMutedChanged(boolean muted);
 
   readonly attribute nsISecureBrowserUI? secureBrowserUI;
 

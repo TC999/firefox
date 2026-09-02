@@ -11,6 +11,7 @@
 #include "mozilla/DeclarationBlock.h"
 #include "mozilla/DocumentStyleRootIterator.h"
 #include "mozilla/EffectCompositor.h"
+#include "mozilla/FontPropertyTypes.h"
 #include "mozilla/IntegerRange.h"
 #include "mozilla/Keyframe.h"
 #include "mozilla/LookAndFeel.h"
@@ -20,6 +21,7 @@
 #include "mozilla/RestyleManager.h"
 #include "mozilla/SMILAnimationController.h"
 #include "mozilla/ServoBindings.h"
+#include "mozilla/ServoStyleConsts.h"
 #include "mozilla/ServoStyleRuleMap.h"
 #include "mozilla/ServoStyleSetInlines.h"
 #include "mozilla/ServoTypes.h"
@@ -335,8 +337,6 @@ void ServoStyleSet::PreTraverseSync() {
 
   mDocument->ResolveScheduledPresAttrs();
 
-  mDocument->CacheAllKnownLangPrefs();
-
   if (gfxUserFontSet* userFontSet = mDocument->GetUserFontSet()) {
     nsPresContext* presContext = GetPresContext();
     MOZ_ASSERT(presContext,
@@ -482,15 +482,21 @@ already_AddRefed<ComputedStyle> ServoStyleSet::ResolvePseudoElementStyle(
       return nullptr;
     }
     if (cacheable) {
-      // Don't cache styles with viewport units if the parent style differs from
-      // the element's primary frame style. This can happen with ::first-line,
-      // where text frames have a combined style. Cached lazy pseudos on such
-      // combined styles aren't findable during viewport invalidation, so we
-      // must recompute them each time to ensure correct values.
-      // Note: Container units that fall back to viewport size already set the
-      // USES_VIEWPORT_UNITS flag, so we only need to check that.
       const bool shouldCache = [&] {
+        if (style->HasAttrReferences()) {
+          // We can't cache styles referencing attr() functions here, because we
+          // don't make the relevant attribute part of the cache key.
+          return false;
+        }
         if (style->UsesViewportUnits()) {
+          // Don't cache styles with viewport units if the parent style differs
+          // from the element's primary frame style. This can happen with
+          // ::first-line, where text frames have a combined style. Cached lazy
+          // pseudos on such combined styles aren't findable during viewport
+          // invalidation, so we must recompute them each time to ensure correct
+          // values. Note: Container units that fall back to viewport size
+          // already set the USES_VIEWPORT_UNITS flag, so we only need to check
+          // that.
           if (const auto* primaryFrame =
                   aOriginatingElement.GetPrimaryFrame()) {
             if (primaryFrame->Style() != aParentStyle) {
@@ -557,14 +563,6 @@ ServoStyleSet::ResolveNonInheritingAnonymousBoxStyle(PseudoStyleType aType) {
   }
 
   UpdateStylistIfNeeded();
-
-  // We always want to skip parent-based display fixup here.  It never makes
-  // sense for non-inheriting anonymous boxes.  (Static assertions in
-  // nsCSSAnonBoxes.cpp ensure that all non-inheriting non-anonymous boxes
-  // are indeed annotated as skipping this fixup.)
-  MOZ_ASSERT(!PseudoStyle::IsNonInheritingAnonBox(PseudoStyleType::MozViewport),
-             "viewport needs fixup to handle blockifying it");
-
   RefPtr<ComputedStyle> computedValues =
       Servo_ComputedValues_GetForAnonymousBox(nullptr, aType, mRawData.get())
           .Consume();
@@ -619,9 +617,10 @@ already_AddRefed<ComputedStyle> ServoStyleSet::ResolveXULTreePseudoStyle(
 }
 
 already_AddRefed<ComputedStyle> ServoStyleSet::ResolvePositionTry(
-    dom::Element& aElement, const ComputedStyle& aStyle,
+    StyleCascadeLevel aScope, dom::Element& aElement,
+    const ComputedStyle& aStyle,
     const StylePositionTryFallbacksItem& aFallback) {
-  return Servo_ComputedValues_GetForPositionTry(mRawData.get(), &aStyle,
+  return Servo_ComputedValues_GetForPositionTry(mRawData.get(), &aStyle, aScope,
                                                 &aElement, &aFallback)
       .Consume();
 }
@@ -780,9 +779,10 @@ bool ServoStyleSet::GeneratedContentPseudoExists(
       return false;
     }
   }
-  // For ::before and ::after pseudo-elements, no 'content' items is
-  // equivalent to not having the pseudo-element at all.
-  if (type == PseudoStyleType::Before || type == PseudoStyleType::After) {
+  // For ::before, ::after, and ::checkmark pseudo-elements, no 'content'
+  // items is equivalent to not having the pseudo-element at all.
+  if (type == PseudoStyleType::Before || type == PseudoStyleType::After ||
+      type == PseudoStyleType::Checkmark) {
     if (!aPseudoStyle.StyleContent()->mContent.IsItems()) {
       return false;
     }
@@ -790,7 +790,9 @@ bool ServoStyleSet::GeneratedContentPseudoExists(
                "IsItems() implies we have at least one item");
   }
   if (type == PseudoStyleType::Before || type == PseudoStyleType::After ||
-      type == PseudoStyleType::Marker || type == PseudoStyleType::Backdrop) {
+      type == PseudoStyleType::Marker || type == PseudoStyleType::Backdrop ||
+      type == PseudoStyleType::Checkmark ||
+      type == PseudoStyleType::PickerIcon) {
     // display:none is equivalent to not having a pseudo at all.
     if (aPseudoStyle.StyleDisplay()->mDisplay == StyleDisplay::None) {
       return false;
@@ -1107,8 +1109,8 @@ void ServoStyleSet::RuleChanged(StyleSheet& aSheet, css::Rule* aRule,
     MarkOriginsDirty(ToOriginFlags(aSheet.GetOrigin()));
   } else {
     if (mStyleRuleMap && aChange.mOldBlock != aChange.mNewBlock) {
-      mStyleRuleMap->RuleDeclarationsChanged(*aRule, aChange.mOldBlock->Raw(),
-                                             aChange.mNewBlock->Raw());
+      mStyleRuleMap->RuleDeclarationsChanged(*aRule, aChange.mOldBlock,
+                                             aChange.mNewBlock);
     }
     RuleChangedInternal(aSheet, *aRule, aChange);
   }
@@ -1459,6 +1461,13 @@ bool ServoStyleSet::MightHaveAttributeDependency(const Element& aElement,
                                                  nsAtom* aAttribute) const {
   return Servo_StyleSet_MightHaveAttributeDependency(mRawData.get(), &aElement,
                                                      aAttribute);
+}
+
+StyleContainerAttributeDependencyKind
+ServoStyleSet::MightHaveAttributeDependencyInContainer(
+    const Element& aElement, nsAtom* aAttribute) const {
+  return Servo_StyleSet_MightHaveAttributeDependencyInContainer(
+      mRawData.get(), &aElement, aAttribute);
 }
 
 bool ServoStyleSet::MightHaveNthOfIDDependency(const Element& aElement,

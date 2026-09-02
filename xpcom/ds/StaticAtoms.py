@@ -9,7 +9,7 @@ import sys
 from Atom import Atom
 from HTMLAtoms import HTML_PARSER_ATOMS
 
-# Static atom definitions, used to generate nsGkAtomList.h.
+# Static atom definitions, used to generate various files below.
 #
 # Each atom is defined by a call to Atom
 #
@@ -53,6 +53,8 @@ STATIC_ATOMS = [
     Atom("mozgeneratedcontentmarker", "_moz_generated_content_marker"),
     Atom("mozgeneratedcontentimage", "_moz_generated_content_image"),
     Atom("mozgeneratedcontentbackdrop", "_moz_generated_content_backdrop"),
+    Atom("mozgeneratedcontentcheckmark", "_moz_generated_content_checkmark"),
+    Atom("mozgeneratedcontentpickericon", "_moz_generated_content_picker_icon"),
     Atom("mozquote", "_moz_quote"),
     Atom("mozsignature", "moz-signature"),  # Used by MailNews.
     Atom("_moz_bullet_font", "-moz-bullet-font"),
@@ -211,7 +213,6 @@ STATIC_ATOMS = [
     Atom("bottomend", "bottomend"),
     Atom("bottomstart", "bottomstart"),
     Atom("bottomleft", "bottomleft"),
-    Atom("bottommargin", "bottommargin"),
     Atom("bottomright", "bottomright"),
     Atom("box", "box"),
     Atom("br", "br"),
@@ -238,6 +239,7 @@ STATIC_ATOMS = [
     Atom("checkbox", "checkbox"),
     Atom("checkboxLabel", "checkbox-label"),
     Atom("checked", "checked"),
+    Atom("checkmark", "checkmark"),
     Atom("child", "child"),
     Atom("children", "children"),
     Atom("childList", "childList"),
@@ -285,6 +287,9 @@ STATIC_ATOMS = [
     Atom("constructor", "constructor"),
     Atom("consumeoutsideclicks", "consumeoutsideclicks"),
     Atom("container", "container"),
+    Atom("containertiming", "containertiming"),
+    Atom("containerTimingIgnore", "containertimingignore"),
+    Atom("containerTimingRoot", "containertiming-root"),
     Atom("contains", "contains"),
     Atom("content", "content"),
     Atom("contenteditable", "contenteditable"),
@@ -366,6 +371,8 @@ STATIC_ATOMS = [
     Atom("disablehistory", "disablehistory"),
     Atom("disablefullscreen", "disablefullscreen"),
     Atom("disablepictureinpicture", "disablepictureinpicture"),
+    Atom("onenterpictureinpicture", "onenterpictureinpicture"),
+    Atom("onleavepictureinpicture", "onleavepictureinpicture"),
     Atom("disclosure_closed", "disclosure-closed"),
     Atom("disclosure_open", "disclosure-open"),
     Atom("display", "display"),
@@ -532,6 +539,8 @@ STATIC_ATOMS = [
     Atom("head", "head"),
     Atom("header", "header"),
     Atom("headers", "headers"),
+    Atom("headingoffset", "headingoffset"),
+    Atom("headingreset", "headingreset"),
     Atom("hebrew", "hebrew"),
     Atom("height", "height"),
     Atom("hgroup", "hgroup"),
@@ -539,6 +548,7 @@ STATIC_ATOMS = [
     Atom("hidechrome", "hidechrome"),
     Atom("hidecolumnpicker", "hidecolumnpicker"),
     Atom("hidetitlebarseparator", "hidetitlebarseparator"),
+    Atom("hidepopovertail", "hidepopovertail"),
     Atom("hide_popover", "hide-popover"),
     Atom("high", "high"),
     Atom("highest", "highest"),
@@ -593,6 +603,7 @@ STATIC_ATOMS = [
     Atom("integrity_violation", "integrity-violation"),
     Atom("interactive_widget", "interactive-widget"),
     Atom("internal", "internal"),
+    Atom("internalSelectButton", "internal-select-button"),
     Atom("internals", "internals"),
     Atom("intersection", "intersection"),
     Atom("is", "is"),
@@ -762,6 +773,7 @@ STATIC_ATOMS = [
     Atom("nomodule", "nomodule"),
     Atom("nonce", "nonce"),
     Atom("none", "none"),
+    Atom("nonnative", "nonnative"),
     Atom("noresize", "noresize"),
     Atom("normal", "normal"),
     Atom("normalizeSpace", "normalize-space"),
@@ -807,6 +819,7 @@ STATIC_ATOMS = [
     Atom("oncancel", "oncancel"),
     Atom("onchange", "onchange"),
     Atom("onchargingchange", "onchargingchange"),
+    Atom("oncharacterboundsupdate", "oncharacterboundsupdate"),
     Atom("onchargingtimechange", "onchargingtimechange"),
     Atom("onchecking", "onchecking"),
     Atom("onCheckKeyPressEventModel", "onCheckKeyPressEventModel"),
@@ -831,6 +844,7 @@ STATIC_ATOMS = [
     Atom("oncurrententrychange", "oncurrententrychange"),
     Atom("ondblclick", "ondblclick"),
     Atom("ondischargingtimechange", "ondischargingtimechange"),
+    Atom("ondisconnect", "ondisconnect"),
     Atom("ondispose", "ondispose"),
     Atom("ondownloading", "ondownloading"),
     Atom("onDOMActivate", "onDOMActivate"),
@@ -936,6 +950,7 @@ STATIC_ATOMS = [
     Atom("onscroll", "onscroll"),
     Atom("onsecuritypolicyviolation", "onsecuritypolicyviolation"),
     Atom("onselect", "onselect"),
+    Atom("onselectedcandidatepairchange", "onselectedcandidatepairchange"),
     Atom("onselectionchange", "onselectionchange"),
     Atom("onselectend", "onselectend"),
     Atom("onselectstart", "onselectstart"),
@@ -956,6 +971,8 @@ STATIC_ATOMS = [
     Atom("onterminate", "onterminate"),
     Atom("ontext", "ontext"),
     Atom("ontextInput", "ontextInput"),
+    Atom("ontextformatupdate", "ontextformatupdate"),
+    Atom("ontextupdate", "ontextupdate"),
     Atom("ontoggle", "ontoggle"),
     Atom("ontonechange", "ontonechange"),
     Atom("ontouchstart", "ontouchstart"),
@@ -1004,6 +1021,7 @@ STATIC_ATOMS = [
     Atom("otherwise", "otherwise"),
     Atom("outerHTML", "outerHTML"),
     Atom("output", "output"),
+    Atom("outside", "outside"),
     Atom("overflow", "overflow"),
     Atom("overflowBlock", "overflow-block"),
     Atom("overflowInline", "overflow-inline"),
@@ -1036,6 +1054,7 @@ STATIC_ATOMS = [
     Atom("plaintextOnly", "plaintext-only"),
     Atom("playbackrate", "playbackrate"),
     Atom("pointSize", "point-size"),
+    Atom("polarion_rte_RichTextArea", "polarion-rte-RichTextArea"),
     Atom("poly", "poly"),
     Atom("polygon", "polygon"),
     Atom("popover", "popover"),
@@ -1120,7 +1139,6 @@ STATIC_ATOMS = [
     Atom("richlistbox", "richlistbox"),
     Atom("richlistitem", "richlistitem"),
     Atom("right", "right"),
-    Atom("rightmargin", "rightmargin"),
     Atom("role", "role"),
     Atom("rolluponmousewheel", "rolluponmousewheel"),
     Atom("round", "round"),
@@ -1175,6 +1193,7 @@ STATIC_ATOMS = [
     Atom("section", "section"),
     Atom("select", "select"),
     Atom("selected", "selected"),
+    Atom("selectedcontent", "selectedcontent"),
     Atom("selectedIndex", "selectedIndex"),
     Atom("selectedindex", "selectedindex"),
     Atom("selectmenu", "selectmenu"),
@@ -1353,6 +1372,7 @@ STATIC_ATOMS = [
     Atom("viewport_minimum_scale", "viewport-minimum-scale"),
     Atom("viewport_user_scalable", "viewport-user-scalable"),
     Atom("viewport_width", "viewport-width"),
+    Atom("viewsource", "viewsource"),
     Atom("visibility", "visibility"),
     Atom("visuallyselected", "visuallyselected"),
     Atom("vlink", "vlink"),
@@ -1499,7 +1519,6 @@ STATIC_ATOMS = [
     Atom("grad", "grad"),
     Atom("gradientTransform", "gradientTransform"),
     Atom("gradientUnits", "gradientUnits"),
-    Atom("gtktiledwindow", "gtktiledwindow"),
     Atom("hardLight", "hard-light"),
     Atom("hue", "hue"),
     Atom("hueRotate", "hueRotate"),
@@ -1628,6 +1647,8 @@ STATIC_ATOMS = [
     Atom("targetX", "targetX"),
     Atom("targetY", "targetY"),
     Atom("text_anchor", "text-anchor"),
+    Atom("text_css", "text/css"),
+    Atom("text_javascript", "text/javascript"),
     Atom("text_overflow", "text-overflow"),
     Atom("text_rendering", "text-rendering"),
     Atom("textLength", "textLength"),
@@ -1757,7 +1778,6 @@ STATIC_ATOMS = [
     Atom("displaystyle", "displaystyle"),
     Atom("divergence", "divergence"),
     Atom("divide", "divide"),
-    Atom("dom_viewTransitions_enabled", "dom.viewTransitions.enabled"),
     Atom("domain", "domain"),
     Atom("domainofapplication", "domainofapplication"),
     Atom("edge", "edge"),
@@ -1935,6 +1955,7 @@ STATIC_ATOMS = [
     Atom("tanh", "tanh"),
     Atom("tan", "tan"),
     Atom("tendsto", "tendsto"),
+    Atom("tiled", "tiled"),
     Atom("times", "times"),
     Atom("transpose", "transpose"),
     Atom("union_", "union"),
@@ -2019,6 +2040,7 @@ STATIC_ATOMS = [
     Atom("onMozDOMFullscreen_Exited", "onMozDOMFullscreen:Exited"),
     Atom("onMozDOMFullscreen_NewOrigin", "onMozDOMFullscreen:NewOrigin"),
     Atom("onMozDOMFullscreen_Request", "onMozDOMFullscreen:Request"),
+    Atom("onMozDOMFullscreen_WarnAboutKeyboardLock", "onMozDOMFullscreen:WarnAboutKeyboardLock"),
     Atom("onMozDOMPointerLock_Entered", "onMozDOMPointerLock:Entered"),
     Atom("onMozDOMPointerLock_Exited", "onMozDOMPointerLock:Exited"),
     Atom("onMozInvalidForm", "onMozInvalidForm"),
@@ -2059,6 +2081,7 @@ STATIC_ATOMS = [
     Atom("moz", "moz"),
     Atom("moz_icon", "moz-icon"),
     Atom("proxy", "proxy"),
+    Atom("fileSchemeAllowedPermission", "internal:fileSchemeAllowed"),
     Atom("privateBrowsingAllowedPermission", "internal:privateBrowsingAllowed"),
     Atom("svgContextPropertiesAllowedPermission", "internal:svgContextPropertiesAllowed"),
     Atom("theme", "theme"),
@@ -2099,6 +2122,7 @@ STATIC_ATOMS = [
     Atom("lower_greek", "lower-greek"),
     Atom("hiragana", "hiragana"),
     Atom("hiragana_iroha", "hiragana-iroha"),
+    Atom("fake_counter_name", "fake-counter-name"),
     Atom("katakana", "katakana"),
     Atom("katakana_iroha", "katakana-iroha"),
     Atom("cjk_ideographic", "cjk-ideographic"),
@@ -2222,6 +2246,8 @@ STATIC_ATOMS = [
     Atom("manualNACProperty", "ManualNACProperty"),  # ManualNAC*
     Atom("markerPseudoProperty", "markerPseudoProperty"),  # nsXMLElement*
     Atom("backdropPseudoProperty", "backdropPseudoProperty"),  # nsXMLElement*
+    Atom("checkmarkPseudoProperty", "checkmarkPseudoProperty"),  # nsXMLElement*
+    Atom("pickerIconPseudoProperty", "pickerIconPseudoProperty"),  # nsXMLElement*
     # Languages for lang-specific transforms
     Atom("Japanese", "ja"),
     Atom("Chinese", "zh-CN"),
@@ -2324,7 +2350,6 @@ STATIC_ATOMS = [
     Atom("_moz_gtk_csd_close_button", "-moz-gtk-csd-close-button"),
     Atom("_moz_gtk_csd_close_button_position", "-moz-gtk-csd-close-button-position"),
     Atom("_moz_gtk_csd_reversed_placement", "-moz-gtk-csd-reversed-placement"),
-    Atom("_moz_gtk_csd_rounded_bottom_corners", "-moz-gtk-csd-rounded-bottom-corners"),
     Atom("_moz_content_prefers_color_scheme", "-moz-content-prefers-color-scheme"),
     Atom("_moz_content_preferred_color_scheme", "-moz-content-preferred-color-scheme"),
     Atom("_moz_system_dark_theme", "-moz-system-dark-theme"),
@@ -2454,19 +2479,24 @@ STATIC_ATOMS = [
     Atom("onboundary", "onboundary"),
     # Media Controller
     Atom("onactivated", "onactivated"),
+    Atom("onaudiblechange", "onaudiblechange"),
     Atom("ondeactivated", "ondeactivated"),
     Atom("onmetadatachange", "onmetadatachange"),
     Atom("onplaybackstatechange", "onplaybackstatechange"),
     Atom("onpositionstatechange", "onpositionstatechange"),
+    Atom("oneffectiveaudiosessiontypechange", "oneffectiveaudiosessiontypechange"),
     Atom("onsupportedkeyschange", "onsupportedkeyschange"),
     # Media query prefs for UA sheets.
+    Atom("dom_image_sizes_auto_enabled", "dom.image.sizes_auto.enabled"),
     Atom("mathml_legacy_mathvariant_attribute_disabled", "mathml.legacy_mathvariant_attribute.disabled"),
     Atom("mathml_font_family_math_enabled", "mathml.font_family_math.enabled"),
     Atom("layout_css_always_underline_links", "layout.css.always_underline_links"),
     Atom("layout_css_android_pip_enabled", "layout.css.android-pip.enabled"),
     Atom("layout_css_appearance_base_enabled", "layout.css.appearance-base.enabled"),
     Atom("layout_css_cached_scrollbar_styles_enabled", "layout.css.cached-scrollbar-styles.enabled"),
+    Atom("layout_forms_button_input_align_content_block_enabled", "layout.forms.button-input-align-content-block.enabled"),
     Atom("layout_testing_scrollbars_always_hidden", "layout.testing.scrollbars.always-hidden"),
+    Atom("dom_headingoffset_enabled", "dom.headingoffset.enabled"),
     # Contextual Identity / Containers
     Atom("usercontextid", "usercontextid"),
     Atom("geckoViewSessionContextId", "geckoViewSessionContextId"),
@@ -2548,6 +2578,7 @@ STATIC_ATOMS = [
     Atom("PseudoStyle_FirstLine", ":first-line"),
     Atom("PseudoStyle_Highlight", ":highlight"),
     Atom("PseudoStyle_Picker", ":picker"),
+    Atom("PseudoStyle_Checkmark", ":checkmark"),
     Atom("PseudoStyle_Selection", ":selection"),
     Atom("PseudoStyle_TargetText", ":target-text"),
     Atom("PseudoStyle_ViewTransition", ":view-transition"),
@@ -2606,7 +2637,6 @@ STATIC_ATOMS = [
     Atom("PseudoStyle_MozCanvas", ":-moz-canvas"),
     Atom("PseudoStyle_MozPageSequence", ":-moz-page-sequence"),
     Atom("PseudoStyle_MozScrolledContent", ":-moz-scrolled-content"),
-    Atom("PseudoStyle_MozScrolledCanvas", ":-moz-scrolled-canvas"),
     Atom("PseudoStyle_MozColumnSet", ":-moz-column-set"),
     Atom("PseudoStyle_MozColumnContent", ":-moz-column-content"),
     Atom("PseudoStyle_MozViewport", ":-moz-viewport"),
@@ -2656,21 +2686,71 @@ def verify():
         sys.exit(1)
 
 
-def generate_nsgkatomlist_h(output, *ignore):
+def generate_staticatomlist_h(output, *ignore):
     verify()
-    output.write(
-        "/* THIS FILE IS AUTOGENERATED BY StaticAtoms.py.  DO NOT EDIT */\n\n"
-        "#ifdef small\n"
-        "#undef small\n"
-        "#endif\n\n"
-        "// GK_ATOM(identifier, string, hash, is_ascii_lower)\n"
-        + "".join([
-            'GK_ATOM(%s, "%s", 0x%08x, %s)\n'
-            % (a.ident, a.string, a.hash, str(a.is_ascii_lowercase).lower())
-            for a in STATIC_ATOMS
-        ])
+    output.write("/* THIS FILE IS AUTOGENERATED BY StaticAtoms.py.  DO NOT EDIT */\n\n")
+    char_offset = 0
+    for i, a in enumerate(STATIC_ATOMS):
+        output.write(f'STATIC_ATOM({a.ident}, "{a.string}", {i}, {char_offset})\n')
+        # +1 for the null terminator
+        char_offset += len(a.string) + 1
+
+
+def generate_staticatoms_h(output, *ignore):
+    verify()
+    atoms = "\n".join([
+        f"static inline constexpr nsStaticAtom* {a.ident} = const_cast<nsStaticAtom*>(&detail::gGkAtoms.mAtoms[{i}]);"
+        for i, a in enumerate(STATIC_ATOMS)
+    ])
+
+    # +1 for the null terminator.
+    char_count = sum(len(a.string) + 1 for a in STATIC_ATOMS)
+
+    # This extra character is not technically needed, but simplifies the macro usage in
+    # nsGkAtoms.cpp
+    char_count += 1
+
+    output.write(f"""
+/* THIS FILE IS AUTOGENERATED BY StaticAtoms.py.  DO NOT EDIT */
+
+#include "nsAtom.h"
+
+#ifdef small
+#undef small
+#endif
+
+namespace nsGkAtoms {{
+
+static inline constexpr size_t kStaticAtomCount = {len(STATIC_ATOMS)};
+
+namespace detail {{
+struct GkAtoms {{
+  char16_t mStrings[{char_count}];
+  nsStaticAtom mAtoms[nsGkAtoms::kStaticAtomCount];
+}};
+extern const GkAtoms gGkAtoms;
+}} // namespace detail
+
+{atoms}
+
+}} // namespace nsGkAtoms
+""")
+
+
+def generate_static_atoms_rs(output, *ignore):
+    verify()
+    body = "".join(
+        f'    ("{a.string}") => {{ {i} }};\n' for i, a in enumerate(STATIC_ATOMS)
     )
+    output.write(f"""
+/* THIS FILE IS AUTOGENERATED BY StaticAtoms.py.  DO NOT EDIT */
+#[doc(hidden)]
+#[macro_export]
+macro_rules! static_atom_index {{
+{body}
+}}
+""")
 
 
 if __name__ == "__main__":
-    generate_nsgkatomlist_h(sys.stdout)
+    generate_staticatomlist_h(sys.stdout)

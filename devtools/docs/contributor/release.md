@@ -4,7 +4,7 @@ There are a few things we should do on each Nightly cycle to keep our code clean
 
 ## Update MDN data for the Compatibility panel
 
-Follow instructions from [devtools/client/inspector/compatibility/README.md](https://searchfox.org/mozilla-central/source/devtools/client/inspector/compatibility/README.md).
+Follow instructions from [devtools/client/inspector/compatibility/README.md](https://searchfox.org/firefox-main/source/devtools/client/inspector/compatibility/README.md).
 
 ## Generate webidl-pure-allowlist.js and webidl-deprecated-list.js
 
@@ -15,21 +15,31 @@ or if methods are tagged as pure (or untagged).
 The `webidl-deprecated-list.js` file will be used to avoid calling deprecated getters from devtools code.
 
 1. Generating those files requires a non-artifact build. If you're mostly working with artifact builds, you might want to run `./mach bootstrap` in order to have a proper build environment.
-2. Once the build is over, you should be able to follow instructions at the top of [GenerateDataFromWebIdls.py](https://searchfox.org/mozilla-central/source/devtools/shared/webconsole/GenerateDataFromWebIdls.py), which should be:
+2. Once the build is over, you should be able to follow instructions at the top of [GenerateDataFromWebIdls.py](https://searchfox.org/firefox-main/source/devtools/shared/webconsole/GenerateDataFromWebIdls.py), which should be:
    2.1. Run the script with `./mach python devtools/shared/webconsole/GenerateDataFromWebIdls.py`
 
 ## Remove backwards compatibility code
 
-In order to accommodate connecting to older server, we sometimes need to introduce specific branches in the code. At the moment, we only support connecting to server 2 versions older than the client (e.g. if the client is 87, we support connecting to 86 and 85).
-This means that on each release there's an opportunity to cleanup backward compatibility code that was introduced for server we don't have to support anymore. If I go back to my example with the 87 client, we can remove any backward-compatibility code that was added in 85.
+In order to accommodate connecting to older server, we sometimes need to introduce specific branches in the code. At the moment, we only support connecting to server 3 versions older than the client (e.g. if the client is 87, we support connecting to 86, 85 and 84).
+This means that on each release there's an opportunity to cleanup backward compatibility code that was introduced for server we don't have to support anymore. If I go back to my example with the 87 client, we can remove any backward-compatibility code that was added in 84.
 
-Luckily, when adding compatibility code, we also add comments that follow a specific pattern: `@backward-compat { version XX }`, where `XX` is the version number the code is supporting.
+When adding compatibility code, we also add comments that follow a specific pattern: `@backward-compat { version XX }`, where `XX` is the version number the code is supporting.
 
-Back to our example where the current version is 87, we need to list all the comments added for 85. This can be done by doing a search with the following expression: `@backward-compat { version 85 }` (here's the searchfox equivalent: [searchfox query](https://searchfox.org/mozilla-central/search?q=%40backward-compat%5Cs*%7B%5Cs*version+85%5Cs*%7D&path=&case=false&regexp=true)).
-
-Try to file a specific bug for each backward compatibility code you are removing (you can have broader bugs though, for example if you are removing a trait). Those bugs should block a META bug that will reference all the cleanups. You can check if a bug already exists in the main cleanup META bug ([Bug 1677944](https://bugzilla.mozilla.org/show_bug.cgi?id=1677944)), and if not, you can create it by visiting [this bugzilla link](https://bugzilla.mozilla.org/enter_bug.cgi?format=__default__&blocked=1677944&product=DevTools&component=General&short_desc=[META]%20Cleanup%20backward%20compatibility%20code%20added%20in%20YY&comment=YY%20is%20now%20in%20release,%20so%20we%20can%20remove%20any%20backward%20compatibility%20code%20that%20was%20added%20to%20support%20older%20servers&keywords=meta&bug_type=task) (make sure to replace `YY` with a version number that is equal to the current number minus 2; so if current release is 87, YY is 87 - 2 = 85).
+Back to our example where the current version is 87, we need to list all the comments added for 84. This can be done by doing a search with the following expression: `@backward-compat { version 84 }` (here's the searchfox equivalent: [searchfox query](https://searchfox.org/mozilla-central/search?q=%40backward-compat%5Cs*%7B%5Cs*version+84%5Cs*%7D&path=&case=false&regexp=true)).
 
 ## Smoke test remote debugging
+
+### Automated tests
+
+We are currently switching backward compatibility tests to automated CI jobs.
+See the [DevTools Backward Compatitility Tests](tests/backward-compat-tests.md)
+documentation.
+
+The DevTools backward compatibility job was added in [Bug 2053559](https://bugzilla.mozilla.org/show_bug.cgi?id=2053559).
+
+The automated job currently only covers testing Desktop Firefox. Once we are
+confident the job works correctly and [Android coverage has been added](https://bugzilla.mozilla.org/show_bug.cgi?id=2062545),
+the manual smoke tests steps below should be removed.
 
 ### Setup
 
@@ -56,13 +66,13 @@ You can use either desktop or mobile versions of Firefox as the server. Mobile i
 
 ### Tests
 
-#### Basic connection:
+#### Basic connection
 
 - On the Client Firefox Nightly, open about:debugging
 - Connect to the Server (either via network or USB)
 - Open the corresponding Runtime Page
 
-#### Debug targets:
+#### Debug targets
 
 - On the Server Firefox, open a tab to [https://mdn.github.io/dom-examples/service-worker/simple-service-worker/](https://mdn.github.io/dom-examples/service-worker/simple-service-worker/)
 - On the Client Firefox, check in the Runtime Page for the Server Firefox that you can see the new tab as well as the corresponding service worker
@@ -71,7 +81,7 @@ You can use either desktop or mobile versions of Firefox as the server. Mobile i
 - On the Client Firefox, check that the corresponding tab is removed
 - On the Client Firefox, unregister the service worker, check that the corresponding SW is removed from the list
 
-#### Inspect a remote target:
+#### Inspect a remote target
 
 - On the Server Firefox, open a tab to [https://juliandescottes.github.io/webcomponents-playground/debugger-example/](https://juliandescottes.github.io/webcomponents-playground/debugger-example/)
 - On the Client Firefox, click on Inspect for this tab. Check that toolbox opens. Now we will verify that the toolbox is working.
@@ -80,7 +90,7 @@ You can use either desktop or mobile versions of Firefox as the server. Mobile i
 - Open Debugger, check that you can see the script.js source. Open it, put a breakpoint inside the clickMe() method (line 6). On the Server Firefox, click on the button in the page, check that you hit the breakpoint.
 - Open the Network tab. If it is empty and tells you to "perform a request…", reload the page on the Server Firefox. Check that requests are displayed.
 
-#### Inspect a remote extension:
+#### Inspect a remote extension
 
 - On the Server Firefox, install any extension (for instance [https://addons.mozilla.org/en-US/firefox/addon/devtools-highlighter/](https://addons.mozilla.org/en-US/firefox/addon/devtools-highlighter/))
 - On the Client Firefox, check the extension is displayed in the Extensions category
@@ -103,29 +113,29 @@ This is not a mandatory task to do on each cycle, but having up-to-date librarie
 
 These modules are used by the debugger to be able to parse and debug WASM sources.
 
-Follow the [upgrade documentation](https://searchfox.org/mozilla-central/source/devtools/client/shared/vendor/WASMPARSER_UPGRADING)
+Follow the [upgrade documentation](https://searchfox.org/firefox-main/source/devtools/client/shared/vendor/WASMPARSER_UPGRADING)
 
 ### jsbeautify
 
 This module is used by the inspector and the webconsole to pretty print user input.
 
-Follow the [upgrade documentation](https://searchfox.org/mozilla-central/source/devtools/shared/jsbeautify/UPGRADING.md)
+Follow the [upgrade documentation](https://searchfox.org/firefox-main/source/devtools/shared/jsbeautify/UPGRADING.md)
 
 ### CodeMirror should be updated
 
 CodeMirror is used by our source editor component, which is used all over DevTools.
 
-Follow the [upgrade section in the documentation](https://searchfox.org/mozilla-central/source/devtools/client/shared/sourceeditor/README)
+Follow the [upgrade section in the documentation](https://searchfox.org/firefox-main/source/devtools/client/shared/sourceeditor/README)
 
 ### fluent-react
 
 This module is used in several panels to manage localization in React applications.
 
-Follow the [upgrade documentation](https://searchfox.org/mozilla-central/source/devtools/client/shared/vendor/FLUENT_REACT_UPGRADING)
+Follow the [upgrade documentation](https://searchfox.org/firefox-main/source/devtools/client/shared/vendor/FLUENT_REACT_UPGRADING)
 
 ### reselect
 
-Follow the [upgrade documentation](https://searchfox.org/mozilla-central/source/devtools/client/shared/vendor/RESELECT_UPGRADING)
+Follow the [upgrade documentation](https://searchfox.org/firefox-main/source/devtools/client/shared/vendor/RESELECT_UPGRADING)
 
 ### pretty-fast
 

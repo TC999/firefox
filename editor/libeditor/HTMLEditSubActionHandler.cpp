@@ -39,6 +39,7 @@
 #include "mozilla/TextComposition.h"
 #include "mozilla/UniquePtr.h"
 #include "mozilla/dom/AncestorIterator.h"
+#include "mozilla/dom/EditContext.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/ElementInlines.h"
 #include "mozilla/dom/HTMLBRElement.h"
@@ -262,6 +263,10 @@ void HTMLEditor::OnStartToHandleTopLevelEditSubAction(
 
   // Remember current inline styles for deletion and normal insertion ops
   const bool cacheInlineStyles = [&]() {
+    if (GetEditActionEditContext()) {
+      // EditContext doesn't have styles.
+      return false;
+    }
     switch (aTopLevelEditSubAction) {
       case EditSubAction::eInsertText:
       case EditSubAction::eInsertTextComingFromIME:
@@ -486,7 +491,8 @@ nsresult HTMLEditor::OnEndHandlingTopLevelEditSubActionInternal() {
         NS_WARNING("There was no selection range");
         return NS_ERROR_EDITOR_UNEXPECTED_DOM_TREE;
       }
-      Element* const editingHost = ComputeEditingHost(LimitInBodyElement::No);
+      const RefPtr<Element> editingHost =
+          ComputeEditingHost(LimitInBodyElement::No);
       if (!editingHost) [[unlikely]] {
         return NS_ERROR_EDITOR_UNEXPECTED_DOM_TREE;
       }
@@ -643,12 +649,16 @@ nsresult HTMLEditor::OnEndHandlingTopLevelEditSubActionInternal() {
     }
   }
 
-  rv = HandleInlineSpellCheck(
-      TopLevelEditSubActionDataRef().mSelectedRange->StartPoint(),
-      TopLevelEditSubActionDataRef().mChangedRange);
-  if (NS_FAILED(rv)) {
-    NS_WARNING("EditorBase::HandleInlineSpellCheck() failed");
-    return rv;
+  // For EditContext, the DOM is not directly updated by libeditor, so
+  // don't run spellcheck here.
+  if (!GetEditActionEditContext()) {
+    rv = HandleInlineSpellCheck(
+        TopLevelEditSubActionDataRef().mSelectedRange->StartPoint(),
+        TopLevelEditSubActionDataRef().mChangedRange);
+    if (NS_FAILED(rv)) {
+      NS_WARNING("EditorBase::HandleInlineSpellCheck() failed");
+      return rv;
+    }
   }
 
   // detect empty doc
@@ -678,6 +688,12 @@ Result<EditActionResult, nsresult> HTMLEditor::CanHandleHTMLEditSubAction(
 
   if (NS_WARN_IF(Destroyed())) {
     return Err(NS_ERROR_EDITOR_DESTROYED);
+  }
+
+  if (GetEditActionEditContext()) {
+    // For EditContext, we always accept text input, even if the selection
+    // is in a non-editable node.
+    return EditActionResult::IgnoredResult();
   }
 
   // If there is not selection ranges, we should ignore the result.
@@ -874,6 +890,11 @@ nsresult HTMLEditor::MaybeCreatePaddingBRElementForEmptyEditor() {
     return NS_OK;
   }
 
+  // Skip adding <br> element for EditContext editors.
+  if (GetEditActionEditContext()) {
+    return NS_OK;
+  }
+
   // Now we've got the body element. Iterate over the body element's children,
   // looking for editable content. If no editable content is found, insert the
   // padding <br> element.
@@ -1020,6 +1041,40 @@ Result<EditActionResult, nsresult> HTMLEditor::HandleInsertText(
   }
 
   UndefineCaretBidiLevel();
+
+  if (RefPtr editContext = GetEditActionEditContext()) {
+    uint32_t start = editContext->SelectionStart();
+    uint32_t end = editContext->SelectionEnd();
+    RefPtr<nsFrameSelection> frameSelection = GetEditableFrameSelection();
+    if (InsertingTextForComposition(aPurpose)) {
+      MOZ_ASSERT(mComposition);
+      if (mComposition->GetContainerTextNode()) {
+        start = mComposition->ClampedStartOffsetInTextNode();
+        end = mComposition->ClampedEndOffsetInTextNode();
+      }
+      mComposition->OnUpdateCompositionInEditor(aInsertionString,
+                                                editContext->TextNode(), start);
+    }
+    editContext->UpdateTextAndFireEvent(start, end, aInsertionString);
+    if (NS_WARN_IF(Destroyed())) {
+      return Err(NS_ERROR_EDITOR_DESTROYED);
+    }
+    if (EditContextChangedSinceStartOfEditAction()) {
+      // textupdate handler deactivated this EditContext
+      return Err(NS_ERROR_EDITOR_UNEXPECTED_DOM_TREE);
+    }
+
+    // Set caret association to "before" after text insertion.
+    // Without this, the caret will not be next to the
+    // inserted text when inserting LTR into RTL, for example.
+    // However, we don't do this if the web app changed the text next to the
+    // caret, since in that case this may not be a simple insertion.
+    if (frameSelection &&
+        !editContext->WasTextNextToCaretChangedByTextUpdateHandler()) {
+      frameSelection->SetHint(CaretAssociationHint::Before);
+    }
+    return EditActionResult::HandledResult();
+  }
 
   // If the selection isn't collapsed, delete it.  Don't delete existing inline
   // tags, because we're hopefully going to insert text (bug 787432).
@@ -7482,8 +7537,12 @@ HTMLEditor::GetRangeExtendedToHardLineEdgesForBlockEditAction(
   // if the adjusted locations "cross" the old values: i.e., new end before old
   // start, or new start after old end.  If so then just leave things alone.
 
-  Maybe<int32_t> comp = nsContentUtils::ComparePoints(
-      startPoint.ToRawRangeBoundary(), newRange.EndRef().ToRawRangeBoundary());
+  // XXX Should use TreeKind::DOM? Editable state won't cross shadow DOM
+  // boundaries.
+  Maybe<int32_t> comp =
+      nsContentUtils::ComparePoints<TreeKind::ShadowIncludingDOM>(
+          startPoint.ToRawRangeBoundary(),
+          newRange.EndRef().ToRawRangeBoundary());
 
   if (NS_WARN_IF(!comp)) {
     return Err(NS_ERROR_FAILURE);
@@ -7493,8 +7552,8 @@ HTMLEditor::GetRangeExtendedToHardLineEdgesForBlockEditAction(
     return EditorRawDOMRange();  // New end before old start.
   }
 
-  comp = nsContentUtils::ComparePoints(newRange.StartRef().ToRawRangeBoundary(),
-                                       endPoint.ToRawRangeBoundary());
+  comp = nsContentUtils::ComparePoints<TreeKind::ShadowIncludingDOM>(
+      newRange.StartRef().ToRawRangeBoundary(), endPoint.ToRawRangeBoundary());
 
   if (NS_WARN_IF(!comp)) {
     return Err(NS_ERROR_FAILURE);

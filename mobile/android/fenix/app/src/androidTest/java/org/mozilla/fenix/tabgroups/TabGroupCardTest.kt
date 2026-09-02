@@ -5,11 +5,12 @@
 package org.mozilla.fenix.tabgroups
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.DeviceConfigurationOverride
 import androidx.compose.ui.test.ForcedSize
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -24,6 +25,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.mozilla.fenix.tabstray.LocalTabManagementFeatureHelper
+import org.mozilla.fenix.tabstray.TabManagementFeatureHelper
 import org.mozilla.fenix.tabstray.TabsTrayTestTag
 import org.mozilla.fenix.tabstray.browser.compose.TabItemInteractionState
 import org.mozilla.fenix.tabstray.data.TabGroupTheme
@@ -38,8 +41,17 @@ import org.mozilla.fenix.theme.FirefoxTheme
 
 @RunWith(AndroidJUnit4::class)
 class TabGroupCardTest {
-    @get:Rule
-    val composeTestRule = createComposeRule()
+    @get:Rule val composeTestRule = createComposeRule()
+
+    private val tabManagementFeatureHelper =
+        object : TabManagementFeatureHelper {
+            override val openingAnimationEnabled: Boolean = false
+            override val tabGroupsEnabled: Boolean = true
+            override val tabGroupsDragAndDropEnabled: Boolean = false
+            override val ungroupTabGroupEnabled: Boolean = true
+            override val tabGroupsOnboardingEnabled: Boolean = false
+            override val tabGroupsLiveReorderEnabled: Boolean = false
+        }
 
     @Test
     fun verifyUIElementsPresent() {
@@ -48,26 +60,36 @@ class TabGroupCardTest {
                 ComposableUnderTest()
             }
         }
-        composeTestRule.onNodeWithTag(
-            TabsTrayTestTag.TAB_GROUP_THREE_DOT_BUTTON,
-            useUnmergedTree = true,
-        ).assertIsDisplayed()
-        composeTestRule.onNodeWithTag(
-            TabsTrayTestTag.TAB_GROUP_THUMBNAIL_FIRST,
-            useUnmergedTree = true,
-        ).assertIsDisplayed()
-        composeTestRule.onNodeWithTag(
-            TabsTrayTestTag.TAB_GROUP_THUMBNAIL_SECOND,
-            useUnmergedTree = true,
-        ).assertIsDisplayed()
-        composeTestRule.onNodeWithTag(
-            TabsTrayTestTag.TAB_GROUP_THUMBNAIL_THIRD,
-            useUnmergedTree = true,
-        ).assertIsDisplayed()
-        composeTestRule.onNodeWithTag(
-            TabsTrayTestTag.TAB_GROUP_THUMBNAIL_FOURTH,
-            useUnmergedTree = true,
-        ).assertIsDisplayed()
+        composeTestRule
+            .onNodeWithTag(
+                TabsTrayTestTag.TAB_GROUP_THREE_DOT_BUTTON,
+                useUnmergedTree = true,
+            )
+            .assertIsDisplayed()
+        composeTestRule
+            .onNodeWithTag(
+                TabsTrayTestTag.TAB_GROUP_THUMBNAIL_FIRST,
+                useUnmergedTree = true,
+            )
+            .assertIsDisplayed()
+        composeTestRule
+            .onNodeWithTag(
+                TabsTrayTestTag.TAB_GROUP_THUMBNAIL_SECOND,
+                useUnmergedTree = true,
+            )
+            .assertIsDisplayed()
+        composeTestRule
+            .onNodeWithTag(
+                TabsTrayTestTag.TAB_GROUP_THUMBNAIL_THIRD,
+                useUnmergedTree = true,
+            )
+            .assertIsDisplayed()
+        composeTestRule
+            .onNodeWithTag(
+                TabsTrayTestTag.TAB_GROUP_THUMBNAIL_FOURTH,
+                useUnmergedTree = true,
+            )
+            .assertIsDisplayed()
     }
 
     @Test
@@ -80,7 +102,7 @@ class TabGroupCardTest {
                     onClick = { arg ->
                         clicked = true
                         argumentReceived = arg
-                    },
+                    }
                 )
             }
         }
@@ -99,7 +121,7 @@ class TabGroupCardTest {
                     onLongClick = { arg ->
                         longClicked = true
                         argumentReceived = arg
-                    },
+                    }
                 )
             }
         }
@@ -117,15 +139,14 @@ class TabGroupCardTest {
         composeTestRule.setContent {
             FirefoxTheme {
                 ComposableUnderTest(
-                    onDeleteTabGroup = { arg ->
+                    onDeleteTabGroupClick = { arg ->
                         deleteClicked = true
                         argumentReceived = arg
-                    },
+                    }
                 )
             }
         }
-        composeTestRule.onNodeWithTag(TabsTrayTestTag.TAB_GROUP_THREE_DOT_BUTTON)
-            .performClick()
+        composeTestRule.onNodeWithTag(TabsTrayTestTag.TAB_GROUP_THREE_DOT_BUTTON).performClick()
         composeTestRule.onNodeWithTag(TabsTrayTestTag.DELETE_TAB_GROUP).performClick()
         Assert.assertTrue(deleteClicked)
         Assert.assertEquals("Test", argumentReceived)
@@ -138,11 +159,28 @@ class TabGroupCardTest {
                 ComposableUnderTest()
             }
         }
-        composeTestRule.onNodeWithTag(TabsTrayTestTag.TAB_GROUP_THREE_DOT_BUTTON)
-            .performClick()
+        composeTestRule.onNodeWithTag(TabsTrayTestTag.TAB_GROUP_THREE_DOT_BUTTON).performClick()
         composeTestRule.onNodeWithTag(TabsTrayTestTag.EDIT_TAB_GROUP).assertIsDisplayed()
         composeTestRule.onNodeWithTag(TabsTrayTestTag.CLOSE_TAB_GROUP).assertIsDisplayed()
+        composeTestRule.onNodeWithTag(TabsTrayTestTag.SHARE_TAB_GROUP).assertIsDisplayed()
+        composeTestRule.onNodeWithTag(TabsTrayTestTag.UNGROUP_TAB_GROUP).assertIsDisplayed()
         composeTestRule.onNodeWithTag(TabsTrayTestTag.DELETE_TAB_GROUP).assertIsDisplayed()
+    }
+
+    @Test
+    fun verifyUngroupNotDisplayedWhenFeatureDisabled() {
+        val ungroupDisabledHelper =
+            object : TabManagementFeatureHelper by tabManagementFeatureHelper {
+                override val ungroupTabGroupEnabled: Boolean = false
+            }
+
+        composeTestRule.setContent {
+            FirefoxTheme {
+                ComposableUnderTest(featureHelper = ungroupDisabledHelper)
+            }
+        }
+        composeTestRule.onNodeWithTag(TabsTrayTestTag.TAB_GROUP_THREE_DOT_BUTTON).performClick()
+        composeTestRule.onNodeWithTag(TabsTrayTestTag.UNGROUP_TAB_GROUP).assertDoesNotExist()
     }
 
     @Test
@@ -203,7 +241,7 @@ class TabGroupCardTest {
             FirefoxTheme {
                 ComposableUnderTest(
                     group = group,
-                    editTabGroupClick = { arg ->
+                    onEditTabGroupClick = { arg ->
                         editClicked = true
                         clickedGroup = arg
                     },
@@ -217,23 +255,87 @@ class TabGroupCardTest {
         assertEquals(group, clickedGroup)
     }
 
+    @Test
+    fun verifyCloseTabGroupClick() {
+        val group = createTabGroup()
+        var closeClicked = false
+        var clickedGroup: TabsTrayItem.TabGroup? = null
+
+        composeTestRule.setContent {
+            FirefoxTheme {
+                ComposableUnderTest(
+                    group = group,
+                    onCloseTabGroupClick = { arg ->
+                        closeClicked = true
+                        clickedGroup = arg
+                    },
+                )
+            }
+        }
+        composeTestRule.onNodeWithTag(TabsTrayTestTag.TAB_GROUP_THREE_DOT_BUTTON).performClick()
+        composeTestRule.onNodeWithTag(TabsTrayTestTag.CLOSE_TAB_GROUP).performClick()
+
+        assertTrue(closeClicked)
+        assertEquals(group, clickedGroup)
+    }
+
+    @Test
+    fun verifyUngroupTabGroupClick() {
+        val group = createTabGroup()
+        var ungroupClicked = false
+        var clickedGroup: TabsTrayItem.TabGroup? = null
+
+        composeTestRule.setContent {
+            FirefoxTheme {
+                ComposableUnderTest(
+                    group = group,
+                    onUngroupTabGroupClick = { arg ->
+                        ungroupClicked = true
+                        clickedGroup = arg
+                    },
+                )
+            }
+        }
+        composeTestRule.onNodeWithTag(TabsTrayTestTag.TAB_GROUP_THREE_DOT_BUTTON).performClick()
+        composeTestRule.onNodeWithTag(TabsTrayTestTag.UNGROUP_TAB_GROUP).performClick()
+
+        assertTrue(ungroupClicked)
+        assertEquals(group, clickedGroup)
+    }
+
     private fun verifyThumbnailSizesSimilar() {
-        val first = composeTestRule.onNodeWithTag(
-            testTag = TabsTrayTestTag.TAB_GROUP_THUMBNAIL_FIRST,
-            useUnmergedTree = true,
-        ).fetchSemanticsNode().size
-        val second = composeTestRule.onNodeWithTag(
-            testTag = TabsTrayTestTag.TAB_GROUP_THUMBNAIL_SECOND,
-            useUnmergedTree = true,
-        ).fetchSemanticsNode().size
-        val third = composeTestRule.onNodeWithTag(
-            testTag = TabsTrayTestTag.TAB_GROUP_THUMBNAIL_THIRD,
-            useUnmergedTree = true,
-        ).fetchSemanticsNode().size
-        val fourth = composeTestRule.onNodeWithTag(
-            testTag = TabsTrayTestTag.TAB_GROUP_THUMBNAIL_FOURTH,
-            useUnmergedTree = true,
-        ).fetchSemanticsNode().size
+        val first =
+            composeTestRule
+                .onNodeWithTag(
+                    testTag = TabsTrayTestTag.TAB_GROUP_THUMBNAIL_FIRST,
+                    useUnmergedTree = true,
+                )
+                .fetchSemanticsNode()
+                .size
+        val second =
+            composeTestRule
+                .onNodeWithTag(
+                    testTag = TabsTrayTestTag.TAB_GROUP_THUMBNAIL_SECOND,
+                    useUnmergedTree = true,
+                )
+                .fetchSemanticsNode()
+                .size
+        val third =
+            composeTestRule
+                .onNodeWithTag(
+                    testTag = TabsTrayTestTag.TAB_GROUP_THUMBNAIL_THIRD,
+                    useUnmergedTree = true,
+                )
+                .fetchSemanticsNode()
+                .size
+        val fourth =
+            composeTestRule
+                .onNodeWithTag(
+                    testTag = TabsTrayTestTag.TAB_GROUP_THUMBNAIL_FOURTH,
+                    useUnmergedTree = true,
+                )
+                .fetchSemanticsNode()
+                .size
         val thumbnails = listOf(first, second, third, fourth)
         val allowance = 10
         for (i in 1 until thumbnails.size) {
@@ -256,7 +358,8 @@ class TabGroupCardTest {
         }
         composeTestRule.mainClock.advanceTimeBy(50L)
 
-        val draggedScale = composeTestRule.onNodeWithTag(TabsTrayTestTag.TAB_ITEM_ROOT).fetchSemanticsNode().config[ScaleKey]
+        val draggedScale =
+            composeTestRule.onNodeWithTag(TabsTrayTestTag.TAB_ITEM_ROOT).fetchSemanticsNode().config[ScaleKey]
 
         assertEquals("Dragged item is scaled at 75%", 0.75f, draggedScale)
     }
@@ -269,7 +372,8 @@ class TabGroupCardTest {
         }
         composeTestRule.mainClock.advanceTimeBy(50L)
 
-        val undraggedScale = composeTestRule.onNodeWithTag(TabsTrayTestTag.TAB_ITEM_ROOT).fetchSemanticsNode().config[ScaleKey]
+        val undraggedScale =
+            composeTestRule.onNodeWithTag(TabsTrayTestTag.TAB_ITEM_ROOT).fetchSemanticsNode().config[ScaleKey]
 
         assertEquals("Dragged item is scaled at 100%", 1f, undraggedScale)
     }
@@ -282,7 +386,8 @@ class TabGroupCardTest {
         }
         composeTestRule.mainClock.advanceTimeBy(50L)
 
-        val draggedAlpha = composeTestRule.onNodeWithTag(TabsTrayTestTag.TAB_ITEM_ROOT).fetchSemanticsNode().config[AlphaKey]
+        val draggedAlpha =
+            composeTestRule.onNodeWithTag(TabsTrayTestTag.TAB_ITEM_ROOT).fetchSemanticsNode().config[AlphaKey]
 
         assertEquals("Dragged item opacity is 70%", 0.7f, draggedAlpha)
     }
@@ -295,7 +400,8 @@ class TabGroupCardTest {
         }
         composeTestRule.mainClock.advanceTimeBy(50L)
 
-        val undraggedAlpha = composeTestRule.onNodeWithTag(TabsTrayTestTag.TAB_ITEM_ROOT).fetchSemanticsNode().config[AlphaKey]
+        val undraggedAlpha =
+            composeTestRule.onNodeWithTag(TabsTrayTestTag.TAB_ITEM_ROOT).fetchSemanticsNode().config[AlphaKey]
 
         assertEquals("Undragged item opacity is 100%", 1f, undraggedAlpha)
     }
@@ -303,29 +409,40 @@ class TabGroupCardTest {
     @Composable
     private fun ComposableUnderTest(
         modifier: Modifier = Modifier,
-        group: TabsTrayItem.TabGroup = TabsTrayItem.TabGroup(
-            title = "Group 1",
-            theme = TabGroupTheme.Yellow,
-            tabs = mutableListOf(createTab(url = ABOUT_HOME_URL)),
-        ),
+        group: TabsTrayItem.TabGroup =
+            TabsTrayItem.TabGroup(
+                title = "Group 1",
+                theme = TabGroupTheme.Yellow,
+                tabs = mutableListOf(createTab(url = ABOUT_HOME_URL)),
+            ),
         onClick: (String) -> Unit = {},
         onLongClick: (String) -> Unit = {},
         interactionState: TabItemInteractionState = TabItemInteractionState(),
-        onDeleteTabGroup: (String) -> Unit = {},
-        editTabGroupClick: (TabsTrayItem.TabGroup) -> Unit = {},
+        onDeleteTabGroupClick: (String) -> Unit = {},
+        onEditTabGroupClick: (TabsTrayItem.TabGroup) -> Unit = {},
+        onCloseTabGroupClick: (TabsTrayItem.TabGroup) -> Unit = {},
+        onShareTabGroupClick: (TabsTrayItem.TabGroup) -> Unit = {},
+        onUngroupTabGroupClick: (TabsTrayItem.TabGroup) -> Unit = {},
+        featureHelper: TabManagementFeatureHelper = tabManagementFeatureHelper,
     ) {
-        TabGroupCard(
-            group = group,
-            selectionState = TabsTrayItemSelectionState(),
-            clickHandler = TabsTrayItemClickHandler(
-                onClick = { onClick("Test") },
-                onLongClick = { onLongClick("Test") },
-                onCloseClick = {}, // Not implemented yet
-            ),
-            interactionState = interactionState,
-            modifier = modifier,
-            onDeleteTabGroup = { onDeleteTabGroup("Test") },
-            editTabGroupClick = { editTabGroupClick(group) },
-        )
+        CompositionLocalProvider(LocalTabManagementFeatureHelper provides featureHelper) {
+            TabGroupCard(
+                group = group,
+                selectionState = TabsTrayItemSelectionState(),
+                clickHandler =
+                    TabsTrayItemClickHandler(
+                        onClick = { onClick("Test") },
+                        onLongClick = { onLongClick("Test") },
+                        onCloseClick = {}, // Not implemented yet
+                    ),
+                interactionState = interactionState,
+                modifier = modifier,
+                onDeleteTabGroupClick = { onDeleteTabGroupClick("Test") },
+                onEditTabGroupClick = { onEditTabGroupClick(group) },
+                onCloseTabGroupClick = { onCloseTabGroupClick(group) },
+                onShareTabGroupClick = { onShareTabGroupClick(group) },
+                onUngroupTabGroupClick = { onUngroupTabGroupClick(group) },
+            )
+        }
     }
 }

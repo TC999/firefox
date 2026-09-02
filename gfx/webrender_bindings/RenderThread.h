@@ -5,28 +5,27 @@
 #ifndef MOZILLA_LAYERS_RENDERTHREAD_H
 #define MOZILLA_LAYERS_RENDERTHREAD_H
 
-#include "base/basictypes.h"       // for DISALLOW_EVIL_CONSTRUCTORS
-#include "base/platform_thread.h"  // for PlatformThreadId
-#include "base/thread.h"           // for Thread
-#include "base/message_loop.h"
-#include "GLTypes.h"  // for GLenum
-#include "nsISupportsImpl.h"
-#include "mozilla/gfx/Point.h"
-#include "mozilla/Hal.h"
-#include "mozilla/MozPromise.h"
-#include "mozilla/DataMutex.h"
-#include "mozilla/Maybe.h"
-#include "mozilla/webrender/webrender_ffi.h"
-#include "mozilla/UniquePtr.h"
-#include "mozilla/webrender/WebRenderTypes.h"
-#include "mozilla/layers/CompositionRecorder.h"
-#include "mozilla/layers/SynchronousTask.h"
-#include "mozilla/UniquePtr.h"
-#include "mozilla/VsyncDispatcher.h"
-
 #include <list>
 #include <queue>
 #include <unordered_map>
+
+#include "GLTypes.h"          // for GLenum
+#include "base/basictypes.h"  // for DISALLOW_EVIL_CONSTRUCTORS
+#include "base/message_loop.h"
+#include "base/platform_thread.h"  // for PlatformThreadId
+#include "base/thread.h"           // for Thread
+#include "mozilla/DataMutex.h"
+#include "mozilla/Hal.h"
+#include "mozilla/Maybe.h"
+#include "mozilla/MozPromise.h"
+#include "mozilla/UniquePtr.h"
+#include "mozilla/VsyncDispatcher.h"
+#include "mozilla/gfx/Point.h"
+#include "mozilla/layers/CompositionRecorder.h"
+#include "mozilla/layers/SynchronousTask.h"
+#include "mozilla/webrender/WebRenderTypes.h"
+#include "mozilla/webrender/webrender_ffi.h"
+#include "nsISupportsImpl.h"
 
 namespace mozilla {
 namespace gl {
@@ -62,9 +61,9 @@ class WebRenderThreadPool {
     return mThreadPool;
   }
 
-  /// Prematurely destroys this handle to the thread pool.
-  /// After calling this the object is useless.
-  void Release();
+  /// Prematurely destroys the thread pool, optionally waiting for the worker
+  /// threads to exit. After calling this the object is useless.
+  void Destroy(bool aJoinWorkers);
 
  protected:
   wr::WrThreadPool* mThreadPool;
@@ -167,6 +166,9 @@ class RenderThread final {
 
   /// Can only be called from the main thread.
   static void ShutDown();
+
+  /// Can be called from any thread.
+  bool HasShutdown() const { return mHasShutdown; }
 
   /// Can be called from any thread.
   static bool IsInRenderThread();
@@ -293,6 +295,14 @@ class RenderThread final {
 
   /// A pool of large memory chunks used by the per-frame allocators.
   WrChunkPool* MemoryChunkPool() { return mChunkPool; }
+
+  /// Optional shared pool of render backend threads. When non-null, every
+  /// window's `wr_window_new` call routes through it; the pool's size
+  /// reflects `gfx.webrender.render-backend-thread-count`. When null
+  /// (pref == 0), each window uses its own private backend thread.
+  ///
+  /// Can be called from any thread.
+  WrRenderBackendPool* GetRenderBackendPool() { return mRenderBackendPool; }
 
   /// Optional global glyph raster thread.
   /// Can be called from any thread.
@@ -487,11 +497,17 @@ class RenderThread final {
 
   ~RenderThread();
 
+  /// Shuts down the shared render backend pool, blocking until its threads
+  /// have exited. Does nothing if there is no pool or if it was already
+  /// destroyed.
+  void DestroyRenderBackendPool();
+
   RefPtr<nsIThread> const mThread;
 
   WebRenderThreadPool mThreadPool;
   WebRenderThreadPool mThreadPoolLP;
   WrChunkPool* mChunkPool;
+  WrRenderBackendPool* mRenderBackendPool;
   MaybeWebRenderGlyphRasterThread mGlyphRasterThread;
 
   UniquePtr<WebRenderProgramCache> mProgramCache;

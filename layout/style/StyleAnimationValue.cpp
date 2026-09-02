@@ -41,10 +41,6 @@ bool AnimationValue::operator==(const AnimationValue& aOther) const {
   return false;
 }
 
-bool AnimationValue::operator!=(const AnimationValue& aOther) const {
-  return !operator==(aOther);
-}
-
 float AnimationValue::GetOpacity() const {
   MOZ_ASSERT(mServo);
   return Servo_AnimationValue_GetOpacity(mServo);
@@ -140,7 +136,8 @@ MatrixScales AnimationValue::GetScaleValue(const nsIFrame* aFrame) const {
   Matrix4x4 t =
       ReadTransforms(StyleTranslate::None(), StyleRotate::None(),
                      StyleScale::None(), nullptr, GetTransformProperty(),
-                     refBox, aFrame->PresContext()->AppUnitsPerDevPixel());
+                     refBox, aFrame->PresContext()->AppUnitsPerDevPixel(),
+                     aFrame->Style()->EffectiveZoom());
   Matrix transform2d;
   bool canDraw2D = t.CanDraw2D(&transform2d);
   if (!canDraw2D) {

@@ -3,7 +3,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "gc/Zone.h"
-#include "js/shadow/Zone.h"  // JS::shadow::Zone
 
 #include "mozilla/Sprintf.h"
 #include "mozilla/TimeStamp.h"
@@ -16,6 +15,7 @@
 #include "jit/Invalidation.h"
 #include "jit/JitScript.h"
 #include "jit/JitZone.h"
+#include "js/shadow/Zone.h"  // JS::shadow::Zone
 #include "vm/Runtime.h"
 #include "vm/Time.h"
 
@@ -159,7 +159,7 @@ MOZ_COLD void BufferAllocPolicy::reportAllocOverflow() const {
 JS::Zone::Zone(JSRuntime* rt, Kind kind)
     : ZoneAllocator(rt, kind),
       arenas(this),
-      bufferAllocator(this),
+      bufferAllocator(&rt->gc, this),
       data(nullptr),
       suppressAllocationMetadataBuilder(false),
       allocNurseryObjects_(true),
@@ -194,6 +194,8 @@ Zone::~Zone() {
   DebugAPI::deleteDebugScriptMap(debugScriptMap);
   js_delete(finalizationObservers_.ref().release());
 
+  js_delete(jitZone_.ref());
+
   MOZ_ASSERT(gcSystemWeakMaps().isEmpty());
   MOZ_ASSERT(gcUserWeakMaps().isEmpty());
   MOZ_ASSERT(gcMarkedUserWeakMaps().isEmpty());
@@ -205,12 +207,20 @@ Zone::~Zone() {
     rt->gc.systemZone = nullptr;
   }
 
-  js_delete(jitZone_.ref());
-
   if (preservedWrappers_) {
     MOZ_RELEASE_ASSERT(preservedWrappersCount_ == 0);
     js_free(preservedWrappers_);
   }
+
+  scriptCountsMap.reset();
+  scriptLCovMap.reset();
+#ifdef MOZ_VTUNE
+  scriptVTuneIdMap.reset();
+#endif
+#ifdef JS_CACHEIR_SPEW
+  scriptFinalWarmUpCountMap.reset();
+#endif
+  profilerStrings.reset();
 }
 
 bool Zone::init() {
@@ -237,22 +247,6 @@ void Zone::changeGCState(GCRuntime* gc, GCState prev, GCState next) {
 
   gcState_ = next;
   setNeedsMarkingBarrier(gc, isGCMarkingOrVerifyingPreBarriers());
-}
-
-template <class Pred>
-static void EraseIf(js::gc::EphemeronEdgeVector& entries, Pred pred) {
-  auto* begin = entries.begin();
-  auto* const end = entries.end();
-
-  auto* newEnd = begin;
-  for (auto* p = begin; p != end; p++) {
-    if (!pred(*p)) {
-      *newEnd++ = *p;
-    }
-  }
-
-  size_t removed = end - newEnd;
-  entries.shrinkBy(removed);
 }
 
 void Zone::sweepAfterMinorGC(JSTracer* trc) {
@@ -564,9 +558,9 @@ void Zone::addSizeOfIncludingThis(
     mozilla::MallocSizeOf mallocSizeOf, size_t* zoneObject, JS::CodeSizes* code,
     size_t* regexpZone, size_t* jitZone, size_t* cacheIRStubs,
     size_t* objectFusesArg, size_t* uniqueIdMap, size_t* initialPropMapTable,
-    size_t* shapeTables, size_t* atomsMarkBitmaps, size_t* compartmentObjects,
-    size_t* crossCompartmentWrappersTables, size_t* compartmentsPrivateData,
-    size_t* scriptCountsMapArg) {
+    size_t* shapeTables, size_t* atomReferenceBitmaps,
+    size_t* compartmentObjects, size_t* crossCompartmentWrappersTables,
+    size_t* compartmentsPrivateData, size_t* scriptCountsMapArg) {
   *zoneObject += mallocSizeOf(this);
   *regexpZone += regExps().sizeOfIncludingThis(mallocSizeOf);
   if (jitZone_) {
@@ -576,7 +570,7 @@ void Zone::addSizeOfIncludingThis(
   *uniqueIdMap += uniqueIds().shallowSizeOfExcludingThis(mallocSizeOf);
   shapeZone().addSizeOfExcludingThis(mallocSizeOf, initialPropMapTable,
                                      shapeTables);
-  *atomsMarkBitmaps += markedAtoms().sizeOfExcludingThis(mallocSizeOf);
+  *atomReferenceBitmaps += referencedAtoms().sizeOfExcludingThis(mallocSizeOf);
   *crossCompartmentWrappersTables +=
       crossZoneStringWrappers().sizeOfExcludingThis(mallocSizeOf);
 
@@ -587,9 +581,9 @@ void Zone::addSizeOfIncludingThis(
   }
 
   if (scriptCountsMap) {
-    *scriptCountsMapArg +=
-        scriptCountsMap->shallowSizeOfIncludingThis(mallocSizeOf);
-    for (auto iter = scriptCountsMap->iter(); !iter.done(); iter.next()) {
+    ScriptCountsMap& map = scriptCountsMap->get();
+    *scriptCountsMapArg += map.shallowSizeOfIncludingThis(mallocSizeOf);
+    for (auto iter = map.iter(); !iter.done(); iter.next()) {
       *scriptCountsMapArg +=
           iter.get().value()->sizeOfIncludingThis(mallocSizeOf);
     }
@@ -747,7 +741,7 @@ void Zone::traceScriptTableRoots(JSTracer* trc) {
   // cleared in JSRuntime::destroyRuntime() during shutdown to ensure that
   // scripts are collected before the runtime goes away completely.
   if (scriptCountsMap && trc->runtime()->profilingScripts) {
-    for (auto iter = scriptCountsMap->iter(); !iter.done(); iter.next()) {
+    for (auto iter = scriptCountsMap->get().iter(); !iter.done(); iter.next()) {
       BaseScript* script = iter.get().key();
       MOZ_ASSERT(script->hasScriptCounts());
       TraceRoot(trc, &script, "profilingScripts");
@@ -758,31 +752,12 @@ void Zone::traceScriptTableRoots(JSTracer* trc) {
   if (debugScriptMap) {
     DebugAPI::traceDebugScriptMap(trc, debugScriptMap);
   }
-}
 
-void Zone::fixupScriptMapsAfterMovingGC(JSTracer* trc) {
-  // Map entries are removed by BaseScript::finalize, but we need to update the
-  // script pointers here in case they are moved by the GC.
-
-  if (scriptCountsMap) {
-    scriptCountsMap->traceWeak(trc);
+  // Trace the table used to hold interpreter entry code generated with
+  // --emit-interpreter-entry.
+  if (jitZone()) {
+    jitZone()->traceScriptTableRoots(trc);
   }
-
-  if (scriptLCovMap) {
-    scriptLCovMap->traceWeak(trc);
-  }
-
-#ifdef MOZ_VTUNE
-  if (scriptVTuneIdMap) {
-    scriptVTuneIdMap->traceWeak(trc);
-  }
-#endif
-
-#ifdef JS_CACHEIR_SPEW
-  if (scriptFinalWarmUpCountMap) {
-    scriptFinalWarmUpCountMap->traceWeak(trc);
-  }
-#endif
 }
 
 #ifdef JSGC_HASH_TABLE_CHECKS
@@ -790,7 +765,7 @@ void Zone::checkScriptMapsAfterMovingGC() {
   // |debugScriptMap| is checked automatically because it is s a WeakMap.
 
   if (scriptCountsMap) {
-    CheckTableAfterMovingGC(*scriptCountsMap, [this](const auto& entry) {
+    CheckTableAfterMovingGC(scriptCountsMap->get(), [this](const auto& entry) {
       BaseScript* script = entry.key();
       CheckGCThingAfterMovingGC(script, this);
       return script;
@@ -798,7 +773,7 @@ void Zone::checkScriptMapsAfterMovingGC() {
   }
 
   if (scriptLCovMap) {
-    CheckTableAfterMovingGC(*scriptLCovMap, [this](const auto& entry) {
+    CheckTableAfterMovingGC(scriptLCovMap->get(), [this](const auto& entry) {
       BaseScript* script = entry.key();
       CheckGCThingAfterMovingGC(script, this);
       return script;
@@ -807,7 +782,7 @@ void Zone::checkScriptMapsAfterMovingGC() {
 
 #  ifdef MOZ_VTUNE
   if (scriptVTuneIdMap) {
-    CheckTableAfterMovingGC(*scriptVTuneIdMap, [this](const auto& entry) {
+    CheckTableAfterMovingGC(scriptVTuneIdMap->get(), [this](const auto& entry) {
       BaseScript* script = entry.key();
       CheckGCThingAfterMovingGC(script, this);
       return script;
@@ -817,7 +792,7 @@ void Zone::checkScriptMapsAfterMovingGC() {
 
 #  ifdef JS_CACHEIR_SPEW
   if (scriptFinalWarmUpCountMap) {
-    CheckTableAfterMovingGC(*scriptFinalWarmUpCountMap,
+    CheckTableAfterMovingGC(scriptFinalWarmUpCountMap->get(),
                             [this](const auto& entry) {
                               BaseScript* script = entry.key();
                               CheckGCThingAfterMovingGC(script, this);
@@ -825,6 +800,15 @@ void Zone::checkScriptMapsAfterMovingGC() {
                             });
   }
 #  endif  // JS_CACHEIR_SPEW
+
+  if (profilerStrings) {
+    ProfileStringMap& map = profilerStrings->get();
+    CheckTableAfterMovingGC(map, [this](const auto& entry) {
+      BaseScript* script = entry.key();
+      CheckGCThingAfterMovingGC(script, this);
+      return script;
+    });
+  }
 }
 #endif
 
@@ -835,7 +819,7 @@ void Zone::clearScriptCounts(Realm* realm) {
 
   // Clear all hasScriptCounts_ flags of BaseScript, in order to release all
   // ScriptCounts entries of the given realm.
-  for (auto i = scriptCountsMap->modIter(); !i.done(); i.next()) {
+  for (auto i = scriptCountsMap->get().modIter(); !i.done(); i.next()) {
     const HeapPtr<BaseScript*>& script = i.get().key();
     if (IsAboutToBeFinalized(script)) {
       // Dead scripts may be present during incremental GC until script
@@ -862,7 +846,7 @@ void Zone::clearScriptLCov(Realm* realm) {
     return;
   }
 
-  for (auto i = scriptLCovMap->modIter(); !i.done(); i.next()) {
+  for (auto i = scriptLCovMap->get().modIter(); !i.done(); i.next()) {
     const HeapPtr<BaseScript*>& script = i.get().key();
     if (IsAboutToBeFinalized(script)) {
       // Dead scripts may be present during incremental GC until script
@@ -886,6 +870,10 @@ void Zone::clearRootsForShutdownGC() {
 }
 
 void Zone::finishRoots() {
+  if (jitZone()) {
+    jitZone()->finishScriptTableRoots();
+  }
+
   for (RealmsInZoneIter r(this); !r.done(); r.next()) {
     r->finishRoots();
   }

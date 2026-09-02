@@ -5,6 +5,8 @@
 #ifndef MOCK_CALL_H_
 #define MOCK_CALL_H_
 
+#include <span>
+
 #include "gmock/gmock.h"
 #include "mozilla/Assertions.h"
 #include "mozilla/Maybe.h"
@@ -15,6 +17,7 @@
 
 // libwebrtc
 #include "api/call/audio_sink.h"
+#include "api/video/video_stream_encoder_settings.h"
 #include "call/call.h"
 
 namespace test {
@@ -143,7 +146,7 @@ class MockVideoSendStream : public webrtc::VideoSendStream {
     return std::vector<webrtc::scoped_refptr<webrtc::Resource>>();
   }
 
-  void SetCsrcs(webrtc::ArrayView<const uint32_t> csrcs) override {}
+  void SetCsrcs(std::span<const uint32_t> csrcs) override {}
   void GenerateKeyFrame(const std::vector<std::string>& rids) override {}
 
   virtual ~MockVideoSendStream() {}
@@ -202,6 +205,8 @@ class MockVideoReceiveStream : public webrtc::VideoReceiveStreamInterface {
   virtual void SetAssociatedPayloadTypes(
       std::map<int, int> associated_payload_types) override {}
 
+  virtual void SetRawPayloadTypes(std::set<int> raw_payload_types) override {}
+
   virtual void UpdateRtxSsrc(uint32_t ssrc) override {};
 
   virtual ~MockVideoReceiveStream() {}
@@ -228,9 +233,9 @@ class MockCall : public webrtc::Call {
   }
 
   webrtc::AudioReceiveStreamInterface* CreateAudioReceiveStream(
-      const webrtc::AudioReceiveStreamInterface::Config& config) override {
+      webrtc::AudioReceiveStreamInterface::Config config) override {
     MOZ_RELEASE_ASSERT(!mAudioReceiveConfig);
-    mAudioReceiveConfig = mozilla::Some(config);
+    mAudioReceiveConfig = mozilla::Some(std::move(config));
     return new MockAudioReceiveStream(mCallWrapper);
   }
   void DestroyAudioReceiveStream(
@@ -241,13 +246,23 @@ class MockCall : public webrtc::Call {
 
   webrtc::VideoSendStream* CreateVideoSendStream(
       webrtc::VideoSendStream::Config config,
-      webrtc::VideoEncoderConfig encoder_config) override {
+      webrtc::VideoEncoderConfig encoder_config,
+      webrtc::EncoderSwitchRequestCallback encoder_switch_request_callback =
+          nullptr) override {
     MOZ_RELEASE_ASSERT(!mVideoSendConfig);
     MOZ_RELEASE_ASSERT(!mVideoSendEncoderConfig);
     mVideoSendConfig = mozilla::Some(std::move(config));
     mVideoSendEncoderConfig = mozilla::Some(std::move(encoder_config));
     return new MockVideoSendStream(mCallWrapper);
   }
+
+  webrtc::VideoSendStream* CreateVideoSendStream(
+      webrtc::VideoSendStream::Config config,
+      webrtc::VideoEncoderConfig encoder_config,
+      webrtc::EncoderSwitchRequestCallback encoder_switch_request_callback,
+      std::unique_ptr<webrtc::FecController> fec_controller) override {
+    return nullptr;
+  };
 
   void DestroyVideoSendStream(webrtc::VideoSendStream* send_stream) override {
     mVideoSendConfig = mozilla::Nothing();
@@ -291,16 +306,6 @@ class MockCall : public webrtc::Call {
   void SignalChannelNetworkState(webrtc::MediaType media,
                                  webrtc::NetworkState state) override {}
 
-  void OnAudioTransportOverheadChanged(
-      int transport_overhead_per_packet) override {}
-
-  void OnLocalSsrcUpdated(webrtc::AudioReceiveStreamInterface& stream,
-                          uint32_t local_ssrc) override {}
-  void OnLocalSsrcUpdated(webrtc::VideoReceiveStreamInterface& stream,
-                          uint32_t local_ssrc) override {}
-  void OnLocalSsrcUpdated(webrtc::FlexfecReceiveStream& stream,
-                          uint32_t local_ssrc) override {}
-
   void OnUpdateSyncGroup(webrtc::AudioReceiveStreamInterface& stream,
                          absl::string_view sync_group) override {}
 
@@ -329,6 +334,8 @@ class MockCall : public webrtc::Call {
   virtual webrtc::TaskQueueBase* network_thread() const override {
     return nullptr;
   }
+
+  virtual void DisconnectFromNetworkThread() override { }
 
   virtual webrtc::TaskQueueBase* worker_thread() const override {
     return nullptr;

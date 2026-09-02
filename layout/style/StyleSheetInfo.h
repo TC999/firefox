@@ -6,7 +6,6 @@
 #define mozilla_StyleSheetInfo_h
 
 #include "mozilla/CORSMode.h"
-#include "mozilla/css/SheetParsingMode.h"
 #include "mozilla/dom/SRIMetadata.h"
 #include "nsIReferrerInfo.h"
 
@@ -16,6 +15,7 @@ class nsIURI;
 namespace mozilla {
 class StyleSheet;
 struct StyleStylesheetContents;
+enum class StyleOrigin : uint8_t;
 struct URLExtraData;
 
 /**
@@ -25,7 +25,7 @@ struct StyleSheetInfo final {
   using ReferrerPolicy = dom::ReferrerPolicy;
 
   StyleSheetInfo(CORSMode aCORSMode, const dom::SRIMetadata& aIntegrity,
-                 css::SheetParsingMode aParsingMode);
+                 StyleOrigin);
 
   // FIXME(emilio): aCopy should be const.
   StyleSheetInfo(StyleSheetInfo& aCopy, StyleSheet* aPrimarySheet);
@@ -35,7 +35,10 @@ struct StyleSheetInfo final {
   StyleSheetInfo* CloneFor(StyleSheet* aPrimarySheet);
 
   void AddSheet(StyleSheet* aSheet);
-  void RemoveSheet(StyleSheet* aSheet);
+  // Remove the specified sheet. If this returns true, then the last
+  // StyleSheet was removed and this object should be deleted.
+  // It is the caller's responsibility to perform this deletion.
+  [[nodiscard]] bool RemoveSheet(StyleSheet* aSheet);
 
   size_t SizeOfIncludingThis(MallocSizeOf aMallocSizeOf) const;
 
@@ -58,6 +61,8 @@ struct StyleSheetInfo final {
 
   RefPtr<const StyleStylesheetContents> mContents;
 
+  // The list of StyleSheets that share this inner.
+  //
   // HACK: This must be the after any member rust accesses in order to not cause
   // issues on i686-android. Bindgen generates an opaque blob of [u64; N] for
   // types it doesn't understand like AutoTArray, but turns out u64 is not

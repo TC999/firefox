@@ -5,12 +5,14 @@
 #ifndef mozilla_RefPtr_h
 #define mozilla_RefPtr_h
 
+#include <fmt/ostream.h>
+
+#include <type_traits>
+
 #include "mozilla/AlreadyAddRefed.h"
 #include "mozilla/Assertions.h"
 #include "mozilla/Attributes.h"
-#include "mozilla/DbgMacro.h"
-
-#include <type_traits>
+#include "mozilla/DbgMacro.h"  // for mozilla::DebugValue
 
 /*****************************************************************************/
 
@@ -575,6 +577,9 @@ std::ostream& operator<<(std::ostream& aOut, const RefPtr<T>& aObj) {
   return mozilla::DebugValue(aOut, aObj.get());
 }
 
+template <typename T>
+struct fmt::formatter<RefPtr<T>> : fmt::ostream_formatter {};
+
 /*****************************************************************************/
 
 template <class T>
@@ -590,7 +595,6 @@ inline already_AddRefed<T> do_AddRef(const RefPtr<T>& aObj) {
 }
 
 namespace mozilla {
-
 /**
  * Helper function to be able to conveniently write things like:
  *

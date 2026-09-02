@@ -73,6 +73,15 @@ const systemColorSuggestions = {
   windowtext: "var(--text-color)",
 };
 
+// Some "primitive" color tokens can be used directly for background-color, color, fill, stroke, etc.
+const versatileColorTokens = [
+  "--color-accent-primary",
+  "--color-accent-primary-hover",
+  "--color-accent-primary-active",
+  "--color-accent-primary-selected",
+  "--color-accent-attention",
+];
+
 /** @type {PropertyTypeConfig} */
 const BackgroundColor = {
   allow: [
@@ -105,6 +114,7 @@ const BackgroundColor = {
     "--fxview-element-background-hover",
     "--fxviewtabrow-element-background-active",
     "--fxviewtabrow-element-background-hover",
+    "--identity-stroke-color",
     "--identity-tab-color",
     "--lwt-accent-color",
     "--newtab-background-card",
@@ -139,14 +149,17 @@ const BackgroundColor = {
     "--tab-group-color-invert",
     "--tab-group-color-pale",
     "--tab-group-color",
+    "--tab-group-background-color",
+    "--tab-group-text-color",
+    "--tab-group-background-color-hover",
     "--tab-loading-fill",
     "--tabgroup-swatch-color-invert",
     "--tabgroup-swatch-color",
-    "--toolbar-bgcolor",
-    "--toolbarbutton-active-background",
-    "--toolbarbutton-hover-background",
-    "--toolbox-bgcolor-inactive",
-    "--toolbox-bgcolor",
+    "--toolbar-background-color",
+    "--toolbarbutton-background-color-active",
+    "--toolbarbutton-background-color-hover",
+    "--toolbox-background-color-inactive",
+    "--toolbox-background-color",
     "--urlbar-box-background-color",
     "--urlbar-box-background-color-focus",
     "--urlbar-box-background-color-hover",
@@ -155,6 +168,7 @@ const BackgroundColor = {
     "--urlbarview-background-color-selected",
     "--urlbarView-result-button-hover-background-color",
     "--urlbarView-result-button-selected-background-color",
+    ...versatileColorTokens,
   ],
   tokenTypes: ["background-color"],
   aliasTokenTypes: ["color", "text-color", "border-color", "icon-color"],
@@ -187,15 +201,14 @@ const BackgroundImage = {
 const BackgroundPosition = {
   allow: ["0", "top", "bottom", "left", "right", "center"],
   tokenTypes: ["size", "space"],
-  aliasTokenTypes: ["dimension"],
   allowUnits: true,
 };
 
 /** @type {PropertyTypeConfig} */
 const BackgroundSize = {
   allow: ["auto", "cover", "contain"],
+  allowFunctions: ["max"],
   tokenTypes: ["size", "space", "icon-size"],
-  aliasTokenTypes: ["dimension"],
   allowUnits: true,
 };
 
@@ -223,10 +236,14 @@ const Fill = {
     "context-stroke",
     "currentColor",
     "transparent",
+    "white",
+    "black",
   ],
+  allowedTokens: [...versatileColorTokens],
   allowFunctions: ["url"],
   tokenTypes: ["icon-color"],
   aliasTokenTypes: [
+    "color",
     "background-color",
     "border-color",
     "text-color",
@@ -248,6 +265,7 @@ const FontSize = {
     "xxx-large",
     "smaller",
     "larger",
+    "1em",
   ],
   tokenTypes: ["font-size"],
 };
@@ -283,7 +301,8 @@ const BorderColor = {
     "0",
   ],
   allowAlias: [...SYSTEM_COLORS],
-  tokenTypes: ["border-color", "border", "outline"],
+  allowedTokens: [...versatileColorTokens],
+  tokenTypes: ["border-color", "border", "outline-color", "outline"],
   aliasTokenTypes: ["color", "background-color", "text-color"],
   customFixes: customColorFixes,
   customSuggestions: systemColorSuggestions,
@@ -309,7 +328,7 @@ const BorderStyle = {
 /** @type {PropertyTypeConfig} */
 const BorderWidth = {
   allow: ["0"],
-  tokenTypes: ["border-width", "outline"],
+  tokenTypes: ["border-width", "outline-width", "outline"],
   allowUnits: true,
 };
 
@@ -352,10 +371,16 @@ const FlexShorthand = {
   tokenTypes: ["size", "icon-size"],
 };
 
+const Opacity = {
+  allow: ["0", "1"],
+  tokenTypes: ["opacity"],
+};
+
 /** @type {PropertyTypeConfig} */
 const TextColor = {
   allow: ["currentColor", "white", "black"],
   allowAlias: [...SYSTEM_COLORS],
+  allowedTokens: [...versatileColorTokens, "--toolbarseparator-color"],
   tokenTypes: ["text-color", "icon-color"],
   aliasTokenTypes: ["color", "background-color", "border-color"],
   customFixes: customColorFixes,
@@ -365,9 +390,8 @@ const TextColor = {
 
 /** @type {PropertyTypeConfig} */
 const Space = {
-  allow: ["0", "1px", "auto"],
+  allow: ["-1px", "0", "1px", "auto"],
   tokenTypes: ["space"],
-  aliasTokenTypes: ["dimension"],
   allowUnits: true,
   allowedUnits: ["ch", "em", "lh"],
   customFixes: {
@@ -392,9 +416,10 @@ const Size = {
     "min-content",
     "max-content",
     "stretch",
+    "-moz-available",
   ],
+  allowFunctions: ["max"],
   tokenTypes: ["size", "icon-size"],
-  aliasTokenTypes: ["dimension"],
   allowUnits: true,
   allowedUnits: ["%", "ch", "em", "vh", "vw"],
   customFixes: {
@@ -414,10 +439,19 @@ const Size = {
 
 /** @type {PropertyTypeConfig} */
 const Stroke = {
-  allow: ["none", "context-stroke", "currentColor", "transparent"],
+  allow: [
+    "none",
+    "context-stroke",
+    "currentColor",
+    "transparent",
+    "white",
+    "black",
+  ],
   allowFunctions: ["url"],
+  allowedTokens: [...versatileColorTokens],
   tokenTypes: ["icon-color"],
   aliasTokenTypes: [
+    "color",
     "background-color",
     "border-color",
     "text-color",
@@ -887,5 +921,8 @@ export const propertyConfig = {
   },
   "scroll-padding-top": {
     validTypes: [Space],
+  },
+  opacity: {
+    validTypes: [Opacity],
   },
 };

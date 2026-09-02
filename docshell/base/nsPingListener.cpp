@@ -206,7 +206,7 @@ static void SendPing(void* aClosure, nsIContent* aContent, nsIURI* aURI,
   }
 
   uploadChan->ExplicitSetUploadStream(uploadStream, "text/ping"_ns,
-                                      uploadData.Length(), "POST"_ns, false);
+                                      uploadData.Length(), "POST"_ns);
 
   // The channel needs to have a loadgroup associated with it, so that we can
   // cancel the channel and any redirected channels it may create.
@@ -218,7 +218,7 @@ static void SendPing(void* aClosure, nsIContent* aContent, nsIURI* aURI,
   loadGroup->SetNotificationCallbacks(callbacks);
   chan->SetLoadGroup(loadGroup);
 
-  RefPtr<nsPingListener> pingListener = new nsPingListener();
+  RefPtr pingListener = MakeRefPtr<nsPingListener>();
   chan->AsyncOpen(pingListener);
 
   // Even if AsyncOpen failed, we still count this as a successful ping.  It's

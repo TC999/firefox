@@ -4,10 +4,9 @@
 
 #include "RenderExternalTextureHost.h"
 
+#include "GLContext.h"
 #include "mozilla/gfx/Logging.h"
 #include "mozilla/layers/ImageDataSerializer.h"
-
-#include "GLContext.h"
 
 namespace mozilla {
 namespace wr {
@@ -128,7 +127,14 @@ bool RenderExternalTextureHost::IsReadyForDeletion() {
 
   auto& textureSource = mTextureSources[0];
   if (textureSource) {
-    return textureSource->Sync(false);
+    if (textureSource->Sync(/* aBlocking */ true)) {
+      return true;
+    }
+    if (mGL && mGL->MakeCurrent() && !mGL->IsDestroyed()) {
+      mGL->fFinish();
+      return true;
+    }
+    return false;
   }
 
   return true;
@@ -155,7 +161,11 @@ wr::WrExternalImage RenderExternalTextureHost::Lock(uint8_t aChannelIndex,
 
 void RenderExternalTextureHost::PrepareForUse() { mTextureUpdateNeeded = true; }
 
-void RenderExternalTextureHost::Unlock() {}
+void RenderExternalTextureHost::Unlock() {
+  if (mInitialized && mTextureSources[0]) {
+    mTextureSources[0]->MaybeFenceTexture();
+  }
+}
 
 void RenderExternalTextureHost::UpdateTexture(size_t aIndex) {
   MOZ_ASSERT(mSurfaces[aIndex]);

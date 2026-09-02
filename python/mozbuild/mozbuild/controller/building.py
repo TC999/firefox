@@ -30,7 +30,9 @@ import mozpack.path as mozpath
 from mach.mixin.logging import LoggingMixin
 from mach.util import get_state_dir, get_virtualenv_base_dir
 from mozsystemmonitor.resourcemonitor import SystemResourceMonitor
-from mozterm.widgets import Footer
+from rich.console import Console
+from rich.live import Live
+from rich.text import Text
 
 from ..backend import get_backend_class
 from ..base import MozbuildObject
@@ -43,7 +45,12 @@ from ..dirutils import mkdir
 from ..serialized_logging import read_serialized_record
 from ..telemetry import get_cpu_brand
 from ..testing import install_test_files
-from ..util import FileAvoidWrite, construct_log_filename, resolve_target_to_make
+from ..util import (
+    FileAvoidWrite,
+    construct_log_filename,
+    is_running_under_coding_agent,
+    resolve_target_to_make,
+)
 from .clobber import Clobberer
 
 RE_BUILD_OUTPUT = re.compile(
@@ -52,6 +59,7 @@ RE_BUILD_OUTPUT = re.compile(
     |(?P<info_cargo>^\s{3,}(?:Compiling|Downloading|Building|Finished|Fresh|Running|Documenting)\s)
     |(?P<warning_summary>^\d+\s+(?:compiler\s+)?warnings?\s+(?:generated|present)\.)
     |(?P<error_summary>^\d+\s+errors?\s+generated\.)
+    |(?P<python_traceback>^Traceback\ \(most\ recent\ call\ last\):)
     |(?P<make_error>make(?:\[\d+\])?\s*:\s*\*\*\*)
     |(?P<nsis_warning_block>^\d+\s+warnings?:)
     |(?P<error_block>^error(?:\[e\d+\])?:\s?)
@@ -167,7 +175,7 @@ class TierStatus:
 def record_cargo_timings(resource_monitor, timings_path):
     cargo_start = 0
     try:
-        with open(timings_path) as fh:
+        with open(timings_path, encoding="utf-8") as fh:
             # Extrace the UNIT_DATA list from the cargo timing HTML file.
             unit_data = dropwhile(lambda l: l.rstrip() != "const UNIT_DATA = [", fh)
             unit_data = islice(unit_data, 1, None)
@@ -566,79 +574,62 @@ class BuildMonitor(MozbuildObject):
 
 
 class TerminalLoggingHandler(logging.Handler):
-    """Custom logging handler that works with terminal window dressing.
+    """Routes log records to a Rich Console so they appear above the live footer.
 
     This class should probably live elsewhere, like the mach core. Consider
     this a proving ground for its usefulness.
     """
 
-    def __init__(self):
+    def __init__(self, console):
         logging.Handler.__init__(self)
-
-        self.fh = sys.stdout
-        self.footer = None
+        self.console = console
 
     def flush(self):
         self.acquire()
-
         try:
-            self.fh.flush()
+            self.console.file.flush()
         finally:
             self.release()
 
     def emit(self, record):
         msg = self.format(record)
-
         self.acquire()
-
         try:
-            if self.footer:
-                self.footer.clear()
-
-            self.fh.write(msg)
-            self.fh.write("\n")
-
-            if self.footer:
-                self.footer.draw()
-
-            # If we don't flush, the footer may not get drawn.
-            self.fh.flush()
+            self.console.print(Text.from_ansi(msg), soft_wrap=True)
         finally:
             self.release()
 
 
-class BuildProgressFooter(Footer):
+class BuildProgressFooter:
     """Handles display of a build progress indicator in a terminal.
 
-    When mach builds inside a blessed-supported terminal, it will render
-    progress information collected from a BuildMonitor. This class converts the
-    state of BuildMonitor into terminal output.
+    When mach builds inside a terminal, it will render progress information
+    collected from a BuildMonitor. This class converts the state of
+    BuildMonitor into terminal output.
     """
 
-    def __init__(self, terminal, monitor):
-        Footer.__init__(self, terminal)
-        self.tiers = monitor.tiers.tier_status.items()
+    def __init__(self, monitor):
+        self.monitor = monitor
 
-    def draw(self):
-        """Draws this footer in the terminal."""
-
-        if not self.tiers:
-            return
+    def __rich__(self):
+        tiers = list(self.monitor.tiers.tier_status.items())
+        if not tiers:
+            return Text("")
 
         # The drawn terminal looks something like:
         # TIER: static export libs tools
 
-        parts = [("bold", "TIER:")]
-        append = parts.append
-        for tier, status in self.tiers:
+        t = Text(no_wrap=True, overflow="ellipsis")
+        t.append("TIER:", style="bold")
+        for tier, status in tiers:
+            t.append(" ")
             if status is None:
-                append(tier)
+                t.append(tier)
             elif status == "finished":
-                append(("green", tier))
+                t.append(tier, style="green")
             else:
-                append(("underline_yellow", tier))
-
-        self.write(parts)
+                t.append(tier, style="underline yellow")
+        return t
 
 
 class OutputManager(LoggingMixin):
@@ -647,7 +638,10 @@ class OutputManager(LoggingMixin):
     def __init__(self, log_manager, footer):
         self.populate_logger()
 
-        self.footer = None
+        self.live = None
+        self.console = None
+        self._handler = None
+
         terminal = log_manager.terminal
 
         # TODO convert terminal footer to config file setting.
@@ -656,43 +650,49 @@ class OutputManager(LoggingMixin):
         if os.environ.get("INSIDE_EMACS", None):
             return
 
-        if os.environ.get("MACH_NO_TERMINAL_FOOTER", None):
-            footer = None
+        self.console = Console(
+            file=sys.stdout,
+            soft_wrap=True,
+            highlight=False,
+            markup=False,
+            emoji=False,
+        )
 
-        self.t = terminal
-        self.footer = footer
-
-        self._handler = TerminalLoggingHandler()
+        self._handler = TerminalLoggingHandler(self.console)
         self._handler.setFormatter(log_manager.terminal_formatter)
-        self._handler.footer = self.footer
-
         old = log_manager.replace_terminal_handler(self._handler)
         self._handler.level = old.level
 
+        if os.environ.get("MACH_NO_TERMINAL_FOOTER", None):
+            footer = None
+
+        if footer is not None and self.console.is_terminal:
+            self.live = Live(
+                footer,
+                console=self.console,
+                auto_refresh=False,
+                transient=True,
+            )
+
     def __enter__(self):
+        if self.live is not None:
+            self.live.start()
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        if self.footer:
-            self.footer.clear()
-            # Prevents the footer from being redrawn if logging occurs.
-            self._handler.footer = None
+        if self.live is not None:
+            self.live.stop()
+            self.live = None
 
     def write_line(self, line):
-        if self.footer:
-            self.footer.clear()
-
-        print(line)
-
-        if self.footer:
-            self.footer.draw()
+        if self.console is not None:
+            self.console.print(line, soft_wrap=True)
+        else:
+            print(line)
 
     def refresh(self):
-        if not self.footer:
-            return
-
-        self.footer.clear()
-        self.footer.draw()
+        if self.live is not None:
+            self.live.refresh()
 
 
 class BuildOutputManager(OutputManager):
@@ -733,8 +733,13 @@ class BuildOutputManager(OutputManager):
 
     def _is_third_party_path(self, filepath):
         path = mozpath.normsep(filepath)
+        # Handle the case where we have relative path from Unified build
+        if not os.path.isabs(path):
+            stripped = re.sub(r"^([./\\])*[/\\]", "", path)
+            if os.path.exists(stripped):
+                path = mozpath.abspath(stripped)
         if not path.startswith(self.monitor.topsrcdir):
-            return True
+            return True  # generated file
         if not self._third_party_dirs:
             return False
         path = path[len(self.monitor.topsrcdir) + 1 :]
@@ -749,14 +754,7 @@ class BuildOutputManager(OutputManager):
         self.monitor.stop_resource_recording()
 
     def _refresh_with_lock(self):
-        have_handler = hasattr(self, "_handler")
-        if have_handler:
-            self._handler.acquire()
-        try:
-            self.refresh()
-        finally:
-            if have_handler:
-                self._handler.release()
+        self.refresh()
 
     def on_stdout_line(self, line):
         """Handle stdout output - log as INFO, but catch obvious warnings/errors."""
@@ -819,6 +817,7 @@ class BuildOutputManager(OutputManager):
                             self._active_log_level = None
                         elif match_type in (
                             "error_summary",
+                            "python_traceback",
                             "make_error",
                             "error_block",
                         ):
@@ -877,16 +876,13 @@ class BuildOutputManager(OutputManager):
             self._refresh_with_lock()
 
 
-class StaticAnalysisFooter(Footer):
+class StaticAnalysisFooter:
     """Handles display of a static analysis progress indicator in a terminal."""
 
-    def __init__(self, terminal, monitor):
-        Footer.__init__(self, terminal)
+    def __init__(self, monitor):
         self.monitor = monitor
 
-    def draw(self):
-        """Draws this footer in the terminal."""
-
+    def __rich__(self):
         monitor = self.monitor
         total = monitor.num_files
         processed = monitor.num_files_processed
@@ -894,18 +890,18 @@ class StaticAnalysisFooter(Footer):
             percent = "(%.2f%%)" % (processed * 100.0 / total)
         else:
             percent = "(100%)"
-        parts = [
-            ("bright_black", "Processing"),
-            ("yellow", str(processed)),
-            ("bright_black", "of"),
-            ("yellow", str(total)),
-            ("bright_black", "files"),
-            ("green", percent),
-        ]
-        if monitor.current_file:
-            parts.append(("bold", monitor.current_file))
 
-        self.write(parts)
+        t = Text(no_wrap=True, overflow="ellipsis")
+        t.append("Processing ", style="bright_black")
+        t.append(str(processed), style="yellow")
+        t.append(" of ", style="bright_black")
+        t.append(str(total), style="yellow")
+        t.append(" files ", style="bright_black")
+        t.append(percent, style="green")
+        if monitor.current_file:
+            t.append(" ")
+            t.append(monitor.current_file, style="bold")
+        return t
 
 
 class StaticAnalysisOutputManager(OutputManager):
@@ -932,14 +928,7 @@ class StaticAnalysisOutputManager(OutputManager):
         if relevant:
             self.log(logging.INFO, "build_output", {"line": line}, "{line}")
         else:
-            have_handler = hasattr(self, "_handler")
-            if have_handler:
-                self._handler.acquire()
-            try:
-                self.refresh()
-            finally:
-                if have_handler:
-                    self._handler.release()
+            self.refresh()
 
     def write(self, path, output_format):
         assert output_format in (
@@ -1266,6 +1255,7 @@ class BuildDriver(MozbuildObject):
         mach_context=None,
         append_env=None,
         allow_subdirectory_build=False,
+        no_completion_messages=False,
     ):
         self._ensure_build_log_dir_exists()
         warnings_path = self._get_build_log_filename(construct_log_filename("warnings"))
@@ -1283,6 +1273,7 @@ class BuildDriver(MozbuildObject):
             mach_context,
             append_env,
             allow_subdirectory_build,
+            no_completion_messages,
         )
 
         record_usage = True
@@ -1309,6 +1300,7 @@ class BuildDriver(MozbuildObject):
         mach_context=None,
         append_env=None,
         allow_subdirectory_build=False,
+        no_completion_messages=False,
     ):
         """Invoke the build backend.
 
@@ -1317,7 +1309,7 @@ class BuildDriver(MozbuildObject):
         """
         self.metrics = metrics
         self.mach_context = mach_context
-        footer = BuildProgressFooter(self.log_manager.terminal, monitor)
+        footer = BuildProgressFooter(monitor)
 
         # Disable indexing in objdir because it is not necessary and can slow
         # down builds.
@@ -1434,7 +1426,6 @@ class BuildDriver(MozbuildObject):
             mozbuild_metrics.ccache.set(get_substs_flag("CCACHE"))
             using_sccache = get_substs_flag("MOZ_USING_SCCACHE")
             mozbuild_metrics.sccache.set(using_sccache)
-            mozbuild_metrics.icecream.set(get_substs_flag("CXX_IS_ICECREAM"))
             mozbuild_metrics.project.set(substs.get("MOZ_BUILD_APP", ""))
             mozbuild_metrics.target.set(target)
 
@@ -1443,29 +1434,10 @@ class BuildDriver(MozbuildObject):
 
             status = None
 
-            if not config_rc and any([
-                self.backend_out_of_date(
-                    mozpath.join(self.topobjdir, "backend.%sBackend" % backend)
-                )
-                for backend in all_backends
-            ]):
-                self.log(
-                    logging.INFO,
-                    "build_output",
-                    {},
-                    "Build configuration changed. Regenerating backend.",
-                )
-                args = [
-                    config.substs["PYTHON3"],
-                    mozpath.join(self.topobjdir, "config.status"),
-                ]
-                self.run_process(args, cwd=self.topobjdir, pass_thru=True)
+            if not config_rc:
+                self.ensure_backend_current()
 
-            if jobs == 0:
-                for param in self.mozconfig.get("make_extra") or []:
-                    key, value = param.split("=", 1)
-                    if key == "MOZ_PARALLEL_BUILD":
-                        jobs = int(value)
+            jobs = self.resolve_num_jobs(jobs, job_size)
 
             if "Make" not in active_backend:
                 backend_cls = get_backend_class(active_backend)(config)
@@ -1495,19 +1467,30 @@ class BuildDriver(MozbuildObject):
                             and not allow_subdirectory_build
                             and (Path(self.topsrcdir) / target).is_dir()
                         ):
+                            message = "Build argument '{target}' is a subdirectory and was ignored."
+                            # Don't tell agents how to override, because they do
+                            # override
+                            if not is_running_under_coding_agent():
+                                message += (
+                                    "\nUse --allow-subdirectory-build to override."
+                                )
+
                             self.log(
                                 logging.WARNING,
                                 "build",
                                 {"target": target},
-                                "Build argument '{target}' is a subdirectory and was ignored. "
-                                "Use --allow-subdirectory-build to override.",
+                                message,
                             )
                             continue
 
                     if make_dir is None and make_target is None:
                         return 1
 
-                    if config.is_artifact_build and target.startswith("installers-"):
+                    if (
+                        config.is_artifact_build
+                        and target.startswith("installers-")
+                        and config.substs.get("MOZ_USE_LEGACY_L10N")
+                    ):
                         # See https://bugzilla.mozilla.org/show_bug.cgi?id=1387485
                         self.log(
                             logging.ERROR,
@@ -1567,6 +1550,16 @@ class BuildDriver(MozbuildObject):
             elif status is None:
                 # If the backend doesn't specify a build() method, then just
                 # call client.mk directly.
+                # In automation, client.mk starts the sccache daemon, which
+                # only reads its configuration from the environment when it
+                # starts, so it needs the sccache variables in its environment.
+                # config.mk covers the sub-makes.
+                client_mk_env = dict(append_env or {})
+                client_mk_env.update(
+                    (name, value)
+                    for name, value in config.substs.items()
+                    if name.startswith("SCCACHE_")
+                )
                 status = self._run_client_mk(
                     line_handler=output.on_stdout_line,
                     stderr_line_handler=output.on_stderr_line,
@@ -1574,7 +1567,7 @@ class BuildDriver(MozbuildObject):
                     job_size=job_size,
                     verbose=verbose,
                     keep_going=keep_going,
-                    append_env=append_env,
+                    append_env=client_mk_env,
                 )
 
             self.log(
@@ -1735,14 +1728,18 @@ class BuildDriver(MozbuildObject):
             # Just stick with the default
             pass
 
-        if monitor.elapsed > notify_minimum_time:
+        if not no_completion_messages and monitor.elapsed > notify_minimum_time:
             # Display a notification when the build completes.
             self.notify("Build complete" if not status else "Build failed")
 
         if status:
-            if what and any([
-                target for target in what if target not in ("faster", "binaries")
-            ]):
+            if (
+                not no_completion_messages
+                and what
+                and any([
+                    target for target in what if target not in ("faster", "binaries")
+                ])
+            ):
                 print(
                     "Hey! Builds initiated with `mach build "
                     "$A_SPECIFIC_TARGET` may not always work, even if the "
@@ -1751,6 +1748,12 @@ class BuildDriver(MozbuildObject):
                 )
             return status
 
+        if not no_completion_messages:
+            self._print_build_completion_messages(monitor, what, using_sccache)
+
+        return status
+
+    def _print_build_completion_messages(self, monitor, what, using_sccache):
         if monitor.have_resource_usage:
             excessive, swap_in, swap_out = monitor.have_excessive_swapping()
             # if excessive:
@@ -1811,8 +1814,6 @@ class BuildDriver(MozbuildObject):
                 # Ignore Exceptions in case we can't find config.status (such
                 # as when doing OSX Universal builds)
                 pass
-
-        return status
 
     def configure(
         self,
@@ -1895,7 +1896,7 @@ class BuildDriver(MozbuildObject):
 
         return status
 
-    def install_tests(self):
+    def install_tests(self, force=False):
         """Install test files."""
 
         if self.is_clobber_needed():
@@ -1906,7 +1907,18 @@ class BuildDriver(MozbuildObject):
             )
             sys.exit(1)
 
-        install_test_files(mozpath.normpath(self.topsrcdir), self.topobjdir, "_tests")
+        skipped = install_test_files(
+            mozpath.normpath(self.topsrcdir),
+            self.topobjdir,
+            "_tests",
+            force=force,
+        )
+        if skipped:
+            print(
+                "Skipping test file installation (up to date). "
+                "Run with --force to force reinstallation.",
+                file=sys.stderr,
+            )
 
     def _clobber_configure(self):
         # This is an optimistic treatment of the CLOBBER file for when we have
@@ -2030,7 +2042,7 @@ class BuildDriver(MozbuildObject):
         # Copy the original mozconfig to the objdir.
         mozconfig_objdir = mozpath.join(self.topobjdir, ".mozconfig")
         if mozconfig["path"]:
-            with open(mozconfig["path"]) as ifh:
+            with open(mozconfig["path"], "rb") as ifh:
                 with FileAvoidWrite(mozconfig_objdir) as ofh:
                     ofh.write(ifh.read())
         else:

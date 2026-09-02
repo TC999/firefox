@@ -67,6 +67,9 @@ rejected-words:
         tier: 2
     run:
         mach: lint -v -l rejected-words -f treeherder -f json:/builds/worker/mozlint.json .
+    fetches:
+        toolchain:
+            - linux64-mozcheck
     when:
         files-changed:
             - '**/*.js'
@@ -94,12 +97,16 @@ rejected-words:
 dot-mozilla-reference:
     description: Give visibility to misuse of ".mozilla" being hardcoded and thus breaking XDG support
     treeherder:
-        symbol: text(dot-mozilla-reference)
+        symbol: misc(dot-mozilla-reference)
         # We don't want patches to be backed out because of this, a follow up bug will be
         # good enough
         tier: 2
     run:
         mach: lint -v -l dot-mozilla-reference -f treeherder -f json:/builds/worker/mozlint.json .
+
+    fetches:
+        toolchain:
+            - linux64-mozcheck
     when:
         files-changed:
             - '**/*.js'
@@ -223,7 +230,7 @@ typescript:
     description: TypeScript checker
     treeherder:
         symbol: js(TSC)
-        tier: 3
+        tier: 2
     run:
         using: run-task
         cwd: '{checkout}'
@@ -244,8 +251,12 @@ typescript:
             - 'browser/components/places/**/*.ts'
             - 'browser/components/search/**/*.*js'
             - 'browser/components/search/**/*.ts'
+            - 'browser/components/tabbrowser/**/*.*js'
+            - 'browser/components/tabbrowser/**/*.ts'
             - 'browser/components/urlbar/**/*.*js'
             - 'browser/components/urlbar/**/*.ts'
+            - 'toolkit/components/extensions/**/*.*js'
+            - 'toolkit/components/extensions/**/*.ts'
             - 'toolkit/components/places/**/*.*js'
             - 'toolkit/components/places/**/*.ts'
             - 'toolkit/components/search/**/*.*js'
@@ -265,6 +276,9 @@ license:
         symbol: pedantic(license)
     run:
         mach: lint -v -l license -f treeherder -f json:/builds/worker/mozlint.json .
+    fetches:
+        toolchain:
+            - linux64-mozcheck
     when:
         files-changed:
             - '**/*.c'
@@ -443,7 +457,7 @@ python-sites:
 test-manifest:
     description: lint test manifests
     treeherder:
-        symbol: misc(tm)
+        symbol: tests(test-manifest)
     run:
         mach: lint -v -l test-manifest-toml -f treeherder -f json:/builds/worker/mozlint.json .
     when:
@@ -454,10 +468,23 @@ test-manifest:
             - 'tools/lint/test/test_manifest_toml.py'
             - 'tools/lint/test-manifest-toml/**'
 
+review-context-toml:
+    description: Validate review-context.toml against the review context schema
+    treeherder:
+        symbol: misc(review-context)
+    run:
+        mach: lint -v -l review-context-toml -f treeherder -f json:/builds/worker/mozlint.json .
+    when:
+        files-changed:
+            - 'review-context.toml'
+            - 'tools/lint/review-context-toml.yml'
+            - 'tools/lint/python/review_context_schema.py'
+            - 'tools/lint/python/review_context_toml.py'
+
 wptlint-gecko:
     description: web-platform-tests linter
     treeherder:
-        symbol: misc(W)
+        symbol: tests(web-platform)
     run:
         mach: lint -v -l wpt -f treeherder -f json:/builds/worker/mozlint.json .
     when:
@@ -465,6 +492,22 @@ wptlint-gecko:
             - 'testing/web-platform/tests/**'
             - 'testing/web-platform/mozilla/tests/**'
             - 'tools/lint/wpt.yml'
+
+wpt-subsuite-tagging:
+    description: Checks WPT tests in subsuite directories have subsuite tags
+    treeherder:
+        symbol: tests(wpt-sub)
+    run:
+        mach: lint -v -l wpt-subsuite-tagging -f treeherder -f json:/builds/worker/mozlint.json .
+    when:
+        files-changed:
+            - 'testing/web-platform/tests/**'
+            - 'testing/web-platform/mozilla/tests/**'
+            - 'testing/web-platform/meta/**'
+            - 'testing/web-platform/mozilla/meta/**'
+            - 'taskcluster/gecko_taskgraph/util/chunking.py'
+            - 'tools/lint/wpt-subsuite-tagging/**'
+            - 'tools/lint/wpt-subsuite-tagging.yml'
 
 yaml:
     description: yamllint run over the gecko codebase
@@ -478,16 +521,20 @@ yaml:
             - '**/*.yaml'
             - '**/.ymllint'
 
-rst:
-    description: rst lint run over the gecko codebase
+md:
+    description: Markdown linters run over the gecko codebase
     treeherder:
-        symbol: doc(rst)
+        symbol: doc(md)
+        # Allow follow-ups for Markdown style issues rather than backing patches out.
+        tier: 2
     run:
-        mach: lint -v -l rst -f treeherder -f json:/builds/worker/mozlint.json .
+        mach: lint -v -l md -f treeherder -f json:/builds/worker/mozlint.json .
     when:
         files-changed:
-            - '**/*.rst'
-            - 'tools/lint/rst.yml'
+            - '**/*.md'
+            - 'tools/lint/md.yml'
+            - 'tools/lint/rumdl.toml'
+            - 'tools/lint/python/rumdl.py'
 
 shellcheck:
     description: shellcheck run over the gecko codebase
@@ -615,6 +662,24 @@ cargo-audit:
         toolchain:
             - linux64-rust
 
+mozcheck-tests:
+    description: mozcheck Rust unit tests
+    treeherder:
+        symbol: rust(mozcheck)
+    run:
+        using: run-task
+        cwd: '{checkout}'
+        command: >-
+            PATH="$MOZ_FETCHES_DIR/rustc/bin:$PATH"
+            cargo test --locked --verbose
+            --manifest-path tools/lint/mozcheck/Cargo.toml
+    when:
+        files-changed:
+            - 'tools/lint/mozcheck/**'
+    fetches:
+        toolchain:
+            - linux64-rust
+
 file-whitespace:
     description: Check for trailing whitespaces and Windows CR
     platform: lint/opt
@@ -625,6 +690,9 @@ file-whitespace:
         tier: 2
     run:
         mach: lint -v -l file-whitespace -f treeherder -f json:/builds/worker/mozlint.json .
+    fetches:
+        toolchain:
+            - linux64-mozcheck
     when:
         files-changed:
             - '**/*.c'
@@ -660,6 +728,9 @@ file-perm:
         tier: 2
     run:
         mach: lint -v -l file-perm -f treeherder -f json:/builds/worker/mozlint.json .
+    fetches:
+        toolchain:
+            - linux64-mozcheck
     when:
         files-changed:
             - '**/*.build'
@@ -702,7 +773,7 @@ perfdocs-verify:
     treeherder:
         symbol: doc(perfdocs)
     run:
-        mach: lint -v -l perfdocs -f treeherder -f json:/builds/worker/mozlint.json .
+        mach: perfdocs --output-file /builds/worker/mozlint.json
     worker:
         env:
             WORKSPACE: /builds/worker/checkouts/gecko/
@@ -777,6 +848,9 @@ trojan-source:
         symbol: misc(trojan-source)
     run:
         mach: lint -v -l trojan-source -f treeherder -f json:/builds/worker/mozlint.json .
+    fetches:
+        toolchain:
+            - linux64-mozcheck
     when:
         files-changed:
             - '**/*.c'
@@ -798,6 +872,20 @@ ignorefile-test:
         files-changed:
             - '.gitignore'
             - '.hgignore'
+
+agent-skills-sync:
+    description: Keep .claude/skills and .agents/skills in sync
+    platform: lint/opt
+    treeherder:
+        symbol: agent-skills-sync
+    run:
+        mach: lint -v -l agent-skills-sync -f treeherder -f json:/builds/worker/mozlint.json .claude/skills .agents/skills
+    when:
+        files-changed:
+            - '.claude/skills/**'
+            - '.agents/skills/**'
+            - 'tools/lint/agent-skills-sync.yml'
+            - 'tools/lint/agent-skills-sync/**'
 
 
 c-includes:

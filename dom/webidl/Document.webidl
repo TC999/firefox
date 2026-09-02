@@ -32,10 +32,21 @@ enum VisibilityState { "hidden", "visible" };
 
 /* https://dom.spec.whatwg.org/#dictdef-elementcreationoptions */
 dictionary ElementCreationOptions {
+  [Pref="dom.scoped-custom-element-registries.enabled"]
+  CustomElementRegistry? customElementRegistry;
+
   DOMString is;
 
   [ChromeOnly]
   DOMString pseudo;
+};
+
+/* https://dom.spec.whatwg.org/#dictdef-importnodeoptions */
+dictionary ImportNodeOptions {
+  [Pref="dom.scoped-custom-element-registries.enabled"]
+  CustomElementRegistry customElementRegistry;
+
+  boolean selfOnly = false;
 };
 
 /* https://dom.spec.whatwg.org/#interface-document */
@@ -89,7 +100,7 @@ interface Document : Node {
   ProcessingInstruction createProcessingInstruction(DOMString target, DOMString data);
 
   [CEReactions, Throws, Func="IsNotUAWidget"]
-  Node importNode(Node node, optional boolean deep = false);
+  Node importNode(Node node, optional (boolean or ImportNodeOptions) options = false);
   [CEReactions, Throws, Func="IsNotUAWidget"]
   Node adoptNode(Node node);
 
@@ -117,7 +128,7 @@ interface Document : Node {
 
 // https://html.spec.whatwg.org/multipage/dom.html#the-document-object
 partial interface Document {
-  [Throws, NeedsSubjectPrincipal=NonSystem]
+  [UseCounter, Throws, NeedsSubjectPrincipal=NonSystem]
   static Document parseHTMLUnsafe((TrustedHTML or DOMString) html, optional SetHTMLUnsafeOptions options = {});
 
   [PutForwards=href, LegacyUnforgeable] readonly attribute Location? location;
@@ -275,7 +286,9 @@ partial interface Document {
   // @deprecated These are old Netscape 4 methods. Do not use,
   //             the implementation is no-op.
   // XXXbz do we actually need these anymore?
+  [Deprecated=UseOfCaptureEvents]
   undefined captureEvents();
+  [Deprecated=UseOfReleaseEvents]
   undefined releaseEvents();
 
   [SameObject] readonly attribute HTMLAllCollection all;
@@ -302,6 +315,15 @@ partial interface Document {
   // Events handlers
   attribute EventHandler onfullscreenchange;
   attribute EventHandler onfullscreenerror;
+
+  [ChromeOnly, BinaryName="getFullscreenKeyboardLockStatus"]
+  readonly attribute FullscreenKeyboardLock fullscreenKeyboardLock;
+};
+
+// https://w3c.github.io/picture-in-picture/#extensions-to-the-document-interface
+partial interface Document {
+  [Pref="dom.media-pip.enabled"] readonly attribute boolean pictureInPictureEnabled;
+  [Pref="dom.media-pip.enabled", NewObject, Throws] Promise<undefined> exitPictureInPicture();
 };
 
 // https://w3c.github.io/pointerlock/#extensions-to-the-document-interface
@@ -660,7 +682,7 @@ partial interface Document {
    * tracking, fingerprinting, cryptomining and so on. This method is for
    * testing only.
    */
-  [ChromeOnly, Pure]
+  [ChromeOnly]
   readonly attribute NodeList blockedNodesByClassifier;
 };
 
@@ -774,17 +796,15 @@ dictionary StartViewTransitionOptions {
 
 // https://drafts.csswg.org/css-view-transitions-2/#idl-index
 partial interface Document {
-  [Pref="dom.viewTransitions.enabled"]
   ViewTransition startViewTransition(
     optional (ViewTransitionUpdateCallback or StartViewTransitionOptions) callbackOptions = {}
   );
-  [Pref="dom.viewTransitions.enabled"]
   readonly attribute ViewTransition? activeViewTransition;
 };
 
 // https://wicg.github.io/sanitizer-api/#sanitizer-api
 partial interface Document {
-  [Throws, Pref="dom.security.sanitizer.enabled"]
+  [UseCounter, Throws, Pref="dom.security.sanitizer.enabled"]
   static Document parseHTML(DOMString html, optional SetHTMLOptions options = {});
 };
 

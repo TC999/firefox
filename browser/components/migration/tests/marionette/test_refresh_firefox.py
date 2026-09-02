@@ -46,7 +46,7 @@ class TestFirefoxRefresh(MarionetteTestCase):
             """
           let [username, password, resolve] = arguments;
           let myLogin = new global.LoginInfo(
-            "test.marionette.mozilla.com",
+            "http://test.marionette.mozilla.com",
             "http://test.marionette.mozilla.com/some/form/",
             null,
             username,
@@ -182,7 +182,7 @@ class TestFirefoxRefresh(MarionetteTestCase):
           const COMPLETE_STATE = Ci.nsIWebProgressListener.STATE_STOP +
                                  Ci.nsIWebProgressListener.STATE_IS_NETWORK;
           let { TabStateFlusher } = ChromeUtils.importESModule(
-            "resource:///modules/sessionstore/TabStateFlusher.sys.mjs"
+            "moz-src:///browser/components/sessionstore/TabStateFlusher.sys.mjs"
           );
           let expectedURLs = Array.from(arguments[0])
           let expectedOpenGroupID = arguments[1];
@@ -229,7 +229,7 @@ class TestFirefoxRefresh(MarionetteTestCase):
           let resolve = arguments[arguments.length - 1];
           let expectedSavedGroups = Array.from(arguments[0]);
           let { TabStateFlusher } = ChromeUtils.importESModule(
-            "resource:///modules/sessionstore/TabStateFlusher.sys.mjs"
+            "moz-src:///browser/components/sessionstore/TabStateFlusher.sys.mjs"
           );
 
           let savePromises = [];
@@ -256,7 +256,7 @@ class TestFirefoxRefresh(MarionetteTestCase):
             });
             savePromises.push(Promise.allSettled([groupSaved, groupRemoved]));
           }
-          TabStateFlusher.flushWindow(gBrowser.ownerGlobal).then(() => {
+          TabStateFlusher.flushWindow(gBrowser.documentGlobal).then(() => {
             groups.forEach(group => {
               group.saveAndClose();
             })
@@ -303,13 +303,14 @@ class TestFirefoxRefresh(MarionetteTestCase):
         )
 
     def checkPassword(self):
+        # Only match on the origin: the Rust backend normalizes formActionOrigin
+        # to an origin on insert, the JSON backend stores it verbatim.
         loginInfo = self.runAsyncCode(
             """
           let [resolve] = arguments;
           Services.logins.searchLoginsAsync({
-            origin: "test.marionette.mozilla.com",
-            formActionOrigin: "http://test.marionette.mozilla.com/some/form/",
-          }).then(ary => resolve(ary.length ? ary : {username: "null", password: "null"}));
+            origin: "http://test.marionette.mozilla.com",
+          }).then(resolve);
         """
         )
         self.assertEqual(len(loginInfo), 1)
@@ -583,6 +584,18 @@ class TestFirefoxRefresh(MarionetteTestCase):
         )
         self.assertTrue(refreshPromptDisabled)
 
+    def checkProfileSource(self, expected_source):
+        result = self.runAsyncCode(
+            """
+            let resolve = arguments[arguments.length - 1]
+            let { ProfileAge } = ChromeUtils.importESModule(
+              "resource://gre/modules/ProfileAge.sys.mjs"
+            );
+            ProfileAge().then(age => age.source).then(resolve)
+            """
+        )
+        self.assertEqual(result, expected_source)
+
     def checkProfile(self, has_migrated=False, expect_sync_user=True):
         self.checkPassword()
         self.checkBookmarkInMenu()
@@ -592,6 +605,7 @@ class TestFirefoxRefresh(MarionetteTestCase):
         self.checkCookie()
         self.checkFxA()
         self.checkSync(expect_sync_user)
+        self.checkProfileSource("reset" if has_migrated else "pre-reset")
         if has_migrated:
             self.checkBookmarkToolbarVisibility()
             self.checkSession()
@@ -599,6 +613,7 @@ class TestFirefoxRefresh(MarionetteTestCase):
             self.checkRefreshPromptDisabled()
 
     def createProfileData(self):
+        self.setProfileSource()
         self.savePassword()
         self.createBookmarkInMenu()
         self.createBookmarksOnToolbar()
@@ -609,6 +624,21 @@ class TestFirefoxRefresh(MarionetteTestCase):
         self.createSession()
         self.createFxa()
         self.createSync()
+
+    def setProfileSource(self):
+        self.runAsyncCode(
+            """
+            let resolve = arguments[arguments.length - 1];
+            let { ProfileAge } = ChromeUtils.importESModule(
+              "resource://gre/modules/ProfileAge.sys.mjs"
+            );
+
+            ProfileAge().then(times => {
+              times._times.source = "pre-reset";
+              return times.writeTimes();
+            }).then(resolve).catch(console.error);
+            """
+        )
 
     def setUpScriptData(self):
         self.marionette.set_context(self.marionette.CONTEXT_CHROME)
@@ -700,7 +730,7 @@ class TestFirefoxRefresh(MarionetteTestCase):
           // Ensure the current (temporary) profile is in profiles.ini:
           let profD = Services.dirsvc.get("ProfD", Ci.nsIFile);
           let profileName = arguments[1];
-          let myProfile = global.profSvc.createProfile(profD, profileName);
+          let myProfile = global.profSvc.createProfile(profD, profileName, "pre-reset");
           global.profSvc.flush()
 
           // Now add the reset parameters:
@@ -865,7 +895,7 @@ class TestSelectableProfileFirefoxRefresh(TestFirefoxRefresh):
           // Ensure the current (temporary) profile is in profiles.ini:
           let profD = Services.dirsvc.get("ProfD", Ci.nsIFile);
           let profileName = arguments[1];
-          let myProfile = global.profSvc.createProfile(profD, profileName);
+          let myProfile = global.profSvc.createProfile(profD, profileName, "pre-reset");
           global.profSvc.flush()
 
           // Now add the reset parameters:
@@ -891,7 +921,7 @@ class TestSelectableProfileFirefoxRefresh(TestFirefoxRefresh):
         [profile_path, profile_name, storeID, profile_count, profile_id] = (
             self.runAsync(
                 """
-                let newProfile = await SelectableProfileService.createNewProfile(false);
+                let newProfile = await SelectableProfileService.createNewProfile(false, null, "tests");
 
                 let profileCount = (await SelectableProfileService.getAllProfiles()).length;
 

@@ -83,7 +83,29 @@ already_AddRefed<Image> RemoteImageHolder::DeserializeImage(
         descriptor.chromaSubsampling());
     if (NS_WARN_IF(descriptorSize.isNothing() ||
                    descriptorSize.value() > bufferSize)) {
-      MOZ_ASSERT_UNREACHABLE("Buffer too small to fit descriptor!");
+      // Skip assertion during gtests.
+      if (!PR_GetEnv("MOZ_RUN_GTEST")) {
+        MOZ_ASSERT_UNREACHABLE("Buffer too small to fit descriptor!");
+      }
+      return nullptr;
+    }
+
+    if (!IntRect(IntPoint(), descriptor.ySize())
+             .Contains(descriptor.display())) {
+      if (!PR_GetEnv("MOZ_RUN_GTEST")) {
+        MOZ_ASSERT_UNREACHABLE(
+            "YCbCr display rect exceeds Y plane dimensions!");
+      }
+      return nullptr;
+    }
+
+    auto croppedCbCr = ImageDataSerializer::GetCroppedCbCrSize(descriptor);
+    if (croppedCbCr.width > descriptor.cbCrSize().width ||
+        croppedCbCr.height > descriptor.cbCrSize().height) {
+      if (!PR_GetEnv("MOZ_RUN_GTEST")) {
+        MOZ_ASSERT_UNREACHABLE(
+            "YCbCr chroma dimensions exceed CbCr plane size!");
+      }
       return nullptr;
     }
 
@@ -96,6 +118,7 @@ already_AddRefed<Image> RemoteImageHolder::DeserializeImage(
     pData.mStereoMode = descriptor.stereoMode();
     pData.mColorDepth = descriptor.colorDepth();
     pData.mYUVColorSpace = descriptor.yUVColorSpace();
+    pData.mHDRMetadata = descriptor.hdrMetadata();
     pData.mColorRange = descriptor.colorRange();
     pData.mChromaSubsampling = descriptor.chromaSubsampling();
     pData.mYChannel = ImageDataSerializer::GetYChannel(buffer, descriptor);
@@ -222,20 +245,18 @@ RemoteImageHolder::~RemoteImageHolder() {
   }
 
   if (auto* actor = aReader->GetActor()) {
-    if (auto* manager = actor->Manager()) {
-      if (manager->GetProtocolId() ==
-          mozilla::ipc::ProtocolId::PRemoteMediaManagerMsgStart) {
-        aResult->mManager =
-            XRE_IsContentProcess()
-                ? static_cast<mozilla::IGPUVideoSurfaceManager*>(
-                      static_cast<mozilla::RemoteMediaManagerChild*>(manager))
-                : static_cast<mozilla::IGPUVideoSurfaceManager*>(
-                      static_cast<mozilla::RemoteMediaManagerParent*>(manager));
-        return true;
-      }
+    if (XRE_IsContentProcess()) {
+      aResult->mManager =
+          ActorDynCast<mozilla::RemoteMediaManagerChild>(actor->Manager());
+    } else {
+      aResult->mManager =
+          ActorDynCast<mozilla::RemoteMediaManagerParent>(actor->Manager());
     }
   }
 
-  MOZ_ASSERT_UNREACHABLE("Unexpected or missing protocol manager!");
-  return false;
+  if (!aResult->mManager) {
+    MOZ_ASSERT_UNREACHABLE("Unexpected or missing protocol manager!");
+    return false;
+  }
+  return true;
 }

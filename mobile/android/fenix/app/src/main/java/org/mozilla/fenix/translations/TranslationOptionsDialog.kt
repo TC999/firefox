@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -29,17 +28,18 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.tooling.preview.PreviewParameter
 import androidx.compose.ui.unit.dp
+import java.util.Locale
+import mozilla.components.compose.base.InfoCard
+import mozilla.components.compose.base.InfoType
+import mozilla.components.compose.base.button.IconButton
+import mozilla.components.compose.base.theme.PreviewThemeProvider
+import mozilla.components.compose.base.theme.Theme
 import mozilla.components.concept.engine.translate.TranslationError
+import mozilla.components.ui.icons.R as iconsR
 import org.mozilla.fenix.R
-import org.mozilla.fenix.compose.InfoCard
-import org.mozilla.fenix.compose.InfoType
 import org.mozilla.fenix.compose.list.SwitchListItem
 import org.mozilla.fenix.compose.list.TextListItem
 import org.mozilla.fenix.theme.FirefoxTheme
-import org.mozilla.fenix.theme.PreviewThemeProvider
-import org.mozilla.fenix.theme.Theme
-import java.util.Locale
-import mozilla.components.ui.icons.R as iconsR
 
 /**
  * Firefox Translation options bottom sheet dialog.
@@ -67,28 +67,24 @@ fun TranslationOptionsDialog(
     }
 
     translationOptionsList.forEach { item: TranslationSwitchItem ->
-        val translationSwitchItem = TranslationSwitchItem(
-            type = item.type,
-            textLabel = item.textLabel,
-            isChecked = item.isChecked,
-            isEnabled = item.isEnabled,
-            onStateChange = { translationPageSettingsOption, checked ->
-                item.onStateChange.invoke(translationPageSettingsOption, checked)
-            },
-        )
+        val translationSwitchItem =
+            TranslationSwitchItem(
+                type = item.type,
+                textLabel = item.textLabel,
+                isChecked = item.isChecked,
+                isEnabled = item.isEnabled,
+                onStateChange = { translationPageSettingsOption, checked ->
+                    item.onStateChange.invoke(translationPageSettingsOption, checked)
+                },
+            )
 
-        TranslationOptions(
-            translationSwitchItem = translationSwitchItem,
-        )
+        TranslationOptions(translationSwitchItem = translationSwitchItem)
     }
 
     if (showGlobalSettings) {
         TextListItem(
             label = stringResource(id = R.string.translation_option_bottom_sheet_translation_settings),
-            modifier = Modifier
-                .padding(start = 56.dp)
-                .defaultMinSize(minHeight = 56.dp)
-                .wrapContentHeight(),
+            modifier = Modifier.padding(start = 56.dp).defaultMinSize(minHeight = 56.dp).wrapContentHeight(),
             onClick = {
                 onTranslationSettingsClicked()
             },
@@ -96,15 +92,12 @@ fun TranslationOptionsDialog(
     }
 
     TextListItem(
-        label = stringResource(
-            id = R.string.translation_option_bottom_sheet_about_translations,
-            formatArgs = arrayOf(stringResource(R.string.firefox)),
-        ),
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 56.dp)
-            .defaultMinSize(minHeight = 56.dp)
-            .wrapContentHeight(),
+        label =
+            stringResource(
+                id = R.string.translation_option_bottom_sheet_about_translations,
+                formatArgs = arrayOf(stringResource(R.string.firefox)),
+            ),
+        modifier = Modifier.fillMaxWidth().padding(start = 56.dp).defaultMinSize(minHeight = 56.dp).wrapContentHeight(),
         onClick = { aboutTranslationClicked() },
     )
 
@@ -113,11 +106,11 @@ fun TranslationOptionsDialog(
 
 @Composable
 private fun TranslationPageSettingsErrorWarning() {
-    val modifier = Modifier
-        .fillMaxWidth()
-        .padding(start = 72.dp, end = 16.dp, bottom = 16.dp)
-        .defaultMinSize(minHeight = 56.dp)
-        .wrapContentHeight()
+    val modifier =
+        Modifier.fillMaxWidth()
+            .padding(start = 72.dp, end = 16.dp, bottom = 16.dp)
+            .defaultMinSize(minHeight = 56.dp)
+            .wrapContentHeight()
 
     InfoCard(
         description = stringResource(id = R.string.translation_option_bottom_sheet_error_warning_text),
@@ -128,22 +121,19 @@ private fun TranslationPageSettingsErrorWarning() {
 }
 
 @Composable
-private fun TranslationOptions(
-    translationSwitchItem: TranslationSwitchItem,
-) {
+private fun TranslationOptions(translationSwitchItem: TranslationSwitchItem) {
     SwitchListItem(
         label = translationSwitchItem.textLabel,
         checked = translationSwitchItem.isChecked,
         modifier = Modifier.padding(start = 72.dp, end = 16.dp, top = 6.dp, bottom = 6.dp),
-        description = if (translationSwitchItem.isChecked) {
-            translationSwitchItem.type.descriptionId?.let {
-                stringResource(
-                    id = it,
-                )
-            }
-        } else {
-            null
-        },
+        description =
+            if (translationSwitchItem.isChecked) {
+                translationSwitchItem.type.descriptionId?.let {
+                    stringResource(id = it)
+                }
+            } else {
+                null
+            },
         maxDescriptionLines = Int.MAX_VALUE,
         maxLabelLines = Int.MAX_VALUE,
         enabled = translationSwitchItem.isEnabled,
@@ -161,22 +151,19 @@ private fun TranslationOptions(
 }
 
 @Composable
-private fun TranslationOptionsDialogHeader(
-    onBackClicked: () -> Unit,
-) {
+private fun TranslationOptionsDialogHeader(onBackClicked: () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .padding(end = 16.dp, start = 16.dp)
-            .defaultMinSize(minHeight = 56.dp),
+        modifier = Modifier.padding(end = 16.dp, start = 16.dp).defaultMinSize(minHeight = 56.dp),
     ) {
         IconButton(
             onClick = { onBackClicked() },
+            contentDescription = stringResource(R.string.etp_back_button_content_description),
             modifier = Modifier.size(24.dp),
         ) {
             Icon(
                 painter = painterResource(id = iconsR.drawable.mozac_ic_back_24),
-                contentDescription = stringResource(R.string.etp_back_button_content_description),
+                contentDescription = null,
             )
         }
 
@@ -184,17 +171,13 @@ private fun TranslationOptionsDialogHeader(
 
         Text(
             text = stringResource(id = R.string.translation_option_bottom_sheet_title_heading),
-            modifier = Modifier
-                .weight(1f)
-                .semantics { heading() },
+            modifier = Modifier.weight(1f).semantics { heading() },
             style = FirefoxTheme.typography.headline7,
         )
     }
 }
 
-/**
- * Return a list of Translation option switch list item.
- */
+/** Return a list of Translation option switch list item. */
 @Composable
 fun getTranslationOptionsList(): List<TranslationSwitchItem> {
     return mutableListOf<TranslationSwitchItem>().apply {
@@ -205,31 +188,33 @@ fun getTranslationOptionsList(): List<TranslationSwitchItem> {
                 isChecked = false,
                 isEnabled = true,
                 onStateChange = { _, _ -> },
-            ),
+            )
         )
         add(
             TranslationSwitchItem(
                 type = TranslationPageSettingsOption.AlwaysTranslateLanguage(),
-                textLabel = stringResource(
-                    id = R.string.translation_option_bottom_sheet_always_translate_in_language,
-                    formatArgs = arrayOf(Locale.Builder().setLanguage("es").build().displayName),
-                ),
+                textLabel =
+                    stringResource(
+                        id = R.string.translation_option_bottom_sheet_always_translate_in_language,
+                        formatArgs = arrayOf(Locale.Builder().setLanguage("es").build().displayName),
+                    ),
                 isChecked = false,
                 isEnabled = true,
                 onStateChange = { _, _ -> },
-            ),
+            )
         )
         add(
             TranslationSwitchItem(
                 type = TranslationPageSettingsOption.NeverTranslateLanguage(),
-                textLabel = stringResource(
-                    id = R.string.translation_option_bottom_sheet_never_translate_in_language,
-                    formatArgs = arrayOf(Locale.Builder().setLanguage("es").build().displayName),
-                ),
+                textLabel =
+                    stringResource(
+                        id = R.string.translation_option_bottom_sheet_never_translate_in_language,
+                        formatArgs = arrayOf(Locale.Builder().setLanguage("es").build().displayName),
+                    ),
                 isChecked = true,
                 isEnabled = true,
                 onStateChange = { _, _ -> },
-            ),
+            )
         )
         add(
             TranslationSwitchItem(
@@ -238,16 +223,14 @@ fun getTranslationOptionsList(): List<TranslationSwitchItem> {
                 isChecked = true,
                 isEnabled = true,
                 onStateChange = { _, _ -> },
-            ),
+            )
         )
     }
 }
 
 @Preview
 @Composable
-private fun TranslationSettingsPreview(
-    @PreviewParameter(PreviewThemeProvider::class) theme: Theme,
-) {
+private fun TranslationSettingsPreview(@PreviewParameter(PreviewThemeProvider::class) theme: Theme) {
     FirefoxTheme(theme) {
         Surface {
             Column {

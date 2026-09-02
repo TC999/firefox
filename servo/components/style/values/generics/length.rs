@@ -17,7 +17,6 @@ use cssparser::Parser;
 use std::fmt::Write;
 use style_derive::Animate;
 use style_traits::ParseError;
-use style_traits::StyleParseErrorKind;
 use style_traits::ToCss;
 use style_traits::{CssWriter, SpecifiedValueInfo};
 
@@ -29,8 +28,10 @@ use style_traits::{CssWriter, SpecifiedValueInfo};
     ComputeSquaredDistance,
     Copy,
     Debug,
+    Deserialize,
     MallocSizeOf,
     PartialEq,
+    Serialize,
     SpecifiedValueInfo,
     ToAnimatedValue,
     ToAnimatedZero,
@@ -40,9 +41,7 @@ use style_traits::{CssWriter, SpecifiedValueInfo};
     ToShmem,
     ToTyped,
 )]
-#[cfg_attr(feature = "servo", derive(Deserialize, Serialize))]
 #[repr(C, u8)]
-#[typed_value(derive_fields)]
 pub enum GenericLengthPercentageOrAuto<LengthPercent> {
     LengthPercentage(LengthPercent),
     Auto,
@@ -64,14 +63,11 @@ impl<LengthPercentage> LengthPercentageOrAuto<LengthPercentage> {
     }
 
     /// A helper function to parse this with quirks or not and so forth.
-    pub fn parse_with<'i, 't>(
+    pub fn parse_with(
         context: &ParserContext,
-        input: &mut Parser<'i, 't>,
-        parser: impl FnOnce(
-            &ParserContext,
-            &mut Parser<'i, 't>,
-        ) -> Result<LengthPercentage, ParseError<'i>>,
-    ) -> Result<Self, ParseError<'i>> {
+        input: &mut Parser,
+        parser: impl FnOnce(&ParserContext, &mut Parser) -> Result<LengthPercentage, ParseError>,
+    ) -> Result<Self, ParseError> {
         if input.try_parse(|i| i.expect_ident_matching("auto")).is_ok() {
             return Ok(LengthPercentageOrAuto::Auto);
         }
@@ -129,10 +125,7 @@ impl<LengthPercentage: Zero> Zero for LengthPercentageOrAuto<LengthPercentage> {
 }
 
 impl<LengthPercentage: Parse> Parse for LengthPercentageOrAuto<LengthPercentage> {
-    fn parse<'i, 't>(
-        context: &ParserContext,
-        input: &mut Parser<'i, 't>,
-    ) -> Result<Self, ParseError<'i>> {
+    fn parse(context: &ParserContext, input: &mut Parser) -> Result<Self, ParseError> {
         Self::parse_with(context, input, LengthPercentage::parse)
     }
 }
@@ -160,7 +153,6 @@ impl<LengthPercentage: Parse> Parse for LengthPercentageOrAuto<LengthPercentage>
     ToTyped,
 )]
 #[repr(C, u8)]
-#[typed_value(derive_fields)]
 pub enum GenericSize<LengthPercent> {
     LengthPercentage(LengthPercent),
     Auto,
@@ -190,7 +182,13 @@ where
 {
     fn collect_completion_keywords(f: style_traits::KeywordsCollectFn) {
         LengthPercent::collect_completion_keywords(f);
-        f(&["auto", "fit-content", "max-content", "min-content"]);
+        f(&[
+            "auto",
+            "fit-content",
+            "max-content",
+            "min-content",
+            "anchor-size",
+        ]);
         if cfg!(feature = "gecko") {
             f(&["-moz-available"]);
         }
@@ -199,9 +197,6 @@ where
         }
         if static_prefs::pref!("layout.css.webkit-fill-available.enabled") {
             f(&["-webkit-fill-available"]);
-        }
-        if static_prefs::pref!("layout.css.anchor-positioning.enabled") {
-            f(&["anchor-size"]);
         }
     }
 }
@@ -240,7 +235,6 @@ impl<LengthPercentage> Size<LengthPercentage> {
     ToTyped,
 )]
 #[repr(C, u8)]
-#[typed_value(derive_fields)]
 pub enum GenericMaxSize<LengthPercent> {
     LengthPercentage(LengthPercent),
     None,
@@ -270,7 +264,13 @@ where
 {
     fn collect_completion_keywords(f: style_traits::KeywordsCollectFn) {
         LP::collect_completion_keywords(f);
-        f(&["none", "fit-content", "max-content", "min-content"]);
+        f(&[
+            "none",
+            "fit-content",
+            "max-content",
+            "min-content",
+            "anchor-size",
+        ]);
         if cfg!(feature = "gecko") {
             f(&["-moz-available"]);
         }
@@ -279,9 +279,6 @@ where
         }
         if static_prefs::pref!("layout.css.webkit-fill-available.enabled") {
             f(&["-webkit-fill-available"]);
-        }
-        if static_prefs::pref!("layout.css.anchor-positioning.enabled") {
-            f(&["anchor-size"]);
         }
     }
 }
@@ -362,7 +359,6 @@ impl<L, N: Zero> Zero for LengthOrNumber<L, N> {
 )]
 #[repr(C, u8)]
 #[allow(missing_docs)]
-#[typed_value(derive_fields)]
 pub enum GenericLengthPercentageOrNormal<LengthPercent> {
     LengthPercentage(LengthPercent),
     Normal,
@@ -400,6 +396,7 @@ impl<LengthPercent> LengthPercentageOrNormal<LengthPercent> {
     ToTyped,
 )]
 #[repr(C)]
+#[typed(todo_derive_fields)]
 pub struct GenericAnchorSizeFunction<Fallback> {
     /// Anchor name of the element to anchor to.
     /// If omitted (i.e. empty), selects the implicit anchor element.
@@ -456,13 +453,7 @@ impl<Fallback> Parse for GenericAnchorSizeFunction<Fallback>
 where
     Fallback: Parse,
 {
-    fn parse<'i, 't>(
-        context: &ParserContext,
-        input: &mut Parser<'i, 't>,
-    ) -> Result<Self, ParseError<'i>> {
-        if !static_prefs::pref!("layout.css.anchor-positioning.enabled") {
-            return Err(input.new_custom_error(StyleParseErrorKind::UnspecifiedError));
-        }
+    fn parse(context: &ParserContext, input: &mut Parser) -> Result<Self, ParseError> {
         input.expect_function_matching("anchor-size")?;
         Self::parse_inner(context, input, |i| Fallback::parse(context, i))
     }
@@ -496,13 +487,13 @@ impl<'a, LengthPercentage> AnchorResolutionResult<'a, LengthPercentage> {
 
 impl<LengthPercentage> GenericAnchorSizeFunction<LengthPercentage> {
     /// Parse the inner part of `anchor-size()`, after the parser has consumed "anchor-size(".
-    pub fn parse_inner<'i, 't, F>(
+    pub fn parse_inner<F>(
         context: &ParserContext,
-        input: &mut Parser<'i, 't>,
+        input: &mut Parser,
         f: F,
-    ) -> Result<Self, ParseError<'i>>
+    ) -> Result<Self, ParseError>
     where
-        F: FnOnce(&mut Parser<'i, '_>) -> Result<LengthPercentage, ParseError<'i>>,
+        F: FnOnce(&mut Parser) -> Result<LengthPercentage, ParseError>,
     {
         input.parse_nested_block(|i| {
             let mut target_element = i
@@ -527,7 +518,7 @@ impl<LengthPercentage> GenericAnchorSizeFunction<LengthPercentage> {
                 .ok();
             Ok(GenericAnchorSizeFunction {
                 target_element: TreeScoped::with_default_level(target_element),
-                size: size.into(),
+                size,
                 fallback: fallback.into(),
             })
         })
@@ -608,7 +599,6 @@ impl TryTacticAdjustment for AnchorSizeKeyword {
     ToTyped,
 )]
 #[repr(C)]
-#[typed_value(derive_fields)]
 pub enum GenericMargin<LP> {
     /// A `<length-percentage>` value.
     LengthPercentage(LP),
@@ -638,10 +628,7 @@ where
 {
     fn collect_completion_keywords(f: style_traits::KeywordsCollectFn) {
         LP::collect_completion_keywords(f);
-        f(&["auto"]);
-        if static_prefs::pref!("layout.css.anchor-positioning.enabled") {
-            f(&["anchor-size"]);
-        }
+        f(&["auto", "anchor-size"]);
     }
 }
 

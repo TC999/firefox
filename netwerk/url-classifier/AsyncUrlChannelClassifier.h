@@ -5,8 +5,9 @@
 #ifndef mozilla_net_AsyncUrlChannelClassifier_h
 #define mozilla_net_AsyncUrlChannelClassifier_h
 
-#include "nsISupports.h"
 #include <functional>
+
+#include "nsISupports.h"
 
 class nsIChannel;
 
@@ -20,6 +21,19 @@ class AsyncUrlChannelClassifier final {
 
   static nsresult CheckChannel(nsIChannel* aChannel,
                                std::function<void()>&& aCallback);
+};
+
+class AntiTrackingChannelClassifierUtils final {
+  static nsresult CheckChannelHelper(nsIChannel* aChannel,
+                                     std::function<void()>&& aCallback,
+                                     bool aPerformAnnotations,
+                                     bool aPerformBlocking);
+
+ public:
+  static nsresult CheckChannelBeforeBeginConnect(
+      nsIChannel* aChannel, std::function<void()>&& aCallback);
+  static nsresult CheckChannelBeforeProcessResponse(
+      nsIChannel* aChannel, std::function<void()>&& aCallback);
 };
 
 }  // namespace net

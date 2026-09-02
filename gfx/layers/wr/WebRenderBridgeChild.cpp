@@ -4,6 +4,7 @@
 
 #include "mozilla/layers/WebRenderBridgeChild.h"
 
+#include "PDMFactory.h"
 #include "gfxPlatform.h"
 #include "mozilla/StaticPrefs_gfx.h"
 #include "mozilla/layers/CompositableClient.h"
@@ -11,11 +12,10 @@
 #include "mozilla/layers/CompositorManagerChild.h"
 #include "mozilla/layers/ImageDataSerializer.h"
 #include "mozilla/layers/IpcResourceUpdateQueue.h"
-#include "mozilla/layers/StackingContextHelper.h"
 #include "mozilla/layers/PTextureChild.h"
+#include "mozilla/layers/StackingContextHelper.h"
 #include "mozilla/layers/WebRenderLayerManager.h"
 #include "mozilla/webrender/WebRenderAPI.h"
-#include "PDMFactory.h"
 
 namespace mozilla {
 namespace layers {
@@ -29,7 +29,6 @@ WebRenderBridgeChild::WebRenderBridgeChild(const wr::PipelineId& aPipelineId)
       mResourceId(0),
       mPipelineId(aPipelineId),
       mManager(nullptr),
-      mIPCOpen(false),
       mDestroyed(false),
       mSentDisplayList(false),
       mFontKeysDeleted(0),
@@ -352,7 +351,7 @@ CompositorBridgeChild* WebRenderBridgeChild::GetCompositorBridgeChild() {
   if (!IPCOpen()) {
     return nullptr;
   }
-  return static_cast<CompositorBridgeChild*>(Manager());
+  return mozilla::ipc::ActorCast<CompositorBridgeChild>(Manager());
 }
 
 RefPtr<TextureForwarder> WebRenderBridgeChild::GetTextureForwarder() {
@@ -530,7 +529,7 @@ ipc::IShmemAllocator* WebRenderBridgeChild::GetShmemAllocator() {
   if (!IPCOpen()) {
     return nullptr;
   }
-  return static_cast<CompositorBridgeChild*>(Manager());
+  return mozilla::ipc::ActorCast<CompositorBridgeChild>(Manager());
 }
 
 RefPtr<KnowsCompositor> WebRenderBridgeChild::GetForMedia() {

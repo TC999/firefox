@@ -7,11 +7,13 @@
 
 /* a MOZ_DBG macro that outputs a wrapped value to stderr then returns it */
 
-#include "mozilla/MacroForEach.h"
-#include "mozilla/Span.h"
+#include <fmt/format.h>
 
 #include <cstdio>
 #include <sstream>
+
+#include "mozilla/MacroForEach.h"
+#include "mozilla/Span.h"
 
 template <typename T>
 class nsTSubstring;
@@ -43,12 +45,13 @@ struct supports_os<T, std::void_t<decltype(std::declval<std::ostream&>()
 // be dereferenced (in which cases we just write the pointer value).
 template <typename T>
 std::ostream& DebugValue(std::ostream& aOut, T* aValue) {
-  if constexpr (detail::supports_os<T>::value) {
-    if (aValue) {
-      return aOut << *aValue << " @ " << aValue;
-    } else {
-      return aOut << "null";
-    }
+  if (!aValue) {
+    return aOut << "null";
+  }
+  if constexpr (fmt::is_formattable<T>::value) {
+    return aOut << fmt::format("{}", *aValue) << " @ " << aValue;
+  } else if constexpr (detail::supports_os<T>::value) {
+    return aOut << *aValue << " @ " << aValue;
   } else {
     return aOut << aValue;
   }

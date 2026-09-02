@@ -15,8 +15,8 @@
 #include "ConnectionEntry.h"
 #include "DnsAndConnectSocket.h"
 #include "HappyEyeballsConnectionAttempt.h"
-#include "nsHttpHandler.h"
 #include "nsHttpConnectionMgr.h"
+#include "nsHttpHandler.h"
 
 namespace mozilla::net {
 
@@ -33,7 +33,7 @@ ConnectionAttemptPool::~ConnectionAttemptPool() {
 nsresult ConnectionAttemptPool::StartConnectionEstablishment(
     ConnectionEntry* entry, nsAHttpTransaction* trans, uint32_t caps,
     bool speculative, bool urgentStart, bool allow1918,
-    PendingTransactionInfo* pendingTransInfo) {
+    PendingTransactionInfo* pendingTransInfo, bool retryWithoutTRR) {
   MOZ_ASSERT(OnSocketThread(), "not on socket thread");
   MOZ_ASSERT((speculative && !pendingTransInfo) ||
              (!speculative && pendingTransInfo));
@@ -41,8 +41,8 @@ nsresult ConnectionAttemptPool::StartConnectionEstablishment(
   RefPtr<ConnectionAttempt> connAttempt;
   nsHttpConnectionInfo* ci = trans->ConnectionInfo();
   if (ci->GetHappyEyeballsEnabled()) {
-    connAttempt = new HappyEyeballsConnectionAttempt(ci, trans, caps,
-                                                     speculative, urgentStart);
+    connAttempt = new HappyEyeballsConnectionAttempt(
+        ci, trans, caps, speculative, urgentStart, retryWithoutTRR);
   } else {
     connAttempt = new DnsAndConnectSocket(entry->mConnInfo, trans, caps,
                                           speculative, urgentStart);
@@ -75,16 +75,22 @@ nsresult ConnectionAttemptPool::StartConnectionEstablishment(
 void ConnectionAttemptPool::InsertIntoConnectionAttempts(
     ConnectionAttempt* sock) {
   mAttempts.AppendElement(sock);
+  ++mUnconnectedCount;
   gHttpHandler->ConnMgr()->IncreaseNumDnsAndConnectSockets();
 }
 
 void ConnectionAttemptPool::RemoveConnectionAttempt(ConnectionAttempt* sock,
                                                     bool abandon) {
+  RefPtr<ConnectionAttempt> keepAlive(sock);
   if (abandon) {
     sock->Abandon();
   }
 
   if (mAttempts.RemoveElement(sock)) {
+    if (!sock->HasConnected()) {
+      MOZ_ASSERT(mUnconnectedCount > 0);
+      --mUnconnectedCount;
+    }
     gHttpHandler->ConnMgr()->DecreaseNumDnsAndConnectSockets();
   }
 
@@ -100,13 +106,21 @@ void ConnectionAttemptPool::RemoveConnectionAttempt(ConnectionAttempt* sock,
 }
 
 uint32_t ConnectionAttemptPool::UnconnectedConnectionAttempts() const {
-  uint32_t unconnectedConns = 0;
+#ifdef DEBUG
+  uint32_t computed = 0;
   for (uint32_t i = 0; i < mAttempts.Length(); ++i) {
     if (!mAttempts[i]->HasConnected()) {
-      ++unconnectedConns;
+      ++computed;
     }
   }
-  return unconnectedConns;
+  MOZ_ASSERT(mUnconnectedCount == computed);
+#endif
+  return mUnconnectedCount;
+}
+
+void ConnectionAttemptPool::OnConnectionAttemptConnected() {
+  MOZ_ASSERT(mUnconnectedCount > 0);
+  --mUnconnectedCount;
 }
 
 void ConnectionAttemptPool::CloseAllConnectionAttempts() {
@@ -116,6 +130,7 @@ void ConnectionAttemptPool::CloseAllConnectionAttempts() {
   }
 
   mAttempts.Clear();
+  mUnconnectedCount = 0;
 
   RefPtr<ConnectionEntry> entry(mEntry);
   if (entry) {
@@ -154,7 +169,12 @@ void ConnectionAttemptPool::TimeoutTick() {
 
   TimeStamp currentTime = TimeStamp::Now();
   double maxConnectTime_ms = gHttpHandler->ConnectTimeout();
-  for (const auto& sock : Reversed(mAttempts)) {
+
+  // Iterate a snapshot: OnTimeout / RemoveConnectionAttempt below can
+  // mutate mAttempts (directly or via reentrant Close paths), which
+  // would invalidate iterators over the live array.
+  nsTArray<RefPtr<ConnectionAttempt>> snapshot(mAttempts.Clone());
+  for (const auto& sock : snapshot) {
     double delta = sock->Duration(currentTime);
     // If the socket has timed out, close it so the waiting
     // transaction will get the proper signal.

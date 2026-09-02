@@ -7,8 +7,11 @@ package mozilla.components.service.fxa
 import android.content.Context
 import androidx.lifecycle.LifecycleOwner
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.test.runTest
 import mozilla.appservices.fxaclient.FxaConfig
+import mozilla.appservices.fxaclient.FxaEvent
+import mozilla.appservices.fxaclient.FxaRustAuthState
 import mozilla.appservices.fxaclient.FxaServer
 import mozilla.appservices.fxaclient.FxaState
 import mozilla.components.concept.base.crash.CrashReporting
@@ -22,7 +25,9 @@ import mozilla.components.concept.sync.DeviceConstellation
 import mozilla.components.concept.sync.DeviceType
 import mozilla.components.concept.sync.FxAEntryPoint
 import mozilla.components.concept.sync.StatePersistenceCallback
+import mozilla.components.concept.sync.SyncConfig
 import mozilla.components.service.fxa.manager.FxaAccountManager
+import mozilla.components.service.fxa.manager.SCOPE_SYNC
 import mozilla.components.service.fxa.manager.SyncEnginesStorage
 import mozilla.components.service.fxa.sync.SyncManager
 import mozilla.components.service.fxa.sync.SyncReason
@@ -35,15 +40,17 @@ import mozilla.components.support.test.mock
 import mozilla.components.support.test.robolectric.testContext
 import mozilla.components.support.test.whenever
 import org.junit.After
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.mockito.ArgumentMatchers.anyBoolean
+import org.mockito.Mockito.clearInvocations
 import org.mockito.Mockito.never
 import org.mockito.Mockito.times
 import org.mockito.Mockito.verify
 import org.mockito.Mockito.verifyNoMoreInteractions
 import org.mockito.Mockito.`when`
-import kotlin.coroutines.CoroutineContext
 
 internal class TestableStorageWrapper(
     manager: FxaAccountManager,
@@ -73,7 +80,16 @@ internal open class TestableFxaAccountManager(
     syncConfig: SyncConfig? = null,
     coroutineContext: CoroutineContext,
     crashReporter: CrashReporting? = null,
-) : FxaAccountManager(context, config, DeviceConfig("test", DeviceType.UNKNOWN, capabilities), syncConfig, emptySet(), crashReporter, coroutineContext) {
+) :
+    FxaAccountManager(
+        context,
+        config,
+        DeviceConfig("test", DeviceType.UNKNOWN, capabilities),
+        syncConfig,
+        emptySet(),
+        crashReporter,
+        coroutineContext,
+    ) {
     val testableStorageWrapper = TestableStorageWrapper(this, accountEventObserverRegistry, serverConfig)
 
     override var syncStatusObserverRegistry = ObserverRegistry<SyncStatusObserver>()
@@ -93,25 +109,26 @@ internal open class TestableFxaAccountManager(
 class FxaAccountManagerTest {
     @After
     fun cleanup() {
-        SyncAuthInfoCache(testContext).clear()
         SyncEnginesStorage(testContext).clear()
     }
 
-    val entryPoint: FxAEntryPoint = mock<FxAEntryPoint>().apply {
-        whenever(entryName).thenReturn("home-menu")
-    }
+    val entryPoint: FxAEntryPoint =
+        mock<FxAEntryPoint>().apply {
+            whenever(entryName).thenReturn("home-menu")
+        }
 
     @Test
     fun `account state persistence`() = runTest {
         val accountStorage: AccountStorage = mock()
-        val fxaManager = TestableFxaAccountManager(
-            context = testContext,
-            config = FxaConfig(FxaServer.Release, "dummyId", "http://auth-url/redirect"),
-            storage = accountStorage,
-            capabilities = setOf(DeviceCapability.SEND_TAB),
-            syncConfig = null,
-            coroutineContext = this.coroutineContext,
-        )
+        val fxaManager =
+            TestableFxaAccountManager(
+                context = testContext,
+                config = FxaConfig(FxaServer.Release, "dummyId", "http://auth-url/redirect"),
+                storage = accountStorage,
+                capabilities = setOf(DeviceCapability.SEND_TAB),
+                syncConfig = null,
+                coroutineContext = this.coroutineContext,
+            )
         val account = fxaManager.testableStorageWrapper.account
 
         // Before the FxaAccountManager is started, the persistence callback shouldn't be set
@@ -128,15 +145,83 @@ class FxaAccountManagerTest {
     }
 
     @Test
+    fun `containsScope returns true when granted and false when not granted`() = runTest {
+        val accountStorage: AccountStorage = mock()
+        val crashReporter: CrashReporting = mock()
+        val fxaManager =
+            TestableFxaAccountManager(
+                context = testContext,
+                config = FxaConfig(FxaServer.Release, "dummyId", "http://auth-url/redirect"),
+                storage = accountStorage,
+                syncConfig = null,
+                coroutineContext = this.coroutineContext,
+                crashReporter = crashReporter,
+            )
+        val account = fxaManager.testableStorageWrapper.account
+        whenever(account.hasScope(scope = any())).thenReturn(true)
+        whenever(account.processEvent(any())).thenReturn(FxaState.AuthIssues)
+        fxaManager.start()
+
+        assertTrue(fxaManager.containsScope(SCOPE_SYNC))
+    }
+
+    @Test
+    fun `containsScope returns false and reports to crashReporter when the scope is unavailable`() = runTest {
+        val accountStorage: AccountStorage = mock()
+        whenever(accountStorage.read()).thenReturn(null)
+
+        val crashReporter: CrashReporting = mock()
+        val fxaManager =
+            TestableFxaAccountManager(
+                context = testContext,
+                config = FxaConfig(FxaServer.Release, "dummyId", "http://auth-url/redirect"),
+                storage = accountStorage,
+                syncConfig = null,
+                coroutineContext = this.coroutineContext,
+                crashReporter = crashReporter,
+            )
+        whenever(fxaManager.testableStorageWrapper.account.hasScope(SCOPE_SYNC)).thenReturn(false)
+        whenever(fxaManager.testableStorageWrapper.account.processEvent(any())).thenReturn(FxaState.AuthIssues)
+        fxaManager.start()
+
+        assertFalse(fxaManager.containsScope(SCOPE_SYNC))
+    }
+
+    @Test
+    fun `containsScope returns false when the state is not accessible`() = runTest {
+        val accountStorage: AccountStorage = mock()
+        val crashReporter: CrashReporting = mock()
+        val fxaManager =
+            TestableFxaAccountManager(
+                context = testContext,
+                config = FxaConfig(FxaServer.Release, "dummyId", "http://auth-url/redirect"),
+                storage = accountStorage,
+                syncConfig = null,
+                coroutineContext = this.coroutineContext,
+                crashReporter = crashReporter,
+            )
+
+        // Uninitialized: the manager is never started, so storage is never consulted.
+        assertFalse(fxaManager.containsScope(SCOPE_SYNC))
+        verify(accountStorage, never()).read()
+
+        // Disconnected: reached after starting into a disconnected state.
+        whenever(fxaManager.testableStorageWrapper.account.processEvent(any())).thenReturn(FxaState.Disconnected)
+        fxaManager.start()
+        assertFalse(fxaManager.containsScope(SCOPE_SYNC))
+    }
+
+    @Test
     fun `creating fresh account`() = runTest {
-        val fxaManager = TestableFxaAccountManager(
-            context = testContext,
-            config = FxaConfig(FxaServer.Release, "dummyId", "http://auth-url/redirect"),
-            storage = mock(),
-            capabilities = setOf(DeviceCapability.SEND_TAB),
-            syncConfig = null,
-            coroutineContext = this.coroutineContext,
-        )
+        val fxaManager =
+            TestableFxaAccountManager(
+                context = testContext,
+                config = FxaConfig(FxaServer.Release, "dummyId", "http://auth-url/redirect"),
+                storage = mock(),
+                capabilities = setOf(DeviceCapability.SEND_TAB),
+                syncConfig = null,
+                coroutineContext = this.coroutineContext,
+            )
         val account = fxaManager.testableStorageWrapper.account
         val accountObserver: AccountObserver = mock()
         fxaManager.register(accountObserver)
@@ -155,14 +240,15 @@ class FxaAccountManagerTest {
 
     @Test
     fun `OAuth email login`() = runTest {
-        val fxaManager = TestableFxaAccountManager(
-            context = testContext,
-            config = FxaConfig(FxaServer.Release, "dummyId", "http://auth-url/redirect"),
-            storage = mock(),
-            capabilities = setOf(DeviceCapability.SEND_TAB),
-            syncConfig = null,
-            coroutineContext = this.coroutineContext,
-        )
+        val fxaManager =
+            TestableFxaAccountManager(
+                context = testContext,
+                config = FxaConfig(FxaServer.Release, "dummyId", "http://auth-url/redirect"),
+                storage = mock(),
+                capabilities = setOf(DeviceCapability.SEND_TAB),
+                syncConfig = null,
+                coroutineContext = this.coroutineContext,
+            )
         val account = fxaManager.testableStorageWrapper.account
         val accountObserver: AccountObserver = mock()
         fxaManager.register(accountObserver)
@@ -170,7 +256,8 @@ class FxaAccountManagerTest {
         whenever(account.processEvent(any())).thenReturn(FxaState.Disconnected)
         fxaManager.start()
 
-        whenever(account.processEvent(any())).thenReturn(FxaState.Authenticating("https://test-oauth.example.com/"))
+        whenever(account.processEvent(any()))
+            .thenReturn(FxaState.Authenticating("https://test-oauth.example.com/", FxaRustAuthState.CONNECTED))
         fxaManager.beginAuthentication(entrypoint = entryPoint)
 
         whenever(account.processEvent(any())).thenReturn(FxaState.Connected)
@@ -181,14 +268,15 @@ class FxaAccountManagerTest {
 
     @Test
     fun `OAuth pairing login`() = runTest {
-        val fxaManager = TestableFxaAccountManager(
-            context = testContext,
-            config = FxaConfig(FxaServer.Release, "dummyId", "http://auth-url/redirect"),
-            storage = mock(),
-            capabilities = setOf(DeviceCapability.SEND_TAB),
-            syncConfig = null,
-            coroutineContext = this.coroutineContext,
-        )
+        val fxaManager =
+            TestableFxaAccountManager(
+                context = testContext,
+                config = FxaConfig(FxaServer.Release, "dummyId", "http://auth-url/redirect"),
+                storage = mock(),
+                capabilities = setOf(DeviceCapability.SEND_TAB),
+                syncConfig = null,
+                coroutineContext = this.coroutineContext,
+            )
         val account = fxaManager.testableStorageWrapper.account
         val accountObserver: AccountObserver = mock()
         fxaManager.register(accountObserver)
@@ -196,7 +284,8 @@ class FxaAccountManagerTest {
         whenever(account.processEvent(any())).thenReturn(FxaState.Disconnected)
         fxaManager.start()
 
-        whenever(account.processEvent(any())).thenReturn(FxaState.Authenticating("https://test-oauth.example.com/"))
+        whenever(account.processEvent(any()))
+            .thenReturn(FxaState.Authenticating("https://test-oauth.example.com/", FxaRustAuthState.CONNECTED))
         fxaManager.beginAuthentication(
             pairingUrl = "http://test-oauth/example.com/pairing",
             entrypoint = entryPoint,
@@ -210,14 +299,15 @@ class FxaAccountManagerTest {
 
     @Test
     fun `Failure to begin OAuth login`() = runTest {
-        val fxaManager = TestableFxaAccountManager(
-            context = testContext,
-            config = FxaConfig(FxaServer.Release, "dummyId", "http://auth-url/redirect"),
-            storage = mock(),
-            capabilities = setOf(DeviceCapability.SEND_TAB),
-            syncConfig = null,
-            coroutineContext = this.coroutineContext,
-        )
+        val fxaManager =
+            TestableFxaAccountManager(
+                context = testContext,
+                config = FxaConfig(FxaServer.Release, "dummyId", "http://auth-url/redirect"),
+                storage = mock(),
+                capabilities = setOf(DeviceCapability.SEND_TAB),
+                syncConfig = null,
+                coroutineContext = this.coroutineContext,
+            )
         val account = fxaManager.testableStorageWrapper.account
         val accountObserver: AccountObserver = mock()
         fxaManager.register(accountObserver)
@@ -235,14 +325,15 @@ class FxaAccountManagerTest {
 
     @Test
     fun `Failure to finish OAuth login`() = runTest {
-        val fxaManager = TestableFxaAccountManager(
-            context = testContext,
-            config = FxaConfig(FxaServer.Release, "dummyId", "http://auth-url/redirect"),
-            storage = mock(),
-            capabilities = setOf(DeviceCapability.SEND_TAB),
-            syncConfig = null,
-            coroutineContext = this.coroutineContext,
-        )
+        val fxaManager =
+            TestableFxaAccountManager(
+                context = testContext,
+                config = FxaConfig(FxaServer.Release, "dummyId", "http://auth-url/redirect"),
+                storage = mock(),
+                capabilities = setOf(DeviceCapability.SEND_TAB),
+                syncConfig = null,
+                coroutineContext = this.coroutineContext,
+            )
         val account = fxaManager.testableStorageWrapper.account
         val accountObserver: AccountObserver = mock()
         fxaManager.register(accountObserver)
@@ -250,7 +341,8 @@ class FxaAccountManagerTest {
         whenever(account.processEvent(any())).thenReturn(FxaState.Disconnected)
         fxaManager.start()
 
-        whenever(account.processEvent(any())).thenReturn(FxaState.Authenticating("https://test-oauth.example.com/"))
+        whenever(account.processEvent(any()))
+            .thenReturn(FxaState.Authenticating("https://test-oauth.example.com/", FxaRustAuthState.CONNECTED))
         fxaManager.beginAuthentication(entrypoint = entryPoint)
 
         // Simulate the fxa client moving to the `Disconnected` state after `finishAuthentication()` is called.
@@ -263,14 +355,15 @@ class FxaAccountManagerTest {
 
     @Test
     fun `restoring account`() = runTest {
-        val fxaManager = TestableFxaAccountManager(
-            context = testContext,
-            config = FxaConfig(FxaServer.Release, "dummyId", "http://auth-url/redirect"),
-            storage = mock(),
-            capabilities = setOf(DeviceCapability.SEND_TAB),
-            syncConfig = null,
-            coroutineContext = this.coroutineContext,
-        )
+        val fxaManager =
+            TestableFxaAccountManager(
+                context = testContext,
+                config = FxaConfig(FxaServer.Release, "dummyId", "http://auth-url/redirect"),
+                storage = mock(),
+                capabilities = setOf(DeviceCapability.SEND_TAB),
+                syncConfig = null,
+                coroutineContext = this.coroutineContext,
+            )
         val account = fxaManager.testableStorageWrapper.account
         val accountObserver: AccountObserver = mock()
         fxaManager.register(accountObserver)
@@ -285,14 +378,15 @@ class FxaAccountManagerTest {
 
     @Test
     fun `restoring account failure`() = runTest {
-        val fxaManager = TestableFxaAccountManager(
-            context = testContext,
-            config = FxaConfig(FxaServer.Release, "dummyId", "http://auth-url/redirect"),
-            storage = mock(),
-            capabilities = setOf(DeviceCapability.SEND_TAB),
-            syncConfig = null,
-            coroutineContext = this.coroutineContext,
-        )
+        val fxaManager =
+            TestableFxaAccountManager(
+                context = testContext,
+                config = FxaConfig(FxaServer.Release, "dummyId", "http://auth-url/redirect"),
+                storage = mock(),
+                capabilities = setOf(DeviceCapability.SEND_TAB),
+                syncConfig = null,
+                coroutineContext = this.coroutineContext,
+            )
         val account = fxaManager.testableStorageWrapper.account
         val accountObserver: AccountObserver = mock()
         fxaManager.register(accountObserver)
@@ -307,14 +401,15 @@ class FxaAccountManagerTest {
 
     @Test
     fun `logout`() = runTest {
-        val fxaManager = TestableFxaAccountManager(
-            context = testContext,
-            config = FxaConfig(FxaServer.Release, "dummyId", "http://auth-url/redirect"),
-            storage = mock(),
-            capabilities = setOf(DeviceCapability.SEND_TAB),
-            syncConfig = null,
-            coroutineContext = this.coroutineContext,
-        )
+        val fxaManager =
+            TestableFxaAccountManager(
+                context = testContext,
+                config = FxaConfig(FxaServer.Release, "dummyId", "http://auth-url/redirect"),
+                storage = mock(),
+                capabilities = setOf(DeviceCapability.SEND_TAB),
+                syncConfig = null,
+                coroutineContext = this.coroutineContext,
+            )
         val account = fxaManager.testableStorageWrapper.account
         val accountObserver: AccountObserver = mock()
         fxaManager.register(accountObserver)
@@ -322,7 +417,8 @@ class FxaAccountManagerTest {
         whenever(account.processEvent(any())).thenReturn(FxaState.Disconnected)
         fxaManager.start()
 
-        whenever(account.processEvent(any())).thenReturn(FxaState.Authenticating("https://test-oauth.example.com/"))
+        whenever(account.processEvent(any()))
+            .thenReturn(FxaState.Authenticating("https://test-oauth.example.com/", FxaRustAuthState.CONNECTED))
         fxaManager.beginAuthentication(entrypoint = entryPoint)
 
         whenever(account.processEvent(any())).thenReturn(FxaState.Connected)
@@ -335,14 +431,15 @@ class FxaAccountManagerTest {
 
     @Test
     fun `Auth issues`() = runTest {
-        val fxaManager = TestableFxaAccountManager(
-            context = testContext,
-            config = FxaConfig(FxaServer.Release, "dummyId", "http://auth-url/redirect"),
-            storage = mock(),
-            capabilities = setOf(DeviceCapability.SEND_TAB),
-            syncConfig = null,
-            coroutineContext = this.coroutineContext,
-        )
+        val fxaManager =
+            TestableFxaAccountManager(
+                context = testContext,
+                config = FxaConfig(FxaServer.Release, "dummyId", "http://auth-url/redirect"),
+                storage = mock(),
+                capabilities = setOf(DeviceCapability.SEND_TAB),
+                syncConfig = null,
+                coroutineContext = this.coroutineContext,
+            )
         val account = fxaManager.testableStorageWrapper.account
         val accountObserver: AccountObserver = mock()
         fxaManager.register(accountObserver)
@@ -350,7 +447,8 @@ class FxaAccountManagerTest {
         whenever(account.processEvent(any())).thenReturn(FxaState.Disconnected)
         fxaManager.start()
 
-        whenever(account.processEvent(any())).thenReturn(FxaState.Authenticating("https://test-oauth.example.com/"))
+        whenever(account.processEvent(any()))
+            .thenReturn(FxaState.Authenticating("https://test-oauth.example.com/", FxaRustAuthState.CONNECTED))
         fxaManager.beginAuthentication(entrypoint = entryPoint)
 
         whenever(account.processEvent(any())).thenReturn(FxaState.Connected)
@@ -363,15 +461,116 @@ class FxaAccountManagerTest {
     }
 
     @Test
+    fun `WebChannel password change dispatches WebChannelPasswordChange and stays Connected`() = runTest {
+        val fxaManager =
+            TestableFxaAccountManager(
+                context = testContext,
+                config = FxaConfig(FxaServer.Release, "dummyId", "http://auth-url/redirect"),
+                storage = mock(),
+                capabilities = setOf(DeviceCapability.SEND_TAB),
+                syncConfig = null,
+                coroutineContext = this.coroutineContext,
+            )
+        val account = fxaManager.testableStorageWrapper.account
+        val accountObserver: AccountObserver = mock()
+        fxaManager.register(accountObserver)
+
+        whenever(account.processEvent(any())).thenReturn(FxaState.Disconnected)
+        fxaManager.start()
+        whenever(account.processEvent(any()))
+            .thenReturn(FxaState.Authenticating("https://test-oauth.example.com/", FxaRustAuthState.CONNECTED))
+        fxaManager.beginAuthentication(entrypoint = entryPoint)
+        whenever(account.processEvent(any())).thenReturn(FxaState.Connected)
+        fxaManager.finishAuthentication(FxaAuthData(AuthType.Signin, "test-code", "test-auth-state"))
+        org.mockito.Mockito.reset(accountObserver)
+        clearInvocations(account)
+
+        whenever(account.processEvent(any())).thenReturn(FxaState.Connected)
+        fxaManager.handleWebChannelPasswordChange("{\"sessionToken\":\"abc\"}")
+
+        verify(account).processEvent(FxaEvent.WebChannelPasswordChange("{\"sessionToken\":\"abc\"}"))
+        // Connected → Connected via WebChannelPasswordChange must not fire onAuthenticated.
+        verify(accountObserver, never()).onAuthenticated(any(), any())
+        // authenticationSideEffects ran, repopulating FxaDeviceSettingsCache
+        verify(account, times(1)).getCurrentDeviceId()
+    }
+
+    @Test
+    fun `WebChannel password change from AuthIssues fires recovery and updates device cache`() = runTest {
+        val fxaManager =
+            TestableFxaAccountManager(
+                context = testContext,
+                config = FxaConfig(FxaServer.Release, "dummyId", "http://auth-url/redirect"),
+                storage = mock(),
+                capabilities = setOf(DeviceCapability.SEND_TAB),
+                syncConfig = null,
+                coroutineContext = this.coroutineContext,
+            )
+        val account = fxaManager.testableStorageWrapper.account
+        val accountObserver: AccountObserver = mock()
+        fxaManager.register(accountObserver)
+
+        whenever(account.processEvent(any())).thenReturn(FxaState.Disconnected)
+        fxaManager.start()
+        whenever(account.processEvent(any()))
+            .thenReturn(FxaState.Authenticating("https://test-oauth.example.com/", FxaRustAuthState.CONNECTED))
+        fxaManager.beginAuthentication(entrypoint = entryPoint)
+        whenever(account.processEvent(any())).thenReturn(FxaState.Connected)
+        fxaManager.finishAuthentication(FxaAuthData(AuthType.Signin, "test-code", "test-auth-state"))
+        // Drive into AuthIssues via a sync auth error.
+        whenever(account.processEvent(any())).thenReturn(FxaState.AuthIssues)
+        fxaManager.encounteredAuthError("fake operation", 1)
+        org.mockito.Mockito.reset(accountObserver)
+        clearInvocations(account)
+
+        whenever(account.processEvent(any())).thenReturn(FxaState.Connected)
+        fxaManager.handleWebChannelPasswordChange("{\"sessionToken\":\"abc\"}")
+
+        verify(accountObserver, times(1)).onAuthenticated(any(), eq(AuthType.Recovered))
+        verify(account, times(1)).getCurrentDeviceId()
+    }
+
+    @Test
+    fun `WebChannel password change failing in rust transitions to AuthIssues`() = runTest {
+        val fxaManager =
+            TestableFxaAccountManager(
+                context = testContext,
+                config = FxaConfig(FxaServer.Release, "dummyId", "http://auth-url/redirect"),
+                storage = mock(),
+                capabilities = setOf(DeviceCapability.SEND_TAB),
+                syncConfig = null,
+                coroutineContext = this.coroutineContext,
+            )
+        val account = fxaManager.testableStorageWrapper.account
+        val accountObserver: AccountObserver = mock()
+        fxaManager.register(accountObserver)
+
+        whenever(account.processEvent(any())).thenReturn(FxaState.Disconnected)
+        fxaManager.start()
+        whenever(account.processEvent(any()))
+            .thenReturn(FxaState.Authenticating("https://test-oauth.example.com/", FxaRustAuthState.CONNECTED))
+        fxaManager.beginAuthentication(entrypoint = entryPoint)
+        whenever(account.processEvent(any())).thenReturn(FxaState.Connected)
+        fxaManager.finishAuthentication(FxaAuthData(AuthType.Signin, "test-code", "test-auth-state"))
+        org.mockito.Mockito.reset(accountObserver)
+
+        whenever(account.processEvent(any())).thenReturn(FxaState.AuthIssues)
+        fxaManager.handleWebChannelPasswordChange("{\"sessionToken\":\"abc\"}")
+
+        verify(accountObserver, times(1)).onAuthenticationProblems()
+    }
+
+    @Test
     fun `Recovery from auth issues`() = runTest {
-        val fxaManager = TestableFxaAccountManager(
-            context = testContext,
-            config = FxaConfig(FxaServer.Release, "dummyId", "http://auth-url/redirect"),
-            storage = mock(),
-            capabilities = setOf(DeviceCapability.SEND_TAB),
-            syncConfig = null,
-            coroutineContext = this.coroutineContext,
-        )
+        val fxaManager =
+            TestableFxaAccountManager(
+                context = testContext,
+                config = FxaConfig(FxaServer.Release, "dummyId", "http://auth-url/redirect"),
+                storage = mock(),
+                capabilities = setOf(DeviceCapability.SEND_TAB),
+                syncConfig = null,
+                coroutineContext = this.coroutineContext,
+            )
         val account = fxaManager.testableStorageWrapper.account
         val accountObserver: AccountObserver = mock()
         fxaManager.register(accountObserver)
@@ -379,7 +578,8 @@ class FxaAccountManagerTest {
         whenever(account.processEvent(any())).thenReturn(FxaState.Disconnected)
         fxaManager.start()
 
-        whenever(account.processEvent(any())).thenReturn(FxaState.Authenticating("https://test-oauth.example.com/"))
+        whenever(account.processEvent(any()))
+            .thenReturn(FxaState.Authenticating("https://test-oauth.example.com/", FxaRustAuthState.CONNECTED))
         fxaManager.beginAuthentication(entrypoint = entryPoint)
 
         whenever(account.processEvent(any())).thenReturn(FxaState.Connected)
@@ -393,14 +593,15 @@ class FxaAccountManagerTest {
 
     @Test
     fun `Logout after auth issues`() = runTest {
-        val fxaManager = TestableFxaAccountManager(
-            context = testContext,
-            config = FxaConfig(FxaServer.Release, "dummyId", "http://auth-url/redirect"),
-            storage = mock(),
-            capabilities = setOf(DeviceCapability.SEND_TAB),
-            syncConfig = null,
-            coroutineContext = this.coroutineContext,
-        )
+        val fxaManager =
+            TestableFxaAccountManager(
+                context = testContext,
+                config = FxaConfig(FxaServer.Release, "dummyId", "http://auth-url/redirect"),
+                storage = mock(),
+                capabilities = setOf(DeviceCapability.SEND_TAB),
+                syncConfig = null,
+                coroutineContext = this.coroutineContext,
+            )
         val account = fxaManager.testableStorageWrapper.account
         val accountObserver: AccountObserver = mock()
         fxaManager.register(accountObserver)
@@ -408,7 +609,8 @@ class FxaAccountManagerTest {
         whenever(account.processEvent(any())).thenReturn(FxaState.Disconnected)
         fxaManager.start()
 
-        whenever(account.processEvent(any())).thenReturn(FxaState.Authenticating("https://test-oauth.example.com/"))
+        whenever(account.processEvent(any()))
+            .thenReturn(FxaState.Authenticating("https://test-oauth.example.com/", FxaRustAuthState.CONNECTED))
         fxaManager.beginAuthentication(entrypoint = entryPoint)
 
         whenever(account.processEvent(any())).thenReturn(FxaState.Connected)
@@ -469,14 +671,15 @@ class FxaAccountManagerTest {
 
     @Test
     fun `GIVEN a sync observer WHEN registering it THEN add it to the sync observer registry`() {
-        val fxaManager = TestableFxaAccountManager(
-            context = testContext,
-            config = mock(),
-            storage = mock(),
-            capabilities = setOf(DeviceCapability.SEND_TAB),
-            syncConfig = null,
-            coroutineContext = mock(),
-        )
+        val fxaManager =
+            TestableFxaAccountManager(
+                context = testContext,
+                config = mock(),
+                storage = mock(),
+                capabilities = setOf(DeviceCapability.SEND_TAB),
+                syncConfig = null,
+                coroutineContext = mock(),
+            )
         fxaManager.syncStatusObserverRegistry = mock()
         val observer: SyncStatusObserver = mock()
         val lifecycleOwner: LifecycleOwner = mock()
@@ -489,14 +692,15 @@ class FxaAccountManagerTest {
 
     @Test
     fun `GIVEN a sync observer WHEN unregistering it THEN remove it from the sync observer registry`() {
-        val fxaManager = TestableFxaAccountManager(
-            context = testContext,
-            config = mock(),
-            storage = mock(),
-            capabilities = setOf(DeviceCapability.SEND_TAB),
-            syncConfig = null,
-            coroutineContext = mock(),
-        )
+        val fxaManager =
+            TestableFxaAccountManager(
+                context = testContext,
+                config = mock(),
+                storage = mock(),
+                capabilities = setOf(DeviceCapability.SEND_TAB),
+                syncConfig = null,
+                coroutineContext = mock(),
+            )
         fxaManager.syncStatusObserverRegistry = mock()
         val observer: SyncStatusObserver = mock()
 

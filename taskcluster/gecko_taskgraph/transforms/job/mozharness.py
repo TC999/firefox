@@ -23,7 +23,6 @@ from gecko_taskgraph.transforms.job.common import (
     get_expiration,
     setup_secrets,
 )
-from gecko_taskgraph.util.attributes import is_try
 
 
 class MozharnessRunSchema(Schema, kw_only=True):
@@ -66,6 +65,9 @@ class MozharnessRunSchema(Schema, kw_only=True):
     requires_signed_builds: bool
     # Whether or not to use caches.
     use_caches: Optional[Union[bool, list[str]]] = None
+    # How to clone the upstream repo for the checkout, either "hg" or "git"
+    # (default: "git")
+    clone_with: Optional[Literal["hg", "git"]] = "git"
     # If false, don't set MOZ_SIMPLE_PACKAGE_NAME
     # Only disableable on windows
     use_simple_package: bool
@@ -178,9 +180,6 @@ def mozharness_on_docker_worker_setup(config, job, taskdesc):
     if "job-script" in run:
         env["JOB_SCRIPT"] = run["job-script"]
 
-    if is_try(config.params):
-        env["TRY_COMMIT_MSG"] = config.params["message"]
-
     # if we're not keeping artifacts, set some env variables to empty values
     # that will cause the build process to skip copying the results to the
     # artifacts directory.  This will have no effect for operations that are
@@ -256,13 +255,6 @@ def mozharness_on_generic_worker(config, job, taskdesc):
     extra_config["objdir"] = "obj-build"
     env["EXTRA_MOZHARNESS_CONFIG"] = json.dumps(extra_config, sort_keys=True)
 
-    # The windows generic worker uses batch files to pass environment variables
-    # to commands.  Setting a variable to empty in a batch file unsets, so if
-    # there is no `TRY_COMMIT_MESSAGE`, pass a space instead, so that
-    # mozharness doesn't try to find the commit message on its own.
-    if is_try(config.params):
-        env["TRY_COMMIT_MSG"] = config.params["message"] or "no commit message"
-
     if not job["attributes"]["build_platform"].startswith(("win", "macosx")):
         raise Exception(
             "Task generation for mozharness build jobs currently only supported on "
@@ -277,7 +269,7 @@ def mozharness_on_generic_worker(config, job, taskdesc):
         system_python_dir = ""
         gecko_path = "$GECKO_PATH"
 
-    if run.get("use-python", "system") == "system":
+    if job.get("use-python", "system") == "system":
         python_bindir = system_python_dir
     else:
         # $MOZ_PYTHON_HOME is going to be substituted in run-task, when we

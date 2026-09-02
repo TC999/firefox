@@ -6,11 +6,9 @@
 #define mozilla_GlobalStyleSheetCache_h_
 
 #include "mozilla/BuiltInStyleSheets.h"
+#include "mozilla/EnumeratedArray.h"
 #include "mozilla/MemoryReporting.h"
-#include "mozilla/NotNull.h"
-#include "mozilla/PreferenceSheet.h"
 #include "mozilla/StaticPtr.h"
-#include "mozilla/css/Loader.h"
 #include "mozilla/ipc/SharedMemoryHandle.h"
 #include "mozilla/ipc/SharedMemoryMapping.h"
 #include "nsIMemoryReporter.h"
@@ -20,15 +18,13 @@ class nsIFile;
 class nsIURI;
 
 namespace mozilla {
-class CSSStyleSheet;
-}  // namespace mozilla
+class StyleSheet;
+enum class StyleOrigin : uint8_t;
+struct StyleLockedCssRules;
 
-namespace mozilla {
 namespace css {
-
-// Enum defining how error should be handled.
-enum FailureAction { eCrash = 0, eLogToConsole };
-
+class Loader;
+enum class FailureAction : uint8_t;
 }  // namespace css
 
 class GlobalStyleSheetCache final : public nsIObserver,
@@ -40,14 +36,14 @@ class GlobalStyleSheetCache final : public nsIObserver,
 
   static GlobalStyleSheetCache* Singleton();
 
-#define STYLE_SHEET(identifier_, url_, flags_)           \
-  NotNull<StyleSheet*> identifier_##Sheet() {            \
-    return BuiltInSheet(BuiltInStyleSheet::identifier_); \
+#define STYLE_SHEET(identifier_, url_, flags_)              \
+  StyleSheet* Get##identifier_##Sheet() {                   \
+    return GetBuiltInSheet(BuiltInStyleSheet::identifier_); \
   }
 #include "mozilla/BuiltInStyleSheetList.inc"
 #undef STYLE_SHEET
 
-  NotNull<StyleSheet*> BuiltInSheet(BuiltInStyleSheet);
+  StyleSheet* GetBuiltInSheet(BuiltInStyleSheet);
 
   StyleSheet* GetUserContentSheet();
   StyleSheet* GetUserChromeSheet();
@@ -98,17 +94,14 @@ class GlobalStyleSheetCache final : public nsIObserver,
   void InitFromProfile();
   void InitSharedSheetsInParent();
   void InitMemoryReporter();
-  RefPtr<StyleSheet> LoadSheetURL(const nsACString& aURL,
-                                  css::SheetParsingMode aParsingMode,
-                                  css::FailureAction aFailureAction);
-  RefPtr<StyleSheet> LoadSheetFile(nsIFile* aFile,
-                                   css::SheetParsingMode aParsingMode);
-  RefPtr<StyleSheet> LoadSheet(nsIURI* aURI, css::SheetParsingMode aParsingMode,
-                               css::FailureAction aFailureAction);
+
+  RefPtr<StyleSheet> LoadSheetURL(const nsACString& aURL, StyleOrigin,
+                                  css::FailureAction);
+  RefPtr<StyleSheet> LoadSheetFile(nsIFile* aFile, StyleOrigin);
+  RefPtr<StyleSheet> LoadSheet(nsIURI* aURI, StyleOrigin, css::FailureAction);
   void LoadSheetFromSharedMemory(const nsACString& aURL,
-                                 RefPtr<StyleSheet>* aSheet,
-                                 css::SheetParsingMode, const Header*,
-                                 BuiltInStyleSheet);
+                                 RefPtr<StyleSheet>* aSheet, StyleOrigin,
+                                 const Header*, BuiltInStyleSheet);
 
   static StaticRefPtr<GlobalStyleSheetCache> gStyleCache;
   static StaticRefPtr<css::Loader> gCSSLoader;

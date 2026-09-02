@@ -7,12 +7,15 @@ package mozilla.components.support.ktx.util
 import android.util.AtomicFile
 import androidx.core.util.writeText
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import java.io.File
+import java.io.FileNotFoundException
+import java.io.IOException
+import kotlin.test.assertNotNull
 import mozilla.components.support.test.mock
 import mozilla.components.support.test.whenever
 import org.json.JSONException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -20,9 +23,6 @@ import org.junit.runner.RunWith
 import org.mockito.Mockito.any
 import org.mockito.Mockito.doThrow
 import org.mockito.Mockito.verify
-import java.io.File
-import java.io.FileNotFoundException
-import java.io.IOException
 
 @RunWith(AndroidJUnit4::class)
 class AtomicFileTest {

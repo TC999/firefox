@@ -15,39 +15,53 @@ include("../js-cxxflags.mozbuild")
 # See bug 1810584, bug 1879225, and bug 1895871.
 CXXFLAGS += ["-Wno-error=type-limits", "-Wno-error=return-type", "-Wno-sign-compare"]
 if CONFIG["CC_TYPE"] == "gcc":
-    CXXFLAGS += ["-Wno-error=nonnull", "-Wno-narrowing"]
+    CXXFLAGS += [
+        "-Wno-error=nonnull",
+        "-Wno-narrowing",
+        "-Wno-error=unused-function",
+        "-Wno-error=unused-but-set-variable",
+        "-Wno-address",
+    ]
 if CONFIG["CC_TYPE"] in ("clang", "clang-cl"):
     CXXFLAGS += ["-Wno-c++11-narrowing"]
 
 
 UNIFIED_SOURCES += [
     "imported/regexp-bytecode-generator.cc",
-    "imported/regexp-bytecode-peephole.cc",
+    "imported/regexp-bytecode-iterator.cc",
     "imported/regexp-bytecodes.cc",
-    "imported/regexp-compiler-tonode.cc",
+    "imported/regexp-code-generator.cc",
     "imported/regexp-dotprinter.cc",
     "imported/regexp-interpreter.cc",
     "imported/regexp-macro-assembler-tracer.cc",
     "imported/regexp-macro-assembler.cc",
     "imported/regexp-parser.cc",
+    "imported/regexp-printer.cc",
     "imported/regexp-stack.cc",
     "RegExpAPI.cpp",
     "RegExpShim.cpp",
     "util/UnicodeShim.cpp",
 ]
 SOURCES += [
+    "imported/regexp-ast-printer.cc",
     "imported/regexp-ast.cc",
+    "imported/regexp-bytecode-peephole.cc",
+    "imported/regexp-compiler-tonode.cc",
     "imported/regexp-compiler.cc",  # Bug 1643693
+    "imported/regexp-graph-printer.cc",
+    "imported/regexp-node-printer.cc",
     "RegExpNativeMacroAssembler.cpp",
 ]
 
 if CONFIG["JS_HAS_INTL_API"]:
     CXXFLAGS += ["-DV8_INTL_SUPPORT"]
     UNIFIED_SOURCES += [
-        "imported/property-sequences.cc",
         "imported/special-case.cc",
         "util/ZoneShimFFI.cpp",
     ]
+
+if CONFIG["JS_JITSPEW"]:
+    CXXFLAGS += ["-DV8_ENABLE_REGEXP_DIAGNOSTICS"]
 
 # Make sure all irregexp code is built with libfuzzer
 # coverage instrumentation in FUZZING mode.

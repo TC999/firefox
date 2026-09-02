@@ -2,19 +2,19 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "mozilla/Logging.h"
-
 #include "IMMHandler.h"
-#include "nsWindow.h"
-#include "nsWindowDefs.h"
-#include "WinIMEHandler.h"
-#include "WinUtils.h"
-#include "KeyboardLayout.h"
+
 #include <algorithm>
 
+#include "KeyboardLayout.h"
+#include "WinIMEHandler.h"
+#include "WinUtils.h"
+#include "mozilla/Logging.h"
 #include "mozilla/MiscEvents.h"
 #include "mozilla/TextEvents.h"
 #include "mozilla/ToString.h"
+#include "nsWindow.h"
+#include "nsWindowDefs.h"
 
 #ifndef IME_PROP_ACCEPT_WIDE_VKEY
 #  define IME_PROP_ACCEPT_WIDE_VKEY 0x20
@@ -80,7 +80,7 @@ class GetIMEGeneralPropertyName : public nsAutoCString {
       AppendLiteral("IME_PROP_ACCEPT_WIDE_VKEY");
     }
   }
-  virtual ~GetIMEGeneralPropertyName() {}
+  virtual ~GetIMEGeneralPropertyName() = default;
 };
 
 class GetIMEUIPropertyName : public nsAutoCString {
@@ -102,7 +102,7 @@ class GetIMEUIPropertyName : public nsAutoCString {
       AppendLiteral("UI_CAP_ROTANY");
     }
   }
-  virtual ~GetIMEUIPropertyName() {}
+  virtual ~GetIMEUIPropertyName() = default;
 };
 
 class GetReconvertStringLog : public nsAutoCString {
@@ -133,7 +133,7 @@ class GetReconvertStringLog : public nsAutoCString {
     }
     AppendLiteral("\" }");
   }
-  virtual ~GetReconvertStringLog() {}
+  virtual ~GetReconvertStringLog() = default;
 };
 
 namespace mozilla {
@@ -355,10 +355,7 @@ IMENotificationRequests IMMHandler::GetIMENotificationRequests() {
 #define NO_IME_CARET -1
 
 IMMHandler::IMMHandler()
-    : mComposingWindow(nullptr),
-      mCursorPosition(NO_IME_CARET),
-      mCompositionStart(0),
-      mIsComposing(false) {
+    : mCursorPosition(NO_IME_CARET), mCompositionStart(0), mIsComposing(false) {
   MOZ_LOG(gIMELog, LogLevel::Debug, ("IMMHandler::IMMHandler is created"));
 }
 
@@ -389,7 +386,7 @@ void IMMHandler::CommitComposition(nsWindow* aWindow, bool aForce) {
           ("IMMHandler::CommitComposition, aForce=%s, aWindow=%p, hWnd=%p, "
            "mComposingWindow=%p%s",
            TrueOrFalse(aForce), aWindow, aWindow->GetWindowHandle(),
-           gIMMHandler ? gIMMHandler->mComposingWindow : nullptr,
+           gIMMHandler ? gIMMHandler->mComposingWindow.get() : nullptr,
            gIMMHandler && gIMMHandler->mComposingWindow
                ? IsComposingOnOurEditor() ? " (composing on editor)"
                                           : " (composing on plug-in)"
@@ -420,7 +417,7 @@ void IMMHandler::CancelComposition(nsWindow* aWindow, bool aForce) {
           ("IMMHandler::CancelComposition, aForce=%s, aWindow=%p, hWnd=%p, "
            "mComposingWindow=%p%s",
            TrueOrFalse(aForce), aWindow, aWindow->GetWindowHandle(),
-           gIMMHandler ? gIMMHandler->mComposingWindow : nullptr,
+           gIMMHandler ? gIMMHandler->mComposingWindow.get() : nullptr,
            gIMMHandler && gIMMHandler->mComposingWindow
                ? IsComposingOnOurEditor() ? " (composing on editor)"
                                           : " (composing on plug-in)"
@@ -441,6 +438,21 @@ void IMMHandler::CancelComposition(nsWindow* aWindow, bool aForce) {
 
   if (associated) {
     context.Disassociate();
+  }
+}
+
+// static
+void IMMHandler::OnDestroyWindow(nsWindow* aWindow) {
+  if (!gIMMHandler || gIMMHandler->mComposingWindow != aWindow) {
+    return;
+  }
+  MOZ_LOG(gIMELog, LogLevel::Warning,
+          ("IMMHandler::OnDestroyWindow(aWindow=%p), sHasFocus=%s", aWindow,
+           TrueOrFalse(sHasFocus)));
+  RefPtr window(aWindow);
+  OnFocusChange(false, window);
+  if (gIMMHandler && gIMMHandler->mComposingWindow == window) {
+    gIMMHandler->ClearComposingData();
   }
 }
 
@@ -959,6 +971,14 @@ void IMMHandler::HandleStartComposition(nsWindow* aWindow,
              "TextEventDispatcher::BeginNativeInputTransaction() failure"));
     return;
   }
+
+  // The composition may end during a call of
+  // TextEventDispatcher::StartComposition() so that let's set the active
+  // composition data before calling it.
+  mIsComposing = true;
+  mComposingWindow = aWindow;
+  mDispatcher = dispatcher;
+
   WidgetEventTime eventTime = aWindow->CurrentMessageWidgetEventTime();
   nsEventStatus status;
   rv = dispatcher->StartComposition(status, &eventTime);
@@ -968,10 +988,6 @@ void IMMHandler::HandleStartComposition(nsWindow* aWindow,
              "TextEventDispatcher::StartComposition() failure"));
     return;
   }
-
-  mIsComposing = true;
-  mComposingWindow = aWindow;
-  mDispatcher = dispatcher;
 
   MOZ_LOG(gIMELog, LogLevel::Info,
           ("IMMHandler::HandleStartComposition, START composition, "
@@ -1244,10 +1260,7 @@ void IMMHandler::HandleEndComposition(nsWindow* aWindow,
              "TextEventDispatcher::CommitComposition() failure"));
     return;
   }
-  mIsComposing = false;
-  // XXX aWindow and mComposingWindow are always same??
-  mComposingWindow = nullptr;
-  mDispatcher = nullptr;
+  ClearComposingData();
 }
 
 bool IMMHandler::HandleReconvert(nsWindow* aWindow, LPARAM lParam,

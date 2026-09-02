@@ -1,23 +1,26 @@
 From: Michael Froman <mfroman@mozilla.com>
-Date: Mon, 13 Jan 2025 08:14:00 -0600
-Subject: Bug 1942428 - (fix-69cc695699) uncomment an arg that upstream thinks
- is unused
+Date: Wed, 16 Jul 2025 21:08:00 +0300
+Subject: Bug 1974813 - turn off rust in libwebrtc since we don't use any
+ libwebrtc rust code. r=ng?
 
-Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/73f9e0e64eb65e9f2579b0f3eb34b88e2b5e5d74
+Note: no moz.build changes are caused by this change.
+
+Differential Revision: https://phabricator.services.mozilla.com/D257316
+Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/14ee98c4832a55bf32116c925540ab0f53e46cd3
 ---
- modules/rtp_rtcp/source/rtcp_sender.cc | 2 +-
+ .gn | 2 +-
  1 file changed, 1 insertion(+), 1 deletion(-)
 
-diff --git a/modules/rtp_rtcp/source/rtcp_sender.cc b/modules/rtp_rtcp/source/rtcp_sender.cc
-index 43d9fc784d..59cc0218be 100644
---- a/modules/rtp_rtcp/source/rtcp_sender.cc
-+++ b/modules/rtp_rtcp/source/rtcp_sender.cc
-@@ -191,7 +191,7 @@ bool RTCPSender::Sending() const {
-   return sending_;
- }
+diff --git a/.gn b/.gn
+index 485df8f5e1..0b8c216ad5 100644
+--- a/.gn
++++ b/.gn
+@@ -91,7 +91,7 @@ default_args = {
+   use_fuzztest_wrapper = false
  
--void RTCPSender::SetSendingStatus(const FeedbackState& /* feedback_state */,
-+void RTCPSender::SetSendingStatus(const FeedbackState& feedback_state,
-                                   bool sending) {
-   bool sendRTCPBye = false;
-   {
+   # Enable Rust in WebRTC
+-  enable_rust = true
++  enable_rust = false # Mozilla
+   enable_rust_cxx = true
+   enable_chromium_prelude = true
+ 

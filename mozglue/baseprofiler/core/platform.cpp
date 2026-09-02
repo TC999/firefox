@@ -29,9 +29,7 @@
 #include <algorithm>
 #include <errno.h>
 #include <fstream>
-#include <ostream>
 #include <set>
-#include <sstream>
 #include <string_view>
 
 // #include "memory_hooks.h"
@@ -204,8 +202,7 @@ static uint32_t AvailableFeatures() {
 // Default features common to all contexts (even if not available).
 static constexpr uint32_t DefaultFeatures() {
   return ProfilerFeature::Java | ProfilerFeature::JS |
-         ProfilerFeature::StackWalk | ProfilerFeature::CPUUtilization |
-         ProfilerFeature::ProcessCPU;
+         ProfilerFeature::StackWalk | ProfilerFeature::ProcessCPU;
 }
 
 // Extra default features when MOZ_PROFILER_STARTUP is set (even if not
@@ -1148,56 +1145,36 @@ static const char* const kMainThreadName = "GeckoMain";
 // The ctor does nothing; users are responsible for filling in the fields.
 class Registers {
  public:
-  Registers()
-      : mPC{nullptr},
-        mSP{nullptr},
-        mFP{nullptr}
-#if defined(UNWINDING_REGS_HAVE_ECX_EDX)
-        ,
-        mEcx{nullptr},
-        mEdx{nullptr}
-#elif defined(UNWINDING_REGS_HAVE_R10_R12)
-        ,
-        mR10{nullptr},
-        mR12{nullptr}
-#elif defined(UNWINDING_REGS_HAVE_LR_R7)
-        ,
-        mLR{nullptr},
-        mR7{nullptr}
-#elif defined(UNWINDING_REGS_HAVE_LR_R11)
-        ,
-        mLR{nullptr},
-        mR11{nullptr}
-#endif
-  {
-  }
+  Registers() = default;
 
   void Clear() { memset(this, 0, sizeof(*this)); }
 
   // These fields are filled in by
   // Sampler::SuspendAndSampleAndResumeThread() for periodic and backtrace
   // samples, and by REGISTERS_SYNC_POPULATE for synchronous samples.
-  Address mPC;  // Instruction pointer.
-  Address mSP;  // Stack pointer.
-  Address mFP;  // Frame pointer.
+  Address mPC{nullptr};  // Instruction pointer.
+  Address mSP{nullptr};  // Stack pointer.
+  Address mFP{nullptr};  // Frame pointer.
 #if defined(UNWINDING_REGS_HAVE_ECX_EDX)
-  Address mEcx;  // Temp for return address.
-  Address mEdx;  // Temp for frame pointer.
+  Address mEcx{nullptr};  // Temp for return address.
+  Address mEdx{nullptr};  // Temp for frame pointer.
 #elif defined(UNWINDING_REGS_HAVE_R10_R12)
-  Address mR10;  // Temp for return address.
-  Address mR12;  // Temp for frame pointer.
+  Address mR10{nullptr};  // Temp for return address.
+  Address mR12{nullptr};  // Temp for frame pointer.
 #elif defined(UNWINDING_REGS_HAVE_LR_R7)
-  Address mLR;  // ARM link register, or temp for return address.
-  Address mR7;  // Temp for frame pointer.
+  Address mLR{nullptr};  // ARM link register, or temp for return address.
+  Address mR7{nullptr};  // Temp for frame pointer.
 #elif defined(UNWINDING_REGS_HAVE_LR_R11)
-  Address mLR;   // ARM link register, or temp for return address.
-  Address mR11;  // Temp for frame pointer.
+  Address mLR{nullptr};   // ARM link register, or temp for return address.
+  Address mR11{nullptr};  // Temp for frame pointer.
 #endif
 
 #if defined(GP_OS_linux) || defined(GP_OS_android) || defined(GP_OS_freebsd)
   // This contains all the registers, which means it duplicates the four fields
   // above. This is ok.
-  ucontext_t* mContext;  // The context from the signal handler.
+
+  // The context from the signal handler.
+  ucontext_t* mContext{nullptr};
 #endif
 };
 
@@ -2101,7 +2078,7 @@ void SamplerThread::Run() {
 
   // This will be positive if we are running behind schedule (sampling less
   // frequently than desired) and negative if we are ahead of schedule.
-  TimeDuration lastSleepOvershoot = 0;
+  TimeDuration lastSleepOvershoot{};
   TimeStamp sampleStart = TimeStamp::Now();
 
   while (true) {
@@ -3453,16 +3430,17 @@ UniquePtr<ProfileChunkedBuffer> profiler_capture_backtrace() {
     return nullptr;
   }
 
-  auto buffer = MakeUnique<ProfileChunkedBuffer>(
+  ProfileChunkedBuffer captureBuffer(
       ProfileChunkedBuffer::ThreadSafety::WithoutMutex,
       MakeUnique<ProfileBufferChunkManagerSingle>(
           ProfileBufferChunkManager::scExpectedMaximumStackSize));
 
-  if (!profiler_capture_backtrace_into(*buffer, StackCaptureOptions::Full)) {
+  if (!profiler_capture_backtrace_into(captureBuffer,
+                                       StackCaptureOptions::Full)) {
     return nullptr;
   }
 
-  return buffer;
+  return mozilla::profiler::detail::CopyToRightSizedBuffer(captureBuffer);
 }
 
 UniqueProfilerBacktrace profiler_get_backtrace() {
@@ -3589,3 +3567,31 @@ void profiler_suspend_and_sample_thread(BaseProfilerThreadId aThreadId,
 
 }  // namespace baseprofiler
 }  // namespace mozilla
+
+// This lives here rather than in BaseAndGeckoProfilerDetail.cpp because that
+// file is also built for JS_STANDALONE, where allocating with the vanilla
+// operator new is not allowed (see config/check_vanilla_allocations.py).
+namespace mozilla::profiler::detail {
+
+[[nodiscard]] MFBT_API UniquePtr<ProfileChunkedBuffer> CopyToRightSizedBuffer(
+    const ProfileChunkedBuffer& aSource) {
+  const ProfileChunkedBuffer::State state = aSource.GetState();
+  const auto usedBytes = static_cast<ProfileBufferChunk::Length>(
+      state.mRangeEnd - state.mRangeStart);
+  if (usedBytes == 0) {
+    return nullptr;
+  }
+
+  // Blocks are copied one by one and keep their size, so a chunk holding
+  // `usedBytes` of blocks is enough to hold all of them again.
+  auto buffer = MakeUnique<ProfileChunkedBuffer>(
+      ProfileChunkedBuffer::ThreadSafety::WithoutMutex,
+      MakeUnique<ProfileBufferChunkManagerSingle>(usedBytes));
+  if (!buffer->AppendContents(aSource)) {
+    return nullptr;
+  }
+
+  return buffer;
+}
+
+}  // namespace mozilla::profiler::detail

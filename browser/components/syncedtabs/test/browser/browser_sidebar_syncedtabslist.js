@@ -557,7 +557,7 @@ async function testContextMenu(
     "popupshown"
   );
 
-  let chromeWindow = triggerElement.ownerGlobal.top;
+  let chromeWindow = triggerElement.documentGlobal.top;
   let rect = triggerElement.getBoundingClientRect();
   let contentRect =
     chromeWindow.SidebarController.browser.getBoundingClientRect();
@@ -569,7 +569,7 @@ async function testContextMenu(
   let offsetX = contentRect.x + rect.x + rect.width / 2;
   let offsetY = contentRect.y + rect.y + rect.height / 4;
 
-  await EventUtils.synthesizeMouseAtPoint(
+  EventUtils.synthesizeMouseAtPoint(
     offsetX,
     offsetY,
     {
@@ -653,6 +653,11 @@ async function testContainerMenu(menu) {
   ok(
     newTab.hasAttribute("usercontextid"),
     `Tab with usercontextid = ${shown[shown.length - 1]} should be opened`
+  );
+  is(
+    Glean.containers.containerTabOpened.testGetValue().at(-1).extra.source,
+    "synced_tabs_context_menu",
+    "container_tab_opened reports the synced tabs source"
   );
   registerCleanupFunction(() => BrowserTestUtils.removeTab(newTab));
   return true;

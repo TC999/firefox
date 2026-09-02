@@ -5,16 +5,18 @@
 #ifndef MOZILLA_GFX_TYPES_H_
 #define MOZILLA_GFX_TYPES_H_
 
-#include "mozilla/DefineEnum.h"  // for MOZ_DEFINE_ENUM_CLASS_WITH_BASE
-#include "mozilla/EnumeratedRange.h"
-#include "mozilla/MacroArgs.h"  // for MOZ_CONCAT
-#include "mozilla/TypedEnumBits.h"
+#include <stddef.h>
+#include <stdint.h>
 
 #include <bit>
 #include <iosfwd>  // for ostream
-#include <stddef.h>
-#include <stdint.h>
 #include <optional>
+
+#include "mozilla/DefineEnum.h"  // for MOZ_DEFINE_ENUM_CLASS_WITH_BASE
+#include "mozilla/EnumeratedRange.h"
+#include "mozilla/MacroArgs.h"  // for MOZ_CONCAT
+#include "mozilla/Maybe.h"
+#include "mozilla/TypedEnumBits.h"
 
 namespace mozilla {
 namespace gfx {
@@ -30,6 +32,7 @@ enum class SurfaceType : int8_t {
   COREGRAPHICS_CGCONTEXT, /* Surface wrapping a CG context */
   SKIA,                   /* Surface wrapping a Skia bitmap */
   RECORDING,              /* Surface used for recording */
+  CANVAS_RECORDING,       /* Surface used for canvas recording */
   DATA_SHARED,            /* Data surface using shared memory */
   DATA_RECYCLING_SHARED,  /* Data surface using shared memory */
   OFFSET,                 /* Offset */
@@ -82,9 +85,8 @@ enum class SurfaceFormat : int8_t {
   P010,       // Identical to P016 but the 6 least significant bits are 0.
               // With DXGI in theory entirely compatible, however practice has
               // shown that it's not the case.
-  NV16,       // Similar to NV12, but with 4:2:2 chroma subsampling. Technically
-              // 8 bit, but we only use it for 10 bit, and it's really only here
-              // to support the macOS bi-planar 422 formats.
+  NV16,       // Similar to NV12, but with 4:2:2 chroma subsampling.
+  P210,       // Similar to P010, but with 4:2:2 chroma subsampling.
   YUY2,       // Sometimes called YUYV. Single plane / packed YUV 4:2:2 8 bit
               // samples interleaved as Y`0 Cb Y`1 Cr. Since 4 pixels require
               // 64 bits, this can also be considered a 16bpp format, but each
@@ -101,6 +103,9 @@ enum class SurfaceFormat : int8_t {
   // 4 half-float (f16) components in RGBA order for HDR rendering, each is
   // machine endian.
   R16G16B16A16F,
+
+  CMYK,
+  InvertedCMYK,
 
   // This represents the unknown format.
   UNKNOWN,  // TODO: Replace uses with Maybe<SurfaceFormat>.
@@ -178,6 +183,7 @@ inline std::optional<SurfaceFormatInfo> Info(const SurfaceFormat aFormat) {
     case SurfaceFormat::P016:
     case SurfaceFormat::P010:
     case SurfaceFormat::NV16:
+    case SurfaceFormat::P210:
     case SurfaceFormat::YUY2:
       info.hasColor = true;
       info.hasAlpha = false;
@@ -188,6 +194,12 @@ inline std::optional<SurfaceFormatInfo> Info(const SurfaceFormat aFormat) {
       info.hasColor = false;
       info.hasAlpha = false;
       info.isYuv = false;
+      break;
+
+    case SurfaceFormat::CMYK:
+    case SurfaceFormat::InvertedCMYK:
+      info.hasColor = true;
+      info.hasAlpha = false;
       break;
 
     case SurfaceFormat::UNKNOWN:
@@ -205,6 +217,8 @@ inline std::optional<SurfaceFormatInfo> Info(const SurfaceFormat aFormat) {
     case SurfaceFormat::R8G8B8X8:
     case SurfaceFormat::X8R8G8B8:
     case SurfaceFormat::R16G16:
+    case SurfaceFormat::CMYK:
+    case SurfaceFormat::InvertedCMYK:
       info.bytesPerPixel = 4;
       break;
 
@@ -245,6 +259,7 @@ inline std::optional<SurfaceFormatInfo> Info(const SurfaceFormat aFormat) {
     case SurfaceFormat::P016:
     case SurfaceFormat::P010:
     case SurfaceFormat::NV16:
+    case SurfaceFormat::P210:
     case SurfaceFormat::YUY2:
     case SurfaceFormat::UNKNOWN:
       break;  // No bytesPerPixel per se.
@@ -317,6 +332,8 @@ static inline int BytesPerPixel(SurfaceFormat aFormat) {
     case SurfaceFormat::R10G10B10A2_UINT32:
     case SurfaceFormat::R10G10B10X2_UINT32:
     case SurfaceFormat::R16G16:
+    case SurfaceFormat::CMYK:
+    case SurfaceFormat::InvertedCMYK:
       return 4;
     case SurfaceFormat::R16G16B16A16F:
       return 8;
@@ -334,6 +351,7 @@ static inline int BytesPerPixel(SurfaceFormat aFormat) {
       return 0;
     case SurfaceFormat::P016:
     case SurfaceFormat::P010:
+    case SurfaceFormat::P210:
       // Similar to NV12 but uint16 pixels.
       return 0;
     case SurfaceFormat::UNKNOWN:
@@ -362,7 +380,11 @@ inline bool IsOpaque(SurfaceFormat aFormat) {
     case SurfaceFormat::NV12:
     case SurfaceFormat::P010:
     case SurfaceFormat::P016:
+    case SurfaceFormat::NV16:
+    case SurfaceFormat::P210:
     case SurfaceFormat::YUY2:
+    case SurfaceFormat::CMYK:
+    case SurfaceFormat::InvertedCMYK:
       return true;
     case SurfaceFormat::B8G8R8A8:
     case SurfaceFormat::R8G8B8A8:
@@ -374,7 +396,6 @@ inline bool IsOpaque(SurfaceFormat aFormat) {
     case SurfaceFormat::R16G16:
     case SurfaceFormat::YUV420P10:
     case SurfaceFormat::YUV422P10:
-    case SurfaceFormat::NV16:
     case SurfaceFormat::UNKNOWN:
       return false;
   }
@@ -590,6 +611,42 @@ enum class ColorRange : uint8_t {
   FULL,
   _First = LIMITED,
   _Last = FULL,
+};
+
+// HDR metadata structures, populated from codec-level signalling.
+struct Chromaticity {
+  float x = 0.0f;
+  float y = 0.0f;
+  bool operator==(const Chromaticity&) const = default;
+};
+
+// SMPTE ST 2086 mastering display colour volume.
+struct Smpte2086Metadata {
+  Chromaticity displayPrimaryRed;
+  Chromaticity displayPrimaryGreen;
+  Chromaticity displayPrimaryBlue;
+  Chromaticity whitePoint;
+  float maxLuminance = 0.0f;  // cd/m^2
+  float minLuminance = 0.0f;  // cd/m^2
+  bool operator==(const Smpte2086Metadata&) const = default;
+};
+
+// CTA-861.3 content light level (MaxCLL/MaxFALL).
+struct ContentLightLevel {
+  uint16_t maxContentLightLevel = 0;
+  uint16_t maxFrameAverageLightLevel = 0;
+  bool operator==(const ContentLightLevel&) const = default;
+};
+
+// HDR metadata signalled at container or codec level. Each field is
+// independently optional since streams may carry one without the other.
+struct HDRMetadata {
+  Maybe<Smpte2086Metadata> mSmpte2086;
+  Maybe<ContentLightLevel> mContentLightLevel;
+  bool operator==(const HDRMetadata&) const = default;
+  bool IsValid() const {
+    return mSmpte2086.isSome() || mContentLightLevel.isSome();
+  }
 };
 
 // Really "YcbcrColorColorSpace" but YUV is the common parlance. This represents
@@ -837,18 +894,16 @@ static inline ColorDepth ColorDepthForBitDepth(uint8_t aBitDepth) {
   return depth;
 }
 
-// 10 and 12 bits color depth image are using 16 bits integers for storage
-// As such we need to rescale the value from 10 or 12 bits to 16.
+// 10 and 12 bits color depth image are using 16 bits integers for storage.
+// Data is placed as MSB and texture is sampled within [0 - 1] range.
 static inline uint32_t RescalingFactorForColorDepth(ColorDepth aColorDepth) {
   uint32_t factor = 1;
   switch (aColorDepth) {
     case ColorDepth::COLOR_8:
       break;
     case ColorDepth::COLOR_10:
-      factor = 64;
       break;
     case ColorDepth::COLOR_12:
-      factor = 16;
       break;
     case ColorDepth::COLOR_16:
       break;
@@ -948,14 +1003,7 @@ enum class RecorderType : int8_t {
   WEBRENDER
 };
 
-enum class FontType : int8_t {
-  DWRITE,
-  GDI,
-  MAC,
-  FONTCONFIG,
-  FREETYPE,
-  UNKNOWN
-};
+enum class FontType : int8_t { DWRITE, MAC, FONTCONFIG, FREETYPE, UNKNOWN };
 
 enum class NativeSurfaceType : int8_t {
   D3D10_TEXTURE,
@@ -1117,11 +1165,7 @@ struct sRGBColor {
            uint32_t(r * 255.0f) << 16 | uint32_t(a * 255.0f) << 24;
   }
 
-  bool operator==(const sRGBColor& aColor) const {
-    return r == aColor.r && g == aColor.g && b == aColor.b && a == aColor.a;
-  }
-
-  bool operator!=(const sRGBColor& aColor) const { return !(*this == aColor); }
+  bool operator==(const sRGBColor& aColor) const = default;
 
   Float r, g, b, a;
 };
@@ -1187,13 +1231,7 @@ struct DeviceColor {
            uint32_t(r * 255.0f) << 16 | uint32_t(a * 255.0f) << 24;
   }
 
-  bool operator==(const DeviceColor& aColor) const {
-    return r == aColor.r && g == aColor.g && b == aColor.b && a == aColor.a;
-  }
-
-  bool operator!=(const DeviceColor& aColor) const {
-    return !(*this == aColor);
-  }
+  bool operator==(const DeviceColor& aColor) const = default;
 
   friend std::ostream& operator<<(std::ostream& aOut,
                                   const DeviceColor& aColor);
@@ -1236,8 +1274,9 @@ enum class DeviceResetDetectPlace {
   WR_SIMULATE,
   WIDGET,
   CANVAS_TRANSLATOR,
+  WR_BEFORE_READBACK,
   _First = WR_BEGIN_FRAME,
-  _Last = CANVAS_TRANSLATOR,
+  _Last = WR_BEFORE_READBACK,
 };
 
 enum class ForcedDeviceResetReason {

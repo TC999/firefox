@@ -245,7 +245,7 @@ add_task(async function checkDomainCorrectionReplacesLearnMoreLink() {
   info("Try loading a URI that should result in an error page");
   BrowserTestUtils.openNewForegroundTab(
     gBrowser,
-    // eslint-disable-next-line @microsoft/sdl/no-insecure-url
+    // eslint-disable-next-line sdl/no-insecure-url
     "http://example/example2/",
     false
   );
@@ -267,26 +267,123 @@ add_task(async function checkDomainCorrectionReplacesLearnMoreLink() {
     const netErrorCard = await ContentTaskUtils.waitForCondition(
       () => doc.querySelector("net-error-card")?.wrappedJSObject
     );
-    const errorNotice = netErrorCard.errorIntro;
-    ok(ContentTaskUtils.isVisible(errorNotice), "Error text is visible");
+    await netErrorCard.getUpdateComplete();
 
-    // Wait for the domain suggestion to be resolved and for the link href to be updated
-    let link;
+    const errorIntro = netErrorCard.errorIntro;
+    ok(ContentTaskUtils.isVisible(errorIntro), "Error intro text is visible");
+
+    let suggestionLink;
     await ContentTaskUtils.waitForCondition(() => {
-      link = netErrorCard.learnMoreLink;
+      suggestionLink = netErrorCard.dnsSuggestion?.querySelector("a");
       return (
-        link &&
-        link.textContent != "" &&
-        link.getAttribute("href") === "https://www.example.com/example2/"
+        suggestionLink?.textContent != "" &&
+        suggestionLink?.getAttribute("href") ===
+          "https://www.example.com/example2/"
       );
-    }, "Helper link has been set to corrected domain");
+    }, "www suggestion appears in intro text with correct link");
 
     is(
-      link.getAttribute("href"),
+      suggestionLink.getAttribute("href"),
       "https://www.example.com/example2/",
-      "Link points to corrected domain instead of SUMO page"
+      "Suggestion link points to www variant"
+    );
+
+    const learnMoreLink = netErrorCard.learnMoreLink;
+    ok(learnMoreLink, "Learn more link is present");
+    is(
+      learnMoreLink.getAttribute("href"),
+      _baseURL + "server-not-found-connection-problem",
+      "Learn more link still points to SUMO page"
     );
   });
+
+  lazy.gDNSOverride.clearHostOverride("www.example.com");
+  resetPrefs();
+  // This page records an alternate_host_suggested impression in its content
+  // process. Flush while the tab is still open: a closing tab's process drops
+  // out of the list testFlushAllChildren() walks (bug 1843178), so anything
+  // still buffered reaches the parent only when the process finally exits,
+  // which on a slow machine is after the next task has cleared FOG.
+  await Services.fog.testFlushAllChildren();
+  BrowserTestUtils.removeTab(gBrowser.selectedTab);
+});
+
+// Impression and click telemetry for the alternate-host suggestion
+// (bug 2058380). Driven through the real injection path rather than a
+// hand-built span, so a suggestion that renders without its click listener
+// attached fails here.
+add_task(async function checkDomainCorrectionTelemetry() {
+  // Drain before clearing, so data still buffered in a live content process
+  // does not arrive with our own flush and double-count. The task above also
+  // has to flush before it closes its tab, which this cannot do for it.
+  await Services.fog.testFlushAllChildren();
+  Services.fog.testResetFOG();
+  await SpecialPowers.pushPrefEnv({
+    set: [["browser.fixup.alternate.enabled", false]],
+  });
+  lazy.gDNSOverride.addIPOverride("www.example.com", "::1");
+
+  BrowserTestUtils.openNewForegroundTab(
+    gBrowser,
+    // eslint-disable-next-line sdl/no-insecure-url
+    "http://example/example2/",
+    false
+  );
+  let browser = gBrowser.selectedBrowser;
+  await BrowserTestUtils.waitForErrorPage(browser);
+
+  await waitForSettledNetErrorCard(browser);
+  const suggestionCount = await SpecialPowers.spawn(browser, [], async () => {
+    const netErrorCard =
+      content.document.querySelector("net-error-card").wrappedJSObject;
+    // The suggestion is injected by NetErrorChild off the back of its own async
+    // DNS lookup, which is independent of the card's render, so it still needs
+    // a wait of its own after the card has settled.
+    await ContentTaskUtils.waitForCondition(
+      () => netErrorCard.dnsSuggestion?.querySelector("a"),
+      "The suggestion link is injected"
+    );
+    return netErrorCard.shadowRoot.querySelectorAll("#dns-suggestion").length;
+  });
+  await Services.fog.testFlushAllChildren();
+
+  // Asserted separately from the counter so that a page which really did
+  // render two suggestions is not mistaken for a telemetry bug.
+  is(suggestionCount, 1, "The page holds a single suggestion");
+  is(
+    Glean.securityUiNeterror.alternateHostSuggested.testGetValue(),
+    1,
+    "The suggestion impression is recorded once"
+  );
+  is(
+    Glean.securityUiNeterror.clickDnsSuggestionLink.testGetValue(),
+    null,
+    "No click is recorded before the user clicks"
+  );
+
+  // Cancel the navigation so the click is measured without leaving the page.
+  await SpecialPowers.spawn(browser, [], async () => {
+    const doc = content.document;
+    doc.addEventListener("click", e => e.preventDefault(), { capture: true });
+    doc
+      .querySelector("net-error-card")
+      .wrappedJSObject.dnsSuggestion.querySelector("a")
+      .click();
+  });
+  await Services.fog.testFlushAllChildren();
+
+  const events = Glean.securityUiNeterror.clickDnsSuggestionLink.testGetValue();
+  is(events?.length, 1, "The suggestion click is recorded once");
+  is(String(events[0].extra.is_frame), "false", "is_frame recorded");
+  ok(
+    !JSON.stringify(events[0].extra).includes("example"),
+    `No host reaches the event extras (got ${JSON.stringify(events[0].extra)})`
+  );
+  is(
+    Glean.securityUiNeterror.alternateHostSuggested.testGetValue(),
+    1,
+    "Clicking does not add a second impression"
+  );
 
   lazy.gDNSOverride.clearHostOverride("www.example.com");
   resetPrefs();
@@ -301,7 +398,7 @@ add_task(async function checkDnsNotFoundLearnMoreLink() {
 
   BrowserTestUtils.openNewForegroundTab(
     gBrowser,
-    // eslint-disable-next-line @microsoft/sdl/no-insecure-url
+    // eslint-disable-next-line sdl/no-insecure-url
     "http://thisdomaindoesnotexist123456.test/",
     false
   );
@@ -457,7 +554,7 @@ add_task(async function test_tryAgainButtonAutofocus() {
 
   await BrowserTestUtils.withNewTab("about:blank", async function (browser) {
     let netErrorLoaded = BrowserTestUtils.waitForErrorPage(browser);
-    // eslint-disable-next-line @microsoft/sdl/no-insecure-url
+    // eslint-disable-next-line sdl/no-insecure-url
     BrowserTestUtils.startLoadingURIString(browser, "http://example.com/");
     await netErrorLoaded;
 

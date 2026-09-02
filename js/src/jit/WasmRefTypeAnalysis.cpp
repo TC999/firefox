@@ -1,5 +1,4 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- * vim: set ts=8 sts=2 et sw=2 tw=80:
+/*
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -137,6 +136,8 @@ static wasm::RefType WasmRefTestOrCastDestType(MDefinition* refTestOrCast) {
 static void TryOptimizeWasmCast(MDefinition* cast, MIRGraph& graph) {
   MDefinition* ref = WasmRefCastOrTestSourceRef(cast);
 
+  // Don't optimize casts involving uninhabitable types. See ReplaceAllUsesWith
+  // in ValueNumbering.cpp.
   if (ref->wasmRefType().isSome() &&
       !ref->wasmRefType().value().isInhabitable()) {
     return;
@@ -301,6 +302,9 @@ static void TryOptimizeWasmTest(MDefinition* refTest, MIRGraph& graph) {
         if (wasm::RefType::isSubTypeOf(dominatingDestType, currentDestType)) {
           // Then the ref.test is redundant because it is dominated by a
           // tighter ref.cast. Replace with a constant 1.
+          if (!graph.alloc().ensureBallast()) {
+            return;
+          }
           auto* replacement = MConstant::NewInt32(graph.alloc(), 1);
           refTest->block()->insertBefore(refTest->toInstruction(), replacement);
           refTest->replaceAllUsesWith(replacement);

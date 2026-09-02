@@ -2,11 +2,15 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include shared,rect,ellipse
+#include shared,rect,border_shared,ellipse
 
 #define DONT_MIX 0
 #define MIX_AA 1
 #define MIX_NO_AA 2
+
+// Address of border data in the GPU Buffer.
+// Packed in to a vector to work around bug 1630356.
+flat varying highp ivec2 vGpuDataAddress;
 
 // For edges, the colors are the same. For corners, these
 // are the colors of each edge making up the corner.
@@ -29,6 +33,9 @@ flat varying highp vec4 vClipCenter_Sign;
 // An outer and inner elliptical radii for border
 // corner clipping.
 flat varying highp vec4 vClipRadii;
+#ifdef WR_FEATURE_SUPERELLIPSE
+flat varying highp vec4 vClipOffsets;
+#endif
 
 // Position, scale, and radii of horizontally and vertically adjacent corner clips.
 flat varying highp vec4 vHorizontalClipCenter_Sign;
@@ -39,22 +46,7 @@ flat varying highp vec2 vVerticalClipRadii;
 // Local space position
 varying highp vec2 vPos;
 
-#define SEGMENT_TOP_LEFT        0
-#define SEGMENT_TOP_RIGHT       1
-#define SEGMENT_BOTTOM_RIGHT    2
-#define SEGMENT_BOTTOM_LEFT     3
-
 #ifdef WR_VERTEX_SHADER
-
-PER_INSTANCE in vec2 aTaskOrigin;
-PER_INSTANCE in vec4 aRect;
-PER_INSTANCE in vec4 aColor0;
-PER_INSTANCE in vec4 aColor1;
-PER_INSTANCE in int aFlags;
-PER_INSTANCE in vec2 aWidths;
-PER_INSTANCE in vec2 aRadii;
-PER_INSTANCE in vec4 aClipParams1;
-PER_INSTANCE in vec4 aClipParams2;
 
 vec2 get_outer_corner_scale(int segment) {
     vec2 p;
@@ -82,11 +74,14 @@ vec2 get_outer_corner_scale(int segment) {
 }
 
 void main(void) {
+    BorderInstanceGpuData data = fetch_gpu_data(aGpuDataAddress);
+    vGpuDataAddress.x = aGpuDataAddress;
+
     int segment = aFlags & 0xff;
-    bool do_aa = ((aFlags >> 24) & 0xf0) != 0;
+    bool do_aa = ((aFlags >> 28) & 0x1) != 0;
 
     vec2 outer_scale = get_outer_corner_scale(segment);
-    vec2 size = aRect.zw - aRect.xy;
+    vec2 size = data.rect.zw - data.rect.xy;
     vec2 outer = outer_scale * size;
     vec2 clip_sign = 1.0 - 2.0 * outer_scale;
 
@@ -107,11 +102,29 @@ void main(void) {
     vMixColors.x = mix_colors;
     vPos = size * aPosition.xy;
 
-    vColor0 = aColor0;
-    vColor1 = aColor1;
-    vClipCenter_Sign = vec4(outer + clip_sign * aRadii, clip_sign);
-    vClipRadii = vec4(aRadii, max(aRadii - aWidths, 0.0));
-    vColorLine = vec4(outer, aWidths.y * -clip_sign.y, aWidths.x * clip_sign.x);
+    vColor0 = data.color0;
+    vColor1 = data.color1;
+#ifdef WR_FEATURE_SUPERELLIPSE
+    vClipCenter_Sign = vec4(outer + clip_sign * (data.radii + data.shape_offset), clip_sign);
+#else
+    vClipCenter_Sign = vec4(outer + clip_sign * data.radii, clip_sign);
+#endif
+    vClipRadii = vec4(data.radii, max(data.radii - data.widths, 0.0));
+#ifdef WR_FEATURE_SUPERELLIPSE
+    vClipOffsets = vec4(0.0);
+#endif
+    vColorLine = vec4(outer, data.widths.y * -clip_sign.y, data.widths.x * clip_sign.x);
+
+#ifdef WR_FEATURE_SUPERELLIPSE
+    if (data.shape != 1.0)
+    {
+        vec2 reference_radii = (data.radii == vec2(0.0)) ? vec2(0.0) : data.radii + data.inset;
+        vec4 contour1 = compute_contoured_superellipse(reference_radii, data.shape, data.inset);
+        vec4 contour2 = compute_contoured_superellipse(reference_radii, data.shape, data.inset + data.widths);
+        vClipOffsets = vec4(contour1.xy, contour2.xy);
+        vClipRadii = vec4(contour1.zw, contour2.zw);
+    }
+#endif
 
     vec2 horizontal_clip_sign = vec2(-clip_sign.x, clip_sign.y);
     vHorizontalClipCenter_Sign = vec4(aClipParams1.xy +
@@ -125,12 +138,14 @@ void main(void) {
                                     vertical_clip_sign);
     vVerticalClipRadii = aClipParams2.zw;
 
-    gl_Position = uTransform * vec4(aTaskOrigin + aRect.xy + vPos, 0.0, 1.0);
+    gl_Position = uTransform * vec4(aTaskOrigin + data.rect.xy + vPos, 0.0, 1.0);
 }
 #endif
 
 #ifdef WR_FRAGMENT_SHADER
 void main(void) {
+    BorderInstanceGpuData data = fetch_gpu_data(vGpuDataAddress.x);
+
     float aa_range = compute_aa_range(vPos);
     bool do_aa = vMixColors.x != MIX_NO_AA;
 
@@ -150,8 +165,26 @@ void main(void) {
 
     float d = -1.0;
     if (in_clip_region) {
-        float d_radii_a = distance_to_ellipse(clip_relative_pos, vClipRadii.xy);
-        float d_radii_b = distance_to_ellipse(clip_relative_pos, vClipRadii.zw);
+        float d_radii_a;
+        float d_radii_b;
+
+#ifdef WR_FEATURE_SUPERELLIPSE
+        if (data.shape == 1.0) {
+#endif
+            d_radii_a = distance_to_ellipse(clip_relative_pos, vClipRadii.xy);
+            d_radii_b = distance_to_ellipse(clip_relative_pos, vClipRadii.zw);
+#ifdef WR_FEATURE_SUPERELLIPSE
+        } else {
+            clip_relative_pos = abs(clip_relative_pos) - data.shape_offset;
+            d_radii_a = distance_to_superellipse(clip_relative_pos - vClipOffsets.xy, vClipRadii.xy, data.shape);
+            d_radii_b = distance_to_superellipse(clip_relative_pos - vClipOffsets.zw, vClipRadii.zw, data.shape);
+
+            // exclude the straight border part from the subtracted region
+            vec2 included_region = data.radii - data.widths - clip_relative_pos;
+            d_radii_b = max(d_radii_b, -min(included_region.x, included_region.y));
+        }
+#endif
+
         d = max(d_radii_a, -d_radii_b);
     }
 

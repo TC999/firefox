@@ -228,6 +228,7 @@ void ProcessValueWithADefaultPolicy(nsIGlobalObject& aGlobalObject,
 
   AutoTArray<JS::Value, kNumArgumentsForDetermineTrustedTypePolicyValue>
       arguments = {trustedTypeName, sink};
+  SequenceRooter<JS::Value> rooter(cx, &arguments);
 
   nsString policyValue;
   if constexpr (std::is_same_v<ExpectedTypeArg, TrustedHTML>) {
@@ -817,11 +818,12 @@ bool HostGetCodeForEval(JSContext* aCx, JS::Handle<JSObject*> aCode,
   TrustedScript* trustedScript;
   if (StaticPrefs::dom_security_trusted_types_enabled() &&
       NS_SUCCEEDED(UNWRAP_OBJECT(TrustedScript, &obj, trustedScript))) {
-    if (JSString* copy = JS_NewUCStringCopyZ(aCx, trustedScript->mData.get())) {
-      aOutCode.set(copy);
-      return true;
+    JS::Rooted<JS::Value> code(aCx);
+    if (!xpc::NonVoidStringToJsval(aCx, trustedScript->mData, &code)) {
+      return false;
     }
-    return false;
+    aOutCode.set(code.toString());
+    return true;
   }
   aOutCode.set(nullptr);
   return true;

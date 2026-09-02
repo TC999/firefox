@@ -20,6 +20,7 @@
 #include "js/SourceText.h"
 #include "js/Value.h"
 #include "js/Wrapper.h"
+#include "js/loader/ModuleLoaderBase.h"
 #include "jsapi.h"
 #include "jsfriendapi.h"
 #include "mozilla/AlreadyAddRefed.h"
@@ -30,7 +31,6 @@
 #include "mozilla/Logging.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/MozPromise.h"
-#include "mozilla/Mutex.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/Result.h"
 #include "mozilla/StaticAnalysisFunctions.h"
@@ -193,7 +193,7 @@ bool WorkerScriptTimeoutHandler::Call(const char* aExecutionReason) {
 
 namespace workerinternals {
 void NamedWorkerGlobalScopeMixin::GetName(DOMString& aName) const {
-  aName.AsAString() = mName;
+  aName.SetKnownLiveString(mName);
 }
 static const char* GetTimeoutReasonString(Timeout* aTimeout) {
   switch (aTimeout->mReason) {
@@ -284,10 +284,17 @@ WorkerGlobalScopeBase::WorkerGlobalScopeBase(
 
   // In workers, each DETH must have an owner. Because the global scope doesn't
   // have one, let's set it as owner of itself.
-  BindToOwner(static_cast<nsIGlobalObject*>(this));
+  BindToGlobal(static_cast<nsIGlobalObject*>(this));
 }
 
 WorkerGlobalScopeBase::~WorkerGlobalScopeBase() = default;
+
+void WorkerGlobalScopeBase::InitModuleLoader(
+    JS::loader::ModuleLoaderBase* aModuleLoader) {
+  if (!mModuleLoader) {
+    mModuleLoader = aModuleLoader;
+  }
+}
 
 JSObject* WorkerGlobalScopeBase::GetGlobalJSObject() {
   AssertIsOnWorkerThread();
@@ -437,7 +444,7 @@ void WorkerGlobalScopeBase::Control(
 }
 
 nsresult WorkerGlobalScopeBase::Dispatch(
-    already_AddRefed<nsIRunnable>&& aRunnable) const {
+    already_AddRefed<nsIRunnable> aRunnable) const {
   return SerialEventTarget()->Dispatch(std::move(aRunnable),
                                        NS_DISPATCH_NORMAL);
 }
@@ -504,7 +511,6 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INHERITED(WorkerGlobalScope,
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mCrypto)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mPerformance)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mWebTaskScheduler)
-  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mWebTaskSchedulingState)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mTrustedTypePolicyFactory)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mLocation)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mNavigator)
@@ -522,7 +528,6 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN_INHERITED(WorkerGlobalScope,
     tmp->mWebTaskScheduler->Disconnect();
     NS_IMPL_CYCLE_COLLECTION_UNLINK(mWebTaskScheduler)
   }
-  NS_IMPL_CYCLE_COLLECTION_UNLINK(mWebTaskSchedulingState)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mTrustedTypePolicyFactory)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mLocation)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mNavigator)
@@ -570,7 +575,6 @@ already_AddRefed<CacheStorage> WorkerGlobalScope::GetCaches(ErrorResult& aRv) {
   if (!mCacheStorage) {
     mCacheStorage = CacheStorage::CreateOnWorker(cache::DEFAULT_NAMESPACE, this,
                                                  mWorkerPrivate, aRv);
-    mWorkerPrivate->NotifyStorageKeyUsed();
   }
 
   RefPtr<CacheStorage> ref = mCacheStorage;
@@ -885,8 +889,6 @@ already_AddRefed<IDBFactory> WorkerGlobalScope::GetIndexedDB(
     mIndexedDB = indexedDB;
   }
 
-  mWorkerPrivate->NotifyStorageKeyUsed();
-
   return indexedDB.forget();
 }
 
@@ -903,11 +905,6 @@ WebTaskScheduler* WorkerGlobalScope::Scheduler() {
 
 WebTaskScheduler* WorkerGlobalScope::GetExistingScheduler() const {
   return mWebTaskScheduler;
-}
-
-inline void WorkerGlobalScope::SetWebTaskSchedulingState(
-    WebTaskSchedulingState* aState) {
-  mWebTaskSchedulingState = aState;
 }
 
 already_AddRefed<Promise> WorkerGlobalScope::CreateImageBitmap(

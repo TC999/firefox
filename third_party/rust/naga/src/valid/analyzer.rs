@@ -493,7 +493,7 @@ impl FunctionInfo {
             }
         }
 
-        // Inherit global use from our callees.
+        // Inherit global use and immediate slot tracking from our callees.
         for (mine, other) in self.global_uses.iter_mut().zip(callee.global_uses.iter()) {
             *mine |= *other;
         }
@@ -672,10 +672,13 @@ impl FunctionInfo {
                 non_uniform_result: Some(handle),
                 requirements: UniformityRequirements::empty(),
             },
-            E::Load { pointer } => Uniformity {
-                non_uniform_result: self.add_ref(pointer),
-                requirements: UniformityRequirements::empty(),
-            },
+            E::Load { pointer } => {
+                let non_uniform_result = self.add_ref(pointer);
+                Uniformity {
+                    non_uniform_result,
+                    requirements: UniformityRequirements::empty(),
+                }
+            }
             E::ImageSample {
                 image,
                 sampler,

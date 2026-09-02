@@ -13,6 +13,7 @@
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/FontFaceBinding.h"
 #include "mozilla/dom/FontFaceSetImpl.h"
+#include "nsStyleUtil.h"
 
 namespace mozilla::dom {
 
@@ -170,13 +171,13 @@ void FontFaceImpl::SetWeight(const nsACString& aValue, ErrorResult& aRv) {
   }
 }
 
-void FontFaceImpl::GetStretch(nsACString& aResult) {
-  GetDesc(FontFaceDescriptorId::FontStretch, aResult);
+void FontFaceImpl::GetWidth(nsACString& aResult) {
+  GetDesc(FontFaceDescriptorId::FontWidth, aResult);
 }
 
-void FontFaceImpl::SetStretch(const nsACString& aValue, ErrorResult& aRv) {
+void FontFaceImpl::SetWidth(const nsACString& aValue, ErrorResult& aRv) {
   mFontFaceSet->FlushUserFontSet();
-  if (SetDescriptor(FontFaceDescriptorId::FontStretch, aValue, aRv)) {
+  if (SetDescriptor(FontFaceDescriptorId::FontWidth, aValue, aRv)) {
     DescriptorUpdated();
   }
 }
@@ -506,14 +507,15 @@ bool FontFaceImpl::SetDescriptors(const nsACString& aFamily,
   if (!setDesc(FontFaceDescriptorId::FontFamily, aFamily) ||
       !setDesc(FontFaceDescriptorId::FontStyle, aDescriptors.mStyle) ||
       !setDesc(FontFaceDescriptorId::FontWeight, aDescriptors.mWeight) ||
-      !setDesc(FontFaceDescriptorId::FontStretch, aDescriptors.mStretch) ||
+      !setDesc(FontFaceDescriptorId::FontWidth,
+               aDescriptors.mWidth.WasPassed() ? aDescriptors.mWidth.Value()
+                                               : aDescriptors.mStretch) ||
       !setDesc(FontFaceDescriptorId::UnicodeRange,
                aDescriptors.mUnicodeRange) ||
       !setDesc(FontFaceDescriptorId::FontFeatureSettings,
                aDescriptors.mFeatureSettings) ||
-      (StaticPrefs::layout_css_font_variations_enabled() &&
-       !setDesc(FontFaceDescriptorId::FontVariationSettings,
-                aDescriptors.mVariationSettings)) ||
+      !setDesc(FontFaceDescriptorId::FontVariationSettings,
+               aDescriptors.mVariationSettings) ||
       !setDesc(FontFaceDescriptorId::FontDisplay, aDescriptors.mDisplay) ||
       ((!setDesc(FontFaceDescriptorId::AscentOverride,
                  aDescriptors.mAscentOverride) ||
@@ -648,31 +650,19 @@ bool FontFaceImpl::GetAttributesFromRule(
   StyleComputedFontWeightRange weightRange;
   if (Servo_FontFaceRule_GetFontWeight(aData, &weightRange)) {
     aAttr.mRangeFlags &= ~gfxFontEntry::RangeFlags::eAutoWeight;
-    aAttr.mWeight = WeightRange(FontWeight::FromFloat(weightRange._0),
-                                FontWeight::FromFloat(weightRange._1));
+    aAttr.mWeight = WeightRange(weightRange._0, weightRange._1);
   }
 
-  StyleComputedFontStretchRange stretchRange;
-  if (Servo_FontFaceRule_GetFontStretch(aData, &stretchRange)) {
-    aAttr.mRangeFlags &= ~gfxFontEntry::RangeFlags::eAutoStretch;
-    aAttr.mStretch = StretchRange(stretchRange._0, stretchRange._1);
+  StyleComputedFontWidthRange widthRange;
+  if (Servo_FontFaceRule_GetFontWidth(aData, &widthRange)) {
+    aAttr.mRangeFlags &= ~gfxFontEntry::RangeFlags::eAutoWidth;
+    aAttr.mWidth = WidthRange(widthRange._0, widthRange._1);
   }
 
-  auto styleDesc = StyleComputedFontStyleDescriptor::Normal();
-  if (Servo_FontFaceRule_GetFontStyle(aData, &styleDesc)) {
+  StyleComputedFontStyleRange styleRange;
+  if (Servo_FontFaceRule_GetFontStyle(aData, &styleRange)) {
     aAttr.mRangeFlags &= ~gfxFontEntry::RangeFlags::eAutoSlantStyle;
-    switch (styleDesc.tag) {
-      case StyleComputedFontStyleDescriptor::Tag::Italic:
-        aAttr.mStyle = SlantStyleRange(FontSlantStyle::ITALIC);
-        break;
-      case StyleComputedFontStyleDescriptor::Tag::Oblique:
-        aAttr.mStyle = SlantStyleRange(
-            FontSlantStyle::FromFloat(styleDesc.AsOblique()._0),
-            FontSlantStyle::FromFloat(styleDesc.AsOblique()._1));
-        break;
-      default:
-        MOZ_ASSERT_UNREACHABLE("Unhandled tag");
-    }
+    aAttr.mStyle = SlantStyleRange(styleRange._0, styleRange._1);
   }
 
   StylePercentage ascent{0};

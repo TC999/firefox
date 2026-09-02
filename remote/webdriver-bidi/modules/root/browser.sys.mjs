@@ -14,18 +14,28 @@ ChromeUtils.defineESModuleGetters(lazy, {
   error: "chrome://remote/content/shared/webdriver/Errors.sys.mjs",
   getWebDriverSessionById:
     "chrome://remote/content/shared/webdriver/Session.sys.mjs",
+  Log: "chrome://remote/content/shared/Log.sys.mjs",
+  NavigableManager: "chrome://remote/content/shared/NavigableManager.sys.mjs",
   pprint: "chrome://remote/content/shared/Format.sys.mjs",
   ProxyConfiguration:
     "chrome://remote/content/shared/webdriver/Capabilities.sys.mjs",
   ProxyPerUserContextManager:
     "chrome://remote/content/webdriver-bidi/ProxyPerUserContextManager.sys.mjs",
   ProxyTypes: "chrome://remote/content/shared/webdriver/Capabilities.sys.mjs",
+  RootMessageHandler:
+    "chrome://remote/content/shared/messagehandler/RootMessageHandler.sys.mjs",
+  SessionDataCategory:
+    "chrome://remote/content/shared/messagehandler/sessiondata/SessionData.sys.mjs",
   TabManager: "chrome://remote/content/shared/TabManager.sys.mjs",
   UserContextManager:
     "chrome://remote/content/shared/UserContextManager.sys.mjs",
   windowManager: "chrome://remote/content/shared/WindowManager.sys.mjs",
   WindowState: "chrome://remote/content/shared/WindowManager.sys.mjs",
 });
+
+ChromeUtils.defineLazyGetter(lazy, "logger", () =>
+  lazy.Log.get(lazy.Log.TYPES.WEBDRIVER_BIDI)
+);
 
 /**
  * An object that holds information about the client window
@@ -127,9 +137,19 @@ class BrowserModule extends RootBiDiModule {
     // A set of internal user context ids to keep track of user contexts
     // which had insecure certificates overrides set for them.
     this.#userContextsWithInsecureCertificatesOverrides = new Set();
+
+    lazy.UserContextManager.on(
+      "user-context-deleted",
+      this.#onUserContextDeleted
+    );
   }
 
   destroy() {
+    lazy.UserContextManager.off(
+      "user-context-deleted",
+      this.#onUserContextDeleted
+    );
+
     this.#downloadBehaviorManager.destroy();
     this.#downloadBehaviorManager = null;
 
@@ -320,7 +340,7 @@ class BrowserModule extends RootBiDiModule {
 
       behavior = { allowed: type === "allowed" };
 
-      if ("destinationFolder" in downloadBehavior) {
+      if (behavior.allowed && "destinationFolder" in downloadBehavior) {
         const destinationFolder = downloadBehavior.destinationFolder;
         lazy.assert.string(
           destinationFolder,
@@ -366,6 +386,22 @@ class BrowserModule extends RootBiDiModule {
     } else {
       this.#downloadBehaviorManager.setDefaultBehavior(behavior);
     }
+
+    // Apply configuration to set the download folder override to a BrowsingContext instance.
+    await this.messageHandler.handleCommand({
+      moduleName: "_configuration",
+      commandName: "_applyConfigurationParameters",
+      destination: { type: lazy.RootMessageHandler.type },
+      params: {
+        async: false,
+        category: lazy.SessionDataCategory.DownloadBehaviorOverride,
+        resetValue: null,
+        supportsGlobalConfiguration: true,
+        userContextIds,
+        // Store the whole "behavior" object to ensure that reset logic works correctly.
+        value: behavior,
+      },
+    });
   }
 
   /**
@@ -408,12 +444,7 @@ class BrowserModule extends RootBiDiModule {
     });
 
     // Reset the state to clean up the platform state.
-    lazy.Certificates.resetSecurityChecksForUserContext(internalId);
-    this.#userContextsWithInsecureCertificatesOverrides.delete(internalId);
-
-    this.#proxyManager.deleteConfiguration(internalId);
-
-    this.#downloadBehaviorManager.setUserContextBehavior(internalId, null);
+    this.#cleanupUserContextState(internalId);
   }
 
   /**
@@ -511,6 +542,13 @@ class BrowserModule extends RootBiDiModule {
     return this.#getClientWindowInfo(window);
   }
 
+  #cleanupUserContextState(internalId) {
+    lazy.Certificates.resetSecurityChecksForUserContext(internalId);
+    this.#userContextsWithInsecureCertificatesOverrides.delete(internalId);
+    this.#proxyManager.deleteConfiguration(internalId);
+    this.#downloadBehaviorManager.setUserContextBehavior(internalId, null);
+  }
+
   #getClientWindowInfo(window) {
     const { height, width, x, y } = lazy.windowManager.getWindowRect(window);
 
@@ -524,6 +562,13 @@ class BrowserModule extends RootBiDiModule {
       y,
     };
   }
+
+  #onUserContextDeleted = (eventName, data = {}) => {
+    const { internalId } = data;
+    if (internalId !== undefined) {
+      this.#cleanupUserContextState(internalId);
+    }
+  };
 
   async #setClientWindowState(window, state) {
     const currentState = lazy.WindowState.from(window.windowState);
@@ -553,6 +598,21 @@ class BrowserModule extends RootBiDiModule {
     return null;
   }
 }
+
+export const setDownloadFolderOverrideForBrowsingContext = options => {
+  const { context, value } = options;
+  const destinationFolder =
+    value && "destinationFolder" in value ? value.destinationFolder : "";
+
+  context.downloadFolderOverride = destinationFolder;
+
+  const contextId = lazy.NavigableManager.getIdForBrowsingContext(context);
+  lazy.logger.trace(
+    `[${contextId}] ` + destinationFolder === ""
+      ? "Reset download folder to default"
+      : `Updated download folder override to: ${destinationFolder}`
+  );
+};
 
 // To export the class as lower-case
 export const browser = BrowserModule;

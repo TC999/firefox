@@ -107,8 +107,10 @@
 
 #include "mozilla/HashFunctions.h"
 #include "mozilla/Likely.h"
+#include "mozilla/MathAlgorithms.h"
 #include "mozilla/Maybe.h"
 
+#include <algorithm>
 #include <memory>
 #include <tuple>
 #include <utility>
@@ -518,6 +520,10 @@ class MOZ_STACK_CLASS OrderedHashTableImpl {
       uint32_t numHashBuckets) {
     return uint32_t(numHashBuckets * FillFactor);
   }
+  static constexpr uint32_t dataCapacityToNumHashBuckets(
+      uint32_t dataCapacity) {
+    return mozilla::RoundUpPow2(dataCapacity / FillFactor);
+  }
 
   // Logarithm base 2 of the number of buckets in the hash table initially.
   static constexpr uint32_t InitialBucketsLog2 = 1;
@@ -608,13 +614,31 @@ class MOZ_STACK_CLASS OrderedHashTableImpl {
     return {data, table, hcs, numBytes};
   }
 
-  [[nodiscard]] bool initBuffer(JSContext* cx) {
+  // Returns the hash shift for the smallest table that can hold |count| entries
+  // without rehashing. If |count| exceeds the maximum capacity, this returns
+  // MinHashShift.
+  static constexpr uint32_t hashShiftForCount(uint32_t count) {
+    uint32_t minBuckets = dataCapacityToNumHashBuckets(count);
+    if (minBuckets >= MaxHashBuckets) {
+      return MinHashShift;
+    }
+
+    uint32_t bucketsLog2 = std::max<uint32_t>(mozilla::CeilingLog2(minBuckets),
+                                              InitialBucketsLog2);
+    MOZ_ASSERT(bucketsLog2 < js::kHashNumberBits);
+    return js::kHashNumberBits - bucketsLog2;
+  }
+
+  [[nodiscard]] bool initBuffer(JSContext* cx,
+                                uint32_t hashShift = InitialHashShift) {
     MOZ_ASSERT(!hasAllocatedBuffer());
     MOZ_ASSERT(getDataLength() == 0);
     MOZ_ASSERT(getLiveCount() == 0);
+    MOZ_ASSERT(hashShift >= MinHashShift);
+    MOZ_ASSERT(hashShift <= InitialHashShift);
 
-    constexpr uint32_t buckets = InitialBuckets;
-    constexpr uint32_t capacity = uint32_t(buckets * FillFactor);
+    uint32_t buckets = hashShiftToNumHashBuckets(hashShift);
+    uint32_t capacity = numHashBucketsToDataCapacity(buckets);
 
     auto [dataAlloc, tableAlloc, hcsAlloc, numBytes] =
         allocateBuffer(cx, capacity, buckets);
@@ -629,7 +653,7 @@ class MOZ_STACK_CLASS OrderedHashTableImpl {
     setHashTable(tableAlloc);
     setData(dataAlloc);
     setDataCapacity(capacity);
-    setHashShift(InitialHashShift);
+    setHashShift(hashShift);
     setHashCodeScrambler(hcsAlloc);
     MOZ_ASSERT(hashBuckets() == buckets);
     return true;
@@ -757,6 +781,16 @@ class MOZ_STACK_CLASS OrderedHashTableImpl {
   }
 
   /*
+   * Ensure the table has capacity for at least |count| entries.
+   * This should only be called on an empty table.
+   */
+  [[nodiscard]] bool ensureCapacity(JSContext* cx, uint32_t count) {
+    MOZ_ASSERT(!hasAllocatedBuffer());
+    uint32_t hashShift = hashShiftForCount(count);
+    return initBuffer(cx, hashShift);
+  }
+
+  /*
    * If the table already contains an entry that matches |element|,
    * replace that entry with |element|. Otherwise add a new entry.
    *
@@ -765,12 +799,13 @@ class MOZ_STACK_CLASS OrderedHashTableImpl {
    * means the element was not added to the table.
    */
   template <typename ElementInput>
-  [[nodiscard]] bool put(JSContext* cx, ElementInput&& element) {
+  [[nodiscard]] bool put(JSContext* cx, ElementInput&& elementInput) {
+    T element(std::forward<ElementInput>(elementInput));
     HashNumber h;
     if (hasAllocatedBuffer()) {
       h = prepareHash(Ops::getKey(element));
       if (Data* e = lookup(Ops::getKey(element), h)) {
-        e->element = std::forward<ElementInput>(element);
+        e->element = std::move(element);
         return true;
       }
       if (getDataLength() == getDataCapacity() && !rehashOnFull(cx)) {
@@ -783,7 +818,7 @@ class MOZ_STACK_CLASS OrderedHashTableImpl {
       h = prepareHash(Ops::getKey(element));
     }
     auto [entry, chain] = addEntry(h);
-    new (entry) Data(std::forward<ElementInput>(element), chain);
+    new (entry) Data(std::move(element), chain);
     return true;
   }
 
@@ -844,17 +879,20 @@ class MOZ_STACK_CLASS OrderedHashTableImpl {
     forEachIterator(
         [this, pos](auto* iter) { IterOps::onRemove(obj, iter, pos); });
 
+    maybeShrink(cx);
+    return true;
+  }
+
+  void maybeShrink(JSContext* cx) {
     // If many entries have been removed, try to shrink the table. Ignore OOM
     // because shrinking the table is an optimization and it's okay for it to
     // fail.
-    if (hashBuckets() > InitialBuckets &&
-        liveCount < getDataLength() * MinDataFill) {
+    if (hasAllocatedBuffer() && hashBuckets() > InitialBuckets &&
+        getLiveCount() < getDataLength() * MinDataFill) {
       if (!rehash(cx, getHashShift() + 1)) {
         cx->recoverFromOutOfMemory();
       }
     }
-
-    return true;
   }
 
   /*
@@ -1012,7 +1050,7 @@ class MOZ_STACK_CLASS OrderedHashTableImpl {
   void trace(JSTracer* trc) {
     Data* data = maybeData();
     if (data) {
-      TraceBufferEdge(trc, obj, &data, "OrderedHashTable data");
+      TraceBufferEdge(trc, &data, "OrderedHashTable data");
       if (data != maybeData()) {
         setData(data);
       }
@@ -1336,8 +1374,8 @@ class MOZ_STACK_CLASS OrderedHashMapImpl {
    public:
     Entry() = default;
     explicit Entry(const Key& k) : key(k) {}
-    template <typename V>
-    Entry(const Key& k, V&& v) : key(k), value(std::forward<V>(v)) {}
+    template <typename K, typename V>
+    Entry(K&& k, V&& v) : key(std::forward<K>(k)), value(std::forward<V>(v)) {}
     Entry(Entry&& rhs) : key(std::move(rhs.key)), value(std::move(rhs.value)) {}
 
     const Key key{};
@@ -1393,6 +1431,11 @@ class MOZ_STACK_CLASS OrderedHashMapImpl {
   Entry* get(const Lookup& key) { return impl.get(key); }
   bool remove(JSContext* cx, const Lookup& key) { return impl.remove(cx, key); }
   void clear(JSContext* cx) { impl.clear(cx); }
+
+  [[nodiscard]] bool ensureCapacity(JSContext* cx, uint32_t count) {
+    return impl.ensureCapacity(cx, count);
+  }
+  void maybeShrink(JSContext* cx) { return impl.maybeShrink(cx); }
 
   template <typename K, typename V>
   [[nodiscard]] bool put(JSContext* cx, K&& key, V&& value) {
@@ -1499,6 +1542,11 @@ class MOZ_STACK_CLASS OrderedHashSetImpl {
     impl.forEachEntryUpTo(maxCount, f);
   }
 #endif
+  [[nodiscard]] bool ensureCapacity(JSContext* cx, uint32_t count) {
+    return impl.ensureCapacity(cx, count);
+  }
+  void maybeShrink(JSContext* cx) { return impl.maybeShrink(cx); }
+
   template <typename Input>
   [[nodiscard]] bool put(JSContext* cx, Input&& value) {
     return impl.put(cx, std::forward<Input>(value));

@@ -12,6 +12,7 @@
 #include "js/SourceText.h"
 #include "js/Transcoding.h"  // JS::TranscodeResult
 #include "js/TypeDecls.h"
+#include "js/WasmModule.h"  // JS::ESMCompileResult, JS::SharedWasmCompileArgs
 #include "js/experimental/JSStencil.h"  // JS::FrontendContext, JS::Stencil, JS::InstantiationStorage
 #include "js/loader/LoadContextBase.h"
 #include "js/loader/ScriptKind.h"
@@ -24,6 +25,7 @@
 #include "mozilla/StaticPrefs_dom.h"
 #include "mozilla/TaskController.h"  // mozilla::Task
 #include "mozilla/Utf8.h"            // mozilla::Utf8Unit
+#include "mozilla/Vector.h"
 #include "mozilla/dom/SRIMetadata.h"
 #include "mozilla/net/UrlClassifierCommon.h"
 #include "nsCOMPtr.h"
@@ -73,20 +75,53 @@ class Element;
  *
  */
 
-// Base class for the off-thread compile or off-thread decode tasks.
+class StencilCompileOrDecodeTask;
+class WasmCompileTask;
+
+// Base class for tasks which perform off-thread compilation.
 class CompileOrDecodeTask : public mozilla::Task {
  protected:
-  CompileOrDecodeTask();
-  virtual ~CompileOrDecodeTask();
+  enum class Type : uint8_t { Stencil, Wasm };
+
+  explicit CompileOrDecodeTask(Type aType);
+  virtual ~CompileOrDecodeTask() = default;
+
+  bool IsCancelled(const MutexAutoLock& aProofOfLock) const {
+    return mIsCancelled;
+  }
+
+ public:
+  // Cancel the task.
+  // If the task is already running, this waits for the task to finish.
+  void Cancel();
+
+  bool IsStencilTask() const { return mType == Type::Stencil; }
+  bool IsWasmTask() const { return mType == Type::Wasm; }
+
+  inline StencilCompileOrDecodeTask* AsStencilCompileOrDecodeTask();
+  inline WasmCompileTask* AsWasmCompileTask();
+
+ protected:
+  // This mutex is locked during running the task or cancelling task.
+  mozilla::Mutex mMutex;
+
+  bool mIsCancelled = false;
+
+ private:
+  const Type mType;
+};
+
+// Base class for the off-thread compile or off-thread decode tasks which
+// produce a JS::Stencil.
+class StencilCompileOrDecodeTask : public CompileOrDecodeTask {
+ protected:
+  StencilCompileOrDecodeTask();
+  virtual ~StencilCompileOrDecodeTask();
 
   nsresult InitFrontendContext();
 
   void DidRunTask(const MutexAutoLock& aProofOfLock,
                   RefPtr<JS::Stencil>&& aStencil);
-
-  bool IsCancelled(const MutexAutoLock& aProofOfLock) const {
-    return mIsCancelled;
-  }
 
  public:
   // Returns the result of the compilation or decode if it was successful.
@@ -97,14 +132,7 @@ class CompileOrDecodeTask : public mozilla::Task {
   already_AddRefed<JS::Stencil> StealResult(
       JSContext* aCx, JS::InstantiationStorage* aInstantiationStorage);
 
-  // Cancel the task.
-  // If the task is already running, this waits for the task to finish.
-  void Cancel();
-
  protected:
-  // This mutex is locked during running the task or cancelling task.
-  mozilla::Mutex mMutex;
-
   // The result of decode task, to distinguish throwing case and decode error.
   JS::TranscodeResult mResult = JS::TranscodeResult::Ok;
 
@@ -118,14 +146,56 @@ class CompileOrDecodeTask : public mozilla::Task {
   // and is freed on any thread in the destructor.
   JS::FrontendContext* mFrontendContext = nullptr;
 
-  bool mIsCancelled = false;
-
  private:
   // The result of the compilation or decode.
   RefPtr<JS::Stencil> mStencil;
 
   JS::InstantiationStorage mInstantiationStorage;
 };
+
+// Off-thread compile task for a wasm module used as an ES module.
+class WasmCompileTask final : public CompileOrDecodeTask {
+ public:
+  using WasmBytesBuffer = mozilla::Vector<uint8_t, 0, js::MallocAllocPolicy>;
+
+  explicit WasmCompileTask(WasmBytesBuffer&& aBytes)
+      : CompileOrDecodeTask(Type::Wasm), mBytes(std::move(aBytes)) {}
+
+  nsresult Init(JSContext* aCx, JS::CompileOptions& aOptions);
+
+  TaskResult Run() override;
+
+  // Sets aModuleOut to the module record for the compiled module.
+  // Returns false otherwise, and sets pending exception on JSContext.
+  bool StealResult(JSContext* aCx, JS::MutableHandle<JSObject*> aModuleOut);
+
+#ifdef MOZ_COLLECTING_RUNNABLE_TELEMETRY
+  bool GetName(nsACString& aName) override {
+    aName.AssignLiteral("WasmCompileTask");
+    return true;
+  }
+#endif
+
+ private:
+  JS::SharedWasmCompileArgs mCompileArgs;
+
+  // The result of the compilation, along with any error and warnings, which
+  // can only be reported once back on the main thread.
+  JS::ESMCompileResult mCompileResult;
+
+  WasmBytesBuffer mBytes;
+};
+
+StencilCompileOrDecodeTask*
+CompileOrDecodeTask::AsStencilCompileOrDecodeTask() {
+  MOZ_ASSERT(IsStencilTask());
+  return static_cast<StencilCompileOrDecodeTask*>(this);
+}
+
+WasmCompileTask* CompileOrDecodeTask::AsWasmCompileTask() {
+  MOZ_ASSERT(IsWasmTask());
+  return static_cast<WasmCompileTask*>(this);
+}
 
 class ScriptLoadContext : public JS::loader::LoadContextBase,
                           public PreloaderBase {
@@ -157,6 +227,28 @@ class ScriptLoadContext : public JS::loader::LoadContextBase,
   void BlockOnload(Document* aDocument);
 
   void MaybeUnblockOnload();
+
+  // Set for a <link rel=modulepreload> whose module is fetching, fetched or
+  // cached, i.e. one that doesn't create a channel to start a network request,
+  // and so has to report its own result through
+  // NotifyPreloadCoalescingResult(). See ScriptLoader::NotifyPreloadCoalescing.
+  void SetIsCoalescedModulePreload() { mIsCoalescedModulePreload = true; }
+
+  // Called by the module loader when this request stopped waiting on an
+  // in-progress fetch of the same URL. Only a coalesced module preload has
+  // anything to report at that point.
+  void NotifyModuleWaitFinished() {
+    if (mIsCoalescedModulePreload) {
+      NotifyPreloadCoalescingResult();
+    }
+  }
+
+  // https://html.spec.whatwg.org/multipage/links.html#link-type-modulepreload
+  //
+  // Fires the load/error event of a coalesced module preload from the top-level
+  // module's result. Fires nothing while the module is still fetching; the
+  // caller notifies us again once the fetch resolves or is canceled.
+  void NotifyPreloadCoalescingResult();
 
   enum class ScriptMode : uint8_t {
     eBlocking,
@@ -271,6 +363,11 @@ class ScriptLoadContext : public JS::loader::LoadContextBase,
   already_AddRefed<JS::Stencil> StealOffThreadResult(
       JSContext* aCx, JS::InstantiationStorage* aInstantiationStorage);
 
+  // Sets aModuleOut to the module record for the compiled wasm module.
+  // Returns false otherwise, and sets pending exception on JSContext.
+  bool StealOffThreadWasmResult(JSContext* aCx,
+                                JS::MutableHandle<JSObject*> aModuleOut);
+
   ScriptMode mScriptMode;  // Whether this is a blocking, defer or async script.
   bool mScriptFromHead;    // Synchronous head script block loading of other non
                            // js/css content.
@@ -286,6 +383,12 @@ class ScriptLoadContext : public JS::loader::LoadContextBase,
                           // thread.
   // Set on preloading scripts or modules.
   bool mIsPreload;
+
+  // Set on a coalesced <link rel=modulepreload> request, i.e. the preloading
+  // module is already fetching, or fetched, or cached. Unlike the eLinkPreload
+  // script mode, this isn't cleared when a <script> element steals the preload,
+  // because the element that coalesced onto it is still waiting for its event.
+  bool mIsCoalescedModulePreload;
 
   // For preload requests, we defer reporting errors to the console until the
   // request is used.

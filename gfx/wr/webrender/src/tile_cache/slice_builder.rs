@@ -4,10 +4,11 @@
 
 use api::{BorderRadius, ClipId, ClipMode, ColorF, DebugFlags, PrimitiveFlags, QualitySettings, RasterSpace};
 use api::units::*;
-use crate::clip::{ClipItemKeyKind, ClipNodeId, ClipTreeBuilder, intersect_rounded_rects};
+use crate::clip::{clamped_radius, ClipItemKeyKind, ClipNodeId, ClipTreeBuilder, intersect_rounded_rects};
 use crate::frame_builder::FrameBuilderConfig;
 use crate::internal_types::FastHashMap;
-use crate::picture::{PrimitiveList, PictureCompositeMode, PicturePrimitive, Picture3DContext, PictureFlags};
+use crate::picture::{PrimitiveList, PictureInstance, Picture3DContext, PictureFlags};
+use crate::picture_composite_mode::PictureCompositeMode;
 use crate::tile_cache::{SliceId, TileCacheParams};
 use crate::prim_store::{PrimitiveInstance, PrimitiveStore, PictureIndex};
 use crate::scene_building::SliceFlags;
@@ -550,6 +551,13 @@ fn create_tile_cache(
     // multiple rounded rects into a single compositing clip.
     let mut accumulated_rounded_rect: Option<(LayoutRect, BorderRadius)> = None;
 
+    // SNAPTODO: Scene-build slice partitioning reads `node.unsnapped_clip_rect`
+    // (and feeds it through `clamped_radius` / `intersect_rounded_rects` /
+    // `accumulated_rounded_rect`) to decide whether clips can be promoted
+    // into a shared compositing clip. Snapping isn't available at scene-build
+    // time, so audit whether pixel-aligned vs. sub-pixel clip rects can flip
+    // the can_use_fast_path / intersect decisions once per-frame snapping
+    // is real.
     // Walk up the hierarchy to the root of the clip-tree
     while current_node_id != ClipNodeId::NONE {
         let node = clip_tree_builder.get_node(current_node_id);
@@ -560,23 +568,22 @@ fn create_tile_cache(
 
         let node_valid = if is_rcs {
             match clip_node_data.key.kind {
-                ClipItemKeyKind::BoxShadow(..) |
                 ClipItemKeyKind::ImageMask(..) |
-                ClipItemKeyKind::Rectangle(_, ClipMode::ClipOut) |
+                ClipItemKeyKind::Rectangle(ClipMode::ClipOut) |
                 ClipItemKeyKind::RoundedRectangle(_, _, ClipMode::ClipOut) => {
-                    // Has a box-shadow / image-mask, we can't handle this as a shared clip
+                    // Has an image-mask or clip-out clip, we can't handle this as a shared clip
                     false
                 }
-                ClipItemKeyKind::RoundedRectangle(size, radius, ClipMode::Clip) => {
+                ClipItemKeyKind::RoundedRectangle(radius, _, ClipMode::Clip) => {
                     // The shader and CoreAnimation rely on certain constraints such
                     // as uniform radii to be able to apply the clip during compositing.
-                    let rect = LayoutRect::from_origin_and_size(node.clip_rect_origin, size.into());
-                    let br = BorderRadius::from(radius);
-                    if br.can_use_fast_path_in(&rect) {
+                    let br = clamped_radius(&BorderRadius::from(radius), node.unsnapped_clip_rect.size());
+                    if !debug_flags.contains(DebugFlags::DISABLE_COMPOSITOR_CLIPS) &&
+                       br.can_use_fast_path_in(&node.unsnapped_clip_rect) {
                         rounded_rect_count += 1;
 
                         if accumulated_rounded_rect.is_none() {
-                            accumulated_rounded_rect = Some((rect.into(), br));
+                            accumulated_rounded_rect = Some((node.unsnapped_clip_rect, br));
                         }
 
                         true
@@ -584,7 +591,7 @@ fn create_tile_cache(
                         false
                     }
                 }
-                ClipItemKeyKind::Rectangle(_, ClipMode::Clip) => {
+                ClipItemKeyKind::Rectangle(ClipMode::Clip) => {
                     // We can apply multiple (via combining) axis-aligned rectangle
                     // clips to the shared compositing clip.
                     true
@@ -606,12 +613,12 @@ fn create_tile_cache(
                 let can_combine = match (accumulated_rounded_rect, clip_node_data.key.kind) {
                     (
                         Some((acc_rect, acc_radius)),
-                        ClipItemKeyKind::RoundedRectangle(size, radius, ClipMode::Clip),
+                        ClipItemKeyKind::RoundedRectangle(radius, _, ClipMode::Clip),
                     ) => {
-                        let rect = LayoutRect::from_origin_and_size(node.clip_rect_origin, size.into());
+                        let radius = clamped_radius(&BorderRadius::from(radius), node.unsnapped_clip_rect.size());
                         intersect_rounded_rects(
                             acc_rect, acc_radius,
-                            rect, BorderRadius::from(radius),
+                            node.unsnapped_clip_rect, radius,
                         )
                     }
                     _ => None,
@@ -627,9 +634,9 @@ fn create_tile_cache(
                     // Can't combine, drop children and keep only this clip.
                     shared_clip_node_id = current_node_id;
                     rounded_rect_count = 1;
-                    if let ClipItemKeyKind::RoundedRectangle(size, radius, ClipMode::Clip) = clip_node_data.key.kind {
-                        let rect = LayoutRect::from_origin_and_size(node.clip_rect_origin, size.into());
-                        accumulated_rounded_rect = Some((rect, BorderRadius::from(radius)));
+                    if let ClipItemKeyKind::RoundedRectangle(radius, _, ClipMode::Clip) = clip_node_data.key.kind {
+                        let radius = clamped_radius(&BorderRadius::from(radius), node.unsnapped_clip_rect.size());
+                        accumulated_rounded_rect = Some((node.unsnapped_clip_rect, radius));
                     }
                 }
             }
@@ -683,7 +690,7 @@ fn create_tile_cache(
         yuv_image_surface_count: prim_list.yuv_image_surface_count,
     });
 
-    let pic_index = prim_store.pictures.alloc().init(PicturePrimitive::new_image(
+    let pic_index = prim_store.pictures.alloc().init(PictureInstance::new_image(
         Some(PictureCompositeMode::TileCache { slice_id }),
         Picture3DContext::Out,
         PrimitiveFlags::IS_BACKFACE_VISIBLE,

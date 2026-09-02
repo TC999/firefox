@@ -487,6 +487,24 @@
 #endif
 
 /**
+ * MOZ_LIFETIME_CAPTURE_BY_THIS is the equivalent of
+ * MOZ_LIFETIME_CAPTURE_BY(this). It needs to be spelled differently because
+ * clang 23 deprecated passing `this` to lifetime_capture_by in favor of the
+ * dedicated lifetime_capture_by_this attribute.
+ */
+#if defined(__clang__) && defined(__has_cpp_attribute)
+#  if __has_cpp_attribute(clang::lifetime_capture_by_this)
+#    define MOZ_LIFETIME_CAPTURE_BY_THIS [[clang::lifetime_capture_by_this]]
+#  elif __has_cpp_attribute(clang::lifetime_capture_by)
+#    define MOZ_LIFETIME_CAPTURE_BY_THIS [[clang::lifetime_capture_by(this)]]
+#  else
+#    define MOZ_LIFETIME_CAPTURE_BY_THIS /* nothing */
+#  endif
+#else
+#  define MOZ_LIFETIME_CAPTURE_BY_THIS /* nothing */
+#endif
+
+/**
  * MOZ_REINITIALIZES tells static analyser that a call to the associated
  * method leave it in an initialized state, typically after a std::move.
  */
@@ -848,6 +866,29 @@
  *   indicate that is has been looked at, but it did not need any
  *   MOZ_GUARDED_BY()/REQUIRES()/etc (and thus static analysis knows it can
  * ignore this Mutex/Monitor/etc)
+ * MOZ_ENUM_SERIALIZER_ALLOW_SENTINEL_UPPER_BOUND: Applies to ParamTraits
+ *   specializations that inherit from ContiguousEnumSerializerInclusive.
+ *   Suppresses the EnumSerializer checker warning about including a sentinel
+ *   enumerator (e.g. one named *_END, *Count, *Invalid) as a valid serialized
+ *   value. Use only when the sentinel is genuinely a valid value to send.
+ * MOZ_ENUM_SERIALIZER_ALLOW_MIN_MISMATCH: Applies to ParamTraits
+ *   specializations that inherit from ContiguousEnumSerializer[Inclusive].
+ *   Suppresses the EnumSerializer checker warning about the min template
+ *   argument not matching the first (lowest-valued) enumerator. Use when
+ *   deliberately excluding lower enumerators from being serialized.
+ * MOZ_BINDING(direction, language, kind, symbol): Applies to items which are a
+ *   binding to or bound from the item described by symbol in the target
+ *   language. This is used by the Mozsearch Clang plugin for cross-language
+ *   analysis.
+ *
+ *   Arguments are:
+ *   - direction: binding_to or bound_as
+ *   - language: cpp, java or idl
+ *   - kind: class, method, getter, setter or const
+ *   - symbol: the expected Mozsearch symbol
+ *
+ *   See build/clang-plugin/mozsearch-plugin/BindingOperations.cpp for more
+ *   details.
  */
 
 // gcc emits a nuisance warning -Wignored-attributes because attributes do not
@@ -927,6 +968,11 @@
 #    define MOZ_INIT_OUTSIDE_CTOR
 #    define MOZ_IS_CLASS_INIT
 #    define MOZ_NON_PARAM __attribute__((annotate("moz_non_param")))
+#    define MOZ_ENUM_SERIALIZER_ALLOW_SENTINEL_UPPER_BOUND \
+      __attribute__((                                      \
+          annotate("moz_enum_serializer_allow_sentinel_upper_bound")))
+#    define MOZ_ENUM_SERIALIZER_ALLOW_MIN_MISMATCH \
+      __attribute__((annotate("moz_enum_serializer_allow_min_mismatch")))
 #    define MOZ_REQUIRED_BASE_METHOD \
       __attribute__((annotate("moz_required_base_method")))
 #    define MOZ_MUST_RETURN_FROM_CALLER_IF_THIS_IS_ARG \
@@ -940,11 +986,14 @@
 #      define MOZ_RUNINIT __attribute__((annotate("moz_global_var")))
 #      define MOZ_GLOBINIT \
         MOZ_RUNINIT __attribute__((annotate("moz_generated")))
+#      define MOZ_BINDING(direction, language, kind, symbol) \
+        __attribute__((annotate(#direction, #language, #kind, #symbol)))
 #    else
-#      define MOZ_UNANNOTATED /* nothing */
-#      define MOZ_ANNOTATED   /* nothing */
-#      define MOZ_RUNINIT     /* nothing */
-#      define MOZ_GLOBINIT    /* nothing */
+#      define MOZ_UNANNOTATED  /* nothing */
+#      define MOZ_ANNOTATED    /* nothing */
+#      define MOZ_RUNINIT      /* nothing */
+#      define MOZ_GLOBINIT     /* nothing */
+#      define MOZ_BINDING(...) /* nothing */
 #    endif
 
 /*
@@ -978,6 +1027,7 @@
 #    define MOZ_STATIC_CLASS                                /* nothing */
 #    define MOZ_RUNINIT                                     /* nothing */
 #    define MOZ_GLOBINIT                                    /* nothing */
+#    define MOZ_BINDING(...)                                /* nothing */
 #    define MOZ_GLIBCXX_CONSTINIT                           /* nothing */
 #    define MOZ_RELEASE_CONSTINIT                           /* nothing */
 #    define MOZ_STATIC_LOCAL_CLASS                          /* nothing */
@@ -1008,6 +1058,8 @@
 #    define MOZ_INIT_OUTSIDE_CTOR                           /* nothing */
 #    define MOZ_IS_CLASS_INIT                               /* nothing */
 #    define MOZ_NON_PARAM                                   /* nothing */
+#    define MOZ_ENUM_SERIALIZER_ALLOW_SENTINEL_UPPER_BOUND  /* nothing */
+#    define MOZ_ENUM_SERIALIZER_ALLOW_MIN_MISMATCH          /* nothing */
 #    define MOZ_NON_AUTOABLE                                /* nothing */
 #    define MOZ_REQUIRED_BASE_METHOD                        /* nothing */
 #    define MOZ_MUST_RETURN_FROM_CALLER_IF_THIS_IS_ARG      /* nothing */

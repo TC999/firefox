@@ -7,6 +7,8 @@
  * Bucket for the IP Protection server list.
  */
 
+import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
+
 const lazy = {};
 
 ChromeUtils.defineLazyGetter(lazy, "logConsole", () =>
@@ -27,6 +29,19 @@ ChromeUtils.defineESModuleGetters(lazy, {
     "moz-src:///toolkit/components/ipprotection/IPProtectionService.sys.mjs",
   RemoteSettings: "resource://services-settings/remote-settings.sys.mjs",
 });
+
+/**
+ * Reserved country code used in the Remote Settings `vpn-serverlist`
+ * collection to mark the anycast / recommended entry. Excluded from the
+ * user-facing `countries` enumeration.
+ */
+export const RECOMMENDED_COUNTRY_CODE = "REC";
+
+/**
+ * Event dispatched by `IPProtectionServerlistBase` instances whenever the
+ * underlying list has been replaced (RS sync, pref change, initial fetch).
+ */
+const LIST_CHANGED_EVENT = "IPProtectionServerlist:ListChanged";
 
 /**
  *
@@ -183,24 +198,52 @@ class Country {
    */
   cities;
 
+  /**
+   * If true this Location is locked behind a set of preconditions
+   */
+  locked = false;
+
   constructor(data) {
     this.name = data.name || "";
     this.code = data.code || "";
     this.cities = (data.cities || []).map(c => new City(c));
+    this.locked = !!data.locked;
   }
 }
 
 /**
  * Base Class for the Serverlist
  */
-export class IPProtectionServerlistBase {
+export class IPProtectionServerlistBase extends EventTarget {
+  /**
+   * @type {Country[] | null}
+   */
   __list = null;
 
-  init() {}
+  constructor() {
+    super();
+    this.handleEvent = this.#handleEvent.bind(this);
+  }
+
+  init() {
+    lazy.IPProtectionService.addEventListener(
+      "IPProtectionService:StateChanged",
+      this.handleEvent
+    );
+  }
+  uninit() {
+    lazy.IPProtectionService.removeEventListener(
+      "IPProtectionService:StateChanged",
+      this.handleEvent
+    );
+  }
+  #handleEvent(_event) {
+    if (lazy.IPProtectionService.state === lazy.IPProtectionStates.READY) {
+      this.maybeFetchList(true);
+    }
+  }
 
   async initOnStartupCompleted() {}
-
-  uninit() {}
 
   /**
    * Tries to refresh the list from the underlining source.
@@ -212,25 +255,55 @@ export class IPProtectionServerlistBase {
   }
 
   /**
-   * Selects a default location - for alpha this is only the US.
+   * Enumerates countries known to the serverlist, excluding the reserved
+   * recommended (anycast) entry.
    *
-   * @returns {{Country, City}} - The best country/city to use.
+   * @returns {Array<{code: string, available: boolean}>} - One entry per
+   *   country. `code` is an ISO 3166-1 alpha-2 code. `available` is true iff
+   *   the country has at least one city containing a non-quarantined server.
    */
-  getDefaultLocation() {
-    /** @type {Country} */
-    const usa = this.__list.find(country => country.code === "US");
-    if (!usa) {
+  get countries() {
+    return this.__list
+      .filter(country => country.code !== RECOMMENDED_COUNTRY_CODE)
+      .map(country => ({
+        available: country.cities.some(city =>
+          city.servers.some(server => !server.quarantined)
+        ),
+        code: country.code,
+        locked: country.locked,
+      }));
+  }
+
+  /**
+   * Resolves a country code to a usable {country, city} pair.
+   *
+   * @param {string} [countryCode=RECOMMENDED_COUNTRY_CODE]
+   *   ISO 3166-1 alpha-2 country code, or the reserved recommended code.
+   *   Defaults to the recommended entry.
+   * @returns {{country: Country, city: City}|null} - The first city with
+   *   servers in the requested country, or null if the country is absent or
+   *   has no usable city.
+   */
+  getLocation(countryCode = RECOMMENDED_COUNTRY_CODE) {
+    const country = this.__list.find(c => c.code === countryCode);
+    if (!country) {
       return null;
     }
-
-    const city = usa.cities.find(c => c.servers.length);
+    const city = country.cities.find(c => c.servers.length);
     if (!city) {
       return null;
     }
-    return {
-      city,
-      country: usa,
-    };
+    return { country, city };
+  }
+
+  /**
+   * Returns the recommended (anycast) location, falling back to the US entry
+   * when the Remote Settings collection has not shipped a `REC` entry yet.
+   *
+   * @returns {{country: Country, city: City}|null}
+   */
+  getRecommendedLocation() {
+    return this.getLocation(RECOMMENDED_COUNTRY_CODE) ?? this.getLocation("US");
   }
 
   /**
@@ -278,40 +351,21 @@ export class RemoteSettingsServerlist extends IPProtectionServerlistBase {
 
   constructor() {
     super();
-    this.handleEvent = this.#handleEvent.bind(this);
     this.__list = IPProtectionServerlistBase.dataToList(
       lazy.IPPStartupCache.locationList
     );
   }
-  init() {
-    lazy.IPProtectionService.addEventListener(
-      "IPProtectionService:StateChanged",
-      this.handleEvent
-    );
-  }
 
   async initOnStartupCompleted() {
+    super.initOnStartupCompleted();
     this.bucket.on("sync", async () => {
       await this.maybeFetchList(true);
     });
   }
 
-  uninit() {
-    lazy.IPProtectionService.removeEventListener(
-      "IPProtectionService:StateChanged",
-      this.handleEvent
-    );
-  }
-
-  #handleEvent(_event) {
-    if (lazy.IPProtectionService.state === lazy.IPProtectionStates.READY) {
-      this.maybeFetchList();
-    }
-  }
-
   maybeFetchList(forceUpdate = false) {
     if (this.__list.length !== 0 && !forceUpdate) {
-      return Promise.resolve();
+      return Promise.resolve(false);
     }
 
     if (this.#runningPromise) {
@@ -324,6 +378,8 @@ export class RemoteSettingsServerlist extends IPProtectionServerlistBase {
       );
 
       lazy.IPPStartupCache.storeLocationList(this.__list);
+      this.dispatchEvent(new Event(LIST_CHANGED_EVENT));
+      return true;
     };
 
     this.#runningPromise = fetchList().finally(
@@ -346,6 +402,7 @@ export class RemoteSettingsServerlist extends IPProtectionServerlistBase {
  */
 export class PrefServerList extends IPProtectionServerlistBase {
   #observer = null;
+  #previousList = null;
 
   constructor() {
     super();
@@ -358,23 +415,27 @@ export class PrefServerList extends IPProtectionServerlistBase {
   }
 
   async initOnStartupCompleted() {
-    Services.prefs.addObserver(
-      IPProtectionServerlist.PREF_NAME,
-      this.#observer
-    );
+    super.initOnStartupCompleted();
+    Services.prefs.addObserver(PrefServerList.PREF_NAME, this.#observer);
   }
 
   uninit() {
-    Services.prefs.removeObserver(
-      IPProtectionServerlist.PREF_NAME,
-      this.#observer
-    );
+    super.uninit();
+    Services.prefs.removeObserver(PrefServerList.PREF_NAME, this.#observer);
   }
+
   maybeFetchList(_forceUpdate = false) {
+    const newList = Services.prefs.getStringPref(PrefServerList.PREF_NAME, "");
+
+    if (newList === this.#previousList) {
+      return Promise.resolve(false);
+    }
+    this.#previousList = newList;
     this.__list = IPProtectionServerlistBase.dataToList(
       PrefServerList.prefValue
     );
-    return Promise.resolve();
+    this.dispatchEvent(new Event(LIST_CHANGED_EVENT));
+    return Promise.resolve(true);
   }
 
   static get PREF_NAME() {
@@ -407,6 +468,9 @@ export class PrefServerList extends IPProtectionServerlistBase {
  * @returns {IPProtectionServerlistBase} - The appropriate serverlist implementation.
  */
 export function IPProtectionServerlistFactory() {
+  if (AppConstants.MOZ_ENTERPRISE) {
+    return new PrefServerList();
+  }
   return PrefServerList.hasPrefValue
     ? new PrefServerList()
     : new RemoteSettingsServerlist();

@@ -5,12 +5,14 @@
 #ifndef nsUDPSocket_h_
 #define nsUDPSocket_h_
 
-#include "nsIUDPSocket.h"
+#include "mozilla/Atomics.h"
 #include "mozilla/Mutex.h"
 #include "mozilla/net/DNS.h"
-#include "nsIOutputStream.h"
 #include "nsASocketHandler.h"
 #include "nsCycleCollectionParticipant.h"
+#include "nsIOutputStream.h"
+#include "nsIUDPSocket.h"
+#include "nsSocketTransportService2.h"
 
 //-----------------------------------------------------------------------------
 
@@ -45,6 +47,11 @@ class nsUDPSocket final : public nsASocketHandler, public nsIUDPSocket {
  private:
   virtual ~nsUDPSocket();
 
+  already_AddRefed<nsIUDPSocketListener> GetListener() {
+    MutexAutoLock lock(mLock);
+    return do_AddRef(mListener.get());
+  }
+
   void OnMsgClose();
   void OnMsgAttach();
 
@@ -63,14 +70,13 @@ class nsUDPSocket final : public nsASocketHandler, public nsIUDPSocket {
 
   // lock protects access to mListener;
   // so mListener is not cleared while being used/locked.
-  Mutex mLock MOZ_UNANNOTATED{"nsUDPSocket.mLock"};
+  Mutex mLock{"nsUDPSocket.mLock"};
   PRFileDesc* mFD{nullptr};
   NetAddr mAddr;
-  OriginAttributes mOriginAttributes;
-  nsCOMPtr<nsIUDPSocketListener> mListener;
+  nsCOMPtr<nsIUDPSocketListener> mListener MOZ_GUARDED_BY(mLock);
   nsCOMPtr<nsIUDPSocketSyncListener> mSyncListener;
-  nsCOMPtr<nsIEventTarget> mListenerTarget;
-  bool mAttached{false};
+  nsCOMPtr<nsIEventTarget> mListenerTarget MOZ_GUARDED_BY(mLock);
+  Atomic<bool, ReleaseAcquire> mAttached{false};
   RefPtr<nsSocketTransportService> mSts;
 
   uint64_t mByteReadCount{0};

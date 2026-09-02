@@ -9,12 +9,6 @@ var didFail = false;
 const kPromptServiceUUID = "{6cc9c9fe-bc0b-432b-a410-253ef8bcc699}";
 const kPromptServiceContractID = "@mozilla.org/prompter;1";
 
-// Save original prompt service factory
-const kPromptServiceFactory = Cm.getClassObject(
-  Cc[kPromptServiceContractID],
-  Ci.nsIFactory
-);
-
 var fakePromptServiceFactory = {
   createInstance(aIid) {
     return promptService.QueryInterface(aIid);
@@ -39,7 +33,7 @@ const kCompleteState =
   Ci.nsIWebProgressListener.STATE_IS_NETWORK;
 
 const kDummyPage =
-  // eslint-disable-next-line @microsoft/sdl/no-insecure-url
+  // eslint-disable-next-line sdl/no-insecure-url
   "http://example.org/browser/browser/base/content/test/general/dummy_page.html";
 const kURIs = ["bad://www.mozilla.org/", kDummyPage, kDummyPage];
 
@@ -86,7 +80,7 @@ function finishTest() {
     Components.ID(kPromptServiceUUID),
     "Prompt Service",
     kPromptServiceContractID,
-    kPromptServiceFactory
+    null
   );
 
   // Remove the listener

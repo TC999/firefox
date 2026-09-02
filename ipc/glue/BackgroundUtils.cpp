@@ -187,7 +187,7 @@ already_AddRefed<nsIContentSecurityPolicy> CSPInfoToCSP(
   nsresult stackResult;
   nsresult& rv = aOptionalResult ? *aOptionalResult : stackResult;
 
-  RefPtr<nsCSPContext> csp = new nsCSPContext();
+  RefPtr csp = MakeRefPtr<nsCSPContext>();
 
   if (aRequestingDoc) {
     rv = csp->SetRequestContextWithDocument(aRequestingDoc);
@@ -439,7 +439,7 @@ nsresult LoadInfoToLoadInfoArgs(nsILoadInfo* aLoadInfo,
     SerializeURI(resultPrincipalURI, optionalResultPrincipalURI);
   }
 
-  nsCString triggeringRemoteType;
+  RemoteType triggeringRemoteType;
   rv = aLoadInfo->GetTriggeringRemoteType(triggeringRemoteType);
   NS_ENSURE_SUCCESS(rv, rv);
 
@@ -586,9 +586,9 @@ nsresult LoadInfoToLoadInfoArgs(nsILoadInfo* aLoadInfo,
       aLoadInfo->GetIsOn3PCBExceptionList(), aLoadInfo->GetIsFormSubmission(),
       aLoadInfo->GetIsGETRequest(), aLoadInfo->GetSendCSPViolationEvents(),
       aLoadInfo->GetOriginAttributes(), redirectChainIncludingInternalRedirects,
-      redirectChain, aLoadInfo->GetHasInjectedCookieForCookieBannerHandling(),
-      aLoadInfo->GetSchemelessInput(), aLoadInfo->GetHttpsUpgradeTelemetry(),
-      ipcClientInfo, ipcReservedClientInfo, ipcInitialClientInfo, ipcController,
+      redirectChain, aLoadInfo->GetSchemelessInput(),
+      aLoadInfo->GetHttpsUpgradeTelemetry(), ipcClientInfo,
+      ipcReservedClientInfo, ipcInitialClientInfo, ipcController,
       aLoadInfo->CorsUnsafeHeaders(), aLoadInfo->GetForcePreflight(),
       aLoadInfo->GetIsPreflight(), aLoadInfo->GetLoadTriggeredFromExternal(),
       aLoadInfo->GetServiceWorkerTaintingSynthesized(),
@@ -602,12 +602,13 @@ nsresult LoadInfoToLoadInfoArgs(nsILoadInfo* aLoadInfo,
       aLoadInfo->GetAllowDeprecatedSystemRequests(),
       aLoadInfo->GetIsInDevToolsContext(), aLoadInfo->GetParserCreatedScript(),
       requestMode, aLoadInfo->GetIsFromProcessingFrameAttributes(),
-      aLoadInfo->GetIsMediaRequest(), aLoadInfo->GetIsMediaInitialRequest(),
-      aLoadInfo->GetIsFromObjectOrEmbed(), cookieJarSettingsArgs,
-      aLoadInfo->GetRequestBlockingReason(), maybePolicyContainerToInherit,
-      aLoadInfo->GetStoragePermission(), aLoadInfo->GetParentIpAddressSpace(),
-      aLoadInfo->GetIpAddressSpace(), overriddenFingerprintingSettingsArg,
-      aLoadInfo->GetIsMetaRefresh(), aLoadInfo->GetLoadingEmbedderPolicy(),
+      aLoadInfo->GetIsMediaRequest(), aLoadInfo->GetIsFromObjectOrEmbed(),
+      cookieJarSettingsArgs, aLoadInfo->GetRequestBlockingReason(),
+      maybePolicyContainerToInherit, aLoadInfo->GetStoragePermission(),
+      aLoadInfo->GetParentIpAddressSpace(), aLoadInfo->GetIpAddressSpace(),
+      overriddenFingerprintingSettingsArg, aLoadInfo->GetIsMetaRefresh(),
+      aLoadInfo->GetActivatedFromNavigationalPrefetch(),
+      aLoadInfo->GetLoadingEmbedderPolicy(),
       aLoadInfo->GetIsOriginTrialCoepCredentiallessEnabledForTopLevel(),
       unstrippedURI, interceptionInfoArg, aLoadInfo->GetIsNewWindowTarget(),
       aLoadInfo->GetUserNavigationInvolvement(),
@@ -617,13 +618,13 @@ nsresult LoadInfoToLoadInfoArgs(nsILoadInfo* aLoadInfo,
 }
 
 nsresult LoadInfoArgsToLoadInfo(const LoadInfoArgs& aLoadInfoArgs,
-                                const nsACString& aOriginRemoteType,
+                                const RemoteType& aOriginRemoteType,
                                 nsILoadInfo** outLoadInfo) {
   return LoadInfoArgsToLoadInfo(aLoadInfoArgs, aOriginRemoteType, nullptr,
                                 outLoadInfo);
 }
 nsresult LoadInfoArgsToLoadInfo(const LoadInfoArgs& aLoadInfoArgs,
-                                const nsACString& aOriginRemoteType,
+                                const RemoteType& aOriginRemoteType,
                                 nsINode* aCspToInheritLoadingContext,
                                 nsILoadInfo** outLoadInfo) {
   RefPtr<LoadInfo> loadInfo;
@@ -637,13 +638,13 @@ nsresult LoadInfoArgsToLoadInfo(const LoadInfoArgs& aLoadInfoArgs,
 }
 
 nsresult LoadInfoArgsToLoadInfo(const LoadInfoArgs& aLoadInfoArgs,
-                                const nsACString& aOriginRemoteType,
+                                const RemoteType& aOriginRemoteType,
                                 LoadInfo** outLoadInfo) {
   return LoadInfoArgsToLoadInfo(aLoadInfoArgs, aOriginRemoteType, nullptr,
                                 outLoadInfo);
 }
 nsresult LoadInfoArgsToLoadInfo(const LoadInfoArgs& loadInfoArgs,
-                                const nsACString& aOriginRemoteType,
+                                const RemoteType& aOriginRemoteType,
                                 nsINode* aCspToInheritLoadingContext,
                                 LoadInfo** outLoadInfo) {
   nsCOMPtr<nsIPrincipal> loadingPrincipal;
@@ -724,8 +725,8 @@ nsresult LoadInfoArgsToLoadInfo(const LoadInfoArgs& loadInfoArgs,
   // This means that the triggering remote type will be reset if a LoadInfo is
   // bounced through a content process, as the LoadInfo can no longer be
   // validated to be coming from the originally specified remote type.
-  nsCString triggeringRemoteType = loadInfoArgs.triggeringRemoteType();
-  if (aOriginRemoteType != NOT_REMOTE_TYPE &&
+  RemoteType triggeringRemoteType = loadInfoArgs.triggeringRemoteType();
+  if (!aOriginRemoteType.IsNotRemote() &&
       aOriginRemoteType != triggeringRemoteType) {
     triggeringRemoteType = aOriginRemoteType;
   }
@@ -877,6 +878,7 @@ nsresult LoadInfoArgsToLoadInfo(const LoadInfoArgs& loadInfoArgs,
       reservedClientInfo, initialClientInfo, controller,
       loadInfoArgs.securityFlags(), loadInfoArgs.sandboxFlags(),
       loadInfoArgs.contentPolicyType(),
+      loadInfoArgs.serviceWorkerTaintingSynthesized(),
       static_cast<LoadTainting>(loadInfoArgs.tainting()),
 
 #define DEFINE_ARGUMENT(_t, _n, name, _d) loadInfoArgs.name(),
@@ -1067,7 +1069,7 @@ nsresult MergeParentLoadInfoForwarder(
   rv = aLoadInfo->SetIsMetaRefresh(aForwarderArgs.isMetaRefresh());
   NS_ENSURE_SUCCESS(rv, rv);
 
-  const Maybe<RFPTargetSet> overriddenFingerprintingSettings =
+  const Maybe<RFPTargetSet>& overriddenFingerprintingSettings =
       aForwarderArgs.overriddenFingerprintingSettings();
   if (overriddenFingerprintingSettings.isSome()) {
     aLoadInfo->SetOverriddenFingerprintingSettings(

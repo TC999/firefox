@@ -9,13 +9,13 @@ import android.view.View
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import kotlin.test.assertNotNull
 import mozilla.components.concept.storage.CreditCardEntry
 import mozilla.components.feature.prompts.R
 import mozilla.components.support.test.mock
 import mozilla.components.support.test.robolectric.testContext
 import mozilla.components.support.utils.CreditCardNetworkType
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -29,14 +29,15 @@ class CreditCardItemViewHolderTest {
     private lateinit var expirationDateView: TextView
     private lateinit var onCreditCardSelected: (CreditCardEntry) -> Unit
 
-    private val creditCard = CreditCardEntry(
-        guid = "1",
-        name = "Banana Apple",
-        number = "4111111111111111",
-        expiryMonth = "5",
-        expiryYear = "2030",
-        cardType = CreditCardNetworkType.VISA.cardName,
-    )
+    private val creditCard =
+        CreditCardEntry(
+            guid = "1",
+            name = "Banana Apple",
+            number = "4111111111111111",
+            expiryMonth = "5",
+            expiryYear = "2030",
+            cardType = CreditCardNetworkType.VISA.cardName,
+        )
 
     @Before
     fun setup() {

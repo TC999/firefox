@@ -46,7 +46,6 @@ impl App {
         pipeline_id: PipelineId,
         property_key: PropertyBindingKey<LayoutTransform>,
         opacity_key: Option<PropertyBindingKey<f32>>,
-        spatial_tree_item_key: SpatialTreeItemKey,
     ) {
         let filters = match opacity_key {
             Some(opacity_key) => {
@@ -69,7 +68,6 @@ impl App {
                 should_snap: false,
                 paired_with_perspective: false,
             },
-            spatial_tree_item_key,
         );
 
         builder.push_simple_stacking_context_with_filters(
@@ -87,6 +85,7 @@ impl App {
         let complex_clip = ComplexClipRegion {
             rect: clip_bounds,
             radii: BorderRadius::uniform(30.0),
+            inset: LayoutSideOffsets::zero(),
             mode: ClipMode::Clip,
         };
         let clip_id = builder.define_clip_rounded_rect(
@@ -137,7 +136,6 @@ impl Example for App {
             pipeline_id,
             key0,
             Some(opacity_key),
-            SpatialTreeItemKey::new(0, 0)
         );
 
         let bounds = (400, 400).to(600, 600);
@@ -149,7 +147,6 @@ impl Example for App {
             pipeline_id,
             key1,
             None,
-            SpatialTreeItemKey::new(0, 1)
         );
 
         let bounds = (200, 500).to(350, 580);
@@ -161,7 +158,6 @@ impl Example for App {
             pipeline_id,
             key2,
             None,
-            SpatialTreeItemKey::new(0, 2)
         );
     }
 

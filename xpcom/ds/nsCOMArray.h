@@ -5,14 +5,13 @@
 #ifndef nsCOMArray_h_
 #define nsCOMArray_h_
 
+#include <iterator>
+
 #include "mozilla/ArrayIterator.h"
 #include "mozilla/MemoryReporting.h"
-
 #include "nsCycleCollectionNoteChild.h"
-#include "nsTArray.h"
 #include "nsISupports.h"
-
-#include <iterator>
+#include "nsTArray.h"
 
 // See below for the definition of nsCOMArray<T>
 
@@ -20,6 +19,10 @@
 // work of this class in the XPCOM dll
 class nsCOMArray_base {
   friend class nsArrayBase;
+
+ public:
+  // don't implement this, defaults will muck with refcounts!
+  nsCOMArray_base& operator=(const nsCOMArray_base& aOther) = delete;
 
  protected:
   nsCOMArray_base() = default;
@@ -153,10 +156,6 @@ class nsCOMArray_base {
  protected:
   // the actual storage
   nsTArray<nsISupports*> mArray;
-
- private:
-  // don't implement these, defaults will muck with refcounts!
-  nsCOMArray_base& operator=(const nsCOMArray_base& aOther) = delete;
 };
 
 inline void ImplCycleCollectionUnlink(nsCOMArray_base& aField) {
@@ -207,6 +206,7 @@ class nsCOMArray : public nsCOMArray_base {
 
   // We have a move assignment operator, but no copy assignment operator.
   nsCOMArray<T>& operator=(nsCOMArray<T>&& aOther) = default;
+  nsCOMArray<T>& operator=(const nsCOMArray<T>& aOther) = delete;
 
   // these do NOT refcount on the way out, for speed
   T* ObjectAt(int32_t aIndex) const {
@@ -359,10 +359,6 @@ class nsCOMArray : public nsCOMArray_base {
     return const_reverse_iterator(begin());
   }
   const_reverse_iterator crend() const { return rend(); }
-
- private:
-  // don't implement these!
-  nsCOMArray<T>& operator=(const nsCOMArray<T>& aOther) = delete;
 };
 
 template <typename T>

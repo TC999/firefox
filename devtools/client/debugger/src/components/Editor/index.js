@@ -34,6 +34,7 @@ import {
   getShouldHighlightSelectedLocation,
   getSelectedTraceLocation,
   getSearchOptions,
+  getBreakpointsList,
 } from "../../selectors/index";
 
 // Redux actions
@@ -66,12 +67,13 @@ import {
 
 import { searchKeys } from "../../constants";
 import { scrollList } from "../../utils/result-list";
-import SearchInput from "../shared/SearchInput";
 
 import { updateEditorSizeCssVariables } from "../../utils/ui";
 
 const { debounce } = require("resource://devtools/shared/debounce.js");
+const { throttle } = require("resource://devtools/shared/throttle.js");
 const classnames = require("resource://devtools/client/shared/classnames.js");
+const SourceEditor = require("resource://devtools/client/shared/sourceeditor/editor.js");
 
 const { appinfo } = Services;
 const isMacOS = appinfo.OS === "Darwin";
@@ -124,6 +126,7 @@ class Editor extends PureComponent {
       selectLocation: PropTypes.func.isRequired,
       showEditorContextMenu: PropTypes.func.isRequired,
       showEditorGutterContextMenu: PropTypes.func.isRequired,
+      updateStyleSheetContent: PropTypes.func.isRequired,
     };
   }
 
@@ -185,8 +188,25 @@ class Editor extends PureComponent {
   }
 
   onEditorUpdated = viewUpdate => {
+    const { editor } = this.state;
     if (viewUpdate.docChanged || viewUpdate.geometryChanged) {
       updateEditorSizeCssVariables(viewUpdate.view.dom);
+      const { selectedLocation } = this.props;
+      // The updates made to the  stylesheet contents are
+      // only sent when these conditions are satisfied.
+      if (
+        // When a source is selected
+        selectedLocation &&
+        // When it is actually a stylesheet
+        selectedLocation.source.isStyleSheet &&
+        // When a user changes the doc content
+        editor.isViewUpdateFromUserInput(viewUpdate)
+      ) {
+        this.updateStyleSheetText(
+          selectedLocation.sourceActor,
+          viewUpdate.state.doc.toString()
+        );
+      }
       this.props.updateViewport();
     } else if (viewUpdate.selectionSet) {
       this.onCursorChange();
@@ -245,6 +265,10 @@ class Editor extends PureComponent {
     const { shortcuts } = this.context;
 
     shortcuts.on(L10N.getStr("toggleBreakpoint.key"), this.onToggleBreakpoint);
+    shortcuts.on(
+      L10N.getStr("toggleAllBreakpoints.key"),
+      this.onToggleAllBreakpoints
+    );
     shortcuts.on(
       L10N.getStr("toggleCondPanel.breakpoint.key"),
       this.onToggleConditionalPanel
@@ -349,6 +373,7 @@ class Editor extends PureComponent {
     const { shortcuts } = this.context;
     shortcuts.off(L10N.getStr("sourceTabs.closeTab.key"));
     shortcuts.off(L10N.getStr("toggleBreakpoint.key"));
+    shortcuts.off(L10N.getStr("toggleAllBreakpoints.key"));
     shortcuts.off(L10N.getStr("toggleCondPanel.breakpoint.key"));
     shortcuts.off(L10N.getStr("toggleCondPanel.logPoint.key"));
 
@@ -392,6 +417,17 @@ class Editor extends PureComponent {
     this.props.toggleBreakpointAtLine(currentPosition.line);
   };
 
+  onToggleAllBreakpoints = e => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const shouldDisableBreakpoints = this.props.breakpoints.every(
+      b => !b.disabled
+    );
+
+    this.props.toggleAllBreakpoints(shouldDisableBreakpoints);
+  };
+
   onToggleLogPanel = e => {
     e.stopPropagation();
     e.preventDefault();
@@ -433,6 +469,8 @@ class Editor extends PureComponent {
   }
 
   onEditorScroll = debounce(this.props.updateViewport, 75);
+
+  updateStyleSheetText = throttle(this.props.updateStyleSheetContent, 500);
 
   /*
    * The default Esc command is overridden in the CodeMirror keymap to allow
@@ -694,9 +732,17 @@ class Editor extends PureComponent {
       this.showErrorMessage(value);
       return;
     }
+
+    if (selectedSource.isStyleSheet) {
+      await editor.setMode(SourceEditor.modes.css);
+    }
     await editor.setText(selectedSourceTextContent.value.value, {
       documentId: selectedSource.id,
     });
+    const isReadOnly =
+      !selectedSource.isStyleSheet ||
+      (selectedSource.isOriginal && !selectedSource.isPrettyPrinted);
+    await editor.setReadOnly(isReadOnly);
   }
 
   showErrorMessage(msg) {
@@ -815,6 +861,8 @@ class Editor extends PureComponent {
       closeFileSearch,
       querySearchWorker,
       selectLocation,
+      searchOptions,
+      setSearchOptions,
     } = this.props;
 
     if (!selectedSource) {
@@ -832,8 +880,8 @@ class Editor extends PureComponent {
       closeFileSearch,
       querySearchWorker,
       selectLocation,
-      searchKey: searchKeys.FILE_SEARCH,
-      SearchInput,
+      searchOptions,
+      setSearchOptions,
       scrollList,
       createLocation,
       clearSearchEditor,
@@ -905,6 +953,8 @@ const mapStateToProps = state => {
     shouldHighlightSelectedLocation: getShouldHighlightSelectedLocation(state),
     selectedTraceLocation: getSelectedTraceLocation(state),
     modifiers: getSearchOptions(state, "file-search"),
+    searchOptions: getSearchOptions(state, searchKeys.FILE_SEARCH),
+    breakpoints: getBreakpointsList(state),
   };
 };
 
@@ -915,6 +965,7 @@ const mapDispatchToProps = dispatch => ({
       closeConditionalPanel: actions.closeConditionalPanel,
       continueToHere: actions.continueToHere,
       toggleBreakpointAtLine: actions.toggleBreakpointAtLine,
+      toggleAllBreakpoints: actions.toggleAllBreakpoints,
       addBreakpointAtLine: actions.addBreakpointAtLine,
       jumpToMappedLocation: actions.jumpToMappedLocation,
       updateViewport: actions.updateViewport,
@@ -926,6 +977,8 @@ const mapDispatchToProps = dispatch => ({
       setActiveSearch: actions.setActiveSearch,
       closeFileSearch: actions.closeFileSearch,
       querySearchWorker: actions.querySearchWorker,
+      setSearchOptions: actions.setSearchOptions,
+      updateStyleSheetContent: actions.updateStyleSheetContent,
     },
     dispatch
   ),

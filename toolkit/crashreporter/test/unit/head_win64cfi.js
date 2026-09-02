@@ -197,7 +197,7 @@ async function do_x64CFITest(how, expectedStack) {
     extra = await IOUtils.readJSON(extraFile.path);
 
     initTestCrasherSymbols();
-    let stackTraces = extra.StackTraces;
+    let stackTraces = JSON.parse(extra.StackTraces);
     let crashingThreadIndex = stackTraces.crash_thread;
     gModules = stackTraces.modules;
     let crashingFrames = stackTraces.threads[crashingThreadIndex].frames;

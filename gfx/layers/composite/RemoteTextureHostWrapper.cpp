@@ -4,12 +4,12 @@
 
 #include "RemoteTextureHostWrapper.h"
 
+#include "mozilla/StaticPrefs_webgl.h"
 #include "mozilla/gfx/gfxVars.h"
 #include "mozilla/layers/AsyncImagePipelineManager.h"
 #include "mozilla/layers/CompositorThread.h"
 #include "mozilla/layers/RemoteTextureMap.h"
 #include "mozilla/layers/WebRenderTextureHost.h"
-#include "mozilla/StaticPrefs_webgl.h"
 #include "mozilla/webrender/RenderTextureHostWrapper.h"
 #include "mozilla/webrender/RenderThread.h"
 
@@ -109,8 +109,7 @@ void RemoteTextureHostWrapper::MaybeCreateRenderTexture() {
 
   // mRemoteTexture is also used for WebRender rendering.
   auto wrappedId = mRemoteTexture->mExternalImageId.ref();
-  RefPtr<wr::RenderTextureHost> texture =
-      new wr::RenderTextureHostWrapper(wrappedId);
+  RefPtr texture = MakeRefPtr<wr::RenderTextureHostWrapper>(wrappedId);
   wr::RenderThread::Get()->RegisterExternalImage(mExternalImageId.ref(),
                                                  texture.forget());
   mRenderTextureCreated = true;

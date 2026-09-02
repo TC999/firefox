@@ -189,6 +189,8 @@ skip-if = [
 
 ["test_bug1847329.html"]
 
+["test_bug2022026.html"]
+
 ["test_crash_on_mouse_move.html"]
 
 ["test_dynamic_reflow_root_disallowal.html"]
@@ -353,6 +355,8 @@ run-if = [
 run-if = [
   "!release_or_beta", # requires Selection.getComposedRanges to be enabled (Nightly only)
 ]
+
+["test_selection_cross_svg_use_boundary.html"]
 
 ["test_selection_doubleclick.html"]
 

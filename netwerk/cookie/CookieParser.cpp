@@ -3,14 +3,14 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "CookieParser.h"
+
 #include "CookieLogging.h"
 #include "CookieValidation.h"
-
 #include "mozilla/CheckedInt.h"
-#include "mozilla/glean/NetwerkMetrics.h"
-#include "mozilla/net/Cookie.h"
 #include "mozilla/StaticPrefs_network.h"
 #include "mozilla/TextUtils.h"
+#include "mozilla/glean/NetwerkMetrics.h"
+#include "mozilla/net/Cookie.h"
 #include "nsIConsoleReportCollector.h"
 #include "nsIScriptError.h"
 #include "nsIURI.h"
@@ -174,7 +174,7 @@ CookieParser::~CookieParser() {
 
     set-cookie    = "Set-Cookie:" cookies
     cookies       = cookie *( cookie-sep cookie )
-    cookie        = [NAME "="] VALUE *(";" cookie-av)    ; cookie NAME/VALUE must come first
+    cookie        = NAME ["=" VALUE] *(";" cookie-av)    ; cookie NAME/VALUE must come first
     NAME          = token                                ; cookie name
     VALUE         = value                                ; cookie value
     cookie-av     = token ["=" value]
@@ -330,13 +330,16 @@ void CookieParser::ParseAttributes(nsCString& aCookieHeader,
   bool equalsFound;
 
   // extract cookie <NAME> & <VALUE> (first attribute), and copy the strings.
-  // note: if there's no '=', we assume token is <VALUE>. this is required by
-  //       some sites (see bug 169091).
-  // XXX fix the parser to parse according to <VALUE> grammar for this case
+  // if there's no '=', behavior depends on the valueless_cookie pref:
+  // - when true (default): treat the token as <NAME> with an empty value,
+  //   aligning with Safari's behavior contrary to the spec.
+  // - when false: treat the token as <VALUE> with an empty name (legacy).
   GetTokenValue(cookieStart, cookieEnd, tokenString, tokenValue, equalsFound);
   if (equalsFound) {
     mCookieData.name() = tokenString;
     mCookieData.value() = tokenValue;
+  } else if (StaticPrefs::network_cookie_valueless_cookie()) {
+    mCookieData.name() = tokenString;
   } else {
     mCookieData.value() = tokenString;
   }
@@ -443,7 +446,7 @@ void CookieParser::FixPath(CookieStruct& aCookieData, nsIURI* aHostURI) {
   if (aCookieData.path().IsEmpty() || aCookieData.path().First() != '/') {
     nsAutoCString path = GetPathFromURI(aHostURI);
     if (CheckAttributeSize(aCookieData.path(), ATTRIBUTE_PATH, path)) {
-      aCookieData.path() = path;
+      aCookieData.path() = std::move(path);
     }
   }
 }
@@ -583,7 +586,7 @@ void CookieParser::FixDomain(CookieStruct& aCookieData, nsIURI* aHostURI,
 
   // no domain specified, use hostFromURI
   if (aCookieData.host().IsEmpty()) {
-    aCookieData.host() = hostFromURI;
+    aCookieData.host() = std::move(hostFromURI);
     return;
   }
 
@@ -618,7 +621,7 @@ void CookieParser::FixDomain(CookieStruct& aCookieData, nsIURI* aHostURI,
       CookieCommons::IsSubdomainOf(hostFromURI, cookieHost)) {
     // prepend a dot to indicate a domain cookie
     cookieHost.InsertLiteral(".", 0);
-    aCookieData.host() = cookieHost;
+    aCookieData.host() = std::move(cookieHost);
   }
 
   /*
@@ -673,7 +676,6 @@ void CookieParser::Parse(const nsACString& aBaseDomain, bool aRequireHostMatch,
   }
 
   FixDomain(mCookieData, mHostURI, aBaseDomain, aRequireHostMatch);
-  FixPath(mCookieData, mHostURI);
 
   // If the cookie is on the 3pcd exception list, we apply partitioned
   // attribute to the cookie.
@@ -713,6 +715,13 @@ void CookieParser::Parse(const nsACString& aBaseDomain, bool aRequireHostMatch,
   if (mValidation->Result() != nsICookieValidation::eOK) {
     return;
   }
+
+  // FixPath() MUST NOT run before the validation, because the "__Host-" prefix
+  // is about the Path attribute the server sent, not about the path the cookie
+  // ends up with. A cookie that arrives already built, as in
+  // CookieService::SetCookiesFromIPC(), has no attribute left to look at and is
+  // checked against its final path instead.
+  FixPath(mCookieData, mHostURI);
 }
 
 void CookieParser::RejectCookie(Rejection aRejection) {

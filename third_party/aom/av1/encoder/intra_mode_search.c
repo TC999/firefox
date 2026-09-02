@@ -291,7 +291,7 @@ static int rd_pick_filter_intra_sby(const AV1_COMP *const cpi, MACROBLOCK *x,
     // Collect mode stats for multiwinner mode processing
     const int txfm_search_done = 1;
     store_winner_mode_stats(
-        &cpi->common, x, mbmi, NULL, NULL, NULL, 0, NULL, bsize, this_rd,
+        cpi, x, mbmi, NULL, NULL, NULL, 0, NULL, bsize, this_rd,
         cpi->sf.winner_mode_sf.multi_winner_mode_type, txfm_search_done);
     if (this_rd < *best_rd) {
       *best_rd = this_rd;
@@ -619,8 +619,8 @@ static int64_t cfl_compute_rd(const AV1_COMP *const cpi, MACROBLOCK *x,
   mbmi->cfl_alpha_idx = (cfl_alpha << CFL_ALPHABET_SIZE_LOG2) + cfl_alpha;
   int64_t cfl_cost;
   if (fast_mode) {
-    cfl_cost =
-        intra_model_rd(cm, x, plane, plane_bsize, tx_size, /*use_hadamard=*/0);
+    cfl_cost = intra_model_rd(cm, x, plane, plane_bsize, tx_size,
+                              /*use_hadamard=*/0, cpi->do_border_pad);
   } else {
     av1_init_rd_stats(rd_stats);
     av1_txfm_rd_in_plane(x, cpi, rd_stats, INT64_MAX, 0, plane, plane_bsize,
@@ -1306,7 +1306,7 @@ int av1_handle_intra_y_mode(IntraModeSearchState *intra_search_state,
   const int mode_cost =
       mode_costs->mbmode_cost[size_group_lookup[bsize]][mode] + ref_frame_cost;
   const int skip_ctx = av1_get_skip_txfm_context(xd);
-  int known_rate = mode_cost + mode_costs->skip_mode_cost[skip_ctx][0];
+  int known_rate = mode_cost + mode_costs->skip_txfm_cost[skip_ctx][0];
   const int64_t known_rd = RDCOST(x->rdmult, known_rate, 0);
   if (known_rd > best_rd) {
     intra_search_state->skip_intra_modes = 1;
@@ -1330,7 +1330,8 @@ int av1_handle_intra_y_mode(IntraModeSearchState *intra_search_state,
   }
   const TX_SIZE tx_size = AOMMIN(TX_32X32, max_txsize_lookup[bsize]);
   const int64_t this_model_rd =
-      intra_model_rd(&cpi->common, x, 0, bsize, tx_size, /*use_hadamard=*/1);
+      intra_model_rd(&cpi->common, x, 0, bsize, tx_size, /*use_hadamard=*/1,
+                     cpi->do_border_pad);
 
   const int model_rd_index_for_pruning =
       get_model_rd_index_for_pruning(x, intra_sf);
@@ -1600,7 +1601,8 @@ int64_t av1_rd_pick_intra_sby_mode(const AV1_COMP *const cpi, MACROBLOCK *x,
 
     const TX_SIZE tx_size = AOMMIN(TX_32X32, max_txsize_lookup[bsize]);
     const int64_t this_model_rd =
-        intra_model_rd(&cpi->common, x, 0, bsize, tx_size, /*use_hadamard=*/1);
+        intra_model_rd(&cpi->common, x, 0, bsize, tx_size, /*use_hadamard=*/1,
+                       cpi->do_border_pad);
 
     const int model_rd_index_for_pruning =
         get_model_rd_index_for_pruning(x, intra_sf);
@@ -1644,7 +1646,7 @@ int64_t av1_rd_pick_intra_sby_mode(const AV1_COMP *const cpi, MACROBLOCK *x,
     // Collect mode stats for multiwinner mode processing
     const int txfm_search_done = 1;
     store_winner_mode_stats(
-        &cpi->common, x, mbmi, NULL, NULL, NULL, 0, NULL, bsize, this_rd,
+        cpi, x, mbmi, NULL, NULL, NULL, 0, NULL, bsize, this_rd,
         cpi->sf.winner_mode_sf.multi_winner_mode_type, txfm_search_done);
     if (this_rd < best_rd) {
       best_mbmi = *mbmi;

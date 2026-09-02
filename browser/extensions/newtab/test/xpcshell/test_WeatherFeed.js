@@ -10,12 +10,15 @@ ChromeUtils.defineESModuleGetters(this, {
   GeolocationTestUtils:
     "resource://testing-common/GeolocationTestUtils.sys.mjs",
   MerinoTestUtils: "resource://testing-common/MerinoTestUtils.sys.mjs",
+  TemporaryMerinoClientShim:
+    "resource://newtab/lib/TemporaryMerinoClientShim.sys.mjs",
   WeatherFeed: "resource://newtab/lib/WeatherFeed.sys.mjs",
   Region: "resource://gre/modules/Region.sys.mjs",
 });
 
 const { WEATHER_SUGGESTION } = MerinoTestUtils;
 GeolocationTestUtils.init(this);
+MerinoTestUtils.init(this);
 
 const WEATHER_ENABLED = "browser.newtabpage.activity-stream.showWeather";
 const SYS_WEATHER_ENABLED =
@@ -453,8 +456,103 @@ add_task(async function test_fetch_weather_with_geolocation() {
         locationName: undefined,
         ...expected,
         timeoutMs: 7000,
-        endpointUrl: undefined,
       });
+    } else {
+      sinon.assert.notCalled(stub);
+    }
+
+    await cleanupGeolocationStub();
+    sandbox.restore();
+  }
+});
+
+// Bug 2046143: the Nova widget shows the opt-in prompt in place of weather, so
+// the feed must not geolocate + fetch location weather before the user opts in.
+// The gate is scoped to nova.enabled so the legacy widget (which renders its
+// opt-in dialog only over a fetched suggestion) keeps fetching as before.
+add_task(async function test_fetch_weather_optin_gate() {
+  const VALID_GEOLOCATION = {
+    country_code: "DE",
+    region_code: "BE",
+    region: "Berlin",
+    city: "Berlin",
+  };
+
+  const TEST_DATA = [
+    {
+      desc: "nova + region opt-in required, not accepted -> no fetch",
+      values: {
+        "nova.enabled": true,
+        "system.showWeatherOptIn": true,
+        "weather.optInAccepted": false,
+      },
+      shouldFetch: false,
+    },
+    {
+      desc: "nova + trainhop opt-in required, not accepted -> no fetch",
+      values: {
+        "nova.enabled": true,
+        trainhopConfig: { weather: { weatherOptInEnabled: true } },
+        "weather.optInAccepted": false,
+      },
+      shouldFetch: false,
+    },
+    {
+      desc: "nova + opt-in required, accepted -> fetch",
+      values: {
+        "nova.enabled": true,
+        "system.showWeatherOptIn": true,
+        "weather.optInAccepted": true,
+      },
+      shouldFetch: true,
+    },
+    {
+      desc: "nova + non-opt-in region -> fetch",
+      values: {
+        "nova.enabled": true,
+        "system.showWeatherOptIn": false,
+        "weather.optInAccepted": false,
+      },
+      shouldFetch: true,
+    },
+    {
+      desc: "legacy (nova disabled) + opt-in required, not accepted -> still fetch",
+      values: {
+        "nova.enabled": false,
+        "system.showWeatherOptIn": true,
+        "weather.optInAccepted": false,
+      },
+      shouldFetch: true,
+    },
+  ];
+
+  for (let { desc, values, shouldFetch } of TEST_DATA) {
+    info(desc);
+
+    let sandbox = sinon.createSandbox();
+    sandbox.stub(WeatherFeed.prototype, "PersistentCache").returns({
+      set: () => {},
+      get: () => {},
+    });
+
+    let feed = new WeatherFeed();
+    sandbox.stub(feed, "isEnabled").returns(true);
+    feed.store = {
+      dispatch: sinon.spy(),
+      getState() {
+        return { Prefs: { values } };
+      },
+    };
+    feed.merino = feed.MerinoClient();
+
+    let stub = sandbox.stub(feed.merino, "fetchWeatherReport").resolves(null);
+    let cleanupGeolocationStub =
+      GeolocationTestUtils.stubGeolocation(VALID_GEOLOCATION);
+
+    await feed.onAction({ type: actionTypes.SYSTEM_TICK });
+
+    if (shouldFetch) {
+      sinon.assert.calledOnce(stub);
     } else {
       sinon.assert.notCalled(stub);
     }
@@ -759,4 +857,223 @@ add_task(async function test_fetchHelper_small_size_skips_hourly() {
   );
 
   sandbox.restore();
+});
+
+add_task(async function test_isEnabled_classic_mode() {
+  let sandbox = sinon.createSandbox();
+  sandbox.stub(WeatherFeed.prototype, "PersistentCache").returns({
+    set: () => {},
+    get: () => {},
+  });
+
+  let feed = new WeatherFeed();
+  feed.store = {
+    getState() {
+      return {
+        Prefs: {
+          values: {
+            showWeather: true,
+            "system.showWeather": true,
+            "nova.enabled": false,
+            "widgets.weather.enabled": false,
+          },
+        },
+      };
+    },
+  };
+
+  Assert.ok(
+    feed.isEnabled(),
+    "isEnabled returns true when showWeather is true in classic mode"
+  );
+
+  feed.store.getState = () => ({
+    Prefs: {
+      values: {
+        showWeather: false,
+        "system.showWeather": true,
+        "nova.enabled": false,
+        "widgets.weather.enabled": true,
+      },
+    },
+  });
+
+  Assert.ok(
+    !feed.isEnabled(),
+    "isEnabled returns false when showWeather is false in classic mode"
+  );
+
+  sandbox.restore();
+});
+
+add_task(async function test_isEnabled_nova_mode() {
+  let sandbox = sinon.createSandbox();
+  sandbox.stub(WeatherFeed.prototype, "PersistentCache").returns({
+    set: () => {},
+    get: () => {},
+  });
+
+  let feed = new WeatherFeed();
+  feed.store = {
+    getState() {
+      return {
+        Prefs: {
+          values: {
+            showWeather: true,
+            "system.showWeather": true,
+            "nova.enabled": true,
+            "widgets.weather.enabled": true,
+          },
+        },
+      };
+    },
+  };
+
+  Assert.ok(
+    feed.isEnabled(),
+    "isEnabled returns true when widgets.weather.enabled is true in Nova mode"
+  );
+
+  feed.store.getState = () => ({
+    Prefs: {
+      values: {
+        showWeather: true,
+        "system.showWeather": true,
+        "nova.enabled": true,
+        "widgets.weather.enabled": false,
+      },
+    },
+  });
+
+  Assert.ok(
+    !feed.isEnabled(),
+    "isEnabled returns false when widgets.weather.enabled is false in Nova mode"
+  );
+
+  sandbox.restore();
+});
+
+add_task(async function test_onPrefChanged_widgets_weather_enabled() {
+  let sandbox = sinon.createSandbox();
+  sandbox.stub(WeatherFeed.prototype, "PersistentCache").returns({
+    set: () => {},
+    get: () => {},
+  });
+
+  let feed = new WeatherFeed();
+  feed.store = {
+    dispatch: sinon.spy(),
+    getState() {
+      return {
+        Prefs: {
+          values: {
+            showWeather: true,
+            "system.showWeather": true,
+            "nova.enabled": true,
+            "widgets.weather.enabled": false,
+          },
+        },
+      };
+    },
+  };
+  feed.loaded = true;
+
+  const resetWeatherStub = sandbox.stub(feed, "resetWeather").resolves();
+  const loadWeatherStub = sandbox.stub(feed, "loadWeather").resolves();
+
+  await feed.onPrefChangedAction({
+    data: { name: "widgets.weather.enabled" },
+  });
+
+  Assert.ok(
+    resetWeatherStub.calledOnce,
+    "resetWeather called when widgets.weather.enabled is set to false"
+  );
+  Assert.ok(loadWeatherStub.notCalled, "loadWeather not called");
+
+  feed.loaded = false;
+  feed.store.getState = () => ({
+    Prefs: {
+      values: {
+        showWeather: true,
+        "system.showWeather": true,
+        "nova.enabled": true,
+        "widgets.weather.enabled": true,
+      },
+    },
+  });
+
+  await feed.onPrefChangedAction({
+    data: { name: "widgets.weather.enabled" },
+  });
+
+  Assert.ok(
+    loadWeatherStub.calledOnce,
+    "loadWeather called when widgets.weather.enabled is set to true"
+  );
+
+  sandbox.restore();
+});
+
+// HNT-2544: TemporaryMerinoClientShim should send Accept-Language on weather
+// requests so Merino/AccuWeather can return localized current conditions.
+add_task(async function test_shim_fetchWeatherReport_sends_accept_language() {
+  await MerinoTestUtils.server.start();
+  MerinoTestUtils.server.reset();
+
+  const client = new TemporaryMerinoClientShim("ACCEPT_LANGUAGE_REPORT");
+  // fetchWeatherReport() arms a long-lived Merino session timer. Cancel it so
+  // it doesn't outlive the test and leave a pending timer racing with shutdown.
+  registerCleanupFunction(() => client.resetSession());
+  await client.fetchWeatherReport({
+    source: "newtab",
+    city: "Yokohama",
+    region: "Kanagawa",
+    country: "JP",
+    endpointUrl: MerinoTestUtils.server.url.toString(),
+  });
+
+  Assert.equal(
+    MerinoTestUtils.server.requests.length,
+    1,
+    "fetchWeatherReport issued exactly one request"
+  );
+  Assert.ok(
+    MerinoTestUtils.server.requests[0].hasHeader("Accept-Language"),
+    "fetchWeatherReport sent an Accept-Language header"
+  );
+  Assert.equal(
+    MerinoTestUtils.server.requests[0].getHeader("Accept-Language"),
+    Services.locale.appLocaleAsBCP47,
+    "Accept-Language equals appLocaleAsBCP47"
+  );
+});
+
+add_task(async function test_shim_fetchHourlyForecasts_sends_accept_language() {
+  await MerinoTestUtils.server.start();
+  MerinoTestUtils.server.reset();
+
+  const client = new TemporaryMerinoClientShim("ACCEPT_LANGUAGE_HOURLY");
+  await client.fetchHourlyForecasts({
+    source: "newtab",
+    city: "Yokohama",
+    region: "Kanagawa",
+    country: "JP",
+    endpointUrl: MerinoTestUtils.server.url.toString(),
+  });
+
+  Assert.equal(
+    MerinoTestUtils.server.requests.length,
+    1,
+    "fetchHourlyForecasts issued exactly one request"
+  );
+  Assert.ok(
+    MerinoTestUtils.server.requests[0].hasHeader("Accept-Language"),
+    "fetchHourlyForecasts sent an Accept-Language header"
+  );
+  Assert.equal(
+    MerinoTestUtils.server.requests[0].getHeader("Accept-Language"),
+    Services.locale.appLocaleAsBCP47,
+    "Accept-Language equals appLocaleAsBCP47"
+  );
 });

@@ -6,12 +6,13 @@ const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
   ContextualIdentityService:
-    "resource://gre/modules/ContextualIdentityService.sys.mjs",
+    "moz-src:///toolkit/components/contextualidentity/ContextualIdentityService.sys.mjs",
   EventEmitter: "resource://gre/modules/EventEmitter.sys.mjs",
 
   ContextualIdentityListener:
     "chrome://remote/content/shared/listeners/ContextualIdentityListener.sys.mjs",
   generateUUID: "chrome://remote/content/shared/UUID.sys.mjs",
+  NavigableManager: "chrome://remote/content/shared/NavigableManager.sys.mjs",
   TabManager: "chrome://remote/content/shared/TabManager.sys.mjs",
 });
 
@@ -31,6 +32,8 @@ const DEFAULT_INTERNAL_ID = 0;
  * @fires UserContextManagerClass#"user-context-deleted"
  *      - {string} userContextId
  *            The UUID of the user context which was just deleted.
+ *      - {number} internalId
+ *            The internal platform id of the user context.
  */
 export class UserContextManagerClass {
   #contextualIdentityListener;
@@ -138,6 +141,24 @@ export class UserContextManagerClass {
   }
 
   /**
+   * Retrieve the user context id corresponding to the provided navigable id.
+   *
+   * @param {number} navigableId
+   *     The navigable id.
+   *
+   * @returns {string|null}
+   *     The corresponding user context id or null if the user context does not
+   *     exist.
+   */
+  getIdByNavigableId(navigableId) {
+    const context = lazy.NavigableManager.getBrowsingContextById(navigableId);
+    if (context) {
+      return this.getIdByBrowsingContext(context);
+    }
+    return null;
+  }
+
+  /**
    * Retrieve the internal id corresponding to the provided user
    * context id.
    *
@@ -231,9 +252,10 @@ export class UserContextManagerClass {
   };
 
   #onIdentityDeleted = (eventName, data) => {
-    const userContextId = this.#userContextIds.get(data.identity.userContextId);
-    this.#userContextIds.delete(data.identity.userContextId);
-    this.emit("user-context-deleted", { userContextId });
+    const internalId = data.identity.userContextId;
+    const userContextId = this.#userContextIds.get(internalId);
+    this.#userContextIds.delete(internalId);
+    this.emit("user-context-deleted", { userContextId, internalId });
   };
 
   #registerIdentity(identity) {

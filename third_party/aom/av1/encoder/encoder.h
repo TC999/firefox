@@ -620,6 +620,10 @@ typedef struct {
    * CBR mode.
    */
   int max_consec_drop_ms;
+  /*!
+   * Force to allow the usage of maximum q in vbr mode.
+   */
+  int force_max_q;
 } RateControlCfg;
 
 /*!\cond */
@@ -768,7 +772,7 @@ typedef struct {
 typedef struct {
   // Indicates the framerate of the input video.
   double init_framerate;
-  // Indicates the bit-depth of the input video.
+  // Indicates the actual bit-depth of the input source.
   unsigned int input_bit_depth;
   // Indicates the maximum number of frames to be encoded.
   unsigned int limit;
@@ -881,6 +885,12 @@ typedef struct {
    * on reconstructed frame.
    */
   bool skip_postproc_filtering;
+
+  /*!
+   * Indicates if mode and reference frame delta should be enabled during
+   * loopfiltering.
+   */
+  int mode_ref_delta_enabled;
 
   /*!
    * Controls screen content detection mode
@@ -3005,6 +3015,11 @@ typedef struct AV1_COMP {
   int skip_tpl_setup_stats;
 
   /*!
+   * Flag to indicate if RD multiplier modulation is enabled.
+   */
+  int cb_delta_rdmult_enabled;
+
+  /*!
    * Scaling factors used in the RD multiplier modulation.
    * TODO(sdeng): consider merge the following arrays.
    * tpl_rdmult_scaling_factors is a temporary buffer used to store the
@@ -3329,11 +3344,18 @@ typedef struct AV1_COMP {
   int prune_ref_frame_mask;
 
   /*!
-   * Mark the reference frames which are important (based on the temporal
+   * Mark the single reference frames which are important (based on the temporal
    * distance and quality) to prevent pruning the reference frame at block
    * level.
    */
   int keep_single_ref_frame_mask;
+
+  /*!
+   * Mark the compound reference frames which are important (based on the
+   * temporal distance and quality) to prevent pruning the reference frame pair
+   * at block level.
+   */
+  int keep_comp_ref_frame_mask;
 
   /*!
    * Loop Restoration context.
@@ -3507,11 +3529,6 @@ typedef struct AV1_COMP {
   int sb_counter;
 
   /*!
-   * Available bitstream buffer size in bytes
-   */
-  size_t available_bs_size;
-
-  /*!
    * The controller of the external partition model.
    * It is used to do partition type selection based on external models.
    */
@@ -3642,6 +3659,11 @@ typedef struct AV1_COMP {
   uint64_t *src_sad_blk_64x64;
 
   /*!
+   * Size of allocated buffer to store 64x64 SAD, in units of uint64_t.
+   */
+  int src_sad_blk_alloc_size;
+
+  /*!
    * SSE between the current frame and the reconstructed last frame
    * It is only used for CBR mode.
    * It is not used if the reference frame has a different frame size.
@@ -3715,6 +3737,11 @@ typedef struct AV1_COMP {
    * Store TPL stats before propagation
    */
   AomTplGopStats extrc_tpl_gop_stats;
+
+  /*!
+   * If true fills residual pixels outside the actual frame border
+   */
+  bool do_border_pad;
 } AV1_COMP;
 
 /*!
@@ -4131,7 +4158,7 @@ static inline int is_stat_consumption_stage(const AV1_COMP *const cpi) {
 
 // Decide whether 'dv_costs' need to be allocated/stored during the encoding.
 static inline bool av1_need_dv_costs(const AV1_COMP *const cpi) {
-  return !cpi->sf.rt_sf.use_nonrd_pick_mode &&
+  return (!cpi->sf.rt_sf.use_nonrd_pick_mode || cpi->sf.rt_sf.rt_use_intrabc) &&
          av1_allow_intrabc(&cpi->common) && !is_stat_generation_stage(cpi);
 }
 
@@ -4182,7 +4209,10 @@ static inline int allow_postencode_drop_rtc(const AV1_COMP *cpi) {
 // Function return size of frame stats buffer
 static inline int get_stats_buf_size(int num_lap_buffer, int num_lag_buffer) {
   /* if lookahead is enabled return num_lap_buffers else num_lag_buffers */
-  return (num_lap_buffer > 0 ? num_lap_buffer + 1 : num_lag_buffer);
+  if (num_lap_buffer > 0) {
+    return AOMMAX(num_lap_buffer + 1, MAX_GF_LENGTH_LAP + 1);
+  }
+  return num_lag_buffer;
 }
 
 // TODO(zoeliu): To set up cpi->oxcf.gf_cfg.enable_auto_brf
@@ -4233,6 +4263,11 @@ static inline int av1_frame_scaled(const AV1_COMMON *cm) {
   return av1_superres_scaled(cm) || av1_resize_scaled(cm);
 }
 
+static inline bool av1_encode_for_extrc(AOM_EXT_RATECTRL const *ext_rc) {
+  return ext_rc->ready && (ext_rc->funcs.rc_type & AOM_RC_QP) != 0 &&
+         ext_rc->funcs.get_encodeframe_decision != NULL;
+}
+
 // Don't allow a show_existing_frame to coincide with an error resilient
 // frame. An exception can be made for a forward keyframe since it has no
 // previous dependencies.
@@ -4250,6 +4285,18 @@ static inline int get_mi_ext_idx(const int mi_row, const int mi_col,
   const int mi_ext_row = mi_row / mi_ext_size_1d;
   const int mi_ext_col = mi_col / mi_ext_size_1d;
   return mi_ext_row * mbmi_ext_stride + mi_ext_col;
+}
+
+static inline void set_pixels_to_frame_edge(MACROBLOCK *x, int bw, int bh,
+                                            int mi_col, int mi_row, int mi_cols,
+                                            int mi_rows, int frame_width,
+                                            int frame_height,
+                                            bool do_border_pad) {
+  int total_frame_width = do_border_pad ? frame_width : (mi_cols * 4);
+  int total_frame_height = do_border_pad ? frame_height : (mi_rows * 4);
+
+  x->pix_to_bottom_edge = total_frame_height - ((mi_row + bh) << MI_SIZE_LOG2);
+  x->pix_to_right_edge = total_frame_width - ((mi_col + bw) << MI_SIZE_LOG2);
 }
 
 // Lighter version of set_offsets that only sets the mode info
@@ -4492,6 +4539,13 @@ static inline int get_lpf_opt_level(const SPEED_FEATURES *sf) {
 static inline bool is_switchable_motion_mode_allowed(bool allow_warped_motion,
                                                      bool enable_obmc) {
   return (allow_warped_motion || enable_obmc);
+}
+
+static inline int warped_motion_update_num_proj_ref(
+    const struct AV1_COMP *const cpi, const MB_MODE_INFO *const mi) {
+  return cpi->oxcf.motion_mode_cfg.allow_warped_motion && is_inter_block(mi) &&
+         !mi->skip_mode && is_motion_variation_allowed_bsize(mi->bsize) &&
+         !has_second_ref(mi);
 }
 
 #if CONFIG_AV1_TEMPORAL_DENOISING

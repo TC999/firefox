@@ -10,6 +10,7 @@
 #include "MultipartBlobImpl.h"
 #include "StreamBlobImpl.h"
 #include "StringBlobImpl.h"
+#include "js/Object.h"
 #include "mozilla/HoldDropJSObjects.h"
 #include "mozilla/dom/BlobBinding.h"
 #include "mozilla/dom/ReadableStream.h"
@@ -26,7 +27,6 @@ NS_IMPL_CYCLE_COLLECTION_CLASS(Blob)
 
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(Blob)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mGlobal)
-  NS_IMPL_CYCLE_COLLECTION_UNLINK_WEAK_REFERENCE
   NS_IMPL_CYCLE_COLLECTION_UNLINK_PRESERVED_WRAPPER
 NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 
@@ -42,7 +42,6 @@ NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(Blob)
   NS_WRAPPERCACHE_INTERFACE_MAP_ENTRY
   NS_INTERFACE_MAP_ENTRY(nsISupports)
   NS_INTERFACE_MAP_ENTRY_CONCRETE(Blob)
-  NS_INTERFACE_MAP_ENTRY(nsISupportsWeakReference)
 NS_INTERFACE_MAP_END
 
 NS_IMPL_CYCLE_COLLECTING_ADDREF(Blob)
@@ -121,6 +120,16 @@ Blob::Blob(nsIGlobalObject* aGlobal, BlobImpl* aImpl)
 }
 
 Blob::~Blob() = default;
+
+already_AddRefed<Blob> Blob::Clone() const {
+  RefPtr<Blob> clone = Create(GetParentObject(), Impl());
+  return clone.forget();
+}
+
+bool Blob::HasExpandos() const {
+  const JSObject* wrapper = GetWrapperPreserveColor();
+  return wrapper && JS::NativeObjectHasOwnProperties(wrapper);
+}
 
 bool Blob::IsFile() const { return mImpl->IsFile(); }
 
@@ -294,8 +303,8 @@ already_AddRefed<Promise> Blob::ConsumeBody(
   }
 
   return BodyConsumer::Create(mGlobal, mainThreadEventTarget, inputStream,
-                              nullptr, aConsumeType, VoidCString(),
-                              VoidString(), VoidCString(), VoidCString(),
+                              nullptr, aConsumeType, mImpl, VoidString(),
+                              VoidCString(), VoidCString(),
                               MutableBlobStorage::eOnlyInMemory, aRv);
 }
 

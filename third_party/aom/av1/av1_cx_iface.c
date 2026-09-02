@@ -227,6 +227,7 @@ struct av1_extracfg {
   // Indicates if the application of post-processing filters should be skipped
   // on reconstructed frame.
   unsigned int skip_postproc_filtering;
+  int mode_ref_delta_enabled;
   // the name of the second pass output file when passes > 2
   const char *two_pass_output;
   const char *second_pass_log;
@@ -246,6 +247,8 @@ struct av1_extracfg {
   int kf_max_pyr_height;
   int sb_qp_sweep;
   aom_screen_detection_mode screen_detection_mode;
+  unsigned int validate_hbd_input;
+  unsigned int force_max_q;
 };
 
 #if !CONFIG_REALTIME_ONLY
@@ -395,6 +398,7 @@ static const struct av1_extracfg default_extra_cfg = {
   -1,              // fwd_kf_dist
   LOOPFILTER_ALL,  // loopfilter_control
   0,               // skip_postproc_filtering
+  1,               // mode_ref_delta_enabled
   NULL,            // two_pass_output
   NULL,            // second_pass_log
   0,               // auto_intra_tools_off
@@ -402,6 +406,8 @@ static const struct av1_extracfg default_extra_cfg = {
   -1,              // kf_max_pyr_height
   0,               // sb_qp_sweep
   AOM_SCREEN_DETECTION_STANDARD,
+  1,  // validate_hbd_input
+  0,  // force_max_q
 };
 #else
 // Some settings are changed for realtime only build.
@@ -551,6 +557,7 @@ static const struct av1_extracfg default_extra_cfg = {
   -1,              // fwd_kf_dist
   LOOPFILTER_ALL,  // loopfilter_control
   0,               // skip_postproc_filtering
+  1,               // mode_ref_delta_enabled
   NULL,            // two_pass_output
   NULL,            // second_pass_log
   0,               // auto_intra_tools_off
@@ -558,6 +565,8 @@ static const struct av1_extracfg default_extra_cfg = {
   -1,              // kf_max_pyr_height
   0,               // sb_qp_sweep
   AOM_SCREEN_DETECTION_STANDARD,
+  1,  // validate_hbd_input
+  0,  // force_max_q
 };
 #endif
 
@@ -799,6 +808,8 @@ static aom_codec_err_t validate_config(aom_codec_alg_priv_t *ctx,
   RANGE_CHECK_HI(extra_cfg, cq_level, 63);
   RANGE_CHECK(cfg, g_bit_depth, AOM_BITS_8, AOM_BITS_12);
   RANGE_CHECK(cfg, g_input_bit_depth, 8, 12);
+  if (cfg->g_input_bit_depth > (unsigned int)cfg->g_bit_depth)
+    ERROR("Input bit-depth must not exceed codec bit-depth");
   RANGE_CHECK(extra_cfg, content, AOM_CONTENT_DEFAULT, AOM_CONTENT_INVALID - 1);
 
   if (cfg->g_pass >= AOM_RC_SECOND_PASS) {
@@ -839,10 +850,6 @@ static aom_codec_err_t validate_config(aom_codec_alg_priv_t *ctx,
       cfg->g_bit_depth > AOM_BITS_10) {
     ERROR("Codec bit-depth 12 not supported in profile < 2");
   }
-  if (cfg->g_profile <= (unsigned int)PROFILE_1 &&
-      cfg->g_input_bit_depth > 10) {
-    ERROR("Source bit-depth 12 not supported in profile < 2");
-  }
 
   if (cfg->rc_end_usage == AOM_Q) {
     RANGE_CHECK_HI(cfg, use_fixed_qp_offsets, 2);
@@ -858,7 +865,7 @@ static aom_codec_err_t validate_config(aom_codec_alg_priv_t *ctx,
   RANGE_CHECK(extra_cfg, transfer_characteristics, AOM_CICP_TC_BT_709,
               AOM_CICP_TC_HLG);
   RANGE_CHECK(extra_cfg, matrix_coefficients, AOM_CICP_MC_IDENTITY,
-              AOM_CICP_MC_ICTCP);
+              AOM_CICP_MC_YCGCO_RO);
   RANGE_CHECK(extra_cfg, color_range, 0, 1);
 
   /* Average corpus complexity is supported only in the case of single pass
@@ -942,6 +949,7 @@ static aom_codec_err_t validate_config(aom_codec_alg_priv_t *ctx,
   RANGE_CHECK_HI(extra_cfg, deltaq_strength, 1000);
   RANGE_CHECK_HI(extra_cfg, loopfilter_control, 3);
   RANGE_CHECK_BOOL(extra_cfg, skip_postproc_filtering);
+  RANGE_CHECK_BOOL(extra_cfg, mode_ref_delta_enabled);
   RANGE_CHECK_HI(extra_cfg, enable_cdef, 3);
   RANGE_CHECK_BOOL(extra_cfg, auto_intra_tools_off);
   RANGE_CHECK_BOOL(extra_cfg, strict_level_conformance);
@@ -998,7 +1006,9 @@ static aom_codec_err_t validate_img(aom_codec_alg_priv_t *ctx,
   // If matrix_coefficients is equal to MC_IDENTITY, it is a requirement of
   // bitstream conformance that subsampling_x is equal to 0 and subsampling_y
   // is equal to 0.
-  if (ctx->oxcf.color_cfg.matrix_coefficients == AOM_CICP_MC_IDENTITY &&
+  const aom_matrix_coefficients_t matrix_coefficients =
+      ctx->extra_cfg.matrix_coefficients;
+  if (matrix_coefficients == AOM_CICP_MC_IDENTITY &&
       (img->x_chroma_shift != 0 || img->y_chroma_shift != 0)) {
     ERROR("Subsampling must be 0 with AOM_CICP_MC_IDENTITY.");
   }
@@ -1008,14 +1018,42 @@ static aom_codec_err_t validate_img(aom_codec_alg_priv_t *ctx,
     if (img->bit_depth > 8) {
       ERROR("Only 8 bit depth images supported in tune=butteraugli mode.");
     }
-    if (img->mc != 0 && img->mc != AOM_CICP_MC_BT_709 &&
-        img->mc != AOM_CICP_MC_BT_601 && img->mc != AOM_CICP_MC_BT_470_B_G) {
+    if (matrix_coefficients != AOM_CICP_MC_IDENTITY &&
+        matrix_coefficients != AOM_CICP_MC_BT_709 &&
+        matrix_coefficients != AOM_CICP_MC_BT_601 &&
+        matrix_coefficients != AOM_CICP_MC_BT_470_B_G) {
       ERROR(
           "Only BT.709 and BT.601 matrix coefficients supported in "
           "tune=butteraugli mode. Identity matrix is treated as BT.601.");
     }
   }
 #endif
+
+#if CONFIG_AV1_HIGHBITDEPTH
+  if (ctx->extra_cfg.validate_hbd_input &&
+      (img->fmt & AOM_IMG_FMT_HIGHBITDEPTH)) {
+    const unsigned int bit_depth = ctx->cfg.g_bit_depth;
+    const int max_val = 1 << bit_depth;
+    // Note there is no high bitdepth version of NV12 defined. If one is
+    // added, `num_planes` should be 2 in that case.
+    const int num_planes = ctx->cfg.monochrome ? 1 : 3;
+    for (int plane = 0; plane < num_planes; ++plane) {
+      const unsigned short *src = (const unsigned short *)img->planes[plane];
+      if (!src) return AOM_CODEC_INVALID_PARAM;
+      const unsigned int stride = img->stride[plane] / 2;
+      const unsigned int ph = aom_img_plane_height(img, plane);
+      const unsigned int pw = aom_img_plane_width(img, plane);
+      for (unsigned int i = 0; i < ph; ++i) {
+        for (unsigned int j = 0; j < pw; ++j) {
+          if (src[j] >= max_val) {
+            ERROR("Input pixel value out of range for encoder bit depth");
+          }
+        }
+        src += stride;
+      }
+    }
+  }
+#endif  // CONFIG_AV1_HIGHBITDEPTH
 
   return AOM_CODEC_OK;
 }
@@ -1239,6 +1277,7 @@ static void set_encoder_config(AV1EncoderConfig *oxcf,
   rc_cfg->vbrbias = cfg->rc_2pass_vbr_bias_pct;
   rc_cfg->vbrmin_section = cfg->rc_2pass_vbr_minsection_pct;
   rc_cfg->vbrmax_section = cfg->rc_2pass_vbr_maxsection_pct;
+  rc_cfg->force_max_q = extra_cfg->force_max_q;
 
   // Set Toolset related configuration.
   tool_cfg->bit_depth = cfg->g_bit_depth;
@@ -1331,6 +1370,7 @@ static void set_encoder_config(AV1EncoderConfig *oxcf,
       resize_cfg->resize_mode ? 0 : extra_cfg->enable_tpl_model;
   algo_cfg->loopfilter_control = extra_cfg->loopfilter_control;
   algo_cfg->skip_postproc_filtering = extra_cfg->skip_postproc_filtering;
+  algo_cfg->mode_ref_delta_enabled = extra_cfg->mode_ref_delta_enabled;
   algo_cfg->screen_detection_mode = extra_cfg->screen_detection_mode;
 
   // Set two-pass stats configuration.
@@ -1359,20 +1399,26 @@ static void set_encoder_config(AV1EncoderConfig *oxcf,
   kf_cfg->enable_intrabc = extra_cfg->enable_intrabc;
 
   oxcf->speed = extra_cfg->cpu_used;
-  // TODO(yunqingwang, any) In REALTIME mode, 1080p performance at speed 5 & 6
-  // is quite bad. Force to use speed 7 for now. Will investigate it when we
-  // work on rd path optimization later.
-  if (oxcf->mode == REALTIME && AOMMIN(cfg->g_w, cfg->g_h) >= 1080 &&
-      oxcf->speed < 7)
-    oxcf->speed = 7;
+  if (oxcf->mode == REALTIME) {
+#if CONFIG_REALTIME_ONLY
+    oxcf->speed = AOMMAX(oxcf->speed, 5);
+#endif
+    // TODO(yunqingwang, any) In REALTIME mode, 1080p performance at speed 5 & 6
+    // is quite bad. Force to use speed 7 for now. Will investigate it when we
+    // work on rd path optimization later.
+    if (AOMMIN(cfg->g_w, cfg->g_h) >= 1080 && oxcf->speed < 7) oxcf->speed = 7;
+  }
 
-  // Now, low complexity decode mode is only supported for good-quality
-  // encoding speed 1 to 3 and for vertical videos with a resolution between
-  // 608p and 720p. This can be further modified if needed.
+  // Now, low complexity decode mode supports good-quality encoding (speed 1 to
+  // 3) for vertical videos (608p to 1080p) and horizontal videos (720p to
+  // 1080p) when sharpness is not equal to 3. This can be further modified if
+  // needed.
   const int is_low_complexity_decode_mode_supported =
       (cfg->g_usage == AOM_USAGE_GOOD_QUALITY) &&
       (oxcf->speed >= 1 && oxcf->speed <= 3) &&
-      (AOMMIN(cfg->g_w, cfg->g_h) >= 608 && AOMMIN(cfg->g_w, cfg->g_h) <= 1080);
+      (AOMMIN(cfg->g_w, cfg->g_h) >= 608 &&
+       AOMMIN(cfg->g_w, cfg->g_h) <= 1080) &&
+      (extra_cfg->sharpness != 3);
   oxcf->enable_low_complexity_decode =
       extra_cfg->enable_low_complexity_decode &&
       is_low_complexity_decode_mode_supported;
@@ -1881,6 +1927,13 @@ static aom_codec_err_t ctrl_set_enable_keyframe_filtering(
   struct av1_extracfg extra_cfg = ctx->extra_cfg;
   extra_cfg.enable_keyframe_filtering =
       CAST(AV1E_SET_ENABLE_KEYFRAME_FILTERING, args);
+  return update_extra_cfg(ctx, &extra_cfg);
+}
+
+static aom_codec_err_t ctrl_set_validate_hbd_input(aom_codec_alg_priv_t *ctx,
+                                                   va_list args) {
+  struct av1_extracfg extra_cfg = ctx->extra_cfg;
+  extra_cfg.validate_hbd_input = CAST(AOME_SET_VALIDATE_HBD_INPUT, args);
   return update_extra_cfg(ctx, &extra_cfg);
 }
 
@@ -2793,6 +2846,14 @@ static aom_codec_err_t ctrl_set_skip_postproc_filtering(
   return update_extra_cfg(ctx, &extra_cfg);
 }
 
+static aom_codec_err_t ctrl_set_mode_ref_delta_enabled(
+    aom_codec_alg_priv_t *ctx, va_list args) {
+  struct av1_extracfg extra_cfg = ctx->extra_cfg;
+  extra_cfg.mode_ref_delta_enabled =
+      CAST(AV1E_SET_MODE_REF_DELTA_ENABLED, args);
+  return update_extra_cfg(ctx, &extra_cfg);
+}
+
 static aom_codec_err_t ctrl_set_rtc_external_rc(aom_codec_alg_priv_t *ctx,
                                                 va_list args) {
   ctx->ppi->cpi->rc.rtc_external_ratectrl =
@@ -3277,15 +3338,21 @@ static aom_codec_err_t encoder_encode(aom_codec_alg_priv_t *ctx,
       //
       // For pseudo random input, the compressed frame size is seen to exceed
       // the uncompressed frame size, but is less than 2 times the uncompressed
-      // frame size. Hence the size of the buffer is chosen as 2 times the
-      // uncompressed frame size.
-      int multiplier = 8;
+      // frame size. https://issues.oss-fuzz.com/issues/514006304 further shows
+      // that multithreaded bitstream packing may need more than 2 times the
+      // uncompressed frame size. Hence the size of the buffer is chosen as 2.5
+      // times the uncompressed frame size.
+      aom_rational_t multiplier;
+      multiplier.num = 8;
+      multiplier.den = 1;
       if (ppi->cpi->oxcf.kf_cfg.key_freq_max == 0 &&
-          !ppi->cpi->oxcf.kf_cfg.fwd_kf_enabled)
-        multiplier = 2;
-      if (uncompressed_frame_sz > SIZE_MAX / multiplier)
+          !ppi->cpi->oxcf.kf_cfg.fwd_kf_enabled) {
+        multiplier.num = 5;
+        multiplier.den = 2;
+      }
+      if (uncompressed_frame_sz > SIZE_MAX / multiplier.num)
         return AOM_CODEC_MEM_ERROR;
-      size_t data_sz = uncompressed_frame_sz * multiplier;
+      size_t data_sz = uncompressed_frame_sz * multiplier.num / multiplier.den;
       if (data_sz < kMinCompressedSize) data_sz = kMinCompressedSize;
       if (ctx->cx_data == NULL || ctx->cx_data_sz < data_sz) {
         ctx->cx_data_sz = data_sz;
@@ -3329,8 +3396,6 @@ static aom_codec_err_t encoder_encode(aom_codec_alg_priv_t *ctx,
 
   if (ppi->use_svc && ppi->cpi->svc.use_flexible_mode == 0 && flags == 0)
     av1_set_svc_fixed_mode(ppi->cpi);
-
-  ppi->b_freeze_internal_state = flags & AOM_EFLAG_FREEZE_INTERNAL_STATE;
 
   // Note(yunqing): While applying encoding flags, always start from enabling
   // all, and then modifying according to the flags. Previous frame's flags are
@@ -3387,6 +3452,9 @@ static aom_codec_err_t encoder_encode(aom_codec_alg_priv_t *ctx,
     ppi->b_calculate_psnr = (ctx->base.init_flags & AOM_CODEC_USE_PSNR) ||
                             (flags & AOM_EFLAG_CALCULATE_PSNR);
 #endif  // CONFIG_INTERNAL_STATS
+
+    ppi->b_freeze_internal_state =
+        (flags & AOM_EFLAG_FREEZE_INTERNAL_STATE) != 0;
 
     if (img != NULL) {
       if (!ctx->pts_offset_initialized) {
@@ -3999,7 +4067,8 @@ static aom_codec_err_t ctrl_set_scale_mode(aom_codec_alg_priv_t *ctx,
 static aom_codec_err_t ctrl_set_spatial_layer_id(aom_codec_alg_priv_t *ctx,
                                                  va_list args) {
   const int spatial_layer_id = va_arg(args, int);
-  if (spatial_layer_id >= MAX_NUM_SPATIAL_LAYERS)
+  if (spatial_layer_id < 0 ||
+      spatial_layer_id >= (int)ctx->ppi->number_spatial_layers)
     return AOM_CODEC_INVALID_PARAM;
   ctx->ppi->cpi->common.spatial_layer_id = spatial_layer_id;
   return AOM_CODEC_OK;
@@ -4029,11 +4098,24 @@ static aom_codec_err_t ctrl_set_number_spatial_layers(aom_codec_alg_priv_t *ctx,
 static aom_codec_err_t ctrl_set_layer_id(aom_codec_alg_priv_t *ctx,
                                          va_list args) {
   aom_svc_layer_id_t *const data = va_arg(args, aom_svc_layer_id_t *);
+  if (data->spatial_layer_id < 0 || data->temporal_layer_id < 0 ||
+      data->spatial_layer_id >= (int)ctx->ppi->number_spatial_layers ||
+      data->temporal_layer_id >= (int)ctx->ppi->number_temporal_layers) {
+    return AOM_CODEC_INVALID_PARAM;
+  }
   ctx->ppi->cpi->common.spatial_layer_id = data->spatial_layer_id;
   ctx->ppi->cpi->common.temporal_layer_id = data->temporal_layer_id;
   ctx->ppi->cpi->svc.spatial_layer_id = data->spatial_layer_id;
   ctx->ppi->cpi->svc.temporal_layer_id = data->temporal_layer_id;
   return AOM_CODEC_OK;
+}
+
+static void disable_svc(AV1_PRIMARY *ppi, AV1_COMP *cpi) {
+  cpi->svc.number_spatial_layers = 1;
+  cpi->svc.number_temporal_layers = 1;
+  ppi->number_spatial_layers = 1;
+  ppi->number_temporal_layers = 1;
+  ppi->use_svc = 0;
 }
 
 static aom_codec_err_t ctrl_set_svc_params(aom_codec_alg_priv_t *ctx,
@@ -4069,6 +4151,7 @@ static aom_codec_err_t ctrl_set_svc_params(aom_codec_alg_priv_t *ctx,
         ppi->number_spatial_layers * ppi->number_temporal_layers - 1;
     ctx->next_frame_flags |= AOM_EFLAG_FORCE_KF;
     av1_set_svc_seq_params(ppi);
+    av1_free_svc_cyclic_refresh(cpi);
     // Check for valid values for the spatial/temporal_layer_id here, since
     // there has been a dynamic change in the number_spatial/temporal_layers,
     // and if the ctrl_set_layer_id is not used after this call, the
@@ -4094,6 +4177,15 @@ static aom_codec_err_t ctrl_set_svc_params(aom_codec_alg_priv_t *ctx,
       if (params->max_quantizers[layer] > 63 ||
           params->min_quantizers[layer] < 0 ||
           params->min_quantizers[layer] > params->max_quantizers[layer]) {
+        disable_svc(ppi, cpi);
+        return AOM_CODEC_INVALID_PARAM;
+      }
+    }
+    for (sl = 0; sl < ppi->number_spatial_layers; ++sl) {
+      // Check scaling factors: spatial scaling (scaling_factor_num[]/den[]) is
+      // always to a lower resolution, so den must be >= num.
+      if (params->scaling_factor_den[sl] < params->scaling_factor_num[sl]) {
+        disable_svc(ppi, cpi);
         return AOM_CODEC_INVALID_PARAM;
       }
     }
@@ -4335,16 +4427,9 @@ static aom_codec_err_t encoder_set_option(aom_codec_alg_priv_t *ctx,
   size_t len = strlen(name) + strlen(value) + 4;
   char *const err_string = ctx->ppi->error.detail;
 
-#if __STDC_VERSION__ >= 201112L
-  // We use the keyword _Static_assert because clang-cl does not allow the
-  // convenience macro static_assert to be used in function scope. See
-  // https://bugs.llvm.org/show_bug.cgi?id=48904.
-  _Static_assert(sizeof(ctx->ppi->error.detail) >= ARG_ERR_MSG_MAX_LEN,
-                 "The size of the err_msg buffer for arg_match_helper must be "
-                 "at least ARG_ERR_MSG_MAX_LEN");
-#else
-  assert(sizeof(ctx->ppi->error.detail) >= ARG_ERR_MSG_MAX_LEN);
-#endif
+  static_assert(sizeof(ctx->ppi->error.detail) >= ARG_ERR_MSG_MAX_LEN,
+                "The size of the err_msg buffer for arg_match_helper must be "
+                "at least ARG_ERR_MSG_MAX_LEN");
 
   argv[0] = aom_malloc(len * sizeof(argv[1][0]));
   if (!argv[0]) return AOM_CODEC_MEM_ERROR;
@@ -4803,6 +4888,12 @@ static aom_codec_err_t encoder_set_option(aom_codec_alg_priv_t *ctx,
   } else if (arg_match_helper(&arg, &g_av1_codec_arg_defs.screen_detection_mode,
                               argv, err_string)) {
     extra_cfg.screen_detection_mode = arg_parse_int_helper(&arg, err_string);
+  } else if (arg_match_helper(&arg, &g_av1_codec_arg_defs.validate_hbd_input,
+                              argv, err_string)) {
+    extra_cfg.validate_hbd_input = arg_parse_int_helper(&arg, err_string);
+  } else if (arg_match_helper(&arg, &g_av1_codec_arg_defs.force_max_q, argv,
+                              err_string)) {
+    extra_cfg.force_max_q = arg_parse_uint_helper(&arg, err_string);
   } else {
     match = 0;
     snprintf(err_string, ARG_ERR_MSG_MAX_LEN, "Cannot find aom option %s",
@@ -5011,6 +5102,7 @@ static aom_codec_ctrl_fn_map_t encoder_ctrl_maps[] = {
   { AV1E_SET_ENABLE_TX_SIZE_SEARCH, ctrl_set_enable_tx_size_search },
   { AV1E_SET_LOOPFILTER_CONTROL, ctrl_set_loopfilter_control },
   { AV1E_SET_SKIP_POSTPROC_FILTERING, ctrl_set_skip_postproc_filtering },
+  { AV1E_SET_MODE_REF_DELTA_ENABLED, ctrl_set_mode_ref_delta_enabled },
   { AV1E_SET_AUTO_INTRA_TOOLS_OFF, ctrl_set_auto_intra_tools_off },
   { AV1E_SET_RTC_EXTERNAL_RC, ctrl_set_rtc_external_rc },
   { AV1E_SET_QUANTIZER_ONE_PASS, ctrl_set_quantizer_one_pass },
@@ -5027,6 +5119,7 @@ static aom_codec_ctrl_fn_map_t encoder_ctrl_maps[] = {
     ctrl_set_screen_content_detection_mode },
   { AV1E_SET_ENABLE_ADAPTIVE_SHARPNESS, ctrl_set_enable_adaptive_sharpness },
   { AV1E_SET_EXTERNAL_RATE_CONTROL, ctrl_set_external_rate_control },
+  { AOME_SET_VALIDATE_HBD_INPUT, ctrl_set_validate_hbd_input },
 
   // Getters
   { AOME_GET_LAST_QUANTIZER, ctrl_get_quantizer },

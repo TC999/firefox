@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -20,16 +19,18 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.PreviewLightDark
 import androidx.compose.ui.unit.dp
+import mozilla.components.ui.icons.R as iconsR
 import org.mozilla.fenix.R
 import org.mozilla.fenix.theme.FirefoxTheme
-import mozilla.components.ui.icons.R as iconsR
 
-private val searchBarShape = RoundedCornerShape(28.dp)
+private val searchBarShape: Shape
+    @Composable get() = MaterialTheme.shapes.extraLarge
 private val IconBoxSize = 48.dp
 
 /**
@@ -44,17 +45,18 @@ internal fun SearchBar(
     onClick: () -> Unit,
 ) {
     Row(
-        modifier = modifier
-            .border(
-                width = 1.dp,
-                color = MaterialTheme.colorScheme.outlineVariant,
-                shape = searchBarShape,
-            )
-            .clip(shape = searchBarShape)
-            .background(color = MaterialTheme.colorScheme.surfaceContainerLowest)
-            .clickable { onClick() }
-            .fillMaxWidth()
-            .padding(all = FirefoxTheme.layout.space.static50),
+        modifier =
+            modifier
+                .border(
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                    shape = searchBarShape,
+                )
+                .clip(shape = searchBarShape)
+                .background(color = MaterialTheme.colorScheme.surfaceContainerLowest)
+                .clickable { onClick() }
+                .fillMaxWidth()
+                .padding(all = FirefoxTheme.layout.space.static50),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
@@ -71,9 +73,7 @@ internal fun SearchBar(
         Text(
             text = stringResource(R.string.search_hint),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier
-                .padding(horizontal = FirefoxTheme.layout.space.static50)
-                .weight(1f),
+            modifier = Modifier.padding(horizontal = FirefoxTheme.layout.space.static50).weight(1f),
             overflow = TextOverflow.Ellipsis,
             maxLines = 1,
             style = FirefoxTheme.typography.body1,
@@ -86,9 +86,9 @@ internal fun SearchBar(
 private fun SearchBarPreview() {
     FirefoxTheme {
         SearchBar(
-            modifier = Modifier
-                .background(color = MaterialTheme.colorScheme.surface)
-                .padding(all = FirefoxTheme.layout.space.static200),
+            modifier =
+                Modifier.background(color = MaterialTheme.colorScheme.surface)
+                    .padding(all = FirefoxTheme.layout.space.static200),
             onClick = {},
         )
     }

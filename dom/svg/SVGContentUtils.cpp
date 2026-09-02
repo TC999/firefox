@@ -6,6 +6,8 @@
 // This is also necessary to ensure our definition of M_SQRT1_2 is picked up
 #include "SVGContentUtils.h"
 
+#include <numbers>
+
 // Keep others in (case-insensitive) order:
 #include "SVGAnimatedPreserveAspectRatio.h"
 #include "SVGGeometryProperty.h"
@@ -18,6 +20,7 @@
 #include "mozilla/ComputedStyle.h"
 #include "mozilla/PresShell.h"
 #include "mozilla/RefPtr.h"
+#include "mozilla/ReflowInput.h"
 #include "mozilla/SVGContextPaint.h"
 #include "mozilla/SVGUtils.h"
 #include "mozilla/TextUtils.h"
@@ -371,8 +374,8 @@ float SVGContentUtils::GetLineHeight(const Element* aElement) {
         if (!context) {
           return;
         }
-        const auto lineHeightAu = ReflowInput::CalcLineHeight(
-            *style, context, aElement, NS_UNCONSTRAINEDSIZE, 1.0f);
+        const auto lineHeightAu =
+            ReflowInput::CalcLineHeight(*style, context, aElement, 1.0f);
         result = CSSPixel::FromAppUnits(lineHeightAu);
       });
 
@@ -558,7 +561,8 @@ static gfx::Matrix GetCTMInternal(SVGElement* aElement, CTMType aCTMType,
   }
   auto transformToAncestor = nsLayoutUtils::GetTransformToAncestor(
       RelativeTo{parentFrame, ViewportType::Layout},
-      RelativeTo{ancestorFrame, ViewportType::Layout}, nsIFrame::IN_CSS_UNITS);
+      RelativeTo{ancestorFrame, ViewportType::Layout},
+      TransformMatrixFlag::InCSSUnits);
   gfx::Matrix result2d;
   if (transformToAncestor.CanDraw2D(&result2d)) {
     tm = tm * result2d;
@@ -586,9 +590,9 @@ gfx::Matrix SVGContentUtils::GetScreenCTM(SVGElement* aElement) {
   return GetCTMInternal(aElement, CTMType::Screen, false);
 }
 
-void SVGContentUtils::RectilinearGetStrokeBounds(
+Rect SVGContentUtils::RectilinearGetStrokeBounds(
     const Rect& aRect, const Matrix& aToBoundsSpace,
-    const Matrix& aToNonScalingStrokeSpace, float aStrokeWidth, Rect* aBounds) {
+    const Matrix& aToNonScalingStrokeSpace, float aStrokeWidth) {
   MOZ_ASSERT(aToBoundsSpace.IsRectilinear(),
              "aToBoundsSpace must be rectilinear");
   MOZ_ASSERT(aToNonScalingStrokeSpace.IsRectilinear(),
@@ -597,7 +601,7 @@ void SVGContentUtils::RectilinearGetStrokeBounds(
   Matrix nonScalingToSource = aToNonScalingStrokeSpace.Inverse();
   Matrix nonScalingToBounds = nonScalingToSource * aToBoundsSpace;
 
-  *aBounds = aToBoundsSpace.TransformBounds(aRect);
+  Rect bounds = aToBoundsSpace.TransformBounds(aRect);
 
   // Compute the amounts dx and dy that nonScalingToBounds scales a half-width
   // stroke in the x and y directions, and then inflate aBounds by those amounts
@@ -618,7 +622,8 @@ void SVGContentUtils::RectilinearGetStrokeBounds(
     dy = (aStrokeWidth / 2.0f) * std::abs(nonScalingToBounds._12);
   }
 
-  aBounds->Inflate(dx, dy);
+  bounds.Inflate(dx, dy);
+  return bounds;
 }
 
 double SVGContentUtils::ComputeNormalizedHypotenuse(double aWidth,
@@ -650,7 +655,7 @@ float SVGContentUtils::AngleBisect(float a1, float a2) {
   float r = a1 + delta / 2;
   if (delta >= M_PI) {
     /* the arc from a2 to a1 is smaller, so use the ray on that side */
-    r += static_cast<float>(M_PI);
+    r += std::numbers::pi_v<float>;
   }
   return r;
 }

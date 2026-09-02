@@ -3,7 +3,7 @@
  * You can obtain one at http://mozilla.org/MPL/2.0/.
  *
  * The origin of this IDL file is
- * http://dev.w3.org/2011/webrtc/editor/webrtc.html#idl-def-RTCConfiguration
+ * https://w3c.github.io/webrtc-pc/#rtcconfiguration-dictionary
  */
 
 enum RTCIceCredentialType {
@@ -29,10 +29,16 @@ enum RTCBundlePolicy {
     "max-bundle"
 };
 
+enum RTCRtcpMuxPolicy {
+    "require",
+    "negotiate"
+};
+
 dictionary RTCConfiguration {
     sequence<RTCIceServer> iceServers = [];
     RTCIceTransportPolicy  iceTransportPolicy = "all";
     RTCBundlePolicy bundlePolicy = "balanced";
+    RTCRtcpMuxPolicy rtcpMuxPolicy = "require";
     DOMString? peerIdentity = null;
     sequence<RTCCertificate> certificates = [];
 
@@ -40,4 +46,11 @@ dictionary RTCConfiguration {
     // Uses DOMString over enum as a trade-off between type errors and safety.
     // TODO: Remove once sdpSemantics usage drops to zero (bug 1632243).
     DOMString sdpSemantics;
+};
+
+// Extensions defined in
+// https://w3c.github.io/webrtc-extensions/
+partial dictionary RTCConfiguration {
+    // https://w3c.github.io/webrtc-extensions/#always-negotiating-datachannels-configuration
+    boolean alwaysNegotiateDataChannels = false;
 };

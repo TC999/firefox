@@ -321,6 +321,13 @@ static void tf_motion_search(AV1_COMP *cpi, MACROBLOCK *mb,
   // 32x32 block motion search results.
   int midblock_mses[4] = { INT_MAX, INT_MAX, INT_MAX, INT_MAX };
   MV midblock_mvs[4] = { kZeroMv, kZeroMv, kZeroMv, kZeroMv };
+  av1_set_mv_row_limits(&cpi->common.mi_params, &mb->mv_limits,
+                        (mb_row << mi_size_high_log2[block_size]),
+                        (mb_height >> MI_SIZE_LOG2),
+                        cpi->oxcf.border_in_pixels);
+  av1_set_mv_col_limits(&cpi->common.mi_params, &mb->mv_limits,
+                        (mb_col << mi_size_wide_log2[block_size]),
+                        (mb_width >> MI_SIZE_LOG2), cpi->oxcf.border_in_pixels);
 
   const int q = get_q(cpi);
 
@@ -1048,8 +1055,6 @@ void av1_tf_do_filtering_row(AV1_COMP *cpi, ThreadData *td, int mb_row) {
   TemporalFilterData *const tf_data = &td->tf_data;
   const int mb_height = block_size_high[block_size];
   const int mb_width = block_size_wide[block_size];
-  const int mi_h = mi_size_high_log2[block_size];
-  const int mi_w = mi_size_wide_log2[block_size];
   const int num_planes = av1_num_planes(&cpi->common);
   const int weight_calc_level_in_tf = cpi->sf.hl_sf.weight_calc_level_in_tf;
   uint32_t *accum = tf_data->accum;
@@ -1061,6 +1066,7 @@ void av1_tf_do_filtering_row(AV1_COMP *cpi, ThreadData *td, int mb_row) {
   const GF_GROUP *gf_group = &cpi->ppi->gf_group;
   const FRAME_TYPE frame_type = gf_group->frame_type[cpi->gf_frame_index];
 
+#if CONFIG_AV1_HIGHBITDEPTH
   // Determine whether the video is with `YUV 4:2:2` format, since the avx2/sse2
   // function only supports square block size. We will use C function instead
   // for videos with `YUV 4:2:2` format.
@@ -1071,16 +1077,11 @@ void av1_tf_do_filtering_row(AV1_COMP *cpi, ThreadData *td, int mb_row) {
       break;
     }
   }
+#endif
 
   // Do filtering.
   FRAME_DIFF *diff = &td->tf_data.diff;
-  av1_set_mv_row_limits(&cpi->common.mi_params, &mb->mv_limits,
-                        (mb_row << mi_h), (mb_height >> MI_SIZE_LOG2),
-                        cpi->oxcf.border_in_pixels);
   for (int mb_col = 0; mb_col < tf_ctx->mb_cols; mb_col++) {
-    av1_set_mv_col_limits(&cpi->common.mi_params, &mb->mv_limits,
-                          (mb_col << mi_w), (mb_width >> MI_SIZE_LOG2),
-                          cpi->oxcf.border_in_pixels);
     memset(accum, 0, num_pels * sizeof(accum[0]));
     memset(count, 0, num_pels * sizeof(count[0]));
     MV ref_mv = kZeroMv;  // Reference motion vector passed down along frames.
@@ -1156,7 +1157,7 @@ void av1_tf_do_filtering_row(AV1_COMP *cpi, ThreadData *td, int mb_row) {
         // only supports 32x32 block size and 5x5 filtering window.
         if (is_frame_high_bitdepth(frame_to_filter)) {  // for high bit-depth
 #if CONFIG_AV1_HIGHBITDEPTH
-          if (!is_yuv422_format && TF_BLOCK_SIZE == BLOCK_32X32 &&
+          if (!is_yuv422_format && TF_BLOCK_SIZE == BLOCK_64X64 &&
               TF_WINDOW_LENGTH == 5) {
             av1_highbd_apply_temporal_filter(
                 frame_to_filter, mbd, block_size, mb_row, mb_col, num_planes,
@@ -1173,8 +1174,7 @@ void av1_tf_do_filtering_row(AV1_COMP *cpi, ThreadData *td, int mb_row) {
 #endif  // CONFIG_AV1_HIGHBITDEPTH
         } else {
           // for 8-bit
-          if (!is_yuv422_format && TF_BLOCK_SIZE == BLOCK_64X64 &&
-              TF_WINDOW_LENGTH == 5) {
+          if (TF_BLOCK_SIZE == BLOCK_64X64 && TF_WINDOW_LENGTH == 5) {
             av1_apply_temporal_filter(
                 frame_to_filter, mbd, block_size, mb_row, mb_col, num_planes,
                 noise_levels, subblock_mvs, subblock_mses, q_factor,

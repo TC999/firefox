@@ -4,52 +4,15 @@
 
 import { WEATHER_OPTIN_REGIONS } from "./ActivityStream.sys.mjs";
 
-// eslint-disable-next-line mozilla/use-static-import
-const { AppConstants } = ChromeUtils.importESModule(
-  "resource://gre/modules/AppConstants.sys.mjs"
-);
-
 const lazy = {};
 ChromeUtils.defineESModuleGetters(lazy, {
   clearTimeout: "resource://gre/modules/Timer.sys.mjs",
   setTimeout: "resource://gre/modules/Timer.sys.mjs",
+  GeolocationUtils:
+    "moz-src:///browser/components/urlbar/private/GeolocationUtils.sys.mjs",
+  MerinoClient: "moz-src:///browser/components/urlbar/MerinoClient.sys.mjs",
   PersistentCache: "resource://newtab/lib/PersistentCache.sys.mjs",
   Region: "resource://gre/modules/Region.sys.mjs",
-});
-
-ChromeUtils.defineLazyGetter(lazy, "MerinoClient", () => {
-  // @backward-compat { version 151 }
-  // Bug 2018111 - TemporaryMerinoClientShim backports fetchWeatherReport() and
-  // fetchHourlyForecasts() with endpoint URL support. Remove this block
-  // and use MerinoClient directly once Firefox 151 ships to release.
-  if (Services.vc.compare(AppConstants.MOZ_APP_VERSION, "151.0a1") < 0) {
-    return ChromeUtils.importESModule(
-      "resource://newtab/lib/TemporaryMerinoClientShim.sys.mjs"
-    ).TemporaryMerinoClientShim;
-  }
-  try {
-    return ChromeUtils.importESModule(
-      "moz-src:///browser/components/urlbar/MerinoClient.sys.mjs"
-    ).MerinoClient;
-  } catch {
-    // Fallback to URI format prior to FF 144.
-    return ChromeUtils.importESModule(
-      "resource:///modules/MerinoClient.sys.mjs"
-    ).MerinoClient;
-  }
-});
-
-ChromeUtils.defineLazyGetter(lazy, "GeolocationUtils", () => {
-  try {
-    return ChromeUtils.importESModule(
-      "moz-src:///browser/components/urlbar/private/GeolocationUtils.sys.mjs"
-    ).GeolocationUtils;
-  } catch {
-    // Fallback to URI format prior to FF 144.
-    return ChromeUtils.importESModule(
-      "resource:///modules/urlbar/private/GeolocationUtils.sys.mjs"
-    ).GeolocationUtils;
-  }
 });
 
 import {
@@ -66,6 +29,8 @@ const MERINO_CLIENT_KEY = "HNT_WEATHER_FEED";
 const PREF_WEATHER_QUERY = "weather.query";
 const PREF_SHOW_WEATHER = "showWeather";
 const PREF_SYSTEM_SHOW_WEATHER = "system.showWeather";
+const PREF_NOVA_ENABLED = "nova.enabled";
+const PREF_WIDGETS_WEATHER_ENABLED = "widgets.weather.enabled";
 
 /**
  * A feature that periodically fetches weather suggestions from Merino for HNT.
@@ -103,7 +68,10 @@ export class WeatherFeed {
 
   isEnabled() {
     const { values } = this.store.getState().Prefs;
-    const userValue = values[PREF_SHOW_WEATHER];
+    // @nova-cleanup(remove-conditional): Remove PREF_NOVA_ENABLED conditional; replace userValue with values[PREF_WIDGETS_WEATHER_ENABLED] directly
+    const userValue = values[PREF_NOVA_ENABLED]
+      ? values[PREF_WIDGETS_WEATHER_ENABLED]
+      : values[PREF_SHOW_WEATHER];
     const systemValue = values[PREF_SYSTEM_SHOW_WEATHER];
     const experimentValue = values.trainhopConfig?.weather?.enabled || false;
     return userValue && (systemValue || experimentValue);
@@ -239,7 +207,9 @@ export class WeatherFeed {
       case PREF_WEATHER_QUERY:
         await this.fetch();
         break;
+      // @nova-cleanup(remove-conditional): Remove case PREF_SHOW_WEATHER; keep only PREF_WIDGETS_WEATHER_ENABLED
       case PREF_SHOW_WEATHER:
+      case PREF_WIDGETS_WEATHER_ENABLED:
       case PREF_SYSTEM_SHOW_WEATHER:
       case "trainhopConfig": {
         const enabled = this.isEnabled();
@@ -367,6 +337,22 @@ export class WeatherFeed {
         let country;
         let region;
         if (!locationName) {
+          const { values: prefValues } = this.store.getState().Prefs;
+          const optInRequired =
+            prefValues["system.showWeatherOptIn"] ||
+            prefValues.trainhopConfig?.weather?.weatherOptInEnabled;
+          // @nova-cleanup(remove-conditional): Remove the PREF_NOVA_ENABLED guard
+          // once the legacy widget is gone; the opt-in fetch gate should then apply
+          // unconditionally. The guard exists because the legacy widget renders its
+          // opt-in dialog only over a fetched suggestion, so gating its fetch would
+          // suppress the dialog.
+          if (
+            prefValues[PREF_NOVA_ENABLED] &&
+            optInRequired &&
+            !prefValues["weather.optInAccepted"]
+          ) {
+            return { suggestions: [], hourlyForecasts: [] };
+          }
           const geolocation = await lazy.GeolocationUtils.geolocation();
           if (!geolocation) {
             return { suggestions: [], hourlyForecasts: [] };
@@ -398,17 +384,6 @@ export class WeatherFeed {
             values["widgets.system.weather.enabled"] ||
             values.trainhopConfig?.widgets?.weatherEnabled);
 
-        // @backward-compat { version 151 }
-        // Read endpoint URLs from trainhopConfig or ActivityStream prefs so
-        // they can be configured without a tree change. Remove once shipped;
-        // MerinoClient will have the endpoints defined via UrlbarPrefs.
-        const reportEndpointUrl =
-          values.trainhopConfig?.weather?.reportEndpoint ||
-          values["weather.reportEndpoint"];
-        const hourlyEndpointUrl =
-          values.trainhopConfig?.weather?.hourlyEndpoint ||
-          values["weather.hourlyEndpoint"];
-
         const [reportResult, hourlyResult] = await Promise.all([
           this.merino.fetchWeatherReport({
             source: "newtab",
@@ -417,7 +392,6 @@ export class WeatherFeed {
             region,
             country,
             timeoutMs: 7000,
-            endpointUrl: reportEndpointUrl,
           }),
           weatherForecastWidgetEnabled
             ? // When locationName is set, city/region/country are unresolved
@@ -431,7 +405,6 @@ export class WeatherFeed {
                   city: city || this.locationData?.city,
                   region: region || this.locationData?.adminName?.id,
                   country: country || this.locationData?.country?.id,
-                  endpointUrl: hourlyEndpointUrl,
                 })
                 .catch(() => null)
             : Promise.resolve(null),
@@ -504,7 +477,7 @@ export class WeatherFeed {
  * This makes it easier for us to write automated tests that simulate responses.
  */
 WeatherFeed.prototype.MerinoClient = name => {
-  return new lazy.MerinoClient(name, { allowOhttp: true });
+  return new lazy.MerinoClient(name, { allowOhttp: false });
 };
 WeatherFeed.prototype.PersistentCache = (...args) => {
   return new lazy.PersistentCache(...args);

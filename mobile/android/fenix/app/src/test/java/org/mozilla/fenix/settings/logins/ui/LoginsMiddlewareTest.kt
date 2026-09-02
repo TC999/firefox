@@ -26,18 +26,20 @@ class LoginsMiddlewareTest {
     private lateinit var loginsStorage: LoginsStorage
     private lateinit var clipboardManager: ClipboardManager
     private lateinit var navController: NavController
+    private lateinit var navigateToImportDialog: () -> Unit
     private lateinit var exitLogins: () -> Unit
     private lateinit var openTab: (String, Boolean) -> Unit
     private lateinit var persistLoginsSortOrder: suspend (LoginsSortOrder) -> Unit
 
-    private val loginList = List(5) {
-        Login(
-            guid = "guid$it",
-            origin = "origin$it",
-            username = "username$it",
-            password = "password$it",
-        )
-    }
+    private val loginList =
+        List(5) {
+            Login(
+                guid = "guid$it",
+                origin = "origin$it",
+                username = "username$it",
+                password = "password$it",
+            )
+        }
 
     private val testDispatcher = StandardTestDispatcher()
 
@@ -46,9 +48,10 @@ class LoginsMiddlewareTest {
         loginsStorage = mockk()
         clipboardManager = mockk(relaxed = true)
         navController = mockk(relaxed = true)
-        exitLogins = { }
+        navigateToImportDialog = {}
+        exitLogins = {}
         openTab = { _, _ -> }
-        persistLoginsSortOrder = { }
+        persistLoginsSortOrder = {}
     }
 
     @Test
@@ -87,8 +90,8 @@ class LoginsMiddlewareTest {
                         username = "u1",
                         password = "p1",
                         timeLastUsed = 0L,
-                    ),
-                ),
+                    )
+                )
             )
             verify { navController.navigate(LoginsDestinations.LOGIN_DETAILS) }
         }
@@ -108,8 +111,8 @@ class LoginsMiddlewareTest {
                         username = "u1",
                         password = "p1",
                         timeLastUsed = 0L,
-                    ),
-                ),
+                    )
+                )
             )
 
             verify { navController.navigate(LoginsDestinations.EDIT_LOGIN) }
@@ -166,20 +169,21 @@ class LoginsMiddlewareTest {
             assertTrue(capturedNewTab)
         }
 
-    private fun buildMiddleware() = LoginsMiddleware(
-        loginsStorage = loginsStorage,
-        getNavController = { navController },
-        exitLogins = exitLogins,
-        openTab = openTab,
-        ioDispatcher = testDispatcher,
-        persistLoginsSortOrder = persistLoginsSortOrder,
-        clipboardManager = clipboardManager,
-    )
+    private fun buildMiddleware() =
+        LoginsMiddleware(
+            loginsStorage = loginsStorage,
+            getNavController = { navController },
+            navigateToImportDialog = navigateToImportDialog,
+            exitLogins = exitLogins,
+            openTab = openTab,
+            ioDispatcher = testDispatcher,
+            persistLoginsSortOrder = persistLoginsSortOrder,
+            clipboardManager = clipboardManager,
+        )
 
-    private fun LoginsMiddleware.makeStore(
-        initialState: LoginsState = LoginsState.default,
-    ) = LoginsStore(
-        initialState = initialState,
-        middleware = listOf(this),
-    )
+    private fun LoginsMiddleware.makeStore(initialState: LoginsState = LoginsState.default) =
+        LoginsStore(
+            initialState = initialState,
+            middleware = listOf(this),
+        )
 }

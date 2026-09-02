@@ -26,7 +26,22 @@ const YELP_MERINO_SINGLE = [
       yelp: {
         values: [
           {
-            some_value: "foo",
+            name: "MochaZilla. - Toronto",
+            url: "https://example.com/mochazilla-toronto",
+            image_url: "https://example.com/mochazilla.jpg",
+            address: "123 Firefox Avenue Toronto",
+            pricing: "$$",
+            rating: 4.8,
+            review_count: 989,
+            business_hours: [
+              {
+                open: [
+                  { is_overnight: false, start: "0700", end: "1500", day: 0 },
+                ],
+                hours_type: "REGULAR",
+                is_open_now: false,
+              },
+            ],
           },
         ],
       },
@@ -424,8 +439,8 @@ function yelpOptInResult({ dismissButton = false } = {}) {
         },
       };
   return {
-    type: UrlbarUtils.RESULT_TYPE.TIP,
-    source: UrlbarUtils.RESULT_SOURCE.OTHER_LOCAL,
+    type: UrlbarShared.RESULT_TYPE.TIP,
+    source: UrlbarShared.RESULT_SOURCE.OTHER_LOCAL,
     heuristic: false,
     isBestMatch: true,
     payload: {
@@ -461,7 +476,7 @@ function yelpOptInResult({ dismissButton = false } = {}) {
             {
               name: "not_interested",
               l10n: {
-                id: "urlbar-result-realtime-opt-in-dismiss-all",
+                id: "urlbar-result-realtime-opt-in-dismiss-all2",
               },
             },
           ],
@@ -473,8 +488,8 @@ function yelpOptInResult({ dismissButton = false } = {}) {
 
 function yelpMerinoResult() {
   return {
-    type: UrlbarUtils.RESULT_TYPE.DYNAMIC,
-    source: UrlbarUtils.RESULT_SOURCE.SEARCH,
+    type: UrlbarShared.RESULT_TYPE.DYNAMIC,
+    source: UrlbarShared.RESULT_SOURCE.SEARCH,
     heuristic: false,
     isBestMatch: true,
     payload: {
@@ -485,7 +500,22 @@ function yelpMerinoResult() {
       isSponsored: true,
       items: [
         {
-          some_value: "foo",
+          name: "MochaZilla. - Toronto",
+          url: "https://example.com/mochazilla-toronto",
+          image_url: "https://example.com/mochazilla.jpg",
+          address: "123 Firefox Avenue Toronto",
+          pricing: "$$",
+          rating: 4.8,
+          review_count: 989,
+          business_hours: [
+            {
+              open: [
+                { is_overnight: false, start: "0700", end: "1500", day: 0 },
+              ],
+              hours_type: "REGULAR",
+              is_open_now: false,
+            },
+          ],
         },
       ],
     },

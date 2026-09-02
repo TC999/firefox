@@ -32,8 +32,9 @@ let openUrlFun = url => (_queryContext, controller) =>
   openUrl(url, controller.browserWindow);
 let openUrl = (url, window) => {
   if (url.startsWith("about:")) {
-    window.switchToTabHavingURI(Services.io.newURI(url), true, {
-      ignoreFragment: "whenComparing",
+    let uri = Services.io.newURI(url);
+    window.switchToTabHavingURI(uri, true, {
+      ignoreFragment: uri.hasRef ? "whenComparingAndReplace" : "whenComparing",
     });
   } else {
     window.gBrowser.addTab(url, {
@@ -52,11 +53,18 @@ let openAddonsUrl = url => {
   };
 };
 
-// bug 1983835 - should this only look for windows on the current
-// workspace?
-let currentBrowser = () =>
-  lazy.BrowserWindowTracker.getTopWindow({ allowFromInactiveWorkspace: true })
-    ?.gBrowser.selectedBrowser;
+let currentWindow = () => lazy.BrowserWindowTracker.getTopWindow();
+let currentBrowser = () => currentWindow().gBrowser.selectedBrowser;
+
+let unmutedAudioTabs = () =>
+  lazy.BrowserWindowTracker.orderedWindows.flatMap(win =>
+    Array.from(win.gBrowser.tabs).filter(
+      tab =>
+        (tab.soundPlaying ||
+          tab.hasAttribute("soundplaying-scheduledremoval")) &&
+        !tab.muted
+    )
+  );
 
 ChromeUtils.defineLazyGetter(lazy, "gFluentStrings", function () {
   return new Localization(
@@ -88,9 +96,10 @@ const DEFAULT_ACTIONS = {
   },
   clear: {
     l10nCommands: [
-      "quickactions-cmd-clearrecenthistory",
+      "quickactions-cmd-clearrecenthistory2",
       "quickactions-clearrecenthistory",
     ],
+    icon: "chrome://browser/skin/forget.svg",
     label: "quickactions-clearrecenthistory",
     onPick: (_queryContext, controller) => {
       controller.browserWindow.document
@@ -98,11 +107,23 @@ const DEFAULT_ACTIONS = {
         .doCommand();
     },
   },
+  manageai: {
+    l10nCommands: ["quickactions-cmd-manageai"],
+    icon: "chrome://global/skin/icons/highlights.svg",
+    label: "quickactions-manageai",
+    onPick: openUrlFun("about:preferences#ai"),
+  },
   downloads: {
     l10nCommands: ["quickactions-cmd-downloads"],
     icon: "chrome://browser/skin/downloads/downloads.svg",
     label: "quickactions-downloads2",
     onPick: openUrlFun("about:downloads"),
+  },
+  editpdf: {
+    l10nCommands: ["quickactions-cmd-editpdf"],
+    icon: "chrome://global/skin/icons/pdf.svg",
+    label: "quickactions-editpdf",
+    onPick: openUrlFun("about:pdf"),
   },
   extensions: {
     l10nCommands: ["quickactions-cmd-extensions2"],
@@ -130,24 +151,34 @@ const DEFAULT_ACTIONS = {
     l10nCommands: ["quickactions-cmd-inspector2"],
     icon: "chrome://devtools/skin/images/open-inspector.svg",
     label: "quickactions-inspector2",
-    isVisible: () => {
-      // The inspect action is available if:
-      // 1. DevTools is enabled.
-      // 2. The user can be considered as a DevTools user.
-      // 3. The url is not about:devtools-toolbox.
-      // 4. The inspector is not opened yet on the page.
-      let win = lazy.BrowserWindowTracker.getTopWindow({
-        allowFromInactiveWorkspace: true,
-      });
+    // The inspect action is unsupported unless:
+    // 1. DevTools is enabled.
+    // 2. The user can be considered as a DevTools user.
+    isUnsupported: () =>
+      !lazy.DevToolsShim.isEnabled() || !lazy.DevToolsShim.isDevToolsUser(),
+    // And, for supported users, it is inactive when:
+    // 3. The url is about:devtools-toolbox.
+    // 4. The inspector is already opened on the page.
+    isInactive: () => {
+      let win = currentWindow();
       return (
-        lazy.DevToolsShim.isEnabled() &&
-        lazy.DevToolsShim.isDevToolsUser() &&
-        !win.gBrowser.currentURI.spec.startsWith("about:devtools-toolbox") &&
-        !lazy.DevToolsShim.hasToolboxForTab(win.gBrowser.selectedTab)
+        win.gBrowser.currentURI.spec.startsWith("about:devtools-toolbox") ||
+        lazy.DevToolsShim.hasToolboxForTab(win.gBrowser.selectedTab)
       );
     },
     onPick: (_queryContext, controller) => {
       openInspector(controller.browserWindow);
+    },
+  },
+  colorpicker: {
+    l10nCommands: ["quickactions-cmd-colorpicker"],
+    icon: "chrome://devtools/skin/images/command-eyedropper.svg",
+    label: "quickactions-colorpicker",
+    isUnsupported: () => !lazy.DevToolsShim.isEnabled(),
+    isInactive: () =>
+      currentBrowser().currentURI.spec.startsWith("about:devtools-toolbox"),
+    onPick: (_queryContext, controller) => {
+      openColorPicker(controller.browserWindow);
     },
   },
   library: {
@@ -160,15 +191,27 @@ const DEFAULT_ACTIONS = {
   },
   logins: {
     l10nCommands: ["quickactions-cmd-logins"],
+    icon: "chrome://browser/skin/login.svg",
     label: "quickactions-logins2",
     onPick: openUrlFun("about:logins"),
+  },
+  mute: {
+    l10nCommands: ["quickactions-cmd-mute"],
+    label: "quickactions-mute",
+    icon: "chrome://global/skin/media/audio-muted.svg",
+    isInactive: () => !unmutedAudioTabs().length,
+    onPick: () => {
+      for (let tab of unmutedAudioTabs()) {
+        tab.toggleMuteAudio();
+      }
+    },
   },
   print: {
     l10nCommands: ["quickactions-cmd-print"],
     label: "quickactions-print2",
     icon: "chrome://global/skin/icons/print.svg",
-    isVisible: () => {
-      return Services.prefs.getBoolPref("print.enabled");
+    isUnsupported: () => {
+      return !Services.prefs.getBoolPref("print.enabled");
     },
     onPick: (_queryContext, controller) => {
       controller.browserWindow.document.getElementById("cmd_print").doCommand();
@@ -184,23 +227,25 @@ const DEFAULT_ACTIONS = {
   },
   refresh: {
     l10nCommands: ["quickactions-cmd-refresh"],
+    icon: "chrome://branding/content/icon32.png",
     label: "quickactions-refresh",
-    isVisible: () => lazy.ResetProfile.resetSupported(),
+    isUnsupported: () => !lazy.ResetProfile.resetSupported(),
     onPick: (_queryContext, controller) => {
       lazy.ResetProfile.openConfirmationDialog(controller.browserWindow);
     },
   },
   restart: {
     l10nCommands: ["quickactions-cmd-restart"],
+    icon: "chrome://global/skin/icons/reload.svg",
     label: "quickactions-restart",
     onPick: restartBrowser,
   },
   savepdf: {
     l10nCommands: ["quickactions-cmd-savepdf2"],
     label: "quickactions-savepdf",
-    icon: "chrome://global/skin/icons/print.svg",
-    isVisible: () => {
-      return Services.prefs.getBoolPref("print.enabled");
+    icon: "chrome://global/skin/icons/pdf.svg",
+    isUnsupported: () => {
+      return !Services.prefs.getBoolPref("print.enabled");
     },
     onPick: (_queryContext, controller) => {
       // This writes over the users last used printer which we
@@ -221,8 +266,8 @@ const DEFAULT_ACTIONS = {
     l10nCommands: ["quickactions-cmd-screenshot2"],
     label: "quickactions-screenshot3",
     icon: "chrome://browser/skin/screenshot.svg",
-    isVisible: () => {
-      return lazy.ScreenshotsUtils.screenshotsEnabled;
+    isUnsupported: () => {
+      return !lazy.ScreenshotsUtils.screenshotsEnabled;
     },
     onPick: (_queryContext, controller) => {
       Services.obs.notifyObservers(
@@ -241,16 +286,16 @@ const DEFAULT_ACTIONS = {
   },
   themes: {
     l10nCommands: ["quickactions-cmd-themes2"],
-    icon: "chrome://mozapps/skin/extensions/category-extensions.svg",
+    icon: "chrome://mozapps/skin/extensions/category-themes.svg",
     label: "quickactions-themes",
     onPick: openAddonsUrl("addons://list/theme"),
   },
   translate: {
     l10nCommands: ["quickactions-cmd-translate"],
-    icon: "chrome://browser/skin/translations.svg",
+    icon: "chrome://browser/skin/translations-companion.svg",
     label: "quickactions-translate",
-    isVisible: () => {
-      return (
+    isUnsupported: () => {
+      return !(
         lazy.TranslationsParent.AIFeature.isEnabled &&
         Services.prefs.getBoolPref(
           "browser.translations.quickAction.enabled",
@@ -269,27 +314,30 @@ const DEFAULT_ACTIONS = {
   },
   update: {
     l10nCommands: ["quickactions-cmd-update"],
+    icon: "chrome://global/skin/icons/update-icon.svg",
     label: "quickactions-update",
-    isVisible: () => {
-      if (!AppConstants.MOZ_UPDATER) {
-        return false;
-      }
-      return (
-        lazy.AUS.currentState == Ci.nsIApplicationUpdateService.STATE_PENDING
-      );
-    },
+    isUnsupported: () =>
+      !AppConstants.MOZ_UPDATER || !lazy.AUS.canUsuallyCheckForUpdates,
+    isInactive: () =>
+      lazy.AUS.currentState != Ci.nsIApplicationUpdateService.STATE_PENDING,
     onPick: restartBrowser,
   },
   viewsource: {
     l10nCommands: ["quickactions-cmd-viewsource2"],
-    icon: "chrome://global/skin/icons/settings.svg",
+    icon: "chrome://browser/skin/reader-mode.svg",
     label: "quickactions-viewsource2",
-    isVisible: () => currentBrowser()?.currentURI.scheme !== "view-source",
+    isInactive: () => currentBrowser().currentURI.scheme == "view-source",
     onPick: (_queryContext, controller) =>
       openUrl(
         "view-source:" + controller.browserWindow.gBrowser.currentURI.spec,
         controller.browserWindow
       ),
+  },
+  labs: {
+    l10nCommands: ["quickactions-cmd-labs"],
+    icon: "chrome://global/skin/icons/experiments.svg",
+    label: "quickactions-labs",
+    onPick: openUrlFun("about:preferences#experimental"),
   },
 };
 
@@ -297,6 +345,14 @@ function openInspector(window) {
   lazy.DevToolsShim.showToolboxForTab(window.gBrowser.selectedTab, {
     toolId: "inspector",
   });
+}
+
+function openColorPicker(window) {
+  // The eyedropper menu item runs the standalone color picker without
+  // opening the toolbox (see devtools/client/menus.js). Initializing
+  // DevTools registers the menu item on every browser window.
+  lazy.DevToolsShim.initDevTools();
+  window.document.getElementById("menu_eyedropper")?.doCommand();
 }
 
 // TODO: We likely want a prompt to confirm with the user that they want to restart

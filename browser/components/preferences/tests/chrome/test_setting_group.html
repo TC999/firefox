@@ -437,8 +437,9 @@
           BrowserTestUtils.isVisible(group),
           "Group should still be visible when only hiddenFromSearch is true"
         );
-        ok(
-          group.hasAttribute("data-hidden-from-search"),
+        is(
+          group.getAttribute("data-hidden-from-search"),
+          "true",
           "Group should be hidden from search when config.hiddenFromSearch is true"
         );
 
@@ -489,6 +490,27 @@
           });
           return control.querySelector("moz-fieldset");
         });
+      });
+
+      add_task(async function testHeadingLevel() {
+        const headingLevel = 3;
+        const wrapper = await renderTemplate({
+          items: [],
+          headingLevel,
+        });
+        const group = wrapper.querySelector("setting-group");
+        await group.updateComplete;
+        const fieldset = group.querySelector("moz-fieldset");
+
+        const srdEnabled = Services.prefs.getBoolPref(
+          "browser.settings-redesign.enabled",
+          false
+        );
+        is(
+          fieldset.headingLevel,
+          srdEnabled ? headingLevel + 1 : headingLevel,
+          "sets headingLevel (bumped one level up when SRD is enabled)"
+        );
       });
 
       add_task(async function testSettingGroupCallbacks() {

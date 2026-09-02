@@ -23,7 +23,7 @@ class HTMLDetailsElement final : public nsGenericHTMLElement {
   using NodeInfo = mozilla::dom::NodeInfo;
   using Element::Command;
 
-  explicit HTMLDetailsElement(already_AddRefed<NodeInfo>&& aNodeInfo);
+  explicit HTMLDetailsElement(already_AddRefed<NodeInfo> aNodeInfo);
 
   NS_IMPL_FROMNODE_HTML_WITH_TAG(HTMLDetailsElement, details)
 
@@ -48,7 +48,7 @@ class HTMLDetailsElement final : public nsGenericHTMLElement {
 
   void GetName(nsAString& aName) { GetHTMLAttr(nsGkAtoms::name, aName); }
 
-  bool Open() const { return GetBoolAttr(nsGkAtoms::open); }
+  bool Open() const { return State().HasState(ElementState::OPEN); }
 
   void SetOpen(bool aOpen, ErrorResult& aError) {
     SetHTMLBoolAttr(nsGkAtoms::open, aOpen, aError);
@@ -66,9 +66,13 @@ class HTMLDetailsElement final : public nsGenericHTMLElement {
  protected:
   virtual ~HTMLDetailsElement();
   void SetupShadowTree();
+  void GetSlotNameFor(const ShadowRoot&, const nsIContent&,
+                      nsAString&) const override;
+  void OnChildBeforeSlotted(ShadowRoot&, nsIContent&) override;
+  void OnChildUnslotted(ShadowRoot&, nsIContent&) override;
 
   // https://html.spec.whatwg.org/#ensure-details-exclusivity-by-closing-the-given-element-if-needed
-  void CloseElementIfNeeded();
+  void CloseElementIfNeeded(nsAtom* aName);
 
   // https://html.spec.whatwg.org/#ensure-details-exclusivity-by-closing-other-elements-if-needed
   void CloseOtherElementsIfNeeded();

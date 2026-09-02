@@ -12,6 +12,7 @@
 #include "mozilla/OwningNonNull.h"
 #include "mozilla/dom/Animation.h"
 #include "mozilla/dom/CharacterDataBuffer.h"
+#include "mozilla/dom/ContentList.h"
 #include "mozilla/dom/DocGroup.h"
 #include "mozilla/dom/KeyframeEffect.h"
 #include "nsContentUtils.h"
@@ -41,16 +42,16 @@ nsDOMMutationRecord::nsDOMMutationRecord(nsAtom* aType, nsISupports* aOwner)
 
 nsDOMMutationRecord::~nsDOMMutationRecord() = default;
 
-nsINodeList* nsDOMMutationRecord::AddedNodes() {
+NodeList* nsDOMMutationRecord::AddedNodes() {
   if (!mAddedNodes) {
-    mAddedNodes = new nsSimpleContentList(mTarget);
+    mAddedNodes = new SimpleContentList(mTarget);
   }
   return mAddedNodes;
 }
 
-nsINodeList* nsDOMMutationRecord::RemovedNodes() {
+NodeList* nsDOMMutationRecord::RemovedNodes() {
   if (!mRemovedNodes) {
-    mRemovedNodes = new nsSimpleContentList(mTarget);
+    mRemovedNodes = new SimpleContentList(mTarget);
   }
   return mRemovedNodes;
 }
@@ -134,7 +135,8 @@ void nsMutationReceiver::Disconnect(bool aRemoveFromObserver) {
 
   if (target && observer) {
     if (aRemoveFromObserver) {
-      static_cast<nsDOMMutationObserver*>(observer)->RemoveReceiver(this);
+      static_cast<nsDOMMutationObserver*>(observer)->RemoveReceiver(target,
+                                                                    this);
     }
     // UnbindObject may delete 'this'!
     target->UnbindObject(observer);
@@ -218,7 +220,7 @@ void nsMutationReceiver::ContentAppended(nsIContent* aFirstNewContent,
     return;
   }
   m->mTarget = parent;
-  m->mAddedNodes = new nsSimpleContentList(parent);
+  m->mAddedNodes = new SimpleContentList(parent);
 
   nsINode* n = aFirstNewContent;
   while (n) {
@@ -252,7 +254,7 @@ void nsMutationReceiver::ContentInserted(nsIContent* aChild,
     return;
   }
   m->mTarget = parent;
-  m->mAddedNodes = new nsSimpleContentList(parent);
+  m->mAddedNodes = new SimpleContentList(parent);
   m->mAddedNodes->AppendElement(aChild);
   m->mPreviousSibling = aChild->GetPreviousSibling();
   m->mNextSibling = aChild->GetNextSibling();
@@ -335,7 +337,7 @@ void nsMutationReceiver::ContentWillBeRemoved(nsIContent* aChild,
     MOZ_ASSERT(parent);
 
     m->mTarget = parent;
-    m->mRemovedNodes = new nsSimpleContentList(parent);
+    m->mRemovedNodes = new SimpleContentList(parent);
     m->mRemovedNodes->AppendElement(aChild);
     m->mPreviousSibling = aChild->GetPreviousSibling();
     m->mNextSibling = aChild->GetNextSibling();
@@ -454,6 +456,7 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsDOMMutationObserver)
     tmp->mReceivers[i]->Disconnect(false);
   }
   tmp->mReceivers.Clear();
+  tmp->mReceiverMap.Clear();
   tmp->ClearPendingRecords();
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mCallback)
 // No need to handle mTransientReceivers
@@ -477,10 +480,9 @@ nsMutationReceiver* nsDOMMutationObserver::GetReceiverFor(
     return nullptr;
   }
 
-  for (int32_t i = 0; i < mReceivers.Count(); ++i) {
-    if (mReceivers[i]->Target() == aNode) {
-      return mReceivers[i];
-    }
+  if (nsMutationReceiver* r = mReceiverMap.Get(aNode)) {
+    MOZ_ASSERT(r->Target() == aNode);
+    return r;
   }
   if (!aMayCreate) {
     return nullptr;
@@ -493,10 +495,15 @@ nsMutationReceiver* nsDOMMutationObserver::GetReceiverFor(
     r = nsMutationReceiver::Create(aNode, this);
   }
   mReceivers.AppendObject(r);
+  mReceiverMap.InsertOrUpdate(aNode, r);
+  MOZ_ASSERT(mReceiverMap.Count() == uint32_t(mReceivers.Count()));
   return r;
 }
 
-void nsDOMMutationObserver::RemoveReceiver(nsMutationReceiver* aReceiver) {
+void nsDOMMutationObserver::RemoveReceiver(nsINode* aTarget,
+                                           nsMutationReceiver* aReceiver) {
+  MOZ_ASSERT(mReceiverMap.Get(aTarget) == aReceiver);
+  mReceiverMap.Remove(aTarget);
   mReceivers.RemoveObject(aReceiver);
 }
 
@@ -701,6 +708,7 @@ void nsDOMMutationObserver::Disconnect() {
     mReceivers[i]->Disconnect(false);
   }
   mReceivers.Clear();
+  mReceiverMap.Clear();
   mCurrentMutations.Clear();
   ClearPendingRecords();
 }
@@ -872,7 +880,7 @@ void nsDOMMutationObserver::HandleMutationsInternal(AutoSlowOperation& aAso) {
   // Fire slotchange event for each slot in signalLists.
   for (const nsTArray<RefPtr<HTMLSlotElement>>& signalList : signalLists) {
     for (const RefPtr<HTMLSlotElement>& signal : signalList) {
-      signal->FireSlotChangeEvent();
+      MOZ_KnownLive(signal)->FireSlotChangeEvent();
     }
   }
 }
@@ -1000,9 +1008,9 @@ void nsAutoMutationBatch::Done() {
     nsDOMMutationObserver* ob = mObservers[i].mObserver;
     bool wantsChildList = mObservers[i].mWantsChildList;
 
-    RefPtr<nsSimpleContentList> removedList;
+    RefPtr<SimpleContentList> removedList;
     if (wantsChildList) {
-      removedList = new nsSimpleContentList(mBatchTarget);
+      removedList = new SimpleContentList(mBatchTarget);
     }
 
     nsTArray<nsMutationReceiver*> allObservers;
@@ -1037,8 +1045,7 @@ void nsAutoMutationBatch::Done() {
       }
     }
     if (wantsChildList && (mRemovedNodes.Length() || mAddedNodes.Length())) {
-      RefPtr<nsSimpleContentList> addedList =
-          new nsSimpleContentList(mBatchTarget);
+      RefPtr<SimpleContentList> addedList = new SimpleContentList(mBatchTarget);
       for (uint32_t i = 0; i < mAddedNodes.Length(); ++i) {
         addedList->AppendElement(mAddedNodes[i]);
       }

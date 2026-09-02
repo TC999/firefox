@@ -2,13 +2,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "jit/shared/CodeGenerator-shared-inl.h"
+#include "jit/CodeGenerator.h"
 
 #include "mozilla/DebugOnly.h"
 
 #include <utility>
 
-#include "jit/CodeGenerator.h"
 #include "jit/CompactBuffer.h"
 #include "jit/CompileInfo.h"
 #include "jit/InlineScriptTree.h"
@@ -24,6 +23,7 @@
 #include "util/Memory.h"
 
 #include "jit/MacroAssembler-inl.h"
+#include "jit/shared/CodeGenerator-shared-inl.h"
 #include "vm/JSScript-inl.h"
 
 using namespace js;
@@ -316,9 +316,9 @@ bool CodeGeneratorShared::addNativeToBytecodeEntry(const BytecodeSite* site) {
 void CodeGeneratorShared::dumpNativeToBytecodeEntries() {
 #ifdef JS_JITSPEW
   InlineScriptTree* topTree = gen->outerInfo().inlineScriptTree();
-  JitSpewStart(JitSpew_Profiling, "Native To Bytecode Entries for %s:%u:%u\n",
-               topTree->script()->filename(), topTree->script()->lineno(),
-               topTree->script()->column().oneOriginValue());
+  JitSpew(JitSpew_Profiling, "Native To Bytecode Entries for %s:%u:%u",
+          topTree->script()->filename(), topTree->script()->lineno(),
+          topTree->script()->column().oneOriginValue());
   for (unsigned i = 0; i < nativeToBytecodeList_.length(); i++) {
     dumpNativeToBytecodeEntry(i);
   }
@@ -340,19 +340,18 @@ void CodeGeneratorShared::dumpNativeToBytecodeEntry(uint32_t idx) {
       pcDelta = nextRef->pc - ref.pc;
     }
   }
-  JitSpewStart(
+  AutoJitSpewMessage msg(
       JitSpew_Profiling, "    %08zx [+%-6u] => %-6ld [%-4u] {%-10s} (%s:%u:%u",
       ref.nativeOffset.offset(), nativeDelta, (long)(ref.pc - script->code()),
       pcDelta, CodeName(JSOp(*ref.pc)), script->filename(), script->lineno(),
       script->column().oneOriginValue());
 
   for (tree = tree->caller(); tree; tree = tree->caller()) {
-    JitSpewCont(JitSpew_Profiling, " <= %s:%u:%u", tree->script()->filename(),
-                tree->script()->lineno(),
-                tree->script()->column().oneOriginValue());
+    msg.append(" <= %s:%u:%u", tree->script()->filename(),
+               tree->script()->lineno(),
+               tree->script()->column().oneOriginValue());
   }
-  JitSpewCont(JitSpew_Profiling, ")");
-  JitSpewFin(JitSpew_Profiling);
+  msg.append(")");
 #endif
 }
 
@@ -758,7 +757,7 @@ bool CodeGeneratorShared::createNativeToBytecodeScriptList(
     // Add script from current tree.
     bool found = false;
     for (uint32_t i = 0; i < scripts.length(); i++) {
-      if (scripts[i].scriptData.sourceAndExtent.matches(tree->script())) {
+      if (scripts[i].scriptData.scriptKey.matches(tree->script())) {
         found = true;
         break;
       }
@@ -913,6 +912,22 @@ void CodeGeneratorShared::markSafepointAt(uint32_t offset, LInstruction* ins) {
   MOZ_ASSERT_IF(
       !safepointIndices_.empty() && !masm.oom(),
       offset - safepointIndices_.back().displacement() >= sizeof(uint32_t));
+#ifdef DEBUG
+  // Recording a single LSafepoint at more than one offset ("many-to-one") is
+  // only sound where the generated code is never invalidated -- always true for
+  // wasm -- or, for JS Ion, where the extra encoding has been declared via
+  // LIRGraph::addExtraSafepointUses (bug 1922829). Otherwise invalidation
+  // patches data in-place of the call, corrupting an alternate execution trace
+  // that shares the safepoint; see the comment on the maxSafepointIndices
+  // assert in CodeGenerator::generate(). That assert is the precise accounting;
+  // this is a localized early tripwire that fires at the offending call if new
+  // JS Ion code ever breaks the invariant.
+  if (LSafepoint* sp = ins->safepoint()) {
+    MOZ_ASSERT_IF(sp->recordedInSafepointIndices(),
+                  gen->compilingWasm() || graph.extraSafepointUses() > 0);
+    sp->setRecordedInSafepointIndices();
+  }
+#endif
   masm.propagateOOM(safepointIndices_.append(
       CodegenSafepointIndex(offset, ins->safepoint())));
 }

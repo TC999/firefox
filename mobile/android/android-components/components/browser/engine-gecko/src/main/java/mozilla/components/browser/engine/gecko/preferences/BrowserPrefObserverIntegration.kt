@@ -10,12 +10,8 @@ import mozilla.components.support.base.feature.LifecycleAwareFeature
 import mozilla.components.support.base.observer.Observable
 import mozilla.components.support.base.observer.ObserverRegistry
 
-/**
- * Feature to observe browser preference changes.
- */
-class BrowserPrefObserverIntegration(
-    private val engine: Engine,
-) :
+/** Feature to observe browser preference changes. */
+class BrowserPrefObserverIntegration(private val engine: Engine) :
     LifecycleAwareFeature,
     BrowserPrefObserverDelegate,
     Observable<BrowserPrefObserverIntegration.Observer> by ObserverRegistry() {
@@ -29,8 +25,7 @@ class BrowserPrefObserverIntegration(
     }
 
     /**
-     * Will register a browser preference for observation. Will receive reports on changes via
-     * [onPreferenceChange].
+     * Will register a browser preference for observation. Will receive reports on changes via [onPreferenceChange].
      *
      * @param pref The browser preference to observe.
      * @param onSuccess What to do in the event of a successful registration.
@@ -43,10 +38,8 @@ class BrowserPrefObserverIntegration(
     ) {
         engine.registerPrefForObservation(
             pref,
-            onSuccess = {
-                onSuccess
-            },
-            onError = { onError },
+            onSuccess = onSuccess,
+            onError = onError,
         )
     }
 
@@ -65,21 +58,18 @@ class BrowserPrefObserverIntegration(
     ) {
         engine.registerPrefsForObservation(
             prefs,
-            onSuccess = {
-                onSuccess
-            },
-            onError = { onError },
+            onSuccess = onSuccess,
+            onError = onError,
         )
     }
 
-/**
- * Will unregister a browser preference for observation that was registered via [registerPrefForObservation].
- *
- * @param pref The browser preference to stop observing.
- * @param onSuccess What to do in the event of a successful deregistration.
- * @param onError What to do in the event of a unsuccessful deregistration.
- *
- */
+    /**
+     * Will unregister a browser preference for observation that was registered via [registerPrefForObservation].
+     *
+     * @param pref The browser preference to stop observing.
+     * @param onSuccess What to do in the event of a successful deregistration.
+     * @param onError What to do in the event of a unsuccessful deregistration.
+     */
     fun unregisterPrefForObservation(
         pref: String,
         onSuccess: () -> Unit,
@@ -87,21 +77,18 @@ class BrowserPrefObserverIntegration(
     ) {
         engine.unregisterPrefForObservation(
             pref,
-            onSuccess = {
-                onSuccess
-            },
-            onError = { onError },
+            onSuccess = onSuccess,
+            onError = onError,
         )
     }
 
     /**
-     * Will unregister a list of browser preferences for
-     * observation that was registered via [registerPrefForObservation].
+     * Will unregister a list of browser preferences for observation that was registered via
+     * [registerPrefForObservation].
      *
      * @param prefs The list of browser preferences to stop observing.
      * @param onSuccess What to do in the event of a successful deregistration.
      * @param onError What to do in the event of a unsuccessful deregistration.
-     *
      */
     fun unregisterPrefsForObservation(
         prefs: List<String>,
@@ -110,16 +97,14 @@ class BrowserPrefObserverIntegration(
     ) {
         engine.unregisterPrefsForObservation(
             prefs,
-            onSuccess = {
-                onSuccess
-            },
-            onError = { onError },
+            onSuccess = onSuccess,
+            onError = onError,
         )
     }
 
     /**
-     * This function is called when a browser preference registered for observation changes and
-     * the preference value changed after registration.
+     * This function is called when a browser preference registered for observation changes and the preference value
+     * changed after registration.
      *
      * Register a preference for observation through [registerPrefForObservation].
      *
@@ -131,17 +116,14 @@ class BrowserPrefObserverIntegration(
         }
     }
 
-    /**
-     * Observer interface for observing browser preference changes.
-     */
+    /** Observer interface for observing browser preference changes. */
     interface Observer {
         /**
-         * A subscription for browser preferences changing is available.
-         * Register a preference with the browser using
+         * A subscription for browser preferences changing is available. Register a preference with the browser using
          * [mozilla.components.concept.engine.preferences.BrowserPrefObserverFeature.registerPrefForObservation]
          *
-         * See [mozilla.components.concept.engine.preferences.BrowserPrefObserverFeature.onPreferenceChange]
-         * for more details.
+         * See [mozilla.components.concept.engine.preferences.BrowserPrefObserverFeature.onPreferenceChange] for more
+         * details.
          */
         fun onPreferenceChange(observedPreference: BrowserPreference<*>) = Unit
     }

@@ -5,7 +5,9 @@
  * Tests for the Ask result in the urlbar.
  *
  * The ask result in the urlbar should appear for certain prompts in the smart
- * window, and when clicked, should trigger a chat in the assistant sidebar.
+ * window. When picked, it routes the chat to whichever mode the window is in:
+ * the fullpage assistant when its content page is selected, otherwise the
+ * assistant sidebar.
  */
 
 "use strict";
@@ -79,6 +81,7 @@ add_task(async function test_chat_intent_in_aiwindow() {
 
   // Close the sidebar so it doesn't interfere with urlbar focus.
   AIWindowUI.closeSidebar(win);
+  await waitForSidebarClosed(win);
 
   // Make a search in the urlbar.
   await lazy.UrlbarTestUtils.promiseAutocompleteResultPopup({
@@ -94,19 +97,19 @@ add_task(async function test_chat_intent_in_aiwindow() {
   let firstResult = await lazy.UrlbarTestUtils.getDetailsOfResultAt(win, 0);
   Assert.equal(
     firstResult.type,
-    UrlbarUtils.RESULT_TYPE.SEARCH,
+    UrlbarShared.RESULT_TYPE.SEARCH,
     "The first result should be a search."
   );
   let secondResult = await lazy.UrlbarTestUtils.getDetailsOfResultAt(win, 1);
   Assert.equal(
     secondResult.type,
-    UrlbarUtils.RESULT_TYPE.AI_CHAT,
+    UrlbarShared.RESULT_TYPE.AI_CHAT,
     "The second result should be AI chat."
   );
   let thirdResult = await lazy.UrlbarTestUtils.getDetailsOfResultAt(win, 2);
   Assert.equal(
     thirdResult.type,
-    UrlbarUtils.RESULT_TYPE.URL,
+    UrlbarShared.RESULT_TYPE.URL,
     "The third result should be a URL result."
   );
 
@@ -135,6 +138,50 @@ add_task(async function test_chat_intent_in_aiwindow() {
     telemetries[0].extra.selected_position,
     2,
     "The selected result should be in the correct position."
+  );
+
+  await BrowserTestUtils.closeWindow(win);
+  Services.fog.testResetFOG();
+});
+
+add_task(async function test_urlbar_chat_routes_to_fullpage() {
+  // The selected tab is the fullpage assistant content page.
+  const win = await openAIWindow();
+
+  await lazy.UrlbarTestUtils.promiseAutocompleteResultPopup({
+    window: win,
+    value: "Tell me a joke",
+  });
+
+  // Find and pick the AI chat result.
+  let aiChatIndex = -1;
+  for (let i = 0; i < lazy.UrlbarTestUtils.getResultCount(win); i++) {
+    const result = await lazy.UrlbarTestUtils.getDetailsOfResultAt(win, i);
+    if (result.type == UrlbarShared.RESULT_TYPE.AI_CHAT) {
+      aiChatIndex = i;
+      break;
+    }
+  }
+  Assert.greater(aiChatIndex, -1, "There should be an AI chat result.");
+
+  for (let i = 0; i < aiChatIndex; i++) {
+    EventUtils.synthesizeKey("KEY_ArrowDown", {}, win);
+  }
+  EventUtils.synthesizeKey("VK_RETURN", {}, win);
+
+  // The chat should start in the fullpage assistant, which inserts an aichat
+  // browser into its shadow root to render the conversation.
+  const aiWindowEl =
+    win.gBrowser.selectedBrowser.contentDocument.querySelector("ai-window");
+  await BrowserTestUtils.waitForMutationCondition(
+    aiWindowEl.shadowRoot,
+    { childList: true, subtree: true },
+    () => aiWindowEl.shadowRoot.querySelector("#aichat-browser")
+  );
+
+  Assert.ok(
+    !AIWindowUI.isSidebarOpen(win),
+    "The sidebar should not be opened when in fullpage mode."
   );
 
   await BrowserTestUtils.closeWindow(win);

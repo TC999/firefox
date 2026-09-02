@@ -20,9 +20,9 @@
 #include "mozilla/MemoryReporting.h"
 #include "mozilla/OperatorNewExtensions.h"
 #include "mozilla/fallible.h"
+#include "nsCycleCollectionContainerParticipant.h"
 #include "nsPointerHashKeys.h"
 #include "nsTArrayForwardDeclare.h"
-#include "nsCycleCollectionContainerParticipant.h"
 
 template <class EntryType>
 class nsTHashtable;
@@ -187,8 +187,8 @@ struct CheckAllowMemmove<EntryType, false> : std::false_type {};
 // We define this outside of nsTHashtable so only one copy exists for every N,
 // rather than separate copies for every EntryType used with nsTHashtable.
 template <size_t N>
-static void FixedSizeEntryMover(PLDHashTable*, const PLDHashEntryHdr* aFrom,
-                                PLDHashEntryHdr* aTo) {
+void FixedSizeEntryMover(PLDHashTable*, const PLDHashEntryHdr* aFrom,
+                         PLDHashEntryHdr* aTo) {
   memcpy(aTo, aFrom, N);
 }
 
@@ -571,6 +571,13 @@ class MOZ_NEEDS_NO_VTABLE_TYPE nsTHashtable {
    * constructor.
    */
   void Clear() { mTable.Clear(); }
+
+  /**
+   * Remove all entries but keep the entry storage allocated, retaining the
+   * current capacity. Prefer this over Clear() when the table is about to be
+   * re-populated and repeated free/realloc of the storage would be wasteful.
+   */
+  void ClearAndRetainStorage() { mTable.ClearAndRetainStorage(); }
 
   /**
    * Measure the size of the table's entry storage. Does *not* measure anything

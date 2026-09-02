@@ -34,6 +34,7 @@ const lazy = XPCOMUtils.declareLazy({
   Progress: "chrome://global/content/ml/Utils.sys.mjs",
   OPFS: "chrome://global/content/ml/OPFS.sys.mjs",
   BACKENDS: "chrome://global/content/ml/EngineProcess.sys.mjs",
+  EngineProcess: "chrome://global/content/ml/EngineProcess.sys.mjs",
   stringifyForLog: "chrome://global/content/ml/Utils.sys.mjs",
   console: () =>
     console.createInstance({
@@ -47,11 +48,14 @@ const lazy = XPCOMUtils.declareLazy({
 
 const ONE_GiB = 1024 * 1024 * 1024;
 const RS_RUNTIME_COLLECTION = "ml-onnx-runtime";
+
+// Vendored llama.cpp revision, mirrored from third_party/llama.cpp/moz.yaml.
+// Update alongside a vendor bump so engine_run telemetry reflects the
+// running library. See the matching comment in that moz.yaml.
+const LLAMA_CPP_VERSION = "74ade52741203e5c8f81eaf06a96cb1cfe15f2a3";
 const RS_INFERENCE_OPTIONS_COLLECTION = "ml-inference-options";
 const RS_ALLOW_DENY_COLLECTION = "ml-model-allow-deny-list";
 const TERMINATE_TIMEOUT = 5000;
-const RS_FALLBACK_BASE_URL =
-  "https://firefox-settings-attachments.cdn.mozilla.net";
 
 const RUNTIME_ROOT_IN_OPFS = "mlRuntimeFiles";
 
@@ -154,15 +158,10 @@ export class MLEngineParent extends JSProcessActorParent {
    * - 4 => Transformers >= 3.4.0
    * - 5 => Transformers >= 3.5.1
    *
-   * wllama:
-   * - 3 => wllama 2.2.x
-   * - 4 => wllama 2.3.x
-   *
    * @type {Record<string, number>}
    */
   static WASM_MAJOR_VERSION = {
     [lazy.BACKENDS.onnx]: 5,
-    [lazy.BACKENDS.wllama]: 4,
   };
 
   /**
@@ -175,7 +174,6 @@ export class MLEngineParent extends JSProcessActorParent {
    */
   static WASM_FILENAME = {
     [lazy.BACKENDS.onnx]: "ort-wasm-simd-threaded.jsep.wasm",
-    [lazy.BACKENDS.wllama]: "wllama.wasm",
   };
 
   /**
@@ -295,10 +293,13 @@ export class MLEngineParent extends JSProcessActorParent {
           return /** @type {MLEngine<FeatureId>} */ (currentEngine);
         }
         lazy.console.debug(`Replacing existing engine for ${engineId}`);
-        try {
-          Services.obs.removeObserver(currentEngine, "ipc:content-shutdown");
-        } catch (e) {
-          lazy.console.error("Failed to remove observer", e);
+        if (currentEngine.isObserving) {
+          try {
+            Services.obs.removeObserver(currentEngine, "ipc:content-shutdown");
+            currentEngine.isObserving = false;
+          } catch (e) {
+            lazy.console.error("Failed to remove observer", e);
+          }
         }
 
         await MLEngine.removeInstance(
@@ -338,8 +339,12 @@ export class MLEngineParent extends JSProcessActorParent {
         notificationsCallback,
       });
 
-      // engine will observe ipc:content-shutdown to get notified if the inference process crashes
-      Services.obs.addObserver(engine, "ipc:content-shutdown");
+      // Observe ipc:content-shutdown to detect inference process crashes.
+      // Use a weak reference so this observer doesn't root the engine
+      // and its pending request promises, which may prevent windows
+      // that triggered inference from being cycle-collected.
+      Services.obs.addObserver(engine, "ipc:content-shutdown", true);
+      engine.isObserving = true;
 
       const creationTime = ChromeUtils.now() - start;
 
@@ -409,8 +414,10 @@ export class MLEngineParent extends JSProcessActorParent {
       case "MLEngine:GetWorkerConfig":
         return MLEngineParent.getWorkerConfig();
 
-      case "MLEngine:ChooseBestBackend":
-        return MLEngineParent.chooseBestBackend(message.data);
+      case "MLEngine:GetNativeOnnxRuntimeAvailability":
+        // Routed through EngineProcess so the child shares the parent's single
+        // cached probe result instead of running its own.
+        return lazy.EngineProcess.requestIsNativeOnnxRuntimeAvailable();
 
       case "MLEngine:DestroyEngineProcess":
         if (this.processKeepAlive) {
@@ -462,11 +469,11 @@ export class MLEngineParent extends JSProcessActorParent {
     const modelHub = this.modelHub;
     await Promise.all(
       [...this.#modelFilesInUse].map(async ([key, entry]) => {
-        await modelHub.deleteNonMatchingModelRevisions(
-          entry.modelWithHostname,
-          entry.taskName,
-          entry.revision
-        );
+        await modelHub.deleteNonMatchingModelRevisions({
+          taskName: entry.taskName,
+          modelWithHostname: entry.modelWithHostname,
+          targetRevision: entry.revision,
+        });
         this.#modelFilesInUse.delete(key);
       })
     );
@@ -636,41 +643,14 @@ export class MLEngineParent extends JSProcessActorParent {
 
   /**
    * Gets the configuration of the worker
+   *
+   * @returns {{ url: string, options: WorkerOptions }}
    */
   static getWorkerConfig() {
     return {
       url: "chrome://global/content/ml/MLEngine.worker.mjs",
       options: { type: "module" },
     };
-  }
-
-  /**
-   * Selects the most appropriate backend for the current environment.
-   *
-   * @static
-   * @param {string} backend - Requested backend or an auto-select sentinel.
-   * @returns {string} Resolved backend identifier.
-   */
-  static chooseBestBackend(backend) {
-    let bestBackend = backend;
-    if (backend === lazy.BACKENDS.bestLlama) {
-      bestBackend = lazy.BACKENDS.wllama;
-      if (lazy.mlUtils?.canUseLlamaCpp()) {
-        bestBackend = lazy.BACKENDS.llamaCpp;
-      }
-
-      lazy.console.debug(
-        `The best available llama backend detected for this machine is ${bestBackend}`
-      );
-    }
-
-    ChromeUtils.addProfilerMarker(
-      "MLEngineParent",
-      null,
-      `Backend selected: ${bestBackend} (requested: ${backend})`
-    );
-
-    return bestBackend;
   }
 
   /**
@@ -774,14 +754,14 @@ export class MLEngineParent extends JSProcessActorParent {
   static async downloadRSAttachment({ wasmRecord, localRoot }) {
     const { attachment, version } = wasmRecord;
     const { location, filename, hash, size } = attachment;
-    let baseURL = RS_FALLBACK_BASE_URL;
+
+    // If the base URL cannot be obtained from Remote Settings, no need to go further.
+    let baseURL;
     try {
       baseURL = await lazy.Utils.baseAttachmentsURL();
     } catch (error) {
-      console.error(
-        `Error fetching remote settings base url from CDN. Falling back to ${RS_FALLBACK_BASE_URL}`,
-        error
-      );
+      console.error("Error fetching content from Remote settings:", error);
+      throw error;
     }
 
     // Validate inputs
@@ -909,6 +889,15 @@ export class MLEngineParent extends JSProcessActorParent {
    */
   getStatusByEngineId() {
     return this.sendQuery("MLEngine:GetStatusByEngineId");
+  }
+
+  /**
+   * Resolves to true if the native ONNX runtime is available, otherwise false.
+   *
+   * @returns {Promise<boolean>}
+   */
+  requestIsNativeOnnxRuntimeAvailable() {
+    return this.sendQuery("MLEngine:RequestIsNativeOnnxRuntimeAvailable");
   }
 
   /**
@@ -1066,6 +1055,15 @@ export class MLEngine {
   engineStatus = "uninitialized";
 
   /**
+   * Whether this engine is currently registered as an "ipc:content-shutdown"
+   * observer. Used to avoid removing an observer that was never added, which
+   * would throw NS_ERROR_ILLEGAL_VALUE.
+   *
+   * @type {boolean}
+   */
+  isObserving = false;
+
+  /**
    * Unique identifier for the engine.
    *
    * @type {string}
@@ -1136,27 +1134,10 @@ export class MLEngine {
       featureId: pipelineOptions.featureId,
       flowId: pipelineOptions.flowId,
     });
-  }
-
-  /**
-   * Validates an inference request before sending to child process.
-   *
-   * @param {object} request - The request to validate
-   * @returns {object|null} The validated request, or null if blocked
-   */
-  #validateRequest(request) {
-    return request;
-  }
-
-  /**
-   * Validates an inference response after receiving from child process.
-   *
-   * @param {object} response - The response to validate
-   * @returns {object|null} The validated response, or null if blocked
-   */
-  #validateResponse(response) {
-    lazy.console.debug("[MLSecurity] Validating response:", response);
-    return response;
+    this.QueryInterface = ChromeUtils.generateQI([
+      "nsIObserver",
+      "nsISupportsWeakReference",
+    ]);
   }
 
   /**
@@ -1402,6 +1383,12 @@ export class MLEngine {
         if (data.error) {
           newPortResolvers.reject(data.error);
         } else {
+          // The child reports the backend it actually used; record it so
+          // telemetry and log messages reflect reality rather than the
+          // requested sentinel (e.g. "best-onnx").
+          if (data.resolvedBackend) {
+            this.pipelineOptions.backend = data.resolvedBackend;
+          }
           newPortResolvers.resolve();
         }
 
@@ -1416,21 +1403,14 @@ export class MLEngine {
             this.telemetry.recordRunInferenceFailure(error);
             request.reject(error);
           } else if (response) {
-            // Validate response before returning to caller
-            /** @type {any} */
-            const validatedResponse = this.#validateResponse(response);
-            if (!validatedResponse) {
-              request.reject(new Error("Response failed security validation"));
-            } else {
-              this.telemetry.recordRunInferenceSuccessFlow(
-                this.engineId,
-                validatedResponse.metrics
-              );
-              // Attach resource metrics from the child process
-              validatedResponse.resourcesBefore = resourcesBefore;
-              validatedResponse.resourcesAfter = resourcesAfter;
-              request.resolve(validatedResponse);
-            }
+            this.telemetry.recordRunInferenceSuccessFlow(
+              this.engineId,
+              response.metrics
+            );
+            // Attach resource metrics from the child process
+            response.resourcesBefore = resourcesBefore;
+            response.resourcesAfter = resourcesAfter;
+            request.resolve(response);
           }
         } else {
           lazy.console.error(
@@ -1579,19 +1559,13 @@ export class MLEngine {
       throw new Error("Port does not exist");
     }
 
-    // Validate request before sending to child process
-    const validatedRequest = this.#validateRequest(request);
-    if (!validatedRequest) {
-      throw new Error("Request failed security validation");
-    }
-
     const beforeRun = ChromeUtils.now();
 
     this.#port.postMessage(
       {
         type: "EnginePort:Run",
         requestId,
-        request: validatedRequest,
+        request,
         engineRunOptions: { enableInferenceProgress: false },
       },
       transferables
@@ -1606,6 +1580,8 @@ export class MLEngine {
       engineId: this.engineId,
       modelId: this.pipelineOptions.modelId,
       backend: this.pipelineOptions.backend,
+      backendSourceRevision:
+        this.pipelineOptions.backend === "llama.cpp" ? LLAMA_CPP_VERSION : null,
     });
 
     return result;
@@ -1634,6 +1610,13 @@ export class MLEngine {
       completed = true;
     });
 
+    // A consumer can abandon this generator before the `await completionPromise`
+    // below runs (an early return from its `for await`, or a throw while
+    // handling a chunk). The engine still settles the request, so make sure its
+    // rejection always has a handler and isn't reported as an uncaught rejection
+    // that keeps the caller alive when nobody is awaiting it anymore.
+    completionPromise.catch(() => {});
+
     // Handle transferables for performance optimization
     const transferables = [];
     if (
@@ -1650,18 +1633,12 @@ export class MLEngine {
       throw new Error("The port is null");
     }
 
-    // Validate request before sending to child process
-    const validatedRequest = this.#validateRequest(request);
-    if (!validatedRequest) {
-      throw new Error("Request failed security validation");
-    }
-
     // Send the request to the engine via postMessage with optional transferables
     this.#port.postMessage(
       {
         type: "EnginePort:Run",
         requestId,
-        request: validatedRequest,
+        request,
         engineRunOptions: { enableInferenceProgress: true },
       },
       transferables
@@ -1679,6 +1656,12 @@ export class MLEngine {
     let tokenCount = 0;
     let characterCount = 0;
 
+    // Only generated (non-prompt) chunks are counted for cadence telemetry.
+    let firstChunkTime = null;
+    let lastChunkTime = null;
+    let generatedChunkCount = 0;
+    let interChunkTimeTotal = 0;
+
     let chunkPromise = responseChunkResolvers.getAndAdvanceChunkPromise();
     let chunkStartTime = ChromeUtils.now();
 
@@ -1694,6 +1677,18 @@ export class MLEngine {
         );
         tokenCount += chunk.metadata.tokens?.length ?? 0;
         characterCount += chunk.metadata.text?.length ?? 0;
+
+        if (!chunk.metadata.isPrompt) {
+          const now = ChromeUtils.now();
+          if (firstChunkTime === null) {
+            firstChunkTime = now;
+          } else {
+            interChunkTimeTotal += now - lastChunkTime;
+          }
+          lastChunkTime = now;
+          generatedChunkCount++;
+        }
+
         yield {
           text: chunk.metadata.text,
           tokens: chunk.metadata.tokens,
@@ -1778,8 +1773,16 @@ export class MLEngine {
       engineId: this.engineId,
       modelId: this.pipelineOptions.modelId,
       backend: this.pipelineOptions.backend,
+      backendSourceRevision:
+        this.pipelineOptions.backend === "llama.cpp" ? LLAMA_CPP_VERSION : null,
       tokenCount,
       characterCount,
+      timeToFirstChunk:
+        firstChunkTime === null ? null : firstChunkTime - startTime,
+      averageChunkTime:
+        generatedChunkCount > 1
+          ? interChunkTimeTotal / (generatedChunkCount - 1)
+          : null,
     });
 
     return result;

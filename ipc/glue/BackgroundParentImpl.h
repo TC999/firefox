@@ -114,6 +114,9 @@ class BackgroundParentImpl : public PBackgroundParent {
   already_AddRefed<PBackgroundSessionStorageServiceParent>
   AllocPBackgroundSessionStorageServiceParent() override;
 
+  mozilla::ipc::IPCResult RecvPBackgroundSessionStorageServiceConstructor(
+      PBackgroundSessionStorageServiceParent* aActor) override;
+
   mozilla::ipc::IPCResult RecvCreateFileSystemManagerParent(
       const PrincipalInfo& aPrincipalInfo,
       Endpoint<mozilla::dom::PFileSystemManagerParent>&& aParentEndpoint,
@@ -121,9 +124,9 @@ class BackgroundParentImpl : public PBackgroundParent {
 
   mozilla::ipc::IPCResult RecvCreateWebTransportParent(
       const nsAString& aURL, nsIPrincipal* aPrincipal,
-      const uint64_t& aBrowsingContextID,
-      const mozilla::Maybe<IPCClientInfo>& aClientInfo, const bool& aDedicated,
-      const bool& aRequireUnreliable, const uint32_t& aCongestionControl,
+      const uint64_t& aBrowsingContextID, const IPCClientInfo& aClientInfo,
+      const bool& aDedicated, const bool& aRequireUnreliable,
+      const uint32_t& aCongestionControl, nsTArray<nsString>&& aProtocols,
       nsTArray<WebTransportHash>&& aServerCertHashes,
       Endpoint<PWebTransportParent>&& aParentEndpoint,
       CreateWebTransportParentResolver&& aResolver) override;
@@ -211,12 +214,11 @@ class BackgroundParentImpl : public PBackgroundParent {
       const dom::cache::Namespace& aNamespace,
       const PrincipalInfo& aPrincipalInfo) override;
 
-  PUDPSocketParent* AllocPUDPSocketParent(const Maybe<PrincipalInfo>& pInfo,
-                                          const nsACString& aFilter) override;
+  already_AddRefed<PUDPSocketParent> AllocPUDPSocketParent(
+      const Maybe<PrincipalInfo>& pInfo, const nsACString& aFilter) override;
   mozilla::ipc::IPCResult RecvPUDPSocketConstructor(
       PUDPSocketParent*, const Maybe<PrincipalInfo>& aPrincipalInfo,
       const nsACString& aFilter) override;
-  bool DeallocPUDPSocketParent(PUDPSocketParent*) override;
 
   PMessagePortParent* AllocPMessagePortParent(
       const nsID& aUUID, const nsID& aDestinationUUID,

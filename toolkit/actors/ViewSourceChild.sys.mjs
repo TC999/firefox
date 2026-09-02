@@ -1,4 +1,3 @@
-/* -*- indent-tabs-mode: nil; js-indent-level: 2 -*- */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -6,7 +5,7 @@
 const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
-  ViewSourcePageChild: "resource://gre/actors/ViewSourcePageChild.sys.mjs",
+  ViewSourcePageChild: "moz-src:///toolkit/actors/ViewSourcePageChild.sys.mjs",
 });
 
 export class ViewSourceChild extends JSWindowActorChild {
@@ -26,7 +25,7 @@ export class ViewSourceChild extends JSWindowActorChild {
       case "ViewSource:GetSelection": {
         let selectionDetails;
         try {
-          selectionDetails = this.getSelection(this.document.ownerGlobal);
+          selectionDetails = this.getSelection(this.document.documentGlobal);
         } catch (e) {}
         return selectionDetails;
       }

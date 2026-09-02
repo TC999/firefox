@@ -6,9 +6,8 @@
 //!
 //! Specification: https://drafts.csswg.org/css-images-4/#conic-gradients
 //!
-//! Conic gradients are rendered via cached render tasks and composited with the image brush.
+//! Conic gradients are rendered as quads with the gradient pattern (ps_quad_gradient).
 
-use euclid::vec2;
 use api::{ExtendMode, GradientStop};
 use api::units::*;
 use crate::pattern::gradient::{conic_gradient_pattern};
@@ -16,66 +15,22 @@ use crate::pattern::{Pattern, PatternBuilder, PatternBuilderContext, PatternBuil
 use crate::scene_building::IsVisible;
 use crate::intern::{Internable, InternDebug, Handle as InternHandle};
 use crate::internal_types::LayoutPrimitiveInfo;
-use crate::prim_store::{PrimitiveInstanceKind, PrimitiveOpacity, FloatKey};
-use crate::prim_store::{PrimKeyCommonData, PrimTemplateCommonData, PrimitiveStore};
-use crate::prim_store::{NinePatchDescriptor, PointKey, SizeKey, InternablePrimitive};
-use crate::renderer::GpuBufferAddress;
+use crate::prim_store::{PrimitiveKind, PrimitiveOpacity};
+use crate::prim_store::{PrimTemplateCommonData, PrimitiveStore};
+use crate::prim_store::{NinePatchDescriptor, InternablePrimitive};
 
-use std::{hash, ops::{Deref, DerefMut}};
-use super::{stops_and_min_alpha, GradientStopKey};
+use std::ops::{Deref, DerefMut};
+use super::stops_and_min_alpha;
 
-/// Hashable conic gradient parameters, for use during prim interning.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Clone, MallocSizeOf, PartialEq)]
-pub struct ConicGradientParams {
-    pub angle: f32, // in radians
-    pub start_offset: f32,
-    pub end_offset: f32,
-}
+// `ConicGradientParams` now lives in `webrender_api::key_types` so builder-side
+// interning keys can reference it. Re-exported to keep existing references
+// working.
+pub use api::key_types::ConicGradientParams;
 
-impl Eq for ConicGradientParams {}
-
-impl hash::Hash for ConicGradientParams {
-    fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        self.angle.to_bits().hash(state);
-        self.start_offset.to_bits().hash(state);
-        self.end_offset.to_bits().hash(state);
-    }
-}
-
-/// Identifying key for a line decoration.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[derive(Debug, Clone, Eq, PartialEq, Hash, MallocSizeOf)]
-pub struct ConicGradientKey {
-    pub common: PrimKeyCommonData,
-    pub extend_mode: ExtendMode,
-    pub center: PointKey,
-    pub params: ConicGradientParams,
-    pub stretch_size: SizeKey,
-    pub stops: Vec<GradientStopKey>,
-    pub tile_spacing: SizeKey,
-    pub nine_patch: Option<Box<NinePatchDescriptor>>,
-}
-
-impl ConicGradientKey {
-    pub fn new(
-        info: &LayoutPrimitiveInfo,
-        conic_grad: ConicGradient,
-    ) -> Self {
-        ConicGradientKey {
-            common: info.into(),
-            extend_mode: conic_grad.extend_mode,
-            center: conic_grad.center,
-            params: conic_grad.params,
-            stretch_size: conic_grad.stretch_size,
-            stops: conic_grad.stops,
-            tile_spacing: conic_grad.tile_spacing,
-            nine_patch: conic_grad.nine_patch,
-        }
-    }
-}
+// `ConicGradientKey` lives in `webrender_api::interned_prims` (alongside the
+// `ConicGradient` value) so the key can be built from api-resident types. The
+// frame-time `ConicGradientTemplate` and interning glue stay here.
+pub use api::interned_prims::ConicGradientKey;
 
 impl InternDebug for ConicGradientKey {}
 
@@ -87,9 +42,10 @@ pub struct ConicGradientTemplate {
     pub extend_mode: ExtendMode,
     pub center: LayoutPoint,
     pub params: ConicGradientParams,
-    pub task_size: DeviceIntSize,
-    pub scale: DeviceVector2D,
-    pub stretch_size: LayoutSize,
+    /// Per-axis fraction of `common.prim_size` covered by one tile of the
+    /// gradient pattern. Multiply by `common.prim_size` at use to recover the
+    /// absolute stretch_size.
+    pub stretch_ratio: LayoutSize,
     pub tile_spacing: LayoutSize,
     pub border_nine_patch: Option<Box<NinePatchDescriptor>>,
     pub stops_opacity: PrimitiveOpacity,
@@ -104,10 +60,6 @@ impl PatternBuilder for ConicGradientTemplate {
         ctx: &PatternBuilderContext,
         state: &mut PatternBuilderState,
     ) -> Pattern {
-        // The scaling parameter is used to compensate for when we reduce the size
-        // of the render task for cached gradients. Here we aren't applying any.
-        let no_scale = DeviceVector2D::one();
-
         // ConicGradientTemplate stores the center point relative to the primitive
         // origin, but the shader works with start/end points in "proper" layout
         // coordinates (relative to the primitive's spatial node).
@@ -115,7 +67,6 @@ impl PatternBuilder for ConicGradientTemplate {
 
         conic_gradient_pattern(
             center,
-            no_scale,
             self.params.angle,
             self.params.start_offset,
             self.params.end_offset,
@@ -150,72 +101,12 @@ impl From<ConicGradientKey> for ConicGradientTemplate {
         // should be drawn in.
         let stops_opacity = PrimitiveOpacity::from_alpha(min_alpha);
 
-        let mut stretch_size: LayoutSize = item.stretch_size.into();
-        stretch_size.width = stretch_size.width.min(common.prim_size.width);
-        stretch_size.height = stretch_size.height.min(common.prim_size.height);
-
-        fn approx_eq(a: f32, b: f32) -> bool { (a - b).abs() < 0.01 }
-
-        // Attempt to detect some of the common configurations with hard gradient stops. Allow
-        // those a higher maximum resolution to avoid the worst cases of aliasing artifacts with
-        // large conic gradients. A better solution would be to go back to rendering very large
-        // conic gradients via a brush shader instead of caching all of them (unclear whether
-        // it is important enough to warrant the better solution).
-        let mut has_hard_stops = false;
-        let mut prev_stop = None;
-        let offset_range = item.params.end_offset - item.params.start_offset;
-        for stop in &stops {
-            if offset_range <= 0.0 {
-                break;
-            }
-            if let Some(prev_offset) = prev_stop {
-                // Check whether two consecutive stops are very close (hard stops).
-                if stop.offset < prev_offset + 0.005 / offset_range {
-                    // a is the angle of the stop normalized into 0-1 space and repeating in the 0-0.25 range.
-                    // If close to 0.0 or 0.25 it means the stop is vertical or horizontal. For those, the lower
-                    // resolution isn't a big issue.
-                    let a = item.params.angle / (2.0 * std::f32::consts::PI)
-                        + item.params.start_offset
-                        + stop.offset / offset_range;
-                    let a = a.rem_euclid(0.25);
-
-                    if !approx_eq(a, 0.0) && !approx_eq(a, 0.25) {
-                        has_hard_stops = true;
-                        break;
-                    }
-                }
-            }
-            prev_stop = Some(stop.offset);
-        }
-
-        let max_size = if has_hard_stops {
-            2048.0
-        } else {
-            1024.0
-        };
-
-        // Avoid rendering enormous gradients. Radial gradients are mostly made of soft transitions,
-        // so it is unlikely that rendering at a higher resolution that 1024 would produce noticeable
-        // differences, especially with 8 bits per channel.
-        let mut task_size: DeviceSize = stretch_size.cast_unit();
-        let mut scale = vec2(1.0, 1.0);
-        if task_size.width > max_size {
-            scale.x = task_size.width / max_size;
-            task_size.width = max_size;
-        }
-        if task_size.height > max_size {
-            scale.y = task_size.height / max_size;
-            task_size.height = max_size;
-        }
-
         ConicGradientTemplate {
             common,
             center: item.center.into(),
             extend_mode: item.extend_mode,
             params: item.params,
-            stretch_size,
-            task_size: task_size.ceil().to_i32(),
-            scale,
+            stretch_ratio: item.stretch_ratio.into(),
             tile_spacing: item.tile_spacing.into(),
             border_nine_patch: item.nine_patch,
             stops_opacity,
@@ -226,18 +117,9 @@ impl From<ConicGradientKey> for ConicGradientTemplate {
 
 pub type ConicGradientDataHandle = InternHandle<ConicGradient>;
 
-#[derive(Debug, MallocSizeOf)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-pub struct ConicGradient {
-    pub extend_mode: ExtendMode,
-    pub center: PointKey,
-    pub params: ConicGradientParams,
-    pub stretch_size: SizeKey,
-    pub stops: Vec<GradientStopKey>,
-    pub tile_spacing: SizeKey,
-    pub nine_patch: Option<Box<NinePatchDescriptor>>,
-}
+// `ConicGradient` now lives in `webrender_api::interned_prims` so content-process
+// interning can hold it. Re-exported to keep existing references working.
+pub use api::interned_prims::ConicGradient;
 
 impl Internable for ConicGradient {
     type Key = ConicGradientKey;
@@ -251,15 +133,15 @@ impl InternablePrimitive for ConicGradient {
         self,
         info: &LayoutPrimitiveInfo,
     ) -> ConicGradientKey {
-        ConicGradientKey::new(info, self)
+        ConicGradientKey::new(info.into(), self)
     }
 
     fn make_instance_kind(
         _key: ConicGradientKey,
         data_handle: ConicGradientDataHandle,
         _prim_store: &mut PrimitiveStore,
-    ) -> PrimitiveInstanceKind {
-        PrimitiveInstanceKind::ConicGradient {
+    ) -> PrimitiveKind {
+        PrimitiveKind::ConicGradient {
             data_handle,
         }
     }
@@ -271,60 +153,3 @@ impl IsVisible for ConicGradient {
     }
 }
 
-#[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-pub struct ConicGradientTask {
-    pub extend_mode: ExtendMode,
-    pub center: DevicePoint,
-    pub scale: DeviceVector2D,
-    pub params: ConicGradientParams,
-    pub stops: GpuBufferAddress,
-}
-
-impl ConicGradientTask {
-    pub fn to_instance(&self, target_rect: &DeviceIntRect) -> ConicGradientInstance {
-        ConicGradientInstance {
-            task_rect: target_rect.to_f32(),
-            center: self.center,
-            scale: self.scale,
-            start_offset: self.params.start_offset,
-            end_offset: self.params.end_offset,
-            angle: self.params.angle,
-            extend_mode: self.extend_mode as i32,
-            gradient_stops_address: self.stops.as_int(),
-        }
-    }
-}
-
-/// The per-instance shader input of a radial gradient render task.
-///
-/// Must match the RADIAL_GRADIENT instance description in renderer/vertex.rs.
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-#[repr(C)]
-#[derive(Clone, Debug)]
-pub struct ConicGradientInstance {
-    pub task_rect: DeviceRect,
-    pub center: DevicePoint,
-    pub scale: DeviceVector2D,
-    pub start_offset: f32,
-    pub end_offset: f32,
-    pub angle: f32,
-    pub extend_mode: i32,
-    pub gradient_stops_address: i32,
-}
-
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-pub struct ConicGradientCacheKey {
-    pub size: DeviceIntSize,
-    pub center: PointKey,
-    pub scale: PointKey,
-    pub start_offset: FloatKey,
-    pub end_offset: FloatKey,
-    pub angle: FloatKey,
-    pub extend_mode: ExtendMode,
-    pub stops: Vec<GradientStopKey>,
-}

@@ -20,74 +20,31 @@ import androidx.core.view.ViewCompat
 import androidx.fragment.app.viewModels
 import androidx.fragment.compose.content
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewModelScope
+import androidx.navigation.fragment.findNavController
 import androidx.navigation.fragment.navArgs
+import com.google.android.material.R as materialR
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
-import kotlinx.coroutines.suspendCancellableCoroutine
-import mozilla.components.browser.state.selector.selectedTab
-import mozilla.components.concept.engine.EngineSession
+import mozilla.components.browser.state.selector.findTabOrCustomTabOrSelectedTab
+import mozilla.components.browser.state.state.SessionState
+import mozilla.components.browser.state.store.BrowserStore
 import mozilla.components.feature.summarize.SummarizationState
 import mozilla.components.feature.summarize.SummarizationUi
+import mozilla.components.feature.summarize.SummarizeSettingsActionWrapper
 import mozilla.components.feature.summarize.ViewDismissed
-import mozilla.components.feature.summarize.content.PageContentExtractor
-import mozilla.components.feature.summarize.content.PageMetadata
-import mozilla.components.feature.summarize.content.PageMetadataExtractor
-import mozilla.components.feature.summarize.settings.SummarizationSettings
-import mozilla.components.feature.summarize.settings.SummarizeSettingsMiddleware
+import mozilla.components.feature.summarize.settings.LearnMoreHandled
 import mozilla.components.feature.summarize.settings.SummarizeSettingsState
-import mozilla.components.feature.summarize.settings.SummarizeSettingsStore
-import mozilla.components.feature.summarize.settings.summarizeSettingsReducer
+import mozilla.components.support.base.log.logger.Logger
 import mozilla.components.support.ktx.android.view.setNavigationBarColorCompat
-import mozilla.components.support.utils.ext.left
-import mozilla.components.support.utils.ext.right
 import mozilla.components.support.utils.ext.top
 import org.mozilla.fenix.R
+import org.mozilla.fenix.components.accounts.FenixFxAEntryPoint
 import org.mozilla.fenix.ext.requireComponents
 import org.mozilla.fenix.settings.SupportUtils
+import org.mozilla.fenix.tabstray.ext.toDisplayTitle
 import org.mozilla.fenix.theme.FirefoxTheme
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
-import com.google.android.material.R as materialR
 
-/**
- * Gets the content for a given engine session.
- */
-private fun EngineSession?.asPageContentExtractor(): PageContentExtractor = {
-    runCatching {
-        suspendCancellableCoroutine { continuation ->
-            this!!.getPageContent(
-                onResult = { content ->
-                    continuation.resume(content)
-                },
-                onException = { error ->
-                    continuation.resumeWithException(PageContentExtractor.Exception())
-                },
-            )
-        }
-    }
-}
-
-private fun EngineSession?.asPageMetadataExtractor(): PageMetadataExtractor = {
-    runCatching {
-        suspendCancellableCoroutine { continuation ->
-            this!!.getPageMetadata(
-                onResult = { metadata ->
-                    continuation.resume(
-                        PageMetadata(
-                            structuredDataTypes = metadata.structuredDataTypes,
-                            wordCount = metadata.wordCount,
-                            language = metadata.language,
-                        ),
-                    )
-                },
-                onException = { error ->
-                    continuation.resumeWithException(PageMetadataExtractor.Exception())
-                },
-            )
-        }
-    }
-}
+private const val HIDING_FRICTION = 0.9f
 
 private fun Context.getConnectionType(): ConnectionType {
     val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -100,40 +57,67 @@ private fun Context.getConnectionType(): ConnectionType {
     }
 }
 
-const val HALF_EXPANDED_RATIO = 0.75f
-
-/**
- * Summarization UI entry fragment.
- */
+/** Summarization UI entry fragment. */
 class SummarizationFragment : BottomSheetDialogFragment() {
     private val args by navArgs<SummarizationFragmentArgs>()
+    private val browserStore: BrowserStore
+        get() = requireComponents.core.store
+
+    private val currentTab: SessionState?
+        get() = browserStore.state.findTabOrCustomTabOrSelectedTab(args.sessionId)
+
+    private val isEngineAvailable: Boolean
+        get() = currentTab?.engineState?.engineSession != null
+
     private val storeViewModel: SummarizationStoreViewModel by viewModels {
-        val engineSession = requireComponents.core.store.state.selectedTab?.engineState?.engineSession
-        val provider = requireComponents.llm.mlpaProvider
+        val title = currentTab?.toDisplayTitle() ?: ""
+        val cache = requireComponents.core.summarizationSettingsBinding
+
         SummarizationStoreViewModel.factory(
+            currentTab = currentTab,
             initializedFromShake = args.fromShake,
+            pageTitle = title,
             connectionType = requireContext().getConnectionType(),
-            llmProvider = provider,
-            settings = SummarizationSettings.dataStore(requireContext()),
-            pageContentExtractor = engineSession.asPageContentExtractor(),
-            pageMetadataExtractor = engineSession.asPageMetadataExtractor(),
-            errorReporter = { requireComponents.analytics.crashReporter.submitCaughtException(it) },
+            llmProvider = requireComponents.llm.mlpaProvider,
+            settings = requireComponents.summarizationSettings,
+            loadCachedSettings = {
+                SummarizeSettingsState(
+                    isFeatureEnabled = cache.isFeatureEnabled.value,
+                    isGestureEnabled = cache.isGestureEnabled.value,
+                    shakeSensitivity = cache.shakeSensitivity.value,
+                )
+            },
+            errorReporter = { tag, exception ->
+                requireComponents.analytics.crashReporter.submitCaughtException(exception)
+                Logger(tag).error(exception.message ?: "", exception)
+            },
         )
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        // if we're recreating the backstack while resuming, we need to check that the tab hasn't been killed in the
+        // background
+        if (savedInstanceState != null && !isEngineAvailable) {
+            dismiss()
+        }
     }
 
     override fun onStart() {
         super.onStart()
         val bottomSheet = dialog?.findViewById<View>(materialR.id.design_bottom_sheet)
         bottomSheet?.let { sheet ->
-            val behavior = BottomSheetBehavior.from(sheet)
-            behavior.state = BottomSheetBehavior.STATE_EXPANDED
-            behavior.halfExpandedRatio = HALF_EXPANDED_RATIO
+            with(BottomSheetBehavior.from(sheet)) {
+                skipCollapsed = true
+                state = BottomSheetBehavior.STATE_EXPANDED
+                hideFriction = HIDING_FRICTION
+            }
         }
     }
 
     override fun onDismiss(dialog: DialogInterface) {
         super.onDismiss(dialog)
-        storeViewModel.store.dispatch(ViewDismissed)
+        storeViewModel.store.dispatch(ViewDismissed(isEngineAvailable))
     }
 
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog =
@@ -143,7 +127,7 @@ class SummarizationFragment : BottomSheetDialogFragment() {
                 ViewCompat.setOnApplyWindowInsetsListener(bottomSheet) { view, insets ->
                     // edge-to-edge workaround
                     // exclude the bottom insets so that we can handle the insets in compose
-                    view.setPadding(insets.left(), insets.top(), insets.right(), 0)
+                    view.setPadding(0, insets.top(), 0, 0)
                     insets
                 }
                 bottomSheet.setBackgroundResource(android.R.color.transparent)
@@ -155,46 +139,55 @@ class SummarizationFragment : BottomSheetDialogFragment() {
         inflater: LayoutInflater,
         container: ViewGroup?,
         savedInstanceState: Bundle?,
-    ): View = content {
-        val summarizeSettings = SummarizationSettings.dataStore(requireContext())
-
-        val state by storeViewModel.store.stateFlow.collectAsStateWithLifecycle()
-        LaunchedEffect(state) {
-            when (state) {
-                SummarizationState.Finished.LearnMoreAboutShakeConsent -> {
-                    openLearnMoreLink()
-                    dismiss()
+    ): View {
+        return content {
+            val state by storeViewModel.store.stateFlow.collectAsStateWithLifecycle()
+            LaunchedEffect(state) {
+                when (val currentState = state) {
+                    SummarizationState.LearnMoreAboutCloudSupportedFeatures -> {
+                        openLearnMoreLink(SupportUtils.SumoTopic.CLOUD_SUPPORTED_FEATURES)
+                        dismiss()
+                    }
+                    SummarizationState.LearnMoreAboutShakeConsent -> {
+                        openLearnMoreLink(SupportUtils.SumoTopic.PAGE_SUMMARIZATION)
+                    }
+                    is SummarizationState.Settings -> {
+                        if (currentState.settingsState.isLearnMoreRequested) {
+                            openLearnMoreLink(SupportUtils.SumoTopic.PAGE_SUMMARIZATION)
+                            storeViewModel.store.dispatch(SummarizeSettingsActionWrapper(LearnMoreHandled))
+                        }
+                    }
+                    SummarizationState.Finished.NavigatedToSignIn -> {
+                        navigateToSignIn()
+                        dismiss()
+                    }
+                    is SummarizationState.Finished -> {
+                        dismiss()
+                    }
+                    else -> {}
                 }
-                is SummarizationState.Finished -> {
-                    dismiss()
-                }
-                else -> {}
             }
-        }
 
-        val settingsStore = SummarizeSettingsStore(
-            initialState = SummarizeSettingsState(),
-            reducer = ::summarizeSettingsReducer,
-            middleware = listOf(
-                SummarizeSettingsMiddleware(
-                    settings = summarizeSettings,
-                    onLearnMoreClicked = { openLearnMoreLink() },
-                    storeViewModel.viewModelScope,
-                ),
-            ),
-        )
-
-        FirefoxTheme {
-            SummarizationUi(
-                productName = getString(R.string.app_name),
-                store = storeViewModel.store,
-                settingsStore = settingsStore,
-            )
+            FirefoxTheme {
+                SummarizationUi(
+                    productName = getString(R.string.app_name),
+                    store = storeViewModel.store,
+                    resolveError = { throwable -> ErrorCodeLookup.lookup(throwable).code },
+                )
+            }
         }
     }
 
-    private fun openLearnMoreLink() {
-        val url = SupportUtils.getGenericSumoURLForTopic(SupportUtils.SumoTopic.PAGE_SUMMARIZATION)
+    private fun navigateToSignIn() {
+        val directions =
+            SummarizationFragmentDirections.actionSummarizationFragmentToTurnOnSyncFragment(
+                entrypoint = FenixFxAEntryPoint.ShakeToSummarize
+            )
+        findNavController().navigate(directions)
+    }
+
+    private fun openLearnMoreLink(topic: SupportUtils.SumoTopic) {
+        val url = SupportUtils.getGenericSumoURLForTopic(topic)
         SupportUtils.launchSandboxCustomTab(requireContext(), url)
     }
 }

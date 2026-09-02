@@ -191,6 +191,11 @@ if(NOT BUILD_SHARED_LIBS)
     add_to_libaom_test_srcs(AOM_UNIT_TEST_COMMON_INTRIN_AVX2)
   endif()
 
+  if(CONFIG_MULTITHREAD)
+    list(APPEND AOM_UNIT_TEST_DECODER_SOURCES
+                "${AOM_ROOT}/test/grain_synthesis_race_test.cc")
+  endif()
+
   list(APPEND AOM_UNIT_TEST_ENCODER_SOURCES
               "${AOM_ROOT}/test/arf_freq_test.cc"
               "${AOM_ROOT}/test/av1_convolve_test.cc"
@@ -227,6 +232,7 @@ if(NOT BUILD_SHARED_LIBS)
               "${AOM_ROOT}/test/masked_variance_test.cc"
               "${AOM_ROOT}/test/metadata_test.cc"
               "${AOM_ROOT}/test/minmax_test.cc"
+              "${AOM_ROOT}/test/model_rd_test.cc"
               "${AOM_ROOT}/test/motion_vector_test.cc"
               "${AOM_ROOT}/test/mv_cost_test.cc"
               "${AOM_ROOT}/test/obmc_sad_test.cc"

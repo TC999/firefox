@@ -5,8 +5,10 @@
 #ifndef FilteringWrapper_h_
 #define FilteringWrapper_h_
 
-#include "XrayWrapper.h"
 #include "mozilla/Maybe.h"
+
+#include "XrayWrapper.h"
+
 #include "js/CallNonGenericMethod.h"
 #include "js/Wrapper.h"
 
@@ -45,6 +47,10 @@ class FilteringWrapper : public Base {
 
   virtual bool getPrototype(JSContext* cx, JS::HandleObject wrapper,
                             JS::MutableHandleObject protop) const override;
+
+  virtual bool getPrototypeIfOrdinary(
+      JSContext* cx, JS::HandleObject wrapper, bool* isOrdinary,
+      JS::MutableHandleObject protop) const override;
 
   static const FilteringWrapper singleton;
 };

@@ -7,7 +7,6 @@
 #ifndef jsapi_h
 #define jsapi_h
 
-#include "mozilla/FloatingPoint.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/TimeStamp.h"
 #include "mozilla/Variant.h"
@@ -81,17 +80,6 @@ using ScriptVector = JS::GCVector<JSScript*>;
 using StringVector = JS::GCVector<JSString*>;
 
 } /* namespace JS */
-
-/************************************************************************/
-
-static MOZ_ALWAYS_INLINE JS::Value JS_NumberValue(double d) {
-  int32_t i;
-  d = JS::CanonicalizeNaN(d);
-  if (mozilla::NumberIsInt32(d, &i)) {
-    return JS::Int32Value(i);
-  }
-  return JS::DoubleValue(d);
-}
 
 /************************************************************************/
 
@@ -847,8 +835,7 @@ extern JS_PUBLIC_API void JS_SetOffthreadIonCompilationEnabled(JSContext* cx,
   Register(WASM_DELAY_TIER2, "wasm.delay-tier2") \
   Register(WASM_JIT_BASELINE, "wasm.baseline") \
   Register(WASM_JIT_OPTIMIZING, "wasm.optimizing") \
-  Register(REGEXP_DUPLICATE_NAMED_GROUPS, "regexp.duplicate-named-groups") \
-  Register(REGEXP_MODIFIERS, "regexp.modifiers")  // clang-format on
+  Register(REGEXP_BUFFER_BOUNDARIES, "regexp.buffer-boundaries")  // clang-format on
 
 typedef enum JSJitCompilerOption {
 #define JIT_COMPILER_DECLARE(key, str) JSJITCOMPILER_##key,
@@ -912,14 +899,14 @@ class MOZ_RAII JS_PUBLIC_API AutoFilename {
   js::ScriptSource* ss_;
   mozilla::Variant<const char*, UniqueChars> filename_;
 
-  AutoFilename(const AutoFilename&) = delete;
-  AutoFilename& operator=(const AutoFilename&) = delete;
-
  public:
   AutoFilename()
       : ss_(nullptr), filename_(mozilla::AsVariant<const char*>(nullptr)) {}
 
   ~AutoFilename() { reset(); }
+
+  AutoFilename(const AutoFilename&) = delete;
+  AutoFilename& operator=(const AutoFilename&) = delete;
 
   void reset();
 

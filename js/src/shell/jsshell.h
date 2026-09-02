@@ -106,7 +106,6 @@ extern bool enableDisassemblyDumps;
 extern bool offthreadBaselineCompilation;
 extern bool offthreadIonCompilation;
 extern JS::DelazificationOption defaultDelazificationMode;
-extern bool enableAsmJS;
 extern bool enableWasm;
 extern bool enableSharedMemory;
 extern bool enableWasmBaseline;
@@ -169,7 +168,7 @@ class NonShrinkingValueVector
       if (value.isGCThing()) {
         Zone* zone = value.toGCThing()->zoneFromAnyThread();
         if (zone->isGCSweeping() || zone->isGCCompacting()) {
-          TraceWeakEdge(trc, &value, "NonShrinkingValueVector element");
+          TraceOrClearWeakEdge(trc, &value, "NonShrinkingValueVector element");
         }
       }
     }
@@ -194,10 +193,6 @@ struct ShellContext {
   ~ShellContext();
 
   JSContext* cx_;
-
-  // If true, new globals should not be visible to the Debugger and should not
-  // define the Debugger API.
-  bool disableDebuggerForNewGlobal = false;
 
   const IsWorkerEnum isWorker;
   bool lastWarningEnabled;
@@ -250,6 +245,9 @@ struct ShellContext {
   // Off-thread parse state.
   js::Monitor offThreadMonitor MOZ_UNANNOTATED;
   Vector<OffThreadJob*, 0, SystemAllocPolicy> offThreadJobs;
+
+  // Number of root module evaluation promises that have not yet settled.
+  uint32_t pendingRootModuleEvaluations = 0;
 
   // Queued task callbacks that run after the microtask queue.
 

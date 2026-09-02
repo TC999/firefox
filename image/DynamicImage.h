@@ -5,9 +5,9 @@
 #ifndef mozilla_image_DynamicImage_h
 #define mozilla_image_DynamicImage_h
 
-#include "mozilla/MemoryReporting.h"
-#include "gfxDrawable.h"
 #include "Image.h"
+#include "gfxDrawable.h"
+#include "mozilla/MemoryReporting.h"
 
 namespace mozilla {
 namespace image {
@@ -57,7 +57,7 @@ class DynamicImage : public Image {
   nsIURI* GetURI() const override;
 
  private:
-  virtual ~DynamicImage() {}
+  virtual ~DynamicImage() = default;
 
   RefPtr<gfxDrawable> mDrawable;
 };

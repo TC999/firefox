@@ -5,13 +5,13 @@
 #ifndef nsHostRecord_h_
 #define nsHostRecord_h_
 
+#include "PLDHashTable.h"
 #include "mozilla/AtomicBitfields.h"
 #include "mozilla/DataMutex.h"
 #include "mozilla/LinkedList.h"
 #include "mozilla/net/HTTPSSVC.h"
-#include "nsIDNSService.h"
 #include "nsIDNSByTypeRecord.h"
-#include "PLDHashTable.h"
+#include "nsIDNSService.h"
 #include "nsITRRSkipReason.h"
 
 class nsHostRecord;
@@ -123,6 +123,8 @@ class nsHostRecord : public mozilla::LinkedListElement<RefPtr<nsHostRecord>>,
     DNS_PRIORITY_HIGH,
   };
 
+  nsresult GetFromStaleCache(bool* aResult);
+
  protected:
   friend class nsHostResolver;
   friend class mozilla::net::HostRecordQueue;
@@ -232,6 +234,12 @@ class nsHostRecord : public mozilla::LinkedListElement<RefPtr<nsHostRecord>>,
   // seconds), but a use of that negative entry forces an asynchronous refresh.
   bool negative = false;
 
+  // Whether the answer handed to the current consumer came from a stale
+  // (past-TTL, grace-period) cache entry. Captured at serve time: true only
+  // when a grace-period cache hit is returned, and cleared on every fresh
+  // resolution.
+  bool mFromStaleCache = false;
+
   // Explicitly expired
   bool mDoomed = false;
 
@@ -281,16 +289,12 @@ class AddrHostRecord final : public nsHostRecord {
 
   /* the lock protects |addr_info| and |addr_info_gencnt| because they
    * are mutable and accessed by the resolver worker thread and the
-   * nsDNSService2 class.  |addr| doesn't change after it has been
-   * assigned a value.  only the resolver worker thread modifies
-   * nsHostRecord (and only in nsHostResolver::CompleteLookup);
-   * the other threads just read it.  therefore the resolver worker
-   * thread doesn't need to lock when reading |addr_info|.
+   * nsDNSService2 class.
    */
-  Mutex addr_info_lock MOZ_UNANNOTATED{"AddrHostRecord.addr_info_lock"};
+  mutable Mutex addr_info_lock{"AddrHostRecord.addr_info_lock"};
   // generation count of |addr_info|
-  int addr_info_gencnt = 0;
-  RefPtr<mozilla::net::AddrInfo> addr_info;
+  int addr_info_gencnt MOZ_GUARDED_BY(addr_info_lock) = 0;
+  RefPtr<mozilla::net::AddrInfo> addr_info MOZ_GUARDED_BY(addr_info_lock);
   mozilla::UniquePtr<mozilla::net::NetAddr> addr;
 
   // hold addr_info_lock when calling the blocklist functions
@@ -315,7 +319,7 @@ class AddrHostRecord final : public nsHostRecord {
   explicit AddrHostRecord(const nsHostKey& key);
   ~AddrHostRecord();
 
-  // Checks if the record is usable (not expired and has a value)
+  // Checks if the record is usable (not expired and has a value).
   bool HasUsableResultInternal(
       const mozilla::TimeStamp& now,
       nsIDNSService::DNSFlags queryFlags) const override;
@@ -345,7 +349,7 @@ class AddrHostRecord final : public nsHostRecord {
   // a list of addresses associated with this record that have been reported
   // as unusable. the list is kept as a set of strings to make it independent
   // of gencnt.
-  nsTArray<nsCString> mUnusableItems;
+  nsTArray<nsCString> mUnusableItems MOZ_GUARDED_BY(addr_info_lock);
 };
 
 // 77b786a7-04be-44f2-987c-ab8aa96676e0
@@ -384,7 +388,7 @@ class TypeHostRecord final : public nsHostRecord,
 
   mozilla::net::TypeRecordResultType mResults MOZ_GUARDED_BY(mResultsLock) =
       AsVariant(mozilla::Nothing());
-  mozilla::Mutex mResultsLock{"TypeHostRecord.mResultsLock"};
+  mutable mozilla::Mutex mResultsLock{"TypeHostRecord.mResultsLock"};
 
   mozilla::Maybe<nsCString> mOriginHost MOZ_GUARDED_BY(mResultsLock);
   bool mAllRecordsExcluded = false;

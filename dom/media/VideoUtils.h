@@ -161,6 +161,12 @@ bool IsValidVideoRegion(const gfx::IntSize& aFrame,
                         const gfx::IntRect& aPicture,
                         const gfx::IntSize& aDisplay);
 
+// Returns true if aDisplay is a valid display size for a video frame: each
+// dimension is positive and within the maximum image dimension, and the total
+// area does not exceed MAX_VIDEO_WIDTH * MAX_VIDEO_HEIGHT. This is the display
+// predicate used by IsValidVideoRegion.
+bool IsValidVideoDisplaySize(const gfx::IntSize& aDisplay);
+
 // Template to automatically set a variable to a value on scope exit.
 // Useful for unsetting flags, etc.
 template <typename T>
@@ -212,13 +218,7 @@ struct VideoColorSpace {
   gfx::CICP::MatrixCoefficients mMatrix = gfx::CICP::MC_BT709;
   gfx::ColorRange mRange = gfx::ColorRange::LIMITED;
 
-  bool operator==(const VideoColorSpace& aOther) const {
-    return mPrimaries == aOther.mPrimaries && mTransfer == aOther.mTransfer &&
-           mMatrix == aOther.mMatrix && mRange == aOther.mRange;
-  }
-  bool operator!=(const VideoColorSpace& aOther) const {
-    return !(*this == aOther);
-  }
+  bool operator==(const VideoColorSpace& aOther) const = default;
 };
 
 // Extracts the VPX codecs parameter string.
@@ -522,8 +522,7 @@ StringListRange<String, empties> MakeStringListRange(const String& aList) {
 
 template <StringListRangeEmptyItems empties = StringListRangeEmptyItems::Skip,
           typename ListString, typename ItemString>
-static bool StringListContains(const ListString& aList,
-                               const ItemString& aItem) {
+bool StringListContains(const ListString& aList, const ItemString& aItem) {
   for (const auto& listItem : MakeStringListRange<empties>(aList)) {
     if (listItem.Equals(aItem)) {
       return true;

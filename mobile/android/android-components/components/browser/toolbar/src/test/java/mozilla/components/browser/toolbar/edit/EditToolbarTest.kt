@@ -7,6 +7,9 @@ package mozilla.components.browser.toolbar.edit
 import android.view.KeyEvent
 import android.view.View
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import java.util.concurrent.CountDownLatch
+import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlinx.coroutines.test.runTest
 import mozilla.components.browser.toolbar.BrowserToolbar
 import mozilla.components.browser.toolbar.R
@@ -20,22 +23,21 @@ import mozilla.components.support.test.robolectric.testContext
 import mozilla.components.ui.autocomplete.InlineAutocompleteEditText
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
-import java.util.concurrent.CountDownLatch
 
 @RunWith(AndroidJUnit4::class)
 class EditToolbarTest {
     private fun createEditToolbar(): Pair<BrowserToolbar, EditToolbar> {
         val toolbar: BrowserToolbar = mock()
-        val displayToolbar = EditToolbar(
-            testContext,
-            toolbar,
-            View.inflate(testContext, R.layout.mozac_browser_toolbar_edittoolbar, null),
-        )
+        val displayToolbar =
+            EditToolbar(
+                testContext,
+                toolbar,
+                View.inflate(testContext, R.layout.mozac_browser_toolbar_edittoolbar, null),
+            )
         return Pair(toolbar, displayToolbar)
     }
 
@@ -59,7 +61,7 @@ class EditToolbarTest {
         latch.await()
 
         assertEquals("Hello", invokedWithParams!![0])
-        assertTrue(invokedWithParams[1] is AutocompleteDelegate)
+        assertIs<AutocompleteDelegate>(invokedWithParams[1])
     }
 
     @Test
@@ -82,7 +84,7 @@ class EditToolbarTest {
         // Serialize here for the sake of tests.
         latch.await()
         assertEquals("Test", invokedWithParams!![0])
-        assertTrue(invokedWithParams[1] is AutocompleteDelegate)
+        assertIs<AutocompleteDelegate>(invokedWithParams[1])
     }
 
     @Test
@@ -127,7 +129,7 @@ class EditToolbarTest {
                     KeyEvent.ACTION_DOWN,
                     KeyEvent.KEYCODE_ENTER,
                     0,
-                ),
+                )
             )
 
             assertEquals(2, facts.size)
@@ -145,10 +147,10 @@ class EditToolbarTest {
             assertNull(fact.value)
 
             val metadata = fact.metadata
-            assertNotNull(metadata!!)
+            assertNotNull(metadata)
             assertEquals(1, metadata.size)
             assertTrue(metadata.contains("autocomplete"))
-            assertTrue(metadata["autocomplete"] is Boolean)
+            assertIs<Boolean>(metadata["autocomplete"])
             assertFalse(metadata["autocomplete"] as Boolean)
         }
     }
@@ -164,11 +166,12 @@ class EditToolbarTest {
             toolbar.edit.views.url.setText("https://www.mozilla.org")
 
             // Fake autocomplete
-            toolbar.edit.views.url.autocompleteResult = InlineAutocompleteEditText.AutocompleteResult(
-                text = "hello world",
-                source = "test-source",
-                totalItems = 100,
-            )
+            toolbar.edit.views.url.autocompleteResult =
+                InlineAutocompleteEditText.AutocompleteResult(
+                    text = "hello world",
+                    source = "test-source",
+                    totalItems = 100,
+                )
 
             toolbar.edit.views.url.dispatchKeyEvent(
                 KeyEvent(
@@ -177,7 +180,7 @@ class EditToolbarTest {
                     KeyEvent.ACTION_DOWN,
                     KeyEvent.KEYCODE_ENTER,
                     0,
-                ),
+                )
             )
 
             assertEquals(2, facts.size)
@@ -195,11 +198,11 @@ class EditToolbarTest {
             assertNull(factCommit.value)
 
             val metadata = factCommit.metadata
-            assertNotNull(metadata!!)
+            assertNotNull(metadata)
             assertEquals(2, metadata.size)
 
             assertTrue(metadata.contains("autocomplete"))
-            assertTrue(metadata["autocomplete"] is Boolean)
+            assertIs<Boolean>(metadata["autocomplete"])
             assertTrue(metadata["autocomplete"] as Boolean)
 
             assertTrue(metadata.contains("source"))
@@ -272,11 +275,12 @@ class EditToolbarTest {
 
         var callbackCalled = false
 
-        editToolbar.editListener = object : Toolbar.OnEditListener {
-            override fun onTextChanged(text: String) {
-                callbackCalled = true
+        editToolbar.editListener =
+            object : Toolbar.OnEditListener {
+                override fun onTextChanged(text: String) {
+                    callbackCalled = true
+                }
             }
-        }
 
         editToolbar.editSuggestion("firefox")
 

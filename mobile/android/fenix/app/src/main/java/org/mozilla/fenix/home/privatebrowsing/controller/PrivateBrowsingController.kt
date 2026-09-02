@@ -8,7 +8,6 @@ import androidx.navigation.NavController
 import mozilla.telemetry.glean.private.NoExtras
 import org.mozilla.fenix.GleanMetrics.Homepage
 import org.mozilla.fenix.R
-import org.mozilla.fenix.browser.BrowserFragmentDirections
 import org.mozilla.fenix.browser.browsingmode.BrowsingMode
 import org.mozilla.fenix.browser.browsingmode.BrowsingModeManager
 import org.mozilla.fenix.components.usecases.FenixBrowserUseCases
@@ -16,24 +15,16 @@ import org.mozilla.fenix.home.privatebrowsing.interactor.PrivateBrowsingInteract
 import org.mozilla.fenix.settings.SupportUtils
 import org.mozilla.fenix.utils.Settings
 
-/**
- * An interface that handles the view manipulation of the private browsing mode.
- */
+/** An interface that handles the view manipulation of the private browsing mode. */
 interface PrivateBrowsingController {
-    /**
-     * @see [PrivateBrowsingInteractor.onLearnMoreClicked]
-     */
+    /** @see [PrivateBrowsingInteractor.onLearnMoreClicked] */
     fun handleLearnMoreClicked()
 
-    /**
-     * @see [PrivateBrowsingInteractor.onPrivateModeButtonClicked]
-     */
+    /** @see [PrivateBrowsingInteractor.onPrivateModeButtonClicked] */
     fun handlePrivateModeButtonClicked(newMode: BrowsingMode)
 }
 
-/**
- * The default implementation of [PrivateBrowsingController].
- */
+/** The default implementation of [PrivateBrowsingController]. */
 class DefaultPrivateBrowsingController(
     private val navController: NavController,
     private val browsingModeManager: BrowsingModeManager,
@@ -42,8 +33,9 @@ class DefaultPrivateBrowsingController(
 ) : PrivateBrowsingController {
 
     override fun handleLearnMoreClicked() {
-        val learnMoreURL = SupportUtils.getGenericSumoURLForTopic(SupportUtils.SumoTopic.PRIVATE_BROWSING_MYTHS) +
-            "?as=u&utm_source=inproduct"
+        val learnMoreURL =
+            SupportUtils.getGenericSumoURLForTopic(SupportUtils.SumoTopic.PRIVATE_BROWSING_MYTHS) +
+                "?as=u&utm_source=inproduct"
         val newTab = settings.enableHomepageAsNewTab.not()
 
         navController.navigate(R.id.browserFragment)
@@ -65,14 +57,6 @@ class DefaultPrivateBrowsingController(
 
         if (newMode == BrowsingMode.Private) {
             settings.incrementNumTimesPrivateModeOpened()
-        }
-
-        if (navController.currentDestination?.id == R.id.searchDialogFragment) {
-            navController.navigate(
-                BrowserFragmentDirections.actionGlobalSearchDialog(
-                    sessionId = null,
-                ),
-            )
         }
     }
 }

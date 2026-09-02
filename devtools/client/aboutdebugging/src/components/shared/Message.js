@@ -5,14 +5,12 @@
 "use strict";
 
 const {
-  createFactory,
+  createElement,
+  createRef,
   PureComponent,
 } = require("resource://devtools/client/shared/vendor/react.mjs");
 const dom = require("resource://devtools/client/shared/vendor/react-dom-factories.js");
 const PropTypes = require("resource://devtools/client/shared/vendor/react-prop-types.mjs");
-
-const FluentReact = require("resource://devtools/client/shared/vendor/fluent-react.js");
-const Localized = createFactory(FluentReact.Localized);
 
 const {
   MESSAGE_LEVEL,
@@ -25,6 +23,13 @@ const ICONS = {
     "chrome://devtools/skin/images/aboutdebugging-information.svg",
   [MESSAGE_LEVEL.WARNING]: "chrome://devtools/skin/images/alert.svg",
 };
+
+const ICON_L10N_ID = {
+  [MESSAGE_LEVEL.ERROR]: "about-debugging-message-error-icon",
+  [MESSAGE_LEVEL.INFO]: "about-debugging-message-info-icon",
+  [MESSAGE_LEVEL.WARNING]: "about-debugging-message-warning-icon",
+};
+
 const CLOSE_ICON_SRC = "chrome://devtools/skin/images/close.svg";
 
 /**
@@ -39,14 +44,33 @@ class Message extends PureComponent {
       className: PropTypes.string,
       isCloseable: PropTypes.bool,
       level: PropTypes.oneOf(Object.values(MESSAGE_LEVEL)).isRequired,
+      messageId: PropTypes.string,
+      // "alert" makes the message focus on mount so screen readers announce it.
+      role: PropTypes.string,
     };
+  }
+
+  static getDerivedStateFromProps(props, state) {
+    // Reset closed state if messageId changed.
+    if (props.messageId !== state.messageId) {
+      return { messageId: props.messageId, isClosed: false };
+    }
+    return null;
   }
 
   constructor(props) {
     super(props);
+    this.messageRef = createRef();
     this.state = {
       isClosed: false,
+      messageId: props.messageId,
     };
+  }
+
+  componentDidMount() {
+    if (this.props.role === "alert" && this.messageRef.current) {
+      this.messageRef.current.focus();
+    }
   }
 
   closeMessage() {
@@ -54,30 +78,17 @@ class Message extends PureComponent {
   }
 
   renderButton(level) {
-    return dom.button(
-      {
-        className:
-          `ghost-button message__button message__button--${level} ` +
-          `qa-message-button-close-button`,
-        onClick: () => this.closeMessage(),
-      },
-      Localized(
-        {
-          id: "about-debugging-message-close-icon",
-          attrs: {
-            alt: true,
-          },
-        },
-        dom.img({
-          className: "qa-message-button-close-icon",
-          src: CLOSE_ICON_SRC,
-        })
-      )
-    );
+    return createElement("moz-button", {
+      class: `message__button message__button--${level} qa-message-button-close-button`,
+      type: "icon ghost",
+      iconsrc: CLOSE_ICON_SRC,
+      "data-l10n-id": "about-debugging-message-close-icon2",
+      onClick: () => this.closeMessage(),
+    });
   }
 
   render() {
-    const { children, className, level, isCloseable } = this.props;
+    const { children, className, level, isCloseable, role } = this.props;
     const { isClosed } = this.state;
 
     if (isClosed) {
@@ -89,9 +100,13 @@ class Message extends PureComponent {
         className:
           `message message--level-${level}  qa-message` +
           (className ? ` ${className}` : ""),
+        role,
+        tabIndex: role === "alert" ? -1 : null,
+        ref: this.messageRef,
       },
       dom.img({
         className: "message__icon",
+        "data-l10n-id": ICON_L10N_ID[level],
         src: ICONS[level],
       }),
       dom.div(

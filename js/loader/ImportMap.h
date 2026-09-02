@@ -5,25 +5,27 @@
 #ifndef js_loader_ImportMap_h
 #define js_loader_ImportMap_h
 
-#include <functional>
-#include <map>
-
-#include "js/SourceText.h"
 #include "mozilla/Logging.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/UniquePtr.h"
+
+#include <functional>
+#include <map>
+
 #include "nsStringFwd.h"
 #include "nsTArray.h"
 #include "ResolveResult.h"
+#include "ScriptLoaderInterface.h"
+
+#include "js/SourceText.h"
 
 struct JSContext;
 class nsIScriptElement;
 class nsIURI;
 
 namespace JS::loader {
-class LoadedScript;
 class ModuleLoaderBase;
-class ScriptLoaderInterface;
+class ScriptFetchInfo;
 class ScriptLoadRequest;
 
 /**
@@ -45,17 +47,16 @@ class ReportWarningHelper {
 
 // Specifier map from import maps.
 // https://html.spec.whatwg.org/multipage/webappapis.html#module-specifier-map
-using SpecifierMap =
-    std::map<nsString, nsCOMPtr<nsIURI>, std::greater<nsString>>;
+using SpecifierMap = std::map<nsString, nsCOMPtr<nsIURI>, std::greater<>>;
 
 // Scope map from import maps.
 // https://html.spec.whatwg.org/multipage/webappapis.html#concept-import-map-scopes
-using ScopeMap = std::map<nsCString, mozilla::UniquePtr<SpecifierMap>,
-                          std::greater<nsCString>>;
+using ScopeMap =
+    std::map<nsCString, mozilla::UniquePtr<SpecifierMap>, std::greater<>>;
 
 // Integrity map from import maps.
 // https://html.spec.whatwg.org/multipage/webappapis.html#concept-import-map-integrity
-using IntegrityMap = std::map<nsCString, nsString, std::greater<nsCString>>;
+using IntegrityMap = std::map<nsCString, nsString, std::greater<>>;
 
 /**
  * Implementation of Import maps.
@@ -104,7 +105,7 @@ class ImportMap {
    */
   static ResolveResult ResolveModuleSpecifier(ImportMap* aImportMap,
                                               ScriptLoaderInterface* aLoader,
-                                              LoadedScript* aScript,
+                                              ScriptFetchInfo* aFetchInfo,
                                               const nsAString& aSpecifier);
 
   static mozilla::Maybe<nsString> LookupIntegrity(ImportMap* aImportMap,

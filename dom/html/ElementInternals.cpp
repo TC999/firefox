@@ -284,7 +284,8 @@ bool ElementInternals::CheckValidity(ErrorResult& aRv) {
         "Target element is not a form-associated custom element");
     return false;
   }
-  return nsIConstraintValidation::CheckValidity(*mTarget);
+  const OwningNonNull<HTMLElement> target = *mTarget;
+  return nsIConstraintValidation::CheckValidity(target);
 }
 
 // https://html.spec.whatwg.org/#dom-elementinternals-reportvalidity
@@ -298,7 +299,8 @@ bool ElementInternals::ReportValidity(ErrorResult& aRv) {
   }
 
   bool defaultAction = true;
-  if (nsIConstraintValidation::CheckValidity(*mTarget, &defaultAction)) {
+  const OwningNonNull<HTMLElement> target = *mTarget;
+  if (nsIConstraintValidation::CheckValidity(target, &defaultAction)) {
     return true;
   }
 
@@ -307,10 +309,10 @@ bool ElementInternals::ReportValidity(ErrorResult& aRv) {
   }
 
   AutoTArray<RefPtr<Element>, 1> invalidElements;
-  invalidElements.AppendElement(mTarget);
+  invalidElements.AppendElement(target);
 
   AutoJSAPI jsapi;
-  if (!jsapi.Init(mTarget->GetOwnerGlobal())) {
+  if (!jsapi.Init(target->GetRelevantGlobal())) {
     return false;
   }
   JS::Rooted<JS::Value> detail(jsapi.cx());
@@ -319,20 +321,19 @@ bool ElementInternals::ReportValidity(ErrorResult& aRv) {
   }
 
   RefPtr<CustomEvent> event =
-      NS_NewDOMCustomEvent(mTarget->OwnerDoc(), nullptr, nullptr);
+      NS_NewDOMCustomEvent(target->OwnerDoc(), nullptr, nullptr);
   event->InitCustomEvent(jsapi.cx(), u"MozInvalidForm"_ns,
                          /* CanBubble */ true,
                          /* Cancelable */ true, detail);
   event->SetTrusted(true);
   event->WidgetEventPtr()->mFlags.mOnlyChromeDispatch = true;
-  mTarget->DispatchEvent(*event);
+  target->DispatchEvent(*event);
 
   return false;
 }
 
 // https://html.spec.whatwg.org/#dom-elementinternals-labels
-already_AddRefed<nsINodeList> ElementInternals::GetLabels(
-    ErrorResult& aRv) const {
+already_AddRefed<NodeList> ElementInternals::GetLabels(ErrorResult& aRv) const {
   MOZ_ASSERT(mTarget);
 
   if (!mTarget->IsFormAssociatedElement()) {
@@ -457,10 +458,13 @@ nsresult ElementInternals::SetAttr(nsAtom* aName, const nsAString& aValue) {
   Document* document = mTarget->GetComposedDoc();
   mozAutoDocUpdate updateBatch(document, true);
 
+#ifdef ACCESSIBILITY
   const AttrModType modType =
       mAttrs.HasAttr(aName) ? AttrModType::Modification : AttrModType::Addition;
-  MutationObservers::NotifyARIAAttributeDefaultWillChange(mTarget, aName,
-                                                          modType);
+  if (auto* accService = GetAccService()) {
+    accService->NotifyARIAAttributeDefaultWillChange(mTarget, aName, modType);
+  }
+#endif
 
   nsAttrValue attrValue(aValue);
   nsresult rs = NS_OK;
@@ -471,12 +475,16 @@ nsresult ElementInternals::SetAttr(nsAtom* aName, const nsAString& aValue) {
     }
   } else {
     bool attrHadValue = false;
-    rs = mAttrs.SetAndSwapAttr(aName, attrValue, &attrHadValue);
+    rs = mAttrs.SetAndSwapAttr(aName, attrValue, &attrHadValue,
+                               mozilla::dom::IsKnownNewAttr::No);
   }
   nsMutationGuard::DidMutate();
 
-  MutationObservers::NotifyARIAAttributeDefaultChanged(mTarget, aName, modType);
-
+#ifdef ACCESSIBILITY
+  if (auto* accService = GetAccService()) {
+    accService->NotifyARIAAttributeDefaultChanged(mTarget, aName, modType);
+  }
+#endif
   return rs;
 }
 
@@ -484,7 +492,8 @@ nsresult ElementInternals::SetAttrInternal(nsAtom* aName,
                                            const nsAString& aValue) {
   bool attrHadValue;
   nsAttrValue attrValue(aValue);
-  return mAttrs.SetAndSwapAttr(aName, attrValue, &attrHadValue);
+  return mAttrs.SetAndSwapAttr(aName, attrValue, &attrHadValue,
+                               mozilla::dom::IsKnownNewAttr::No);
 }
 
 nsresult ElementInternals::UnsetAttrInternal(nsAtom* aName) {
@@ -637,7 +646,11 @@ void ElementInternals::GetAttrElements(
   // elements.
   auto elements = getAttrAssociatedElements();
 
-  if (elements == cachedAttrElements) {
+  // aUseCachedValue is null when the binding has no cached attr-associated
+  // elements object to reuse yet (e.g. the first getter call). In that case we
+  // must return the freshly computed elements below rather than signalling a
+  // cache hit, otherwise we would dereference a null pointer.
+  if (aUseCachedValue && elements == cachedAttrElements) {
     // 2. If the contents of elements is equal to the contents of this's cached
     // attr-associated elements, then return this's cached attr-associated
     // elements object.

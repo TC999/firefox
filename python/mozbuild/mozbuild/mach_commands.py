@@ -305,12 +305,12 @@ def cargo(
 
     for crate in crates:
         crate_info = crates_and_roots.get(crate, None)
+        package_arg = ""
         if not crate_info:
-            print(
-                "Cannot locate crate %s.  Please check your spelling or "
-                "add the crate information to the list." % crate
-            )
-            return 1
+            # Not one of the top-level crates we know how to build directly, assume it's
+            # other crate in the gkrust workspace and target it explicitly via `-p`.
+            crate_info = crates_and_roots["gkrust"]
+            package_arg = f"-p {crate} "
 
         targets = [
             "force-cargo-library-%s" % cargo_command,
@@ -331,9 +331,12 @@ def cargo(
             "topsrcdir": str(topsrcdir),
         }
 
-        if subcommand_args:
+        extra_cli_flags = (
+            package_arg + subcommand_args if subcommand_args else package_arg
+        )
+        if extra_cli_flags:
             targets = targets + [
-                "cargo_extra_cli_flags=%s" % (subcommand_args.format(**subst))
+                "cargo_extra_cli_flags=%s" % (extra_cli_flags.format(**subst))
             ]
         if cargo_build_flags:
             targets = targets + [
@@ -349,10 +352,6 @@ def cargo(
             append_env["CARGO_CONTINUE_ON_ERROR"] = "1"
         if cargo_build_flags:
             append_env["CARGO_NO_AUTO_ARG"] = "1"
-        else:
-            append_env["ADD_RUST_LTOABLE"] = (
-                f"force-cargo-library-{cargo_command:s} force-cargo-program-{cargo_command:s}"
-            )
 
         ret = command_context._run_make(
             srcdir=False,
@@ -1228,7 +1227,7 @@ def gtest(
             append_env=gtest_env,
             cwd=cwd,
             ensure_exit_code=False,
-            line_handler=lambda line: format_gtest_line(line),
+            line_handler=format_gtest_line,
         )
         gtest_log.shutdown()
         return result
@@ -1447,9 +1446,16 @@ def android_gtest(
     "-o",
     "--output",
     type=str,
+    default=None,
     help="Force archive name.",
 )
-def source_package(command_context, verbose=False, output=None):
+@CommandArgument(
+    "--upload",
+    type=str,
+    default="",
+    help="Compute package check sum and move both to the given location.",
+)
+def source_package(command_context, output, upload):
     substs = command_context.substs
     if conditions.is_jsshell(command_context):
         if output:
@@ -1473,6 +1479,14 @@ def source_package(command_context, verbose=False, output=None):
             },
             ensure_exit_code=0,
         )
+        if upload:
+            command_context.log(
+                logging.ERROR,
+                "source-package-unsupported-upload",
+                {},
+                "Source package upload is currently supported only for Firefox",
+            )
+            return 1
     elif substs.get("MOZ_WIDGET_TOOLKIT"):
         if output:
             if not output.endswith(".tar.xz"):
@@ -1491,18 +1505,35 @@ def source_package(command_context, verbose=False, output=None):
         with open(os.path.join(command_context.topobjdir, "buildid.h")) as fd:
             _, _, buildid = fd.read().split()
 
-        source_url = ""
-        if substs.get("MOZ_INCLUDE_SOURCE_INFO"):
-            repo = substs.get("MOZ_SOURCE_REPO")
-            changeset = substs.get("MOZ_SOURCE_CHANGESET")
-            if repo and changeset:
-                source_url = f"{repo}/rev/{changeset}"
-
         # FIXME: don't create this in topsrcdir
-        with open(
-            os.path.join(command_context.topsrcdir, "sourcestamp.txt"), "w"
-        ) as fd:
-            fd.write(f"{buildid}\n{source_url}")
+        sourcestamp_path = os.path.join(command_context.topsrcdir, "sourcestamp.txt")
+        if conditions.is_thunderbird(command_context):
+            comm_repo = substs.get("MOZ_COMM_SOURCE_REPO")
+            comm_changeset = substs.get("MOZ_COMM_SOURCE_CHANGESET")
+            gecko_repo = substs.get("MOZ_GECKO_SOURCE_REPO")
+            gecko_changeset = substs.get("MOZ_GECKO_SOURCE_CHANGESET")
+
+            # Thunderbird tarball builds require sourcestamp.txt to contain
+            # three lines, e.g.:
+            #   20260522210329
+            #   https://hg.mozilla.org/releases/comm-esr140/rev/191059ac655733d24c4fd32c94dfe6d79af7028b
+            #   https://hg.mozilla.org/releases/mozilla-esr140/rev/2e36c464a92f1942683abbed6ceb442308db5eb0
+            with open(sourcestamp_path, "w") as fd:
+                fd.write(
+                    f"{buildid}\n"
+                    f"{comm_repo}/rev/{comm_changeset}\n"
+                    f"{gecko_repo}/rev/{gecko_changeset}\n"
+                )
+        else:
+            source_url = ""
+            if substs.get("MOZ_INCLUDE_SOURCE_INFO"):
+                repo = substs.get("MOZ_SOURCE_REPO")
+                changeset = substs.get("MOZ_SOURCE_CHANGESET")
+                if repo and changeset:
+                    source_url = f"{repo}/rev/{changeset}"
+
+            with open(sourcestamp_path, "w") as fd:
+                fd.write(f"{buildid}\n{source_url}")
 
         # this should match SOURCE_TAR in packager.mk.
         archive_prefix = f"{substs['MOZ_APP_NAME']}-{substs['MOZ_APP_VERSION']}"
@@ -1542,6 +1573,18 @@ def source_package(command_context, verbose=False, output=None):
             ensure_exit_code=True,
             pass_thru=True,
         )
+        if upload:
+            checksum_path = archive_path[: -len(".tar.xz")] + ".checksums"
+            command_context._run_make(
+                target=[
+                    "upload",
+                    f"UPLOAD_PATH={upload}",
+                    f"UPLOAD_FILES={archive_path}",
+                    f"CHECKSUM_FILE={checksum_path}",
+                ],
+                ensure_exit_code=True,
+            )
+
     else:
         command_context.log(
             logging.ERROR,

@@ -60,7 +60,7 @@ class CrashChannel final : public nsBaseChannel {
       using ContentParent = mozilla::dom::ContentParent;
       nsTArray<RefPtr<ContentParent>> toKill;
       for (auto* cp : ContentParent::AllProcesses(ContentParent::eLive)) {
-        if (cp->GetRemoteType() == EXTENSION_REMOTE_TYPE) {
+        if (cp->GetRemoteType().IsExtension()) {
           toKill.AppendElement(cp);
         }
       }
@@ -165,6 +165,14 @@ static const RedirEntry kRedirMap[] = {
          nsIAboutModule::HIDE_FROM_ABOUTABOUT},
     {"networking", "chrome://global/content/aboutNetworking.html",
      nsIAboutModule::ALLOW_SCRIPT},
+#ifndef MOZ_WIDGET_ANDROID
+    {"pdf", "chrome://global/content/aboutPDF.html",
+     nsIAboutModule::ALLOW_SCRIPT |
+         nsIAboutModule::URI_SAFE_FOR_UNTRUSTED_CONTENT |
+         nsIAboutModule::URI_MUST_LOAD_IN_CHILD |
+         nsIAboutModule::URI_CAN_LOAD_IN_PRIVILEGEDABOUT_PROCESS |
+         nsIAboutModule::IS_SECURE_CHROME_UI},
+#endif
     {"performance", "about:processes",
      nsIAboutModule::ALLOW_SCRIPT | nsIAboutModule::IS_SECURE_CHROME_UI |
          nsIAboutModule::HIDE_FROM_ABOUTABOUT},
@@ -211,6 +219,8 @@ static const RedirEntry kRedirMap[] = {
 #  endif
          nsIAboutModule::ALLOW_SCRIPT},
 #endif
+    {"sync-log", "chrome://global/content/aboutSyncLog.html",
+     nsIAboutModule::ALLOW_SCRIPT},
     {"telemetry", "chrome://global/content/aboutTelemetry.xhtml",
      nsIAboutModule::ALLOW_SCRIPT | nsIAboutModule::IS_SECURE_CHROME_UI},
 #ifndef MOZ_WIDGET_ANDROID
@@ -354,6 +364,6 @@ nsAboutRedirector::GetChromeURI(nsIURI* aURI, nsIURI** chromeURI) {
 }
 
 nsresult nsAboutRedirector::Create(REFNSIID aIID, void** aResult) {
-  RefPtr<nsAboutRedirector> about = new nsAboutRedirector();
+  RefPtr about = mozilla::MakeRefPtr<nsAboutRedirector>();
   return about->QueryInterface(aIID, aResult);
 }

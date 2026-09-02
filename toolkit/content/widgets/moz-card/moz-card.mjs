@@ -1,5 +1,4 @@
-/* -*- indent-tabs-mode: nil; js-indent-level: 2 -*-
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -28,9 +27,13 @@ import { MozLitElement } from "chrome://global/content/lit-utils.mjs";
  * @property {string} iconSrc - Path to the icon that should be displayed in the card.
  * @property {string} type - (optional) The type of card. No type specified
  *   will be the default card. The other available type is "accordion"
+ * @property {string} spacing - (optional) The level of spacing applied to the card. If unspecified,
+ *   will use default spacing. The other available option is "compact", which has reduced spacing.
  * @property {boolean} expanded - A flag to indicate whether the card is
  *  expanded or not. Can be used to expand the content section of the
  *  accordion card on initial render.
+ * @property {string} role - (optional) Role of the article element in the card.
+ * @property {number} summaryTabIndex - (optional) tabindex for the accordion summary.
  * @slot content - The content to show inside of the card.
  */
 export default class MozCard extends MozLitElement {
@@ -47,12 +50,16 @@ export default class MozCard extends MozLitElement {
     headingLevel: { type: Number },
     iconSrc: { type: String },
     type: { type: String, reflect: true },
+    spacing: { type: String, reflect: true },
     expanded: { type: Boolean },
+    role: { type: String, mapped: true },
+    summaryTabIndex: { type: Number },
   };
 
   constructor() {
     super();
     this.type = "default";
+    this.spacing = "default";
     this.expanded = false;
     /* When set to 1-6, it uses h1-h6 around the heading */
     this.headingLevel = 0;
@@ -99,19 +106,25 @@ export default class MozCard extends MozLitElement {
   cardTemplate() {
     if (this.type === "accordion") {
       return html`
-        <details
-          id="moz-card-details"
-          @toggle=${this.onToggle}
-          ?open=${this.expanded}
-        >
-          <summary part="summary">${this.headingTemplate()}</summary>
-          <div id="content"><slot id="content-slot"></slot></div>
-        </details>
+        <div class="moz-card-wrapper">
+          <div id="cover-image"><slot name="cover-image"></slot></div>
+          <details
+            id="moz-card-details"
+            @toggle=${this.onToggle}
+            ?open=${this.expanded}
+          >
+            <summary part="summary" tabindex=${ifDefined(this.summaryTabIndex)}>
+              ${this.headingTemplate()}
+            </summary>
+            <div id="content"><slot id="content-slot"></slot></div>
+          </details>
+        </div>
       `;
     }
 
     return html`
       <div id="moz-card-details">
+        <div id="cover-image"><slot name="cover-image"></slot></div>
         ${this.headingTemplate()}
         <div id="content" aria-describedby="content">
           <slot></slot>
@@ -141,6 +154,7 @@ export default class MozCard extends MozLitElement {
         href="chrome://global/content/elements/moz-card.css"
       />
       <article
+        role=${ifDefined(this.role)}
         class="moz-card"
         aria-labelledby=${ifDefined(this.heading ? "heading" : undefined)}
       >

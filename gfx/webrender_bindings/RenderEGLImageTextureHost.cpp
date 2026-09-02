@@ -4,11 +4,11 @@
 
 #include "RenderEGLImageTextureHost.h"
 
-#include "mozilla/gfx/Logging.h"
 #include "GLContextEGL.h"
 #include "GLLibraryEGL.h"
 #include "GLReadTexImageHelper.h"
 #include "OGLShaderConfig.h"
+#include "mozilla/gfx/Logging.h"
 
 namespace mozilla {
 namespace wr {
@@ -167,7 +167,7 @@ bool RenderEGLImageTextureHost::WaitSync() {
     }
     // We do not need to delete sync here. It is deleted by
     // SharedSurface_EGLImage.
-    mSync = 0;
+    mSync = nullptr;
   }
 
   MOZ_ASSERT(

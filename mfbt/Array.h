@@ -8,7 +8,6 @@
 #define mozilla_Array_h
 
 #include <cstddef>
-
 #include <iterator>
 #include <ostream>
 #include <utility>
@@ -51,14 +50,7 @@ class MOZ_GSL_OWNER Array {
     return mArr[aIndex];
   }
 
-  bool operator==(const Array<T, Length>& aOther) const {
-    for (size_t i = 0; i < Length; i++) {
-      if (mArr[i] != aOther[i]) {
-        return false;
-      }
-    }
-    return true;
-  }
+  bool operator==(const Array& aOther) const = default;
 
   typedef T* iterator;
   typedef const T* const_iterator;
@@ -75,6 +67,10 @@ class MOZ_GSL_OWNER Array {
 
   // Method for std::size.
   constexpr size_t size() const { return Length; }
+
+  // Methods for std::data.
+  constexpr T* data() { return mArr; }
+  constexpr const T* data() const { return mArr; }
 
   // Methods for reverse iterating.
   reverse_iterator rbegin() { return reverse_iterator(end()); }

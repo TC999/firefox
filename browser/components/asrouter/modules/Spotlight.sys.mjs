@@ -7,6 +7,8 @@ const lazy = {};
 ChromeUtils.defineESModuleGetters(lazy, {
   AboutWelcomeTelemetry:
     "resource:///modules/aboutwelcome/AboutWelcomeTelemetry.sys.mjs",
+  MessagingSystemAllowlists:
+    "resource://messaging-system/lib/MessagingSystemAllowlists.sys.mjs",
 });
 
 ChromeUtils.defineLazyGetter(
@@ -37,15 +39,19 @@ export const Spotlight = {
   },
 
   sendUserEventTelemetry(event, message, dispatch) {
-    const ping = {
+    if (message.content?.metrics === "block") {
+      return;
+    }
+    const data = {
+      action: "spotlight_user_event",
       message_id: message.content.id,
       event,
-      event_context: { writeInMicrosurvey: message.content.writeInMicrosurvey },
+      event_context: {},
     };
-    dispatch({
-      type: "SPOTLIGHT_TELEMETRY",
-      data: { action: "spotlight_user_event", ...ping },
-    });
+    if (message.content.write_in_microsurvey) {
+      data.event_context.write_in_microsurvey = true;
+    }
+    dispatch({ type: "SPOTLIGHT_TELEMETRY", data });
   },
 
   defaultDispatch(message) {
@@ -64,12 +70,32 @@ export const Spotlight = {
    * @return                    boolean value capturing if spotlight was displayed
    */
   async showSpotlightDialog(browser, message, dispatch = this.defaultDispatch) {
-    const win = browser?.ownerGlobal;
-    if (!win || win.gDialogBox.isOpen) {
+    const win = browser?.documentGlobal;
+    if (!win) {
       return false;
     }
-    const spotlight_url = "chrome://browser/content/spotlight.html";
 
+    // Warm the Remote Settings-backed SET_PREF allowlist cache as early as
+    // possible as a spotlight dialog can be opened directly via the SET_PREF
+    // action's own handleAction dispatch (SHOW_SPOTLIGHT), which does not go
+    // through ASRouter's own init sequence. This isn't awaited, so it only
+    // shrinks the window for a possible race condition.
+    lazy.MessagingSystemAllowlists.ensureInit();
+
+    if (message.trigger?.id === "lastWindowClose") {
+      win.gDialogBox.replaceDialogIfOpen();
+      // We do this for the selected browser, not the triggering browser, since
+      // even a global modal is prevented by a tab modal in the selected
+      // browser, and we want lastWindowClose modals to take priority: this is
+      // the user's last chance to see it before the window actually closes.
+      win.gBrowser
+        .getTabDialogBox(win.gBrowser.selectedBrowser)
+        .abortAllDialogs();
+    } else if (win.gDialogBox.isOpen) {
+      return false;
+    }
+
+    const spotlight_url = "chrome://browser/content/spotlight.html";
     const dispatchCFRAction =
       // This also blocks CFR impressions, which is fine for current use cases.
       message.content?.metrics === "block" ? () => {} : dispatch;
@@ -101,10 +127,10 @@ export const Spotlight = {
         this._dialogWindow = win;
         await closedPromise;
       } else {
-        let openPromise = win.gDialogBox.open(spotlight_url, message.content);
+        let closedPromise = win.gDialogBox.open(spotlight_url, message.content);
         this._dialog = win.gDialogBox.dialog;
         this._dialogWindow = win;
-        await openPromise;
+        await closedPromise;
       }
     } finally {
       win.removeEventListener("unload", unloadHandler);

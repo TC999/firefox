@@ -1,5 +1,4 @@
-/* -*- Mode: IDL; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 2 -*-
- *
+/*
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -102,9 +101,9 @@ interface nsIWebBrowserPrint : nsISupports
    *
    * @note To cancel, close the window of the document that is being printed.
    */
-  [noscript] void print(in nsIPrintSettings aThePrintSettings,
-                        in RemotePrintJobChildPtr aRemotePrintJob,
-                        in nsIWebProgressListener aWPListener);
+  [noscript,can_run_script] void print(in nsIPrintSettings aThePrintSettings,
+                                       in RemotePrintJobChildPtr aRemotePrintJob,
+                                       in nsIWebProgressListener aWPListener);
 
   /**
    * Print Preview the specified DOM window
@@ -116,9 +115,9 @@ interface nsIWebBrowserPrint : nsISupports
    *
    * @note To cancel, close the print preview document's window.
    */
-  [noscript] void printPreview(in nsIPrintSettings aThePrintSettings,
-                               in nsIWebProgressListener aWPListener,
-                               in PrintPreviewResolver aCallback);
+  [noscript,can_run_script] void printPreview(in nsIPrintSettings aThePrintSettings,
+                                              in nsIWebProgressListener aWPListener,
+                                              in PrintPreviewResolver aCallback);
 
   /**
    * @param aNavType - navigation enum

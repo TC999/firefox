@@ -41,9 +41,9 @@ bool nsIConstraintValidation::CheckValidity(nsIContent& aEventTarget,
     return true;
   }
 
-  nsContentUtils::DispatchTrustedEvent(
-      aEventTarget.OwnerDoc(), &aEventTarget, u"invalid"_ns, CanBubble::eNo,
-      Cancelable::eYes, Composed::eDefault, aEventDefaultAction);
+  nsContentUtils::DispatchTrustedEvent(&aEventTarget, u"invalid"_ns,
+                                       CanBubble::eNo, Cancelable::eYes,
+                                       Composed::eDefault, aEventDefaultAction);
   return false;
 }
 
@@ -64,7 +64,7 @@ bool nsIConstraintValidation::ReportValidity() {
   invalidElements.AppendElement(element);
 
   AutoJSAPI jsapi;
-  if (!jsapi.Init(element->GetOwnerGlobal())) {
+  if (!jsapi.Init(element->GetRelevantGlobal())) {
     return false;
   }
   JS::Rooted<JS::Value> detail(jsapi.cx());
@@ -84,8 +84,9 @@ bool nsIConstraintValidation::ReportValidity() {
   return false;
 }
 
-void nsIConstraintValidation::SetValidityState(ValidityStateType aState,
-                                               bool aValue) {
+void nsIConstraintValidation::DoSetValidityState(ValidityStateType aState,
+                                                 bool aValue) {
+  MOZ_ASSERT(GetValidityState(aState) != aValue);
   bool previousValidity = IsValid();
 
   if (aValue) {

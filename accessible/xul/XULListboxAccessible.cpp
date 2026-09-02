@@ -4,19 +4,18 @@
 
 #include "XULListboxAccessible.h"
 
-#include "LocalAccessible-inl.h"
-#include "nsAccessibilityService.h"
-#include "nsAccUtils.h"
 #include "DocAccessible.h"
-#include "mozilla/a11y/Role.h"
+#include "LocalAccessible-inl.h"
 #include "States.h"
-
+#include "mozilla/a11y/Role.h"
+#include "mozilla/dom/NodeList.h"
+#include "nsAccUtils.h"
+#include "nsAccessibilityService.h"
 #include "nsComponentManagerUtils.h"
 #include "nsIAutoCompletePopup.h"
 #include "nsIDOMXULMenuListElement.h"
 #include "nsIDOMXULMultSelectCntrlEl.h"
 #include "nsIDOMXULSelectCntrlItemEl.h"
-#include "nsINodeList.h"
 
 using namespace mozilla::a11y;
 
@@ -171,7 +170,7 @@ uint32_t XULListboxAccessible::SelectedCellCount() {
   NS_ASSERTION(control,
                "Doesn't implement nsIDOMXULMultiSelectControlElement.");
 
-  nsCOMPtr<nsINodeList> selectedItems;
+  RefPtr<dom::NodeList> selectedItems;
   control->GetSelectedItems(getter_AddRefs(selectedItems));
   if (!selectedItems) return 0;
 
@@ -215,7 +214,7 @@ void XULListboxAccessible::SelectedCells(nsTArray<Accessible*>* aCells) {
   NS_ASSERTION(control,
                "Doesn't implement nsIDOMXULMultiSelectControlElement.");
 
-  nsCOMPtr<nsINodeList> selectedItems;
+  RefPtr<dom::NodeList> selectedItems;
   control->GetSelectedItems(getter_AddRefs(selectedItems));
   if (!selectedItems) return;
 
@@ -241,7 +240,7 @@ void XULListboxAccessible::SelectedCellIndices(nsTArray<uint32_t>* aCells) {
   NS_ASSERTION(control,
                "Doesn't implement nsIDOMXULMultiSelectControlElement.");
 
-  nsCOMPtr<nsINodeList> selectedItems;
+  RefPtr<dom::NodeList> selectedItems;
   control->GetSelectedItems(getter_AddRefs(selectedItems));
   if (!selectedItems) return;
 
@@ -284,7 +283,7 @@ void XULListboxAccessible::SelectedRowIndices(nsTArray<uint32_t>* aRows) {
   NS_ASSERTION(control,
                "Doesn't implement nsIDOMXULMultiSelectControlElement.");
 
-  nsCOMPtr<nsINodeList> selectedItems;
+  RefPtr<dom::NodeList> selectedItems;
   control->GetSelectedItems(getter_AddRefs(selectedItems));
   if (!selectedItems) return;
 

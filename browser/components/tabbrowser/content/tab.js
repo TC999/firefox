@@ -35,9 +35,6 @@
                 pack="center"
                 flex="1">
             <label class="tab-text tab-label" role="presentation"/>
-            <hbox class="tab-secondary-label">
-              <label class="tab-icon-sound-label tab-icon-sound-pip-label" data-l10n-id="browser-tab-audio-pip" role="presentation"/>
-            </hbox>
           </vbox>
           <image class="tab-note-icon" role="presentation"/>
           <image class="tab-close-button close-icon" role="button" data-l10n-id="tabbrowser-close-tabs-button" data-l10n-args='{"tabCount": 1}' keyNav="false"/>
@@ -103,8 +100,6 @@
           "pinned,selected=visuallyselected,labeldirection",
         ".tab-label":
           "text=label,accesskey,fadein,pinned,selected=visuallyselected,attention",
-        ".tab-label-container .tab-secondary-label":
-          "pinned,blocked,selected=visuallyselected,pictureinpicture",
         ".tab-close-button": "fadein,pinned,selected=visuallyselected",
       };
     }
@@ -146,6 +141,16 @@
       // Tabs in tab groups are one level down (level 2); this tab will
       // update its value when it moves in and out of tab groups.
       this.setAttribute("aria-level", 1);
+    }
+
+    /**
+     * This tab's index in `gBrowser.tabs`, which counts every tab. See
+     * `elementIndex` for its position among the visible tab strip elements.
+     *
+     * @type {number}
+     */
+    get index() {
+      return this._index;
     }
 
     #elementIndex;
@@ -201,11 +206,7 @@
       // in e10s we want to only pseudo-select a tab before its rendering is done, so that
       // the rest of the system knows that the tab is selected, but we don't want to update its
       // visual status to selected until after we receive confirmation that its content has painted.
-      if (val) {
-        this.setAttribute("selected", "true");
-      } else {
-        this.removeAttribute("selected");
-      }
+      this.toggleAttribute("selected", val);
 
       // If we're non-e10s we need to update the visual selection at the same
       // time, otherwise AsyncTabSwitcher will take care of this.
@@ -291,6 +292,12 @@
         return false;
       }
 
+      return this.isEmptyIgnoringLoad;
+    }
+
+    // Like isEmpty, but ignoring the load in progress. Only for callers which
+    // know that load is being taken away from the tab.
+    get isEmptyIgnoringLoad() {
       if (this.hasAttribute("customizemode")) {
         return false;
       }
@@ -325,7 +332,7 @@
      */
     get lastSeenActive() {
       const isForegroundWindow =
-        this.ownerGlobal ==
+        this.documentGlobal ==
         BrowserWindowTracker.getTopWindow({ allowPopups: true });
       // the timestamp for the selected tab in the active window is always now
       if (isForegroundWindow && this.selected) {
@@ -570,7 +577,10 @@
             gBrowser.addToMultiSelectedTabs(this);
             gBrowser.lastMultiSelectedTab = this;
           }
-        } else if (event.altKey) {
+        } else if (
+          event.altKey &&
+          Services.prefs.getBoolPref("browser.tabs.splitView.enabled", false)
+        ) {
           eventMaySelectTab = false;
         } else if (!this.selected && this.multiselected) {
           gBrowser.lockClearMultiSelectionOnce();
@@ -582,7 +592,19 @@
       }
 
       if (eventMaySelectTab) {
+        let prevTab = gBrowser.selectedTab;
+        // super.on_mousedown sets gBrowser.selectedTab via the property setter,
+        // which calls setSelectedTab(val) without a metricsContext. We detect
+        // the change after the fact so we can supply the TAB_STRIP source.
         super.on_mousedown(event);
+        if (gBrowser.selectedTab !== prevTab) {
+          gBrowser.recordTabMetrics(
+            gBrowser.TabMetrics.METRIC_ACTION.ACTIVATE,
+            gBrowser.TabMetrics.userTriggeredContext(
+              gBrowser.TabMetrics.METRIC_SOURCE.TAB_STRIP
+            )
+          );
+        }
       }
     }
 
@@ -657,16 +679,16 @@
 
       if (event.target.classList.contains("tab-close-button")) {
         if (this.multiselected) {
-          gBrowser.removeMultiSelectedTabs(
-            lazy.TabMetrics.userTriggeredContext(
+          gBrowser.removeMultiSelectedTabs({
+            metricsContext: lazy.TabMetrics.userTriggeredContext(
               lazy.TabMetrics.METRIC_SOURCE.TAB_STRIP
-            )
-          );
+            ),
+          });
         } else {
           gBrowser.removeTab(this, {
             animate: true,
             triggeringEvent: event,
-            ...lazy.TabMetrics.userTriggeredContext(
+            metricsContext: lazy.TabMetrics.userTriggeredContext(
               lazy.TabMetrics.METRIC_SOURCE.TAB_STRIP
             ),
           });
@@ -697,6 +719,9 @@
         gBrowser.removeTab(this, {
           animate: true,
           triggeringEvent: event,
+          metricsContext: lazy.TabMetrics.userTriggeredContext(
+            lazy.TabMetrics.METRIC_SOURCE.TAB_STRIP
+          ),
         });
       }
     }
@@ -722,7 +747,24 @@
       }
     }
 
-    _mouseenter() {
+    /**
+     * Removes the listeners set up by #endHoverUnlessPointerArrives, or null
+     * when no hover is waiting to be confirmed by the event state manager.
+     *
+     * @type {function|null}
+     */
+    #stopWaitingForPointer = null;
+
+    /**
+     * @param {object} [options]
+     * @param {boolean} [options.withoutPointerEvent=false]
+     *   Set when the tab strip moved this tab under the pointer rather than the
+     *   pointer having moved onto the tab. The event state manager doesn't know
+     *   the pointer is here and so won't send the mouseout that normally ends
+     *   the hover, so end it from the next mouse event instead unless the event
+     *   state manager has agreed the pointer is here by then.
+     */
+    _mouseenter({ withoutPointerEvent = false } = {}) {
       this._hover = true;
 
       if (this.selected) {
@@ -735,9 +777,34 @@
       SessionStore.speculativeConnectOnTabHover(this);
 
       this.dispatchEvent(new CustomEvent("TabHoverStart", { bubbles: true }));
+
+      if (withoutPointerEvent) {
+        this.#endHoverUnlessPointerArrives();
+      }
+    }
+
+    #endHoverUnlessPointerArrives() {
+      const types = ["mousemove", "mouseover"];
+      const onMouseEvent = () => {
+        this.#stopWaitingForPointer();
+        if (!this.matches(":hover")) {
+          this._mouseleave();
+        }
+      };
+      this.#stopWaitingForPointer?.();
+      this.#stopWaitingForPointer = () => {
+        this.#stopWaitingForPointer = null;
+        for (let type of types) {
+          window.removeEventListener(type, onMouseEvent, true);
+        }
+      };
+      for (let type of types) {
+        window.addEventListener(type, onMouseEvent, true);
+      }
     }
 
     _mouseleave() {
+      this.#stopWaitingForPointer?.();
       if (!this._hover) {
         return;
       }
@@ -761,19 +828,107 @@
       if (browser.audioMuted) {
         if (this.linkedPanel) {
           // "Lazy Browser" should not invoke its unmute method
-          browser.unmute();
+          browser.browsingContext?.mediaController?.unmute();
         }
         this.removeAttribute("muted");
       } else {
         if (this.linkedPanel) {
           // "Lazy Browser" should not invoke its mute method
-          browser.mute();
+          browser.browsingContext?.mediaController?.mute();
         }
         this.toggleAttribute("muted", true);
       }
       this.muteReason = aMuteReason || null;
 
       gBrowser._tabAttrModified(this, ["muted"]);
+    }
+
+    // The handler listening to this tab's MediaController audiblechange event,
+    // and the controller it is attached to. Both null when not registered. The
+    // controller is remembered so the listener is removed from the exact
+    // controller it was added to, even if the browsing context (and thus the
+    // current controller) changed in between.
+    #audibleChangeHandler = null;
+    #audibleChangeController = null;
+
+    // Drive the soundplaying attribute from the parent-process MediaController's
+    // aggregated audibility (covers controllable and uncontrolled sources across
+    // cross-origin iframes). Re-registers against the current controller.
+    registerAudibleChangeHandler() {
+      this.unregisterAudibleChangeHandler();
+      let mediaController =
+        this.linkedBrowser?.browsingContext?.mediaController;
+      if (!mediaController) {
+        return;
+      }
+      this.#audibleChangeHandler = () => {
+        if (mediaController.isAudible) {
+          clearTimeout(this._soundPlayingAttrRemovalTimer);
+          this._soundPlayingAttrRemovalTimer = 0;
+
+          let modifiedAttrs = [];
+          if (this.hasAttribute("soundplaying-scheduledremoval")) {
+            this.removeAttribute("soundplaying-scheduledremoval");
+            modifiedAttrs.push("soundplaying-scheduledremoval");
+          }
+
+          if (!this.hasAttribute("soundplaying")) {
+            this.toggleAttribute("soundplaying", true);
+            modifiedAttrs.push("soundplaying");
+          }
+
+          if (modifiedAttrs.length) {
+            // Flush style so that the opacity takes effect immediately, in
+            // case the media is stopped before the style flushes naturally.
+            getComputedStyle(this).opacity;
+          }
+
+          gBrowser._tabAttrModified(this, modifiedAttrs);
+        } else if (this.hasAttribute("soundplaying")) {
+          let removalDelay = Services.prefs.getIntPref(
+            "browser.tabs.delayHidingAudioPlayingIconMS"
+          );
+
+          // When the tab is muted, the sound icon must be removed immediately
+          // without any anti-flicker grace period, because muting cannot be
+          // cancelled by a rapid re-audible event (loops stay inaudible while
+          // muted). Otherwise, apply a 300 ms floor to prevent icon flicker at
+          // loop boundaries.
+          let effectiveDelay = this.linkedBrowser?.audioMuted
+            ? removalDelay
+            : Math.max(removalDelay, 300);
+
+          this.style.setProperty(
+            "--soundplaying-removal-delay",
+            `${Math.max(effectiveDelay - 300, 0)}ms`
+          );
+          this.toggleAttribute("soundplaying-scheduledremoval", true);
+          gBrowser._tabAttrModified(this, ["soundplaying-scheduledremoval"]);
+
+          this._soundPlayingAttrRemovalTimer = setTimeout(() => {
+            this.removeAttribute("soundplaying-scheduledremoval");
+            this.removeAttribute("soundplaying");
+            gBrowser._tabAttrModified(this, [
+              "soundplaying",
+              "soundplaying-scheduledremoval",
+            ]);
+          }, effectiveDelay);
+        }
+      };
+      this.#audibleChangeController = mediaController;
+      mediaController.addEventListener(
+        "audiblechange",
+        this.#audibleChangeHandler
+      );
+    }
+
+    unregisterAudibleChangeHandler() {
+      this.#audibleChangeController?.removeEventListener(
+        "audiblechange",
+        this.#audibleChangeHandler
+      );
+      this.#audibleChangeController = null;
+      this.#audibleChangeHandler = null;
     }
 
     setUserContextId(aUserContextId) {

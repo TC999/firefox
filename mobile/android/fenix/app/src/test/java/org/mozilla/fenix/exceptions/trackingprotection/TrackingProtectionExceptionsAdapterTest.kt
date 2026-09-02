@@ -9,6 +9,7 @@ import android.widget.FrameLayout
 import androidx.appcompat.view.ContextThemeWrapper
 import io.mockk.every
 import io.mockk.mockk
+import kotlin.test.assertIs
 import mozilla.components.browser.icons.BrowserIcons
 import mozilla.components.support.test.robolectric.testContext
 import org.junit.Assert.assertEquals
@@ -41,24 +42,27 @@ class TrackingProtectionExceptionsAdapterTest {
 
     @Test
     fun `creates correct view holder type`() {
-        every { testContext.components.core.icons } returns BrowserIcons(
-            testContext,
-            mockk(relaxed = true),
-        )
+        every { testContext.components.core.icons } returns
+            BrowserIcons(
+                testContext,
+                mockk(relaxed = true),
+            )
         val parent = FrameLayout(context)
         adapter.updateData(listOf(mockk(), mockk()))
         assertEquals(4, adapter.itemCount)
 
-        val holders = (0 until adapter.itemCount).asSequence()
-            .map { i -> adapter.getItemViewType(i) }
-            .map { viewType -> adapter.onCreateViewHolder(parent, viewType) }
-            .toList()
+        val holders =
+            (0 until adapter.itemCount)
+                .asSequence()
+                .map { i -> adapter.getItemViewType(i) }
+                .map { viewType -> adapter.onCreateViewHolder(parent, viewType) }
+                .toList()
         assertEquals(4, holders.size)
 
-        assertTrue(holders[0] is ExceptionsHeaderViewHolder)
-        assertTrue(holders[1] is ExceptionsListItemViewHolder<*>)
-        assertTrue(holders[2] is ExceptionsListItemViewHolder<*>)
-        assertTrue(holders[3] is ExceptionsDeleteButtonViewHolder)
+        assertIs<ExceptionsHeaderViewHolder>(holders[0])
+        assertIs<ExceptionsListItemViewHolder<*>>(holders[1])
+        assertIs<ExceptionsListItemViewHolder<*>>(holders[2])
+        assertIs<ExceptionsDeleteButtonViewHolder>(holders[3])
     }
 
     @Test
@@ -67,37 +71,37 @@ class TrackingProtectionExceptionsAdapterTest {
             TrackingProtectionExceptionsAdapter.DiffCallback.areItemsTheSame(
                 ExceptionsAdapter.AdapterItem.Header,
                 ExceptionsAdapter.AdapterItem.Header,
-            ),
+            )
         )
         assertTrue(
             TrackingProtectionExceptionsAdapter.DiffCallback.areItemsTheSame(
                 ExceptionsAdapter.AdapterItem.DeleteButton,
                 ExceptionsAdapter.AdapterItem.DeleteButton,
-            ),
+            )
         )
         assertFalse(
             TrackingProtectionExceptionsAdapter.DiffCallback.areItemsTheSame(
                 ExceptionsAdapter.AdapterItem.Header,
                 ExceptionsAdapter.AdapterItem.DeleteButton,
-            ),
+            )
         )
         assertTrue(
             TrackingProtectionExceptionsAdapter.DiffCallback.areContentsTheSame(
                 ExceptionsAdapter.AdapterItem.Header,
                 ExceptionsAdapter.AdapterItem.Header,
-            ),
+            )
         )
         assertTrue(
             TrackingProtectionExceptionsAdapter.DiffCallback.areContentsTheSame(
                 ExceptionsAdapter.AdapterItem.DeleteButton,
                 ExceptionsAdapter.AdapterItem.DeleteButton,
-            ),
+            )
         )
         assertFalse(
             TrackingProtectionExceptionsAdapter.DiffCallback.areContentsTheSame(
                 ExceptionsAdapter.AdapterItem.DeleteButton,
                 ExceptionsAdapter.AdapterItem.Header,
-            ),
+            )
         )
     }
 
@@ -108,38 +112,38 @@ class TrackingProtectionExceptionsAdapterTest {
                 TrackingProtectionExceptionsAdapter.TrackingProtectionAdapterItem(
                     mockk {
                         every { url } returns "https://mozilla.org"
-                    },
+                    }
                 ),
                 TrackingProtectionExceptionsAdapter.TrackingProtectionAdapterItem(
                     mockk {
                         every { url } returns "https://mozilla.org"
-                    },
+                    }
                 ),
-            ),
+            )
         )
         assertFalse(
             TrackingProtectionExceptionsAdapter.DiffCallback.areItemsTheSame(
                 TrackingProtectionExceptionsAdapter.TrackingProtectionAdapterItem(
                     mockk {
                         every { url } returns "https://mozilla.org"
-                    },
+                    }
                 ),
                 TrackingProtectionExceptionsAdapter.TrackingProtectionAdapterItem(
                     mockk {
                         every { url } returns "https://firefox.com"
-                    },
+                    }
                 ),
-            ),
+            )
         )
         assertFalse(
             TrackingProtectionExceptionsAdapter.DiffCallback.areItemsTheSame(
                 TrackingProtectionExceptionsAdapter.TrackingProtectionAdapterItem(
                     mockk {
                         every { url } returns "https://mozilla.org"
-                    },
+                    }
                 ),
                 ExceptionsAdapter.AdapterItem.Header,
-            ),
+            )
         )
         assertFalse(
             TrackingProtectionExceptionsAdapter.DiffCallback.areItemsTheSame(
@@ -147,9 +151,9 @@ class TrackingProtectionExceptionsAdapterTest {
                 TrackingProtectionExceptionsAdapter.TrackingProtectionAdapterItem(
                     mockk {
                         every { url } returns "https://mozilla.org"
-                    },
+                    }
                 ),
-            ),
+            )
         )
     }
 }

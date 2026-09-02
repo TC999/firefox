@@ -1,5 +1,4 @@
-/* -*- indent-tabs-mode: nil; js-indent-level: 2 -*-
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -9,7 +8,8 @@ import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
 const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
-  PictureInPicture: "resource://gre/modules/PictureInPicture.sys.mjs",
+  PictureInPicture:
+    "moz-src:///toolkit/components/pictureinpicture/PictureInPicture.sys.mjs",
 });
 
 XPCOMUtils.defineLazyPreferenceGetter(
@@ -110,7 +110,7 @@ export class AsyncTabSwitcher {
     this.lastPrimaryTab = tabbrowser.selectedTab; // Tab with primary="true"
 
     this.tabbrowser = tabbrowser;
-    this.window = tabbrowser.ownerGlobal;
+    this.window = tabbrowser.documentGlobal;
     this.loadTimer = null; // TAB_SWITCH_TIMEOUT nsITimer instance.
     this.unloadTimer = null; // UNLOAD_DELAY nsITimer instance.
 
@@ -789,7 +789,7 @@ export class AsyncTabSwitcher {
       return;
     }
 
-    this.logState(`onLayersReady(${tab._tPos}, ${browser.isRemoteBrowser})`);
+    this.logState(`onLayersReady(${tab.index}, ${browser.isRemoteBrowser})`);
     this.assert(
       this.getTabState(tab) == this.STATE_LOADING ||
         this.getTabState(tab) == this.STATE_LOADED
@@ -821,7 +821,7 @@ export class AsyncTabSwitcher {
     if (!tab) {
       return;
     }
-    this.logState(`onLayersCleared(${tab._tPos})`);
+    this.logState(`onLayersCleared(${tab.index})`);
     this.assert(
       this.getTabState(tab) == this.STATE_UNLOADING ||
         this.getTabState(tab) == this.STATE_UNLOADED
@@ -834,7 +834,7 @@ export class AsyncTabSwitcher {
   // so we need to simulate it.
   onRemotenessChange(tab) {
     this.logState(
-      `onRemotenessChange(${tab._tPos}, ${tab.linkedBrowser.isRemoteBrowser})`
+      `onRemotenessChange(${tab.index}, ${tab.linkedBrowser.isRemoteBrowser})`
     );
     if (!tab.linkedBrowser.isRemoteBrowser) {
       if (this.getTabState(tab) == this.STATE_LOADING) {
@@ -886,7 +886,7 @@ export class AsyncTabSwitcher {
     // our window. We save the state of otherBrowser since ourBrowser
     // needs to take on that state at the end of the swap.
 
-    let otherTabbrowser = otherBrowser.ownerGlobal.gBrowser;
+    let otherTabbrowser = otherBrowser.documentGlobal.gBrowser;
     let otherState;
     if (otherTabbrowser && otherTabbrowser._switcher) {
       let otherTab = otherTabbrowser.getTabForBrowser(otherBrowser);
@@ -1122,7 +1122,7 @@ export class AsyncTabSwitcher {
           this.onLoadTimeout();
           break;
         case "tabRemoved":
-          this.onTabRemovedImpl(event.tab);
+          this.onTabRemovedImpl();
           break;
         case "MozLayerTreeReady": {
           let browser = event.originalTarget;
@@ -1230,7 +1230,7 @@ export class AsyncTabSwitcher {
 
   tinfo(tab) {
     if (tab) {
-      return tab._tPos + "(" + tab.linkedBrowser.currentURI.spec + ")";
+      return tab.index + "(" + tab.linkedBrowser.currentURI.spec + ")";
     }
     return "null";
   }

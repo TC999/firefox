@@ -77,6 +77,160 @@ module.exports = function (config) {
           functions: 100,
           branches: 66,
           overrides: {
+            "common/Reducers.sys.mjs": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            "content-src/components/Sections/Sections.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            "content-src/components/Card/Card.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            "content-src/components/CollapsibleSection/CollapsibleSection.jsx":
+              {
+                statements: 0,
+                lines: 0,
+                functions: 0,
+                branches: 0,
+              },
+            "content-src/components/ContextMenu/ContextMenu.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            "content-src/components/ConfirmDialog/ConfirmDialog.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            "content-src/components/LinkMenu/LinkMenu.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            "content-src/components/DiscoveryStreamBase/DiscoveryStreamBase.jsx":
+              {
+                statements: 0,
+                lines: 0,
+                functions: 0,
+                branches: 0,
+              },
+            "content-src/components/ActivationWindowMessage/ActivationWindowMessage.jsx":
+              {
+                statements: 0,
+                lines: 0,
+                functions: 0,
+                branches: 0,
+              },
+            /**
+             * CardCarousel.jsx is tested via Jest (see test/jest/content-src/components/DiscoveryStreamComponents/CardCarousel.test.jsx).
+             */
+            "content-src/components/DiscoveryStreamComponents/CardCarousel/CardCarousel.jsx":
+              {
+                statements: 0,
+                lines: 0,
+                functions: 0,
+                branches: 0,
+              },
+            /**
+             * ErrorBoundary.jsx is tested via Jest (see test/jest/content-src/components/ErrorBoundary.test.jsx).
+             */
+            "content-src/components/ErrorBoundary/ErrorBoundary.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            /**
+             * FluentOrText.jsx is tested via Jest (see test/jest/content-src/components/FluentOrText.test.jsx).
+             */
+            "content-src/components/FluentOrText/FluentOrText.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            /**
+             * MoreRecommendations.jsx is tested via Jest (see test/jest/content-src/components/MoreRecommendations.test.jsx).
+             */
+            "content-src/components/MoreRecommendations/MoreRecommendations.jsx":
+              {
+                statements: 0,
+                lines: 0,
+                functions: 0,
+                branches: 0,
+              },
+            /**
+             * ModalOverlay.jsx is tested via Jest (see test/jest/content-src/components/ModalOverlay.test.jsx).
+             */
+            "content-src/components/ModalOverlay/ModalOverlay.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            /**
+             * DownloadModalToggle.jsx is tested via Jest (see test/jest/content-src/components/DownloadModalToggle.test.jsx).
+             */
+            "content-src/components/DownloadModalToggle/DownloadModalToggle.jsx":
+              {
+                statements: 0,
+                lines: 0,
+                functions: 0,
+                branches: 0,
+              },
+            /**
+             * ExternalComponentWrapper.jsx is tested via Jest (see test/jest/content-src/components/ExternalComponentWrapper.test.jsx).
+             */
+            "content-src/components/ExternalComponentWrapper/ExternalComponentWrapper.jsx":
+              {
+                statements: 0,
+                lines: 0,
+                functions: 0,
+                branches: 0,
+              },
+            /**
+             * ComponentPerfTimer.jsx is tested via Jest (see test/jest/content-src/components/ComponentPerfTimer.test.jsx).
+             */
+            "content-src/components/ComponentPerfTimer/ComponentPerfTimer.jsx":
+              {
+                statements: 0,
+                lines: 0,
+                functions: 0,
+                branches: 0,
+              },
+            /**
+             * TopicNavigation.jsx is tested via Jest (see test/jest/content-src/components/DiscoveryStreamComponents/TopicNavigation.test.jsx).
+             */
+            "content-src/components/DiscoveryStreamComponents/TopicNavigation/TopicNavigation.jsx":
+              {
+                statements: 0,
+                lines: 0,
+                functions: 0,
+                branches: 0,
+              },
+            /**
+             * useOverflowSplit.jsx is tested via Jest (see test/jest/content-src/components/DiscoveryStreamComponents/useOverflowSplit.test.jsx).
+             */
+            "content-src/components/DiscoveryStreamComponents/TopicNavigation/useOverflowSplit.jsx":
+              {
+                statements: 0,
+                lines: 0,
+                functions: 0,
+                branches: 0,
+              },
             "lib/AboutPreferences.sys.mjs": {
               statements: 98,
               lines: 98,
@@ -112,12 +266,6 @@ module.exports = function (config) {
               lines: 7,
               functions: 8,
               branches: 0,
-            },
-            "lib/UTEventReporting.sys.mjs": {
-              statements: 100,
-              lines: 100,
-              functions: 100,
-              branches: 75,
             },
             "lib/Screenshots.sys.mjs": {
               statements: 94,
@@ -162,6 +310,15 @@ module.exports = function (config) {
               functions: 0,
               branches: 0,
             },
+            /**
+             * SectionsLayoutFeed.sys.mjs is tested via an xpcshell test
+             */
+            "lib/SectionsLayoutFeed.sys.mjs": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
             "content-src/components/DiscoveryStreamComponents/PersonalizedCard/PersonalizedCard.jsx":
               {
                 statements: 0,
@@ -170,6 +327,44 @@ module.exports = function (config) {
                 branches: 0,
               },
             "content-src/components/Base/Base.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            /**
+             * DiscoveryStreamAdmin.jsx is tested via Jest
+             * (see test/jest/content-src/components/DiscoveryStreamAdmin.test.jsx).
+             */
+            "content-src/components/DiscoveryStreamAdmin/DiscoveryStreamAdmin.jsx":
+              {
+                statements: 0,
+                lines: 0,
+                functions: 0,
+                branches: 0,
+              },
+            /**
+             * ThemesManagementPanel.jsx is tested via Jest (see
+             * test/jest/content-src/components/CustomizeMenu/ThemesManagementPanel.test.jsx).
+             */
+            "content-src/components/CustomizeMenu/ThemesManagementPanel/ThemesManagementPanel.jsx":
+              {
+                statements: 0,
+                lines: 0,
+                functions: 0,
+                branches: 0,
+              },
+            /**
+             * Logo.jsx and its variant components are tested via Jest
+             * (see test/jest/content-src/components/Logo.test.jsx).
+             */
+            "content-src/components/Logo/Logo.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            "content-src/components/Logo/variants/*.jsx": {
               statements: 0,
               lines: 0,
               functions: 0,
@@ -241,8 +436,7 @@ module.exports = function (config) {
                 branches: 0,
               },
             /**
-             * SectionFollowButton.jsx manages hover/focus state for the follow button UI.
-             * The follow/unfollow callbacks it invokes are covered by CardSections.test.jsx.
+             * SectionFollowButton.jsx is covered by Jest tests
              */
             "content-src/components/DiscoveryStreamComponents/SectionFollowButton/SectionFollowButton.jsx":
               {
@@ -263,13 +457,6 @@ module.exports = function (config) {
                 statements: 84,
                 lines: 84,
                 functions: 83,
-              },
-            "content-src/components/DiscoveryStreamComponents/BriefingCard/BriefingCard.jsx":
-              {
-                statements: 92.31,
-                branches: 66.67,
-                functions: 90,
-                lines: 94.59,
               },
             /**
              * PromoCard currently has no functionality and is a placeholder component
@@ -307,10 +494,10 @@ module.exports = function (config) {
               branches: 0,
             },
             "content-src/components/Weather/Weather.jsx": {
-              statements: 48,
-              lines: 49,
-              functions: 31.2,
-              branches: 31.2,
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
             },
             "content-src/components/Widgets/WeatherForecast/WeatherForecast.jsx":
               {
@@ -319,8 +506,174 @@ module.exports = function (config) {
                 functions: 0,
                 branches: 0,
               },
+            // Coverage for this component lives in Jest (test/jest/content-src/components/DiscoveryStreamComponents/InterestPicker.test.jsx)
+            "content-src/components/Nova/InterestPicker/InterestPicker.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
             // Coverage for this component lives in Jest (test/jest/content-src/components/Widgets/Weather.test.jsx)
             "content-src/components/Widgets/Weather/Weather.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            // Coverage for this component lives in Jest (test/jest/content-src/components/Widgets/WidgetsSidebar.test.jsx)
+            "content-src/components/Widgets/WidgetsSidebar.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            // Coverage for this module lives in Jest (test/jest/content-src/components/Widgets/WidgetsRegistry.test.jsx)
+            "common/WidgetsRegistry.mjs": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            // Coverage for this component lives in Jest
+            "content-src/components/Widgets/WidgetsComponentRegistry.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            // Coverage for this component lives in Jest (test/jest/content-src/components/Widgets/MoveSubmenu.test.jsx)
+            "content-src/components/Widgets/MoveSubmenu.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            // Coverage for this component lives in Jest (test/jest/content-src/components/PanelListItems.test.jsx)
+            "content-src/components/LinkMenu/PanelListItems.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            // Coverage for this component lives in Jest (test/jest/content-src/components/ContextMenu/ContextMenuButton.test.jsx).
+            // The karma suite only reached it through the topsites and story-card
+            // menu tests, which this stack moves to panel-list.
+            "content-src/components/ContextMenu/ContextMenuButton.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            // Coverage for this component lives in Jest (test/jest/content-src/components/Widgets/Clocks.test.jsx)
+            "content-src/components/Widgets/Clocks/Clocks.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            // Coverage for this component lives in Jest (test/jest/content-src/components/Widgets/Privacy.test.jsx)
+            "content-src/components/Widgets/Privacy/Privacy.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            // Coverage for this component lives in Jest (test/jest/content-src/components/Widgets/Crossword.test.jsx)
+            "content-src/components/Widgets/Crossword/Crossword.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            // Coverage for this component lives in Jest (test/jest/content-src/components/Widgets/Stocks.test.jsx)
+            "content-src/components/Widgets/Stocks/Stocks.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            // Coverage for this component lives in Jest (test/jest/content-src/components/Widgets/StocksError.test.jsx)
+            "content-src/components/Widgets/Stocks/StocksError.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            // Coverage for this component lives in Jest (test/jest/content-src/components/Widgets/StockTicker.test.jsx)
+            "content-src/components/Widgets/Stocks/StockTicker.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            // Coverage for this component lives in Jest (test/jest/content-src/components/Widgets/StockSearch.test.jsx)
+            "content-src/components/Widgets/Stocks/StockSearch.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            // Coverage for this hook lives in Jest (test/jest/content-src/components/Widgets/useStockSearch.test.jsx)
+            "content-src/components/Widgets/Stocks/useStockSearch.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            // Coverage for this component lives in Jest (test/jest/content-src/components/Widgets/PictureOfTheDay.test.jsx)
+            "content-src/components/Widgets/PictureOfTheDay/PictureOfTheDay.jsx":
+              {
+                statements: 0,
+                lines: 0,
+                functions: 0,
+                branches: 0,
+              },
+            // Coverage for this component lives in Jest (test/jest/content-src/components/Widgets/RecentSearches.test.jsx)
+            "content-src/components/Widgets/RecentSearches/RecentSearches.jsx":
+              {
+                statements: 0,
+                lines: 0,
+                functions: 0,
+                branches: 0,
+              },
+            // Coverage for this component lives in Jest (test/jest/content-src/components/Widgets/AddClockForm.test.jsx)
+            "content-src/components/Widgets/Clocks/AddClockForm.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            // Coverage for this component lives in Jest (test/jest/content-src/components/Widgets/EditClocksPanel.test.jsx)
+            "content-src/components/Widgets/Clocks/EditClocksPanel.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            // Coverage for this component lives in Jest (test/jest/content-src/components/Widgets/ClocksRow.test.jsx)
+            "content-src/components/Widgets/Clocks/ClocksRow.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            // Coverage for this module lives in Jest (test/jest/content-src/components/Widgets/ClocksHelpers.test.jsx)
+            "content-src/components/Widgets/Clocks/ClocksHelpers.mjs": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            // Static registry data; the Fluent pairing it relies on is checked
+            // in Jest (test/jest/content-src/components/Widgets/ClockCityRegistry.test.jsx)
+            "content-src/components/Widgets/Clocks/ClockCityRegistry.mjs": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            // Coverage for this hook lives in Jest (test/jest/content-src/components/Widgets/useCuratedCityNames.test.jsx)
+            "content-src/components/Widgets/Clocks/useCuratedCityNames.jsx": {
               statements: 0,
               lines: 0,
               functions: 0,
@@ -345,9 +698,9 @@ module.exports = function (config) {
               branches: 76,
             },
             "content-src/components/CustomizeMenu/ContentSection/*.jsx": {
-              statements: 82,
-              lines: 82,
-              functions: 100,
+              statements: 80,
+              lines: 80,
+              functions: 90,
               branches: 67,
             },
             "content-src/components/CustomizeMenu/**/*.jsx": {
@@ -375,16 +728,147 @@ module.exports = function (config) {
               functions: 92.86,
             },
             "content-src/components/MessageWrapper/MessageWrapper.jsx": {
-              lines: 50,
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            "content-src/components/Search/Search.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            "content-src/components/Widgets/SportsWidget/SportsWidget.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            // Coverage for this component lives in Jest (test/jest/content-src/components/Widgets/SportsMatchRow.test.jsx)
+            "content-src/components/Widgets/SportsWidget/SportsMatchRow.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            // Coverage for this component lives in Jest (test/jest/content-src/components/Widgets/WatchLiveModal.test.jsx)
+            "content-src/components/Widgets/SportsWidget/WatchLiveModal.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            // Coverage for this hook lives in Jest (test/jest/content-src/components/Widgets/useLocalizedTeamNames.test.jsx)
+            "content-src/components/Widgets/SportsWidget/useLocalizedTeamNames.jsx":
+              {
+                statements: 0,
+                lines: 0,
+                functions: 0,
+                branches: 0,
+              },
+            // Coverage for this component lives in Jest (test/jest/content-src/components/Widgets/SportsWidget.test.jsx)
+            "content-src/components/Widgets/SportsWidget/LivePagination.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            // Coverage for this component lives in Jest (test/jest/content-src/components/Widgets/SportsResultCelebration.test.jsx)
+            "content-src/components/Widgets/SportsWidget/SportsResultCelebration.jsx":
+              {
+                statements: 0,
+                lines: 0,
+                functions: 0,
+                branches: 0,
+              },
+            // Coverage for this component lives in Jest (test/jest/content-src/components/Widgets/WidgetCelebration.test.jsx)
+            "content-src/components/Widgets/WidgetCelebration.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            "content-src/components/Widgets/Widgets.jsx": {
               statements: 51.1,
+              lines: 52,
               functions: 31.2,
               branches: 31.2,
             },
-            "content-src/components/Search/Search.jsx": {
-              statements: 38,
-              lines: 39,
-              functions: 28,
-              branches: 25,
+            "content-src/components/Widgets/useWidgetDnD.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            "content-src/components/Widgets/useMouseDnD.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            // Covered by test/jest/content-src/components/Widgets/useCountUp.test.jsx
+            "content-src/components/Widgets/useCountUp.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            // Covered by test/jest/content-src/components/Widgets/Privacy.test.jsx
+            "content-src/components/Widgets/usePageVisible.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            "content-src/components/TopSites/useTopSitesDnD.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            "content-src/components/TopSites/TopSiteListContainer.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            "content-src/components/TopSites/GroupedTopSiteListContainer.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            "content-src/components/TopSites/PinnedAreaOverlay.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            "content-src/components/TopSites/useZeroPinDrop.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            "content-src/components/TopSites/useAppendPinDrop.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            "content-src/lib/useReorderFlip.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
+            },
+            // Coverage for this module lives in Jest (test/jest/content-src/lib/panel-list-utils.test.jsx)
+            "content-src/lib/panel-list-utils.jsx": {
+              statements: 0,
+              lines: 0,
+              functions: 0,
+              branches: 0,
             },
             "content-src/components/**/*.jsx": {
               statements: 51.1,
@@ -460,6 +944,13 @@ module.exports = function (config) {
             __dirname,
             "../../../toolkit/content/vendor/react/react-redux.js"
           )
+        ),
+        // AppConstants is imported eagerly in AboutPreferences.sys.mjs, but
+        // karma's webpack bundler can't resolve resource:// URIs.
+        // Redirect to a test stub.
+        new webpack.NormalModuleReplacementPlugin(
+          /^resource:\/\/gre\/modules\/AppConstants\.sys\.mjs$/,
+          path.resolve(__dirname, "test/unit/stubs/AppConstants.sys.mjs")
         ),
       ],
       externals: [

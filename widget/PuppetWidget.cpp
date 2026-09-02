@@ -2,22 +2,23 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include "PuppetWidget.h"
+
 #include "gfxPlatform.h"
-#include "nsRefreshDriver.h"
-#include "mozilla/dom/BrowserChild.h"
+#include "imgIContainer.h"
 #include "mozilla/EventForwards.h"
 #include "mozilla/IMEStateManager.h"
-#include "mozilla/layers/CompositorBridgeChild.h"
-#include "mozilla/layers/WebRenderLayerManager.h"
 #include "mozilla/NativeKeyBindingsType.h"
 #include "mozilla/PresShell.h"
 #include "mozilla/SchedulerGroup.h"
 #include "mozilla/TextComposition.h"
 #include "mozilla/TextEventDispatcher.h"
 #include "mozilla/TextEvents.h"
-#include "PuppetWidget.h"
+#include "mozilla/dom/BrowserChild.h"
+#include "mozilla/layers/CompositorBridgeChild.h"
+#include "mozilla/layers/WebRenderLayerManager.h"
 #include "nsContentUtils.h"
-#include "imgIContainer.h"
+#include "nsRefreshDriver.h"
 
 using namespace mozilla;
 using namespace mozilla::dom;
@@ -263,22 +264,11 @@ nsEventStatus PuppetWidget::DispatchEvent(WidgetGUIEvent* aEvent) {
   if (aEvent->mClass == eCompositionEventClass ||
       aEvent->mClass == eKeyboardEventClass) {
     TextEventDispatcher* dispatcher = GetTextEventDispatcher();
-    // However, if the event is being dispatched by the text event dispatcher
-    // or, there is native text event dispatcher listener, that means that
-    // native text input event handler is in this process like on Android,
-    // and the event is not synthesized for tests, the event is coming from
-    // the TextEventDispatcher.  In these cases, we shouldn't notify
-    // TextEventDispatcher of dispatching the event.
-    if (!dispatcher->IsDispatchingEvent() &&
-        !(mNativeTextEventDispatcherListener &&
-          !aEvent->mFlags.mIsSynthesizedForTests)) {
-      DebugOnly<nsresult> rv =
-          dispatcher->BeginInputTransactionFor(aEvent, this);
-      NS_WARNING_ASSERTION(
-          NS_SUCCEEDED(rv),
-          "The text event dispatcher should always succeed to start input "
-          "transaction for the event");
-    }
+    DebugOnly<nsresult> rv = dispatcher->BeginInputTransactionFor(aEvent, this);
+    NS_WARNING_ASSERTION(
+        NS_SUCCEEDED(rv),
+        "The text event dispatcher should always succeed to start input "
+        "transaction for the event");
   }
 
   return nsIWidget::DispatchEvent(aEvent);
@@ -322,7 +312,7 @@ nsIWidget::ContentAndAPZEventStatus PuppetWidget::DispatchInputEvent(
 
 nsresult PuppetWidget::SynthesizeNativeKeyEvent(
     int32_t aNativeKeyboardLayout, int32_t aNativeKeyCode,
-    uint32_t aModifierFlags, const nsAString& aCharacters,
+    nsIWidget::NativeModifiers aModifierFlags, const nsAString& aCharacters,
     const nsAString& aUnmodifiedCharacters,
     nsISynthesizedEventCallback* aCallback) {
   AutoSynthesizedEventCallbackNotifier notifier(aCallback);
@@ -337,16 +327,14 @@ nsresult PuppetWidget::SynthesizeNativeKeyEvent(
 
 nsresult PuppetWidget::SynthesizeNativeMouseEvent(
     mozilla::LayoutDeviceIntPoint aPoint, NativeMouseMessage aNativeMessage,
-    MouseButton aButton, nsIWidget::Modifiers aModifierFlags,
+    MouseButton aButton, nsIWidget::NativeModifiers aModifierFlags,
     nsISynthesizedEventCallback* aCallback) {
   AutoSynthesizedEventCallbackNotifier notifier(aCallback);
   if (!mBrowserChild) {
     return NS_ERROR_FAILURE;
   }
   mBrowserChild->SendSynthesizeNativeMouseEvent(
-      aPoint, static_cast<uint32_t>(aNativeMessage),
-      static_cast<int16_t>(aButton), static_cast<uint32_t>(aModifierFlags),
-      notifier.SaveCallback());
+      aPoint, aNativeMessage, aButton, aModifierFlags, notifier.SaveCallback());
   return NS_OK;
 }
 
@@ -363,8 +351,9 @@ nsresult PuppetWidget::SynthesizeNativeMouseMove(
 
 nsresult PuppetWidget::SynthesizeNativeMouseScrollEvent(
     mozilla::LayoutDeviceIntPoint aPoint, uint32_t aNativeMessage,
-    double aDeltaX, double aDeltaY, double aDeltaZ, uint32_t aModifierFlags,
-    uint32_t aAdditionalFlags, nsISynthesizedEventCallback* aCallback) {
+    double aDeltaX, double aDeltaY, double aDeltaZ,
+    nsIWidget::NativeModifiers aModifierFlags, uint32_t aAdditionalFlags,
+    nsISynthesizedEventCallback* aCallback) {
   AutoSynthesizedEventCallbackNotifier notifier(aCallback);
   if (!mBrowserChild) {
     return NS_ERROR_FAILURE;
@@ -450,11 +439,12 @@ nsresult PuppetWidget::SynthesizeNativeTouchpadPan(
   return NS_OK;
 }
 
-void PuppetWidget::LockNativePointer() {
+void PuppetWidget::LockNativePointer(
+    NativePointerLockMode aNativePointerLockMode) {
   if (!mBrowserChild) {
     return;
   }
-  mBrowserChild->SendLockNativePointer();
+  mBrowserChild->SendLockNativePointer(aNativePointerLockMode);
 }
 
 void PuppetWidget::UnlockNativePointer() {
@@ -462,6 +452,14 @@ void PuppetWidget::UnlockNativePointer() {
     return;
   }
   mBrowserChild->SendUnlockNativePointer();
+}
+
+void PuppetWidget::SetNativePointerLockMode(
+    NativePointerLockMode aNativePointerLockMode) {
+  if (!mBrowserChild) {
+    return;
+  }
+  mBrowserChild->SendSetNativePointerLockMode(aNativePointerLockMode);
 }
 
 void PuppetWidget::SetConfirmedTargetAPZC(
@@ -594,7 +592,7 @@ nsresult PuppetWidget::RequestIMEToCommitComposition(bool aCancel) {
   // Dispatch eCompositionCommit event.
   WidgetCompositionEvent compositionCommitEvent(true, eCompositionCommit, this);
   InitEvent(compositionCommitEvent, nullptr);
-  compositionCommitEvent.mData = committedString;
+  compositionCommitEvent.mData = std::move(committedString);
   DispatchEvent(&compositionCommitEvent);
 
 #ifdef DEBUG

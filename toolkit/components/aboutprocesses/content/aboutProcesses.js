@@ -1,5 +1,3 @@
-/* -*- indent-tabs-mode: nil; js-indent-level: 2 -*-*/
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -38,7 +36,7 @@ const { AppConstants } = ChromeUtils.importESModule(
 
 ChromeUtils.defineESModuleGetters(this, {
   ContextualIdentityService:
-    "resource://gre/modules/ContextualIdentityService.sys.mjs",
+    "moz-src:///toolkit/components/contextualidentity/ContextualIdentityService.sys.mjs",
 });
 
 ChromeUtils.defineLazyGetter(this, "ProfilerPopupBackground", function () {
@@ -964,6 +962,10 @@ var View = {
         fluentName = "about-processes-utility-actor-pkcs11-module";
         break;
 
+      case "hwInference":
+        fluentName = "about-processes-utility-actor-hw-inference";
+        break;
+
       default:
         fluentName = "about-processes-utility-actor-unknown";
         break;
@@ -1204,13 +1206,13 @@ var Control = {
           // We've clicked on a tab, navigate.
           let { tab, tabbrowser } = target.parentNode.win.tab;
           tabbrowser.selectedTab = tab;
-          tabbrowser.ownerGlobal.focus();
+          tabbrowser.documentGlobal.focus();
           return;
         }
         if (target.classList.contains("extensions")) {
           // We've clicked on the extensions process, open or reuse window.
           let parentWin =
-            window.docShell.browsingContext.embedderElement.ownerGlobal;
+            window.docShell.browsingContext.embedderElement.documentGlobal;
           parentWin.BrowserAddonUI.openAddonsMgr();
           return;
         }

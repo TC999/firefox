@@ -134,6 +134,10 @@ void MacroAssembler::andPtr(Imm32 imm, Register src, Register dest) {
   andl(imm, dest);
 }
 
+void MacroAssembler::andPtr(Imm32 imm, const Address& dest) {
+  andl(imm, Operand(dest));
+}
+
 void MacroAssembler::and64(Imm64 imm, Register64 dest) {
   if (imm.low().value != int32_t(0xFFFFFFFF)) {
     andl(imm.low(), dest.low);
@@ -477,6 +481,19 @@ void MacroAssembler::lshift64(Imm32 imm, Register64 dest) {
   xorl(dest.low, dest.low);
 }
 
+void MacroAssembler::lshift64(Imm32 imm, Register64 src, Register64 dest) {
+  MOZ_ASSERT(0 <= imm.value && imm.value < 64);
+  MOZ_ASSERT(dest.low != src.high);
+  if (src.low != dest.low) {
+    movl(src.low, dest.low);
+  }
+  if (src.high != dest.high) {
+    movl(src.high, dest.high);
+  }
+
+  lshift64(imm, dest);
+}
+
 void MacroAssembler::lshift64(Register shift, Register64 srcDest) {
   MOZ_ASSERT(shift == ecx);
   MOZ_ASSERT(srcDest.low != ecx && srcDest.high != ecx);
@@ -523,6 +540,19 @@ void MacroAssembler::rshift64(Imm32 imm, Register64 dest) {
   movl(dest.high, dest.low);
   shrl(Imm32(imm.value & 0x1f), dest.low);
   xorl(dest.high, dest.high);
+}
+
+void MacroAssembler::rshift64(Imm32 imm, Register64 src, Register64 dest) {
+  MOZ_ASSERT(0 <= imm.value && imm.value < 64);
+  MOZ_ASSERT(dest.low != src.high);
+  if (src.low != dest.low) {
+    movl(src.low, dest.low);
+  }
+  if (src.high != dest.high) {
+    movl(src.high, dest.high);
+  }
+
+  rshift64(imm, dest);
 }
 
 void MacroAssembler::rshift64(Register shift, Register64 srcDest) {
@@ -573,6 +603,20 @@ void MacroAssembler::rshift64Arithmetic(Imm32 imm, Register64 dest) {
   movl(dest.high, dest.low);
   sarl(Imm32(imm.value & 0x1f), dest.low);
   sarl(Imm32(0x1f), dest.high);
+}
+
+void MacroAssembler::rshift64Arithmetic(Imm32 imm, Register64 src,
+                                        Register64 dest) {
+  MOZ_ASSERT(0 <= imm.value && imm.value < 64);
+  MOZ_ASSERT(dest.low != src.high);
+  if (src.low != dest.low) {
+    movl(src.low, dest.low);
+  }
+  if (src.high != dest.high) {
+    movl(src.high, dest.high);
+  }
+
+  rshift64Arithmetic(imm, dest);
 }
 
 void MacroAssembler::rshift64Arithmetic(Register shift, Register64 srcDest) {
@@ -1065,6 +1109,21 @@ void MacroAssembler::branchTestBooleanTruthy(bool truthy,
 }
 
 void MacroAssembler::branchTestMagic(Condition cond, const Address& valaddr,
+                                     JSWhyMagic why, Label* label) {
+  MOZ_ASSERT(cond == Assembler::Equal || cond == Assembler::NotEqual);
+
+  Label notMagic;
+  if (cond == Assembler::Equal) {
+    branchTestMagic(Assembler::NotEqual, valaddr, &notMagic);
+  } else {
+    branchTestMagic(Assembler::NotEqual, valaddr, label);
+  }
+
+  branch32(cond, ToPayload(valaddr), Imm32(why), label);
+  bind(&notMagic);
+}
+
+void MacroAssembler::branchTestMagic(Condition cond, const BaseIndex& valaddr,
                                      JSWhyMagic why, Label* label) {
   MOZ_ASSERT(cond == Assembler::Equal || cond == Assembler::NotEqual);
 

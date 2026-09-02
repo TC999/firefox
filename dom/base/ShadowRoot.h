@@ -75,8 +75,10 @@ enum : uint32_t {
   // https://dom.spec.whatwg.org/#shadowroot-available-to-element-internals
   SHADOW_ROOT_IS_AVAILABLE_TO_ELEMENT_INTERNALS = SHADOW_ROOT_FLAG_BIT(6),
 
-  // Whether this is the <details> internal shadow tree
-  SHADOW_ROOT_IS_DETAILS_SHADOW_TREE = SHADOW_ROOT_FLAG_BIT(7),
+  // Whether the host element overrides slot dispatch (GetSlotNameFor,
+  // OnChildBeforeSlotted, OnChildUnslotted). When unset, the common-case
+  // default logic is inlined to avoid virtual calls.
+  SHADOW_ROOT_HAS_CUSTOM_SLOT_DISPATCH = SHADOW_ROOT_FLAG_BIT(7),
 
   // 2-bit field encoding the shadow root's custom element registry state.
   // See CustomElementRegistryState for the possible values.
@@ -84,8 +86,14 @@ enum : uint32_t {
   SHADOWROOT_CUSTOM_ELEMENT_REGISTRY_MASK =
       SHADOW_ROOT_FLAG_BIT(8) | SHADOW_ROOT_FLAG_BIT(9),
 
+  // https://dom.spec.whatwg.org/#shadowroot-keep-custom-element-registry-null
+  // Only meaningful when the registry state is Null: distinguishes a shadow
+  // root that must retain a null registry across adoption from one whose null
+  // registry should be re-pointed at the new document's global registry.
+  SHADOWROOT_KEEP_CUSTOM_ELEMENT_REGISTRY_NULL = SHADOW_ROOT_FLAG_BIT(10),
+
   // Remaining bits are unused
-  SHADOW_ROOT_FLAGS_BITS_USED = 10
+  SHADOW_ROOT_FLAGS_BITS_USED = 11
 };
 
 #undef SHADOW_ROOT_FLAG_BIT
@@ -101,6 +109,8 @@ class ShadowRoot final : public DocumentFragment, public DocumentOrShadowRoot {
   using IsClonable = Element::ShadowRootClonable;
   using IsSerializable = Element::ShadowRootSerializable;
 
+  using CustomSlotDispatch = Element::CustomSlotDispatch;
+
  public:
   NS_IMPL_FROMNODE_HELPER(ShadowRoot, IsShadowRoot());
 
@@ -112,7 +122,9 @@ class ShadowRoot final : public DocumentFragment, public DocumentOrShadowRoot {
              Element::DelegatesFocus aDelegatesFocus,
              SlotAssignmentMode aSlotAssignment, IsClonable aClonable,
              IsSerializable aIsSerializable, Declarative aDeclarative,
-             already_AddRefed<mozilla::dom::NodeInfo>&& aNodeInfo);
+             CustomSlotDispatch aCustomSlotDispatch,
+             const Maybe<RefPtr<CustomElementRegistry>> aRegistry,
+             already_AddRefed<mozilla::dom::NodeInfo> aNodeInfo);
 
   void AddSizeOfExcludingThis(nsWindowSizes&, size_t* aNodeSize) const final;
 
@@ -138,6 +150,9 @@ class ShadowRoot final : public DocumentFragment, public DocumentOrShadowRoot {
                                             : ShadowRootMode::Open;
   }
   bool DelegatesFocus() const { return HasFlag(SHADOW_ROOT_DELEGATES_FOCUS); }
+  bool HasCustomSlotDispatch() const {
+    return HasFlag(SHADOW_ROOT_HAS_CUSTOM_SLOT_DISPATCH);
+  }
   SlotAssignmentMode SlotAssignment() const {
     return HasFlag(SHADOW_ROOT_SLOT_ASSIGNMENT_MANUAL)
                ? SlotAssignmentMode::Manual
@@ -202,10 +217,6 @@ class ShadowRoot final : public DocumentFragment, public DocumentOrShadowRoot {
     InsertSheetAt(SheetCount(), aSheet);
   }
 
-  bool IsDetailsShadowTree() const {
-    return HasFlag(SHADOW_ROOT_IS_DETAILS_SHADOW_TREE);
-  }
-
   /**
    * Represents the insertion point in a slot for a given node.
    */
@@ -234,21 +245,13 @@ class ShadowRoot final : public DocumentFragment, public DocumentOrShadowRoot {
    */
   void GetSlotNameFor(const nsIContent&, nsAString&) const;
 
-  /**
-   * Re-assign the current main summary if it has changed.
-   *
-   * Must be called only if IsDetailsShadowTree() is true.
-   */
-  enum class SummaryChangeReason { Deletion, Insertion };
-  void MaybeReassignMainSummary(SummaryChangeReason);
-
  public:
   void AddSlot(HTMLSlotElement* aSlot);
   void RemoveSlot(HTMLSlotElement* aSlot);
   bool HasSlots() const { return !mSlotMap.IsEmpty(); };
-  HTMLSlotElement* GetDefaultSlot() const {
-    SlotArray* list = mSlotMap.Get(u""_ns);
-    return list ? (*list).AsSpan()[0] : nullptr;
+  HTMLSlotElement* GetFirstNamedSlot(const nsAString& aName) const {
+    SlotArray* list = mSlotMap.Get(aName);
+    return list ? list->ElementAt(0) : nullptr;
   }
 
   void PartAdded(const Element&);
@@ -321,10 +324,30 @@ class ShadowRoot final : public DocumentFragment, public DocumentOrShadowRoot {
   }
 
   void SetCustomElementRegistry(CustomElementRegistry* aRegistry);
+  // Sets the shadow root's custom element registry to null.
+  // https://dom.spec.whatwg.org/#concept-attach-a-shadow-root step 12
+  void SetNullCustomElementRegistry() {
+    SetCustomElementRegistryState(CustomElementRegistryState::Null);
+  }
+  // Sets keep custom element registry null to true. Only meaningful once the
+  // registry is null.
   // https://dom.spec.whatwg.org/#shadowroot-keep-custom-element-registry-null
-  void SetKeepCustomElementRegistryNull();
+  void SetKeepCustomElementRegistryNull() {
+    MOZ_ASSERT(IsDeclarative(),
+               "KeepCustomElementRegistryNull should only be set on "
+               "Declarative roots!");
+    MOZ_ASSERT(StaticPrefs::dom_scoped_custom_element_registries_enabled());
+    MOZ_ASSERT(
+        GetCustomElementRegistryState() == CustomElementRegistryState::Null,
+        "keep custom element registry null is only meaningful when the "
+        "registry is null");
+    SetFlags(SHADOWROOT_KEEP_CUSTOM_ELEMENT_REGISTRY_NULL);
+  }
+  bool KeepCustomElementRegistryNull() const {
+    return HasFlag(SHADOWROOT_KEEP_CUSTOM_ELEMENT_REGISTRY_NULL);
+  }
   // https://dom.spec.whatwg.org/#shadowroot-custom-element-registry
-  CustomElementRegistry* GetCustomElementRegistry();
+  CustomElementRegistry* GetCustomElementRegistry() const;
 
   void GetEventTargetParent(EventChainPreVisitor& aVisitor) override;
 

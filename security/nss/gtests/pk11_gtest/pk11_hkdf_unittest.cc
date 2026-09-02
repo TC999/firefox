@@ -5,7 +5,6 @@
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include <memory>
-#include "blapi.h"
 #include "gtest/gtest.h"
 #include "nss.h"
 #include "nss_scoped_ptrs.h"
@@ -58,7 +57,7 @@ class Pkcs11HkdfTest
     }
   }
 
-  ScopedPK11SymKey ImportKey(SECItem &ikm_item, bool import_as_data) {
+  ScopedPK11SymKey ImportKey(SECItem& ikm_item, bool import_as_data) {
     ScopedPK11SlotInfo slot(PK11_GetInternalSlot());
     if (!slot) {
       ADD_FAILURE() << "Can't get slot";
@@ -78,7 +77,7 @@ class Pkcs11HkdfTest
     return ikm;
   }
 
-  void RunWycheproofTest(const HkdfTestVector &vec, HkdfTestType test_type,
+  void RunWycheproofTest(const HkdfTestVector& vec, HkdfTestType test_type,
                          CK_MECHANISM_TYPE hash_mech) {
     std::string msg = "Test #" + std::to_string(vec.id) + " failed";
     std::vector<uint8_t> vec_ikm = hex_string_to_bytes(vec.ikm);
@@ -111,13 +110,13 @@ class Pkcs11HkdfTest
         CK_INVALID_HANDLE,
         vec_info.data(),
         static_cast<unsigned int>(vec_info.size())};
-    SECItem params_item = {siBuffer, (unsigned char *)&hkdf_params,
+    SECItem params_item = {siBuffer, (unsigned char*)&hkdf_params,
                            sizeof(hkdf_params)};
 
     switch (test_type) {
       case HkdfTestType::legacy:
         derive_mech = Pk11MechToVendorMech(hash_mech);
-        params_item.data = (uint8_t *)&nss_hkdf_params;
+        params_item.data = (uint8_t*)&nss_hkdf_params;
         params_item.len = sizeof(nss_hkdf_params);
         ikm = ImportKey(ikm_item, false);
         break;

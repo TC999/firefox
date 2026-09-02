@@ -11,20 +11,15 @@ import org.mozilla.focus.R
 import org.mozilla.focus.components.EngineProvider
 import org.mozilla.focus.ext.components
 
-/**
- * SharedPreference listener that will update the engine whenever the user changes settings.
- */
-class EngineSharedPreferencesListener(
-    private val context: Context,
-) : Preference.OnPreferenceChangeListener {
+/** SharedPreference listener that will update the engine whenever the user changes settings. */
+class EngineSharedPreferencesListener(private val context: Context) : Preference.OnPreferenceChangeListener {
 
     override fun onPreferenceChange(preference: Preference, newValue: Any?): Boolean {
         when (preference.key) {
             context.getString(R.string.pref_key_performance_enable_cookies) ->
-                updateTrackingProtectionPolicy(newValue as String)
+                updateTrackingProtectionPolicy(newCookieValue = newValue as String)
 
-            context.getString(R.string.pref_key_safe_browsing) ->
-                updateSafeBrowsingPolicy(newValue as Boolean)
+            context.getString(R.string.pref_key_safe_browsing) -> updateSafeBrowsingPolicy(newValue as Boolean)
 
             context.getString(R.string.pref_key_performance_block_javascript) ->
                 updateJavaScriptSetting(newValue as Boolean)
@@ -40,8 +35,9 @@ class EngineSharedPreferencesListener(
         source: String? = null,
         tracker: String? = null,
         isEnabled: Boolean = false,
+        newCookieValue: String? = null,
     ) {
-        val policy = EngineProvider.createTrackingProtectionPolicy(context)
+        val policy = EngineProvider.createTrackingProtectionPolicy(context, newCookieValue = newCookieValue)
         val components = context.components
 
         components.engineDefaultSettings.trackingProtectionPolicy = policy
@@ -53,7 +49,7 @@ class EngineSharedPreferencesListener(
                     sourceOfChange = source,
                     trackerChanged = tracker,
                     isEnabled = isEnabled,
-                ),
+                )
             )
         }
         components.sessionUseCases.reload()
@@ -80,11 +76,13 @@ class EngineSharedPreferencesListener(
         components.sessionUseCases.reload()
     }
 
+    /** Source of the setting change. */
     enum class ChangeSource(val source: String) {
         SETTINGS("Settings"),
         PANEL("Panel"),
     }
 
+    /** The type of tracker being changed. */
     enum class TrackerChanged(val tracker: String) {
         ADVERTISING("Advertising"),
         ANALYTICS("Analytics"),

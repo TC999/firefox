@@ -20,6 +20,7 @@
 #include "nsIScriptError.h"
 #include "nsIWebProgressListener.h"
 #include "nsIXULRuntime.h"
+#include "nsPIDOMWindowInlines.h"
 #include "nsRFPTargetSetIDL.h"
 #include "nsRefPtrHashtable.h"
 #include "nsContentUtils.h"
@@ -80,9 +81,8 @@ WindowContext::GetOverriddenFingerprintingSettingsWebIDL() const {
     return nullptr;
   }
 
-  nsCOMPtr<nsIRFPTargetSetIDL> protections =
-      new nsRFPTargetSetIDL(overriddenFingerprintingSettings.ref());
-  return protections.forget();
+  return MakeAndAddRef<nsRFPTargetSetIDL>(
+      overriddenFingerprintingSettings.ref());
 }
 
 nsGlobalWindowInner* WindowContext::GetInnerWindow() const {
@@ -355,6 +355,11 @@ void WindowContext::DidSet(FieldIndex<IDX_AllowJavascript>, bool aOldValue) {
 bool WindowContext::CanSet(FieldIndex<IDX_HasActivePeerConnections>, bool,
                            ContentParent*) {
   return XRE_IsParentProcess() && IsTop();
+}
+
+bool WindowContext::CanSet(FieldIndex<IDX_IsFramebustingAllowed>,
+                           const bool& aValue, ContentParent* aSource) {
+  return CheckOnlyOwningProcessCanSet(aSource);
 }
 
 void WindowContext::ProcessCloseRequest() {
@@ -847,23 +852,9 @@ bool ParamTraits<MaybeDiscarded<WindowContext>>::Read(
   return true;
 }
 
-void ParamTraits<WindowContext::IPCInitializer>::Write(
-    MessageWriter* aWriter, const WindowContext::IPCInitializer& aInit) {
-  // Write actor ID parameters.
-  WriteParam(aWriter, aInit.mInnerWindowId);
-  WriteParam(aWriter, aInit.mOuterWindowId);
-  WriteParam(aWriter, aInit.mBrowsingContextId);
-  WriteParam(aWriter, aInit.mFields);
-}
-
-bool ParamTraits<WindowContext::IPCInitializer>::Read(
-    MessageReader* aReader, WindowContext::IPCInitializer* aInit) {
-  // Read actor ID parameters.
-  return ReadParam(aReader, &aInit->mInnerWindowId) &&
-         ReadParam(aReader, &aInit->mOuterWindowId) &&
-         ReadParam(aReader, &aInit->mBrowsingContextId) &&
-         ReadParam(aReader, &aInit->mFields);
-}
+IMPLEMENT_IPC_SERIALIZER_WITH_FIELDS(WindowContext::IPCInitializer,
+                                     mInnerWindowId, mOuterWindowId,
+                                     mBrowsingContextId, mFields);
 
 template struct ParamTraits<WindowContext::BaseTransaction>;
 

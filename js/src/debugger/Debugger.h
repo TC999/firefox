@@ -27,7 +27,7 @@
 #include "debugger/Object.h"        // for DebuggerObject
 #include "ds/TraceableFifo.h"       // for TraceableFifo
 #include "gc/Barrier.h"             //
-#include "gc/Tracer.h"              // for TraceNullableEdge, TraceEdge
+#include "gc/Tracer.h"              // for TraceEdge, TraceEdge
 #include "gc/WeakMap.h"             // for WeakMap
 #include "gc/ZoneAllocator.h"       // for ZoneAllocPolicy
 #include "js/Debug.h"               // JS_DefineDebuggerObject
@@ -206,7 +206,7 @@ class Completion {
 
   // The JS::Result macros want to assign to an existing variable, so having a
   // default constructor is handy.
-  Completion() : variant(Terminate()) {}
+  Completion() = default;
 
   // Construct a completion from a specific variant.
   //
@@ -280,7 +280,7 @@ class Completion {
   struct BuildValueMatcher;
   struct ToResumeModeMatcher;
 
-  Variant variant;
+  Variant variant{Terminate()};
 };
 
 using WeakGlobalObjectSet =
@@ -564,8 +564,6 @@ class Debugger : private mozilla::LinkedListElement<Debugger> {
     OnEnterFrame,
     OnNativeCall,
     OnNewGlobalObject,
-    OnNewPromise,
-    OnPromiseSettled,
     OnGarbageCollection,
     HookCount
   };
@@ -577,6 +575,7 @@ class Debugger : private mozilla::LinkedListElement<Debugger> {
     JSSLOT_DEBUG_SCRIPT_PROTO,
     JSSLOT_DEBUG_SOURCE_PROTO,
     JSSLOT_DEBUG_MEMORY_PROTO,
+    JSSLOT_DEBUG_PRIVATE_NAME_PROTO,
     JSSLOT_DEBUG_PROTO_STOP,
     JSSLOT_DEBUG_DEBUGGER = JSSLOT_DEBUG_PROTO_STOP,
     JSSLOT_DEBUG_HOOK_START,
@@ -629,7 +628,7 @@ class Debugger : private mozilla::LinkedListElement<Debugger> {
     bool inNursery;
 
     void trace(JSTracer* trc) {
-      TraceNullableEdge(trc, &frame, "Debugger::AllocationsLogEntry::frame");
+      TraceEdge(trc, &frame, "Debugger::AllocationsLogEntry::frame");
     }
   };
 
@@ -639,7 +638,6 @@ class Debugger : private mozilla::LinkedListElement<Debugger> {
       debuggees; /* Debuggee globals. Cross-compartment weak references. */
   JS::ZoneSet debuggeeZones; /* Set of zones that we have debuggees in. */
   HeapPtr<JSObject*> uncaughtExceptionHook; /* Strong reference. */
-  bool allowUnobservedAsmJS;
   bool allowUnobservedWasm;
 
   // When this flag is true, this debugger should be the only one to have its
@@ -798,6 +796,22 @@ class Debugger : private mozilla::LinkedListElement<Debugger> {
   using GeneratorWeakMap =
       DebuggerWeakMap<AbstractGeneratorObject, DebuggerFrame>;
   GeneratorWeakMap generatorFrames;
+
+#ifdef ENABLE_WASM_JSPI
+  // Secondary index of entries in `frames` that are wasm continuation frames
+  // (i.e., have WASM_CONT_FRAME_PTR_SLOT set). Note this only means the frame
+  // is on a continuation, not that it is currently suspended. Maintained
+  // so that sweepAll can iterate just these frames without scanning all of
+  // `frames`. An entry exists here if and only if an entry with the same
+  // AbstractFramePtr key exists in `frames` with WASM_CONT_FRAME_PTR_SLOT set.
+  //
+  // This holds because every `frames` removal reaching a wasm cont frame goes
+  // through terminateDebuggerFrame, which erases the entry here. The other
+  // removals (replaceFrameGuts, suspendGeneratorDebuggerFrames) never apply to
+  // wasm cont frames; wiring them in would need to update this index too.
+  using WasmContFrameKeys = Vector<AbstractFramePtr, 0, ZoneAllocPolicy>;
+  WasmContFrameKeys wasmContFrames;
+#endif
 
   // An ephemeral map from BaseScript* to Debugger.Script instances.
   using ScriptWeakMap = DebuggerWeakMap<BaseScript, DebuggerScript>;
@@ -986,7 +1000,7 @@ class Debugger : private mozilla::LinkedListElement<Debugger> {
                                           const JS::AutoRequireNoGC& nogc,
                                           FrameFn fn);
   template <typename FrameFn /* void (Debugger*, DebuggerFrame*) */>
-  static void forEachOnStackOrSuspendedDebuggerFrame(
+  static void forEachOnStackOrSuspendedGeneratorDebuggerFrame(
       JSContext* cx, AbstractFramePtr frame, const JS::AutoRequireNoGC& nogc,
       FrameFn fn);
 
@@ -1007,10 +1021,6 @@ class Debugger : private mozilla::LinkedListElement<Debugger> {
   // Whether the Debugger instance needs to observe all non-AOT JS
   // execution of its debugees.
   IsObserving observesAllExecution() const;
-
-  // Whether the Debugger instance needs to observe AOT-compiled asm.js
-  // execution of its debuggees.
-  IsObserving observesAsmJS() const;
 
   // Whether the Debugger instance needs to observe compiled Wasm
   // execution of its debuggees.
@@ -1037,7 +1047,6 @@ class Debugger : private mozilla::LinkedListElement<Debugger> {
       JSContext* cx, IsObserving observing);
   [[nodiscard]] bool updateObservesCoverageOnDebuggees(JSContext* cx,
                                                        IsObserving observing);
-  void updateObservesAsmJSOnDebuggees(IsObserving observing);
   void updateObservesWasmOnDebuggees(IsObserving observing);
   void updateObservesNativeCallOnDebuggees(IsObserving observing);
 
@@ -1060,6 +1069,8 @@ class Debugger : private mozilla::LinkedListElement<Debugger> {
 
   template <typename RunImpl /* bool () */>
   [[nodiscard]] bool enterDebuggerHook(JSContext* cx, RunImpl runImpl) {
+    MOZ_ASSERT(cx->noExecuteDebuggerTop);
+
     if (!isHookCallAllowed(cx)) {
       return true;
     }
@@ -1162,6 +1173,9 @@ class Debugger : private mozilla::LinkedListElement<Debugger> {
  public:
   Debugger(JSContext* cx, NativeObject* dbg);
   ~Debugger();
+
+  Debugger(const Debugger&) = delete;
+  Debugger& operator=(const Debugger&) = delete;
 
   inline const js::HeapPtr<NativeObject*>& toJSObject() const;
   inline js::HeapPtr<NativeObject*>& toJSObjectRef();
@@ -1319,10 +1333,6 @@ class Debugger : private mozilla::LinkedListElement<Debugger> {
                                  Handle<WasmInstanceObject*> wasmInstance);
 
   DebuggerDebuggeeLink* getDebuggeeLink();
-
- private:
-  Debugger(const Debugger&) = delete;
-  Debugger& operator=(const Debugger&) = delete;
 };
 
 // Specialize InternalBarrierMethods so we can have WeakHeapPtr<Debugger*>.

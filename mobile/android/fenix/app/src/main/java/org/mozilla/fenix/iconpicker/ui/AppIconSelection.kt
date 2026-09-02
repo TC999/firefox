@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -41,6 +40,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.painterResource
@@ -55,11 +55,13 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import mozilla.components.compose.base.annotation.FlexibleWindowLightDarkPreview
 import mozilla.components.compose.base.annotation.FlexibleWindowPreview
+import mozilla.components.compose.base.button.RadioButton
 import mozilla.components.compose.base.button.TextButton
 import mozilla.components.compose.base.snackbar.Snackbar
 import mozilla.components.compose.base.snackbar.displaySnackbar
+import mozilla.components.compose.base.theme.PreviewThemeProvider
+import mozilla.components.compose.base.theme.Theme
 import org.mozilla.fenix.R
-import org.mozilla.fenix.compose.button.RadioButton
 import org.mozilla.fenix.iconpicker.AppIcon
 import org.mozilla.fenix.iconpicker.AppIconSnackbarState
 import org.mozilla.fenix.iconpicker.AppIconState
@@ -72,14 +74,11 @@ import org.mozilla.fenix.iconpicker.IconGroupTitle
 import org.mozilla.fenix.iconpicker.SystemAction
 import org.mozilla.fenix.iconpicker.UserAction
 import org.mozilla.fenix.theme.FirefoxTheme
-import org.mozilla.fenix.theme.PreviewThemeProvider
-import org.mozilla.fenix.theme.Theme
 
 private val ListItemHeight = 56.dp
 private val AppIconSize = 40.dp
 private val AppIconPadding = 6.dp
 private val AppIconBorderWidth = 1.dp
-private val AppIconCornerRadius = 4.dp
 private val GroupHeaderHeight = 36.dp
 private val GroupHeaderPaddingStart = 72.dp
 private val GroupSpacerHeight = 8.dp
@@ -88,8 +87,8 @@ private val GroupSpacerHeight = 8.dp
  * A composable that displays a list of app icon options.
  *
  * @param store A store for managing the app icon selection screen state.
- * @param shortcutRemovalWarning Whether the user should be shown a warning that their Home screen
- * shortcuts will be removed when changing the app icon.
+ * @param shortcutRemovalWarning Whether the user should be shown a warning that their Home screen shortcuts will be
+ *   removed when changing the app icon.
  */
 @Composable
 fun AppIconSelection(
@@ -106,20 +105,21 @@ fun AppIconSelection(
     LaunchedEffect(snackbarState) {
         when (snackbarState) {
             AppIconSnackbarState.None -> return@LaunchedEffect
-            is AppIconSnackbarState.ApplyingNewIconError -> scope.launch {
-                store.dispatch(
-                    SystemAction.SnackbarShown(
-                        oldIcon = snackbarState.oldIcon,
-                        newIcon = snackbarState.newIcon,
-                    ),
-                )
-                snackbarHostState.displaySnackbar(
-                    message = errorSnackbarMessage,
-                    onDismissPerformed = {
-                        store.dispatch(SystemAction.SnackbarDismissed)
-                    },
-                )
-            }
+            is AppIconSnackbarState.ApplyingNewIconError ->
+                scope.launch {
+                    store.dispatch(
+                        SystemAction.SnackbarShown(
+                            oldIcon = snackbarState.oldIcon,
+                            newIcon = snackbarState.newIcon,
+                        )
+                    )
+                    snackbarHostState.displaySnackbar(
+                        message = errorSnackbarMessage,
+                        onDismissPerformed = {
+                            store.dispatch(SystemAction.SnackbarDismissed)
+                        },
+                    )
+                }
         }
     }
 
@@ -144,23 +144,24 @@ fun AppIconSelection(
     }
 
     when (val warning = state.warningDialogState) {
-        is AppIconWarningDialog.Presenting -> RestartWarningDialog(
-            shortcutRemovalWarning = shortcutRemovalWarning,
-            onConfirmClicked = {
-                store.dispatch(
-                    UserAction.Confirmed(
-                        oldIcon = state.currentAppIcon,
-                        newIcon = warning.newIcon,
-                    ),
-                )
-            },
-            onDismissClicked = {
-                store.dispatch(UserAction.Dismissed)
-            },
-            onDismissed = {
-                store.dispatch(SystemAction.DialogDismissed)
-            },
-        )
+        is AppIconWarningDialog.Presenting ->
+            RestartWarningDialog(
+                shortcutRemovalWarning = shortcutRemovalWarning,
+                onConfirmClicked = {
+                    store.dispatch(
+                        UserAction.Confirmed(
+                            oldIcon = state.currentAppIcon,
+                            newIcon = warning.newIcon,
+                        )
+                    )
+                },
+                onDismissClicked = {
+                    store.dispatch(UserAction.Dismissed)
+                },
+                onDismissed = {
+                    store.dispatch(SystemAction.DialogDismissed)
+                },
+            )
         else -> Unit
     }
 }
@@ -173,9 +174,7 @@ private fun AppIconList(
     onIconSelected: (AppIcon) -> Unit,
 ) {
     Surface {
-        LazyColumn(
-            modifier = Modifier.padding(paddingValues),
-        ) {
+        LazyColumn(modifier = Modifier.padding(paddingValues)) {
             groupedIcons.forEach { (header, icons) ->
                 item(contentType = { header::class }) {
                     AppIconGroupHeader(header)
@@ -212,13 +211,13 @@ private fun AppIconList(
 private fun AppIconGroupHeader(title: IconGroupTitle) {
     Text(
         text = stringResource(id = title.titleId),
-        modifier = Modifier
-            .height(GroupHeaderHeight)
-            .padding(start = GroupHeaderPaddingStart)
-            .wrapContentHeight(Alignment.CenterVertically)
-            .semantics { heading() },
+        modifier =
+            Modifier.height(GroupHeaderHeight)
+                .padding(start = GroupHeaderPaddingStart)
+                .wrapContentHeight(Alignment.CenterVertically)
+                .semantics { heading() },
         style = FirefoxTheme.typography.headline8,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        color = MaterialTheme.colorScheme.onSurface,
     )
 }
 
@@ -230,15 +229,15 @@ private fun AppIconOption(
 ) {
     Surface {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(ListItemHeight)
-                .selectable(
-                    selected = selected,
-                    role = Role.RadioButton,
-                    onClick = { onClick() },
-                )
-                .semantics(mergeDescendants = true) {},
+            modifier =
+                Modifier.fillMaxWidth()
+                    .height(ListItemHeight)
+                    .selectable(
+                        selected = selected,
+                        role = Role.RadioButton,
+                        onClick = { onClick() },
+                    )
+                    .semantics(mergeDescendants = true) {},
             verticalAlignment = Alignment.CenterVertically,
         ) {
             RadioButton(
@@ -271,40 +270,33 @@ private fun AppIconOption(
     }
 }
 
-/**
- * Renders a preview of the app’s launcher icon similarly to how it will drawn by the users's launcher.
- */
+/** Renders a preview of the app’s launcher icon similarly to how it will drawn by the users's launcher. */
 @Composable
 fun AppIcon(
     appIcon: AppIcon,
     iconSize: Dp = AppIconSize,
     borderWidth: Dp = AppIconBorderWidth,
-    cornerRadius: Dp = AppIconCornerRadius,
+    shape: Shape = MaterialTheme.shapes.extraSmall,
 ) {
-    val roundedShape = RoundedCornerShape(cornerRadius)
     // Spacing the background to make up for inconsistency between box and background clippings.
     // If unchanged, the background will spill over the border; if adjusted by the border width,
     // the background won't exactly reach the border. Pixel hunting.
     val backgroundPadding = borderWidth / 2
 
     Box(
-        modifier = Modifier
-            .size(iconSize)
-            .border(
-                width = borderWidth,
-                color = MaterialTheme.colorScheme.outlineVariant,
-                shape = roundedShape,
-            )
-            .padding(backgroundPadding)
-            .clip(roundedShape),
+        modifier =
+            Modifier.size(iconSize)
+                .border(
+                    width = borderWidth,
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                    shape = shape,
+                )
+                .padding(backgroundPadding)
+                .clip(shape)
     ) {
         when (val background = appIcon.iconBackground) {
             is IconBackground.Color -> {
-                Box(
-                    modifier = Modifier
-                        .size(iconSize)
-                        .background(colorResource(id = background.colorResId)),
-                )
+                Box(modifier = Modifier.size(iconSize).background(colorResource(id = background.colorResId)))
             }
 
             is IconBackground.Drawable -> {
@@ -319,9 +311,7 @@ fun AppIcon(
         Image(
             painter = painterResource(id = appIcon.iconForegroundId),
             contentDescription = null,
-            modifier = Modifier
-                .size(iconSize)
-                .padding(AppIconPadding),
+            modifier = Modifier.size(iconSize).padding(AppIconPadding),
         )
     }
 }
@@ -342,14 +332,16 @@ private fun RestartWarningDialog(
         },
         text = {
             Text(
-                text = stringResource(
-                    id = if (shortcutRemovalWarning()) {
-                        R.string.restart_and_shortcuts_removal_warning_dialog_body
-                    } else {
-                        R.string.restart_warning_dialog_body_2
-                    },
-                    stringResource(R.string.app_name),
-                ),
+                text =
+                    stringResource(
+                        id =
+                            if (shortcutRemovalWarning()) {
+                                R.string.restart_and_shortcuts_removal_warning_dialog_body
+                            } else {
+                                R.string.restart_warning_dialog_body_2
+                            },
+                        stringResource(R.string.app_name),
+                    ),
                 style = FirefoxTheme.typography.body2,
             )
         },
@@ -374,16 +366,21 @@ private fun RestartWarningDialog(
 private fun AppIconSelectionPreview() {
     FirefoxTheme {
         AppIconSelection(
-            store = AppIconStore(
-                initialState = AppIconState(
-                    currentAppIcon = AppIcon.AppDefault,
-                    userSelectedAppIcon = null,
-                    groupedIconOptions = DefaultAppIconRepository(
-                        packageManager = DefaultPackageManagerWrapper(LocalContext.current.packageManager),
-                        packageName = LocalContext.current.packageName,
-                    ).groupedAppIcons,
+            store =
+                AppIconStore(
+                    initialState =
+                        AppIconState(
+                            currentAppIcon = AppIcon.AppDefault,
+                            userSelectedAppIcon = null,
+                            groupedIconOptions =
+                                DefaultAppIconRepository(
+                                        packageManager =
+                                            DefaultPackageManagerWrapper(LocalContext.current.packageManager),
+                                        packageName = LocalContext.current.packageName,
+                                    )
+                                    .groupedAppIcons,
+                        )
                 ),
-            ),
             shortcutRemovalWarning = { false },
         )
     }
@@ -391,9 +388,7 @@ private fun AppIconSelectionPreview() {
 
 @FlexibleWindowPreview
 @Composable
-private fun AppIconOptionPreview(
-    @PreviewParameter(PreviewThemeProvider::class) theme: Theme,
-) {
+private fun AppIconOptionPreview(@PreviewParameter(PreviewThemeProvider::class) theme: Theme) {
     FirefoxTheme(theme) {
         AppIconOption(AppIcon.AppDefault, false) {}
     }
@@ -401,9 +396,7 @@ private fun AppIconOptionPreview(
 
 @FlexibleWindowPreview
 @Composable
-private fun AppIconOptionWithSubtitlePreview(
-    @PreviewParameter(PreviewThemeProvider::class) theme: Theme,
-) {
+private fun AppIconOptionWithSubtitlePreview(@PreviewParameter(PreviewThemeProvider::class) theme: Theme) {
     FirefoxTheme(theme) {
         AppIconOption(AppIcon.AppMomo, false) {}
     }
@@ -411,9 +404,7 @@ private fun AppIconOptionWithSubtitlePreview(
 
 @FlexibleWindowPreview
 @Composable
-private fun RestartWarningDialogPreview(
-    @PreviewParameter(PreviewThemeProvider::class) theme: Theme,
-) {
+private fun RestartWarningDialogPreview(@PreviewParameter(PreviewThemeProvider::class) theme: Theme) {
     FirefoxTheme(theme) {
         RestartWarningDialog(
             shortcutRemovalWarning = { false },
@@ -426,9 +417,7 @@ private fun RestartWarningDialogPreview(
 
 @FlexibleWindowPreview
 @Composable
-private fun ShortcutRemovalWarningDialogPreview(
-    @PreviewParameter(PreviewThemeProvider::class) theme: Theme,
-) {
+private fun ShortcutRemovalWarningDialogPreview(@PreviewParameter(PreviewThemeProvider::class) theme: Theme) {
     FirefoxTheme(theme) {
         RestartWarningDialog(
             shortcutRemovalWarning = { true },

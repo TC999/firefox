@@ -124,9 +124,11 @@ class TestDefaultLauncherVisible(MarionetteTestCase):
         self.marionette.set_context("chrome")
         self.wait_for_sidebar_initialized()
 
-        self.assertTrue(
-            self.is_button_visible(),
-            "Sidebar button should be visible",
+        # The sidebar-button is placed and rendered by CustomizableUI, which is
+        # independent of the sidebar's initialization path. Just wait for it to show up.
+        Wait(self.marionette).until(
+            lambda _: self.is_button_visible(),
+            message="Sidebar button should be visible",
         )
 
         self.assertFalse(
@@ -172,7 +174,10 @@ class TestDefaultLauncherVisible(MarionetteTestCase):
 
         # Navigate to about:preferences and enable the new sidebar
         self.marionette.set_context("content")
-        self.marionette.navigate("about:preferences")
+        srd_enabled = self.marionette.get_pref("browser.settings-redesign.enabled")
+        self.marionette.navigate(
+            "about:preferences#tabsBrowsing" if srd_enabled else "about:preferences"
+        )
 
         self.marionette.execute_script(
             """
@@ -213,6 +218,127 @@ class TestDefaultLauncherVisible(MarionetteTestCase):
         self.assertTrue(
             self.is_launcher_visible(),
             "Sidebar launcher should still be shown after restart",
+        )
+
+    def test_horizontal_hide_launcher_persists(self):
+        # With horizontal tabs, checking "Hide sidebar" sets visibility to the
+        # switcher-only "hide-launcher" value. This explicit user choice should
+        # persist across restarts rather than reverting to the horizontal
+        # default of "hide-on-close".
+        self.restart_with_default_prefs({
+            "sidebar.revamp": True,
+            "sidebar.verticalTabs": False,
+            "sidebar.visibility": "hide-launcher",
+        })
+        self.marionette.set_context("chrome")
+        self.wait_for_sidebar_initialized()
+
+        self.assertEqual(
+            self.marionette.get_pref("sidebar.visibility"),
+            "hide-launcher",
+            "Visibility should remain hide-launcher with horizontal tabs",
+        )
+        self.assertFalse(
+            self.is_launcher_visible(),
+            "Sidebar launcher should be hidden with hide-launcher",
+        )
+
+        # Restart in-app (preserving the profile) and confirm the choice sticks.
+        self.marionette.restart()
+        self.marionette.set_context("chrome")
+        self.wait_for_sidebar_initialized()
+
+        self.assertEqual(
+            self.marionette.get_pref("sidebar.visibility"),
+            "hide-launcher",
+            "Visibility should still be hide-launcher after restart",
+        )
+        self.assertFalse(
+            self.is_launcher_visible(),
+            "Sidebar launcher should still be hidden after restart",
+        )
+
+    def test_horizontal_legacy_hide_sidebar_migrates(self):
+        # The legacy horizontal-tabs default was stored as "hide-sidebar"; it
+        # now has its own value, "hide-on-close". Existing profiles should be
+        # migrated on startup by ProfileDataUpgrader. Pin the migration version
+        # below the one that introduced the migration to force it to run.
+        self.restart_with_default_prefs({
+            "sidebar.revamp": True,
+            "sidebar.verticalTabs": False,
+            "sidebar.visibility": "hide-sidebar",
+            "browser.migration.version": 176,
+        })
+        self.marionette.set_context("chrome")
+        self.wait_for_sidebar_initialized()
+
+        self.assertEqual(
+            self.marionette.get_pref("sidebar.visibility"),
+            "hide-on-close",
+            "Legacy horizontal hide-sidebar should migrate to hide-on-close",
+        )
+
+    def test_vertical_hide_sidebar_revealed_launcher_persists(self):
+        # Bug 2065431: with vertical tabs and "hide-sidebar", a launcher the
+        # user reveals with the toolbar button must still be there after a
+        # restart instead of being reset to hidden on every startup.
+        self.restart_with_default_prefs({
+            "sidebar.revamp": True,
+            "sidebar.verticalTabs": True,
+            "sidebar.visibility": "hide-sidebar",
+        })
+        self.marionette.set_context("chrome")
+        self.wait_for_sidebar_initialized()
+
+        self.assertFalse(
+            self.is_launcher_visible(),
+            "Sidebar launcher starts hidden with hide-sidebar",
+        )
+
+        self.click_toolbar_button()
+        Wait(self.marionette).until(
+            lambda _: self.is_launcher_visible(),
+            message="Sidebar launcher should become visible",
+        )
+
+        self.marionette.restart()
+        self.marionette.set_context("chrome")
+        self.wait_for_sidebar_initialized()
+
+        self.assertTrue(
+            self.is_launcher_visible(),
+            "Revealed sidebar launcher should still be visible after restart",
+        )
+
+    def test_vertical_hide_sidebar_hidden_launcher_persists(self):
+        # The converse of the above: a launcher the user leaves hidden must not
+        # come back on restart.
+        self.restart_with_default_prefs({
+            "sidebar.revamp": True,
+            "sidebar.verticalTabs": True,
+            "sidebar.visibility": "hide-sidebar",
+        })
+        self.marionette.set_context("chrome")
+        self.wait_for_sidebar_initialized()
+
+        self.click_toolbar_button()
+        Wait(self.marionette).until(
+            lambda _: self.is_launcher_visible(),
+            message="Sidebar launcher should become visible",
+        )
+        self.click_toolbar_button()
+        Wait(self.marionette).until(
+            lambda _: not self.is_launcher_visible(),
+            message="Sidebar launcher should become hidden again",
+        )
+
+        self.marionette.restart()
+        self.marionette.set_context("chrome")
+        self.wait_for_sidebar_initialized()
+
+        self.assertFalse(
+            self.is_launcher_visible(),
+            "Hidden sidebar launcher should still be hidden after restart",
         )
 
     def test_vertical_tabs_default_hidden(self):

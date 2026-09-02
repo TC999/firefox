@@ -101,6 +101,7 @@ void AbortSignalImpl::Traverse(AbortSignalImpl* aSignal,
 void AbortSignalImpl::Unlink(AbortSignalImpl* aSignal) {
   aSignal->mReason.setUndefined();
   aSignal->UnlinkFollowers();
+  aSignal->DetachWeakPtr();
 }
 
 void AbortSignalImpl::MaybeAssignAbortError(JSContext* aCx) {
@@ -201,7 +202,7 @@ class AbortSignalTimeoutHandler final : public TimeoutHandler {
   AbortSignalTimeoutHandler(JSContext* aCx, AbortSignal* aSignal)
       : TimeoutHandler(aCx), mSignal(aSignal) {}
 
-  NS_DECL_CYCLE_COLLECTING_ISUPPORTS
+  NS_DECL_CYCLE_COLLECTING_ISUPPORTS_FINAL
   NS_DECL_CYCLE_COLLECTION_CLASS(AbortSignalTimeoutHandler)
 
   // https://dom.spec.whatwg.org/#dom-abortsignal-timeout

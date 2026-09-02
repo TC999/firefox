@@ -6,8 +6,8 @@
 #define HttpConnectionMgrParent_h_
 
 #include "HttpConnectionMgrShell.h"
-#include "mozilla/net/PHttpConnectionMgrParent.h"
 #include "mozilla/StaticMutex.h"
+#include "mozilla/net/PHttpConnectionMgrParent.h"
 
 namespace mozilla::net {
 
@@ -31,10 +31,10 @@ class HttpConnectionMgrParent final : public PHttpConnectionMgrParent,
   virtual ~HttpConnectionMgrParent() = default;
 
   bool mShutDown{false};
-  static uint32_t sListenerId;
-  static StaticMutex sLock MOZ_UNANNOTATED;
+  static uint32_t sListenerId MOZ_GUARDED_BY(sLock);
+  static StaticMutex sLock;
   static nsTHashMap<uint32_t, nsCOMPtr<nsIHttpUpgradeListener>>
-      sHttpUpgradeListenerMap;
+      sHttpUpgradeListenerMap MOZ_GUARDED_BY(sLock);
 };
 
 }  // namespace mozilla::net

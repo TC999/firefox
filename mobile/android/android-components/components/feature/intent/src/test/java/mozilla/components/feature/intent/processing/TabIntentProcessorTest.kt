@@ -8,6 +8,8 @@ import android.app.SearchManager
 import android.content.Intent
 import android.nfc.NfcAdapter.ACTION_NDEF_DISCOVERED
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlinx.coroutines.test.TestScope
 import mozilla.components.browser.state.action.BrowserAction
 import mozilla.components.browser.state.action.TabListAction
@@ -37,9 +39,7 @@ import mozilla.components.support.utils.SafeIntent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -65,11 +65,12 @@ class TabIntentProcessorTest {
 
     @Before
     fun setup() {
-        searchEngine = createSearchEngine(
-            name = "Test",
-            url = "https://localhost/?q={searchTerms}",
-            icon = mock(),
-        )
+        searchEngine =
+            createSearchEngine(
+                name = "Test",
+                url = "https://localhost/?q={searchTerms}",
+                icon = mock(),
+            )
 
         engine = mock()
         engineSession = mock()
@@ -77,15 +78,15 @@ class TabIntentProcessorTest {
 
         middleware = CaptureActionsMiddleware()
 
-        store = BrowserStore(
-            BrowserState(
-                search = SearchState(regionSearchEngines = listOf(searchEngine)),
-            ),
-            middleware = EngineMiddleware.create(
-                engine = mock(),
-                scope = scope,
-            ) + listOf(middleware),
-        )
+        store =
+            BrowserStore(
+                BrowserState(search = SearchState(regionSearchEngines = listOf(searchEngine))),
+                middleware =
+                    EngineMiddleware.create(
+                        engine = mock(),
+                        scope = scope,
+                    ) + listOf(middleware),
+            )
 
         sessionUseCases = SessionUseCases(store)
         tabsUseCases = TabsUseCases(store)
@@ -94,7 +95,7 @@ class TabIntentProcessorTest {
 
     @Test
     fun `open or select tab on ACTION_VIEW intent`() {
-        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch)
+        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch, applicationScope = scope)
         val intent: Intent = mock()
         whenever(intent.action).thenReturn(Intent.ACTION_VIEW)
         whenever(intent.dataString).thenReturn("http://mozilla.org")
@@ -102,7 +103,7 @@ class TabIntentProcessorTest {
         assertEquals(0, store.state.tabs.size)
         handler.process(intent)
         assertEquals(1, store.state.tabs.size)
-        assertTrue(store.state.tabs[0].source is SessionState.Source.External.ActionView)
+        assertIs<SessionState.Source.External.ActionView>(store.state.tabs[0].source)
 
         val tab = store.state.findNormalOrPrivateTabByUrl("http://mozilla.org", private = false)
         assertNotNull(tab)
@@ -111,7 +112,7 @@ class TabIntentProcessorTest {
         store.dispatch(TabListAction.AddTabAction(otherTab, select = true))
         assertEquals(2, store.state.tabs.size)
         assertEquals(otherTab, store.state.selectedTab)
-        assertTrue(store.state.tabs[1].source is SessionState.Source.Internal.None)
+        assertIs<SessionState.Source.Internal.None>(store.state.tabs[1].source)
 
         // processing the same intent again doesn't add an additional tab
         handler.process(intent)
@@ -122,20 +123,20 @@ class TabIntentProcessorTest {
         assertEquals(2, store.state.tabs.size)
         assertEquals(tab, store.state.selectedTab)
         // sources of existing tabs weren't affected
-        assertTrue(store.state.tabs[0].source is SessionState.Source.External.ActionView)
-        assertTrue(store.state.tabs[1].source is SessionState.Source.Internal.None)
+        assertIs<SessionState.Source.External.ActionView>(store.state.tabs[0].source)
+        assertIs<SessionState.Source.Internal.None>(store.state.tabs[1].source)
 
         // Intent with a url that's missing a scheme
         whenever(intent.dataString).thenReturn("example.com")
         handler.process(intent)
         assertEquals(3, store.state.tabs.size)
-        assertTrue(store.state.tabs[0].source is SessionState.Source.External.ActionView)
+        assertIs<SessionState.Source.External.ActionView>(store.state.tabs[0].source)
         assertNotNull(store.state.findNormalOrPrivateTabByUrl("http://example.com", private = false))
     }
 
     @Test
     fun `open or select tab on ACTION_MAIN intent`() {
-        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch)
+        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch, applicationScope = scope)
         val intent: Intent = mock()
         whenever(intent.action).thenReturn(Intent.ACTION_MAIN)
         whenever(intent.dataString).thenReturn("https://mozilla.org")
@@ -143,7 +144,7 @@ class TabIntentProcessorTest {
         assertEquals(0, store.state.tabs.size)
         handler.process(intent)
         assertEquals(1, store.state.tabs.size)
-        assertTrue(store.state.tabs[0].source is SessionState.Source.External.ActionView)
+        assertIs<SessionState.Source.External.ActionView>(store.state.tabs[0].source)
 
         val tab = store.state.findNormalOrPrivateTabByUrl("https://mozilla.org", false)
         assertNotNull(tab)
@@ -161,13 +162,13 @@ class TabIntentProcessorTest {
         whenever(intent.dataString).thenReturn("example.com")
         handler.process(intent)
         assertEquals(3, store.state.tabs.size)
-        assertTrue(store.state.tabs[0].source is SessionState.Source.External.ActionView)
+        assertIs<SessionState.Source.External.ActionView>(store.state.tabs[0].source)
         assertNotNull(store.state.findNormalOrPrivateTabByUrl("http://example.com", private = false))
     }
 
     @Test
     fun `open or select tab on ACTION_NDEF_DISCOVERED intent`() {
-        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch)
+        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch, applicationScope = scope)
         val intent: Intent = mock()
         whenever(intent.action).thenReturn(ACTION_NDEF_DISCOVERED)
         whenever(intent.dataString).thenReturn("https://mozilla.org")
@@ -192,13 +193,13 @@ class TabIntentProcessorTest {
         whenever(intent.dataString).thenReturn("example.com")
         handler.process(intent)
         assertEquals(3, store.state.tabs.size)
-        assertTrue(store.state.tabs[0].source is SessionState.Source.External.ActionView)
+        assertIs<SessionState.Source.External.ActionView>(store.state.tabs[0].source)
         assertNotNull(store.state.findNormalOrPrivateTabByUrl("http://example.com", private = false))
     }
 
     @Test
     fun `open tab on ACTION_SEND intent`() {
-        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch)
+        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch, applicationScope = scope)
 
         val intent: Intent = mock()
         whenever(intent.action).thenReturn(Intent.ACTION_SEND)
@@ -208,43 +209,43 @@ class TabIntentProcessorTest {
         handler.process(intent)
         assertEquals(1, store.state.tabs.size)
         assertEquals("https://mozilla.org", store.state.tabs[0].content.url)
-        assertTrue(store.state.tabs[0].source is SessionState.Source.External.ActionSend)
+        assertIs<SessionState.Source.External.ActionSend>(store.state.tabs[0].source)
 
         whenever(intent.getStringExtra(Intent.EXTRA_TEXT)).thenReturn("see https://getpocket.com")
         handler.process(intent)
         assertEquals(2, store.state.tabs.size)
         assertEquals("https://getpocket.com", store.state.tabs[1].content.url)
-        assertTrue(store.state.tabs[1].source is SessionState.Source.External.ActionSend)
+        assertIs<SessionState.Source.External.ActionSend>(store.state.tabs[1].source)
 
         whenever(intent.getStringExtra(Intent.EXTRA_TEXT)).thenReturn("see https://firefox.com and https://mozilla.org")
         handler.process(intent)
         assertEquals(3, store.state.tabs.size)
         assertEquals("https://firefox.com", store.state.tabs[2].content.url)
-        assertTrue(store.state.tabs[2].source is SessionState.Source.External.ActionSend)
+        assertIs<SessionState.Source.External.ActionSend>(store.state.tabs[2].source)
 
         whenever(intent.getStringExtra(Intent.EXTRA_TEXT)).thenReturn("checkout the Tweet: https://tweets.mozilla.com")
         handler.process(intent)
         assertEquals(4, store.state.tabs.size)
         assertEquals("https://tweets.mozilla.com", store.state.tabs[3].content.url)
-        assertTrue(store.state.tabs[3].source is SessionState.Source.External.ActionSend)
+        assertIs<SessionState.Source.External.ActionSend>(store.state.tabs[3].source)
 
         whenever(intent.getStringExtra(Intent.EXTRA_TEXT)).thenReturn("checkout the Tweet: HTTPS://tweets.mozilla.org")
         handler.process(intent)
         assertEquals(5, store.state.tabs.size)
         assertEquals("https://tweets.mozilla.org", store.state.tabs[4].content.url)
-        assertTrue(store.state.tabs[4].source is SessionState.Source.External.ActionSend)
+        assertIs<SessionState.Source.External.ActionSend>(store.state.tabs[4].source)
 
         // Intent with a url that's missing a scheme
         whenever(intent.getStringExtra(Intent.EXTRA_TEXT)).thenReturn("example.com")
         handler.process(intent)
         assertEquals(6, store.state.tabs.size)
-        assertTrue(store.state.tabs[5].source is SessionState.Source.External.ActionSend)
+        assertIs<SessionState.Source.External.ActionSend>(store.state.tabs[5].source)
         assertNotNull(store.state.findNormalOrPrivateTabByUrl("http://example.com", private = false))
     }
 
     @Test
     fun `open tab and trigger search on ACTION_SEND if text is not a URL`() {
-        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch)
+        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch, applicationScope = scope)
 
         val searchTerms = "mozilla android"
         val searchUrl = "https://localhost/?q=mozilla%20android"
@@ -259,12 +260,12 @@ class TabIntentProcessorTest {
         assertEquals(1, store.state.tabs.size)
         assertEquals(searchUrl, store.state.tabs[0].content.url)
         assertEquals(searchTerms, store.state.tabs[0].content.searchTerms)
-        assertTrue(store.state.tabs[0].source is SessionState.Source.External.ActionSend)
+        assertIs<SessionState.Source.External.ActionSend>(store.state.tabs[0].source)
     }
 
     @Test
     fun `nothing happens on ACTION_SEND if no text is provided`() {
-        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch)
+        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch, applicationScope = scope)
 
         val intent: Intent = mock()
         whenever(intent.action).thenReturn(Intent.ACTION_SEND)
@@ -276,7 +277,7 @@ class TabIntentProcessorTest {
 
     @Test
     fun `nothing happens on ACTION_SEARCH if text is empty`() {
-        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch)
+        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch, applicationScope = scope)
 
         val intent: Intent = mock()
         whenever(intent.action).thenReturn(Intent.ACTION_SEARCH)
@@ -288,7 +289,7 @@ class TabIntentProcessorTest {
 
     @Test
     fun `open tab on ACTION_SEARCH intent`() {
-        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch)
+        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch, applicationScope = scope)
 
         val intent: Intent = mock()
         whenever(intent.action).thenReturn(Intent.ACTION_SEARCH)
@@ -300,19 +301,19 @@ class TabIntentProcessorTest {
         assertEquals(1, store.state.tabs.size)
         assertEquals("http://mozilla.org", store.state.tabs[0].content.url)
         assertEquals("", store.state.tabs[0].content.searchTerms)
-        assertTrue(store.state.tabs[0].source is SessionState.Source.External.ActionSearch)
+        assertIs<SessionState.Source.External.ActionSearch>(store.state.tabs[0].source)
 
         // Intent with a url that's missing a scheme
         whenever(intent.getStringExtra(SearchManager.QUERY)).thenReturn("example.com")
         handler.process(intent)
         assertEquals(2, store.state.tabs.size)
-        assertTrue(store.state.tabs[1].source is SessionState.Source.External.ActionSearch)
+        assertIs<SessionState.Source.External.ActionSearch>(store.state.tabs[1].source)
         assertNotNull(store.state.findNormalOrPrivateTabByUrl("http://example.com", private = false))
     }
 
     @Test
     fun `open tab and trigger search on ACTION_SEARCH intent if text is not a URL`() {
-        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch)
+        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch, applicationScope = scope)
 
         val searchTerms = "mozilla android"
         val searchUrl = "https://localhost/?q=mozilla%20android"
@@ -327,12 +328,12 @@ class TabIntentProcessorTest {
         assertEquals(1, store.state.tabs.size)
         assertEquals(searchUrl, store.state.tabs[0].content.url)
         assertEquals(searchTerms, store.state.tabs[0].content.searchTerms)
-        assertTrue(store.state.tabs[0].source is SessionState.Source.External.ActionSearch)
+        assertIs<SessionState.Source.External.ActionSearch>(store.state.tabs[0].source)
     }
 
     @Test
     fun `nothing happens on ACTION_WEB_SEARCH if text is empty`() {
-        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch)
+        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch, applicationScope = scope)
 
         val intent: Intent = mock()
         whenever(intent.action).thenReturn(Intent.ACTION_WEB_SEARCH)
@@ -344,7 +345,7 @@ class TabIntentProcessorTest {
 
     @Test
     fun `open tab on ACTION_WEB_SEARCH intent`() {
-        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch)
+        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch, applicationScope = scope)
 
         val intent: Intent = mock()
         whenever(intent.action).thenReturn(Intent.ACTION_WEB_SEARCH)
@@ -355,19 +356,19 @@ class TabIntentProcessorTest {
         assertEquals(1, store.state.tabs.size)
         assertEquals("http://mozilla.org", store.state.tabs[0].content.url)
         assertEquals("", store.state.tabs[0].content.searchTerms)
-        assertTrue(store.state.tabs[0].source is SessionState.Source.External.ActionSearch)
+        assertIs<SessionState.Source.External.ActionSearch>(store.state.tabs[0].source)
 
         // Intent with a url that's missing a scheme
         whenever(intent.getStringExtra(SearchManager.QUERY)).thenReturn("example.com")
         handler.process(intent)
         assertEquals(2, store.state.tabs.size)
-        assertTrue(store.state.tabs[1].source is SessionState.Source.External.ActionSearch)
+        assertIs<SessionState.Source.External.ActionSearch>(store.state.tabs[1].source)
         assertNotNull(store.state.findNormalOrPrivateTabByUrl("http://example.com", private = false))
     }
 
     @Test
     fun `open tab and trigger search on ACTION_WEB_SEARCH intent if text is not a URL`() {
-        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch)
+        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch, applicationScope = scope)
 
         val searchTerms = "mozilla android"
         val searchUrl = "https://localhost/?q=mozilla%20android"
@@ -381,12 +382,12 @@ class TabIntentProcessorTest {
         assertEquals(1, store.state.tabs.size)
         assertEquals(searchUrl, store.state.tabs[0].content.url)
         assertEquals(searchTerms, store.state.tabs[0].content.searchTerms)
-        assertTrue(store.state.tabs[0].source is SessionState.Source.External.ActionSearch)
+        assertIs<SessionState.Source.External.ActionSearch>(store.state.tabs[0].source)
     }
 
     @Test
     fun `returns external flags when no intent extra for app link launch type extra present`() {
-        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch)
+        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch, applicationScope = scope)
         val intent: Intent = mock()
         val safeIntent = SafeIntent(intent)
 
@@ -397,45 +398,51 @@ class TabIntentProcessorTest {
 
     @Test
     fun `uses app link launch type from intent when the extra is present`() {
-        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch)
+        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch, applicationScope = scope)
 
-        val intent = Intent().apply {
-            putExtra(EXTRA_APP_LINK_LAUNCH_TYPE, APP_LINK_LAUNCH_TYPE_COLD)
-        }
+        val intent =
+            Intent().apply {
+                putExtra(EXTRA_APP_LINK_LAUNCH_TYPE, APP_LINK_LAUNCH_TYPE_COLD)
+            }
         val safeIntent = SafeIntent(intent)
 
         val result = handler.computeLoadUrlFlags(safeIntent)
-        val expected = EngineSession.LoadUrlFlags.select(EngineSession.LoadUrlFlags.external().value, APP_LINK_LAUNCH_TYPE_COLD)
+        val expected =
+            EngineSession.LoadUrlFlags.select(EngineSession.LoadUrlFlags.external().value, APP_LINK_LAUNCH_TYPE_COLD)
 
         assertEquals(expected.value, result.value)
     }
 
     @Test
     fun `uses the default unknown app link launch type when an invalid extra value is present`() {
-        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch)
+        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch, applicationScope = scope)
 
-        val intent = Intent().apply {
-            putExtra(EXTRA_APP_LINK_LAUNCH_TYPE, "testString")
-        }
+        val intent =
+            Intent().apply {
+                putExtra(EXTRA_APP_LINK_LAUNCH_TYPE, "testString")
+            }
         val safeIntent = SafeIntent(intent)
 
         val result = handler.computeLoadUrlFlags(safeIntent)
-        val expected = EngineSession.LoadUrlFlags.select(EngineSession.LoadUrlFlags.external().value, APP_LINK_LAUNCH_TYPE_UNKNOWN)
+        val expected =
+            EngineSession.LoadUrlFlags.select(EngineSession.LoadUrlFlags.external().value, APP_LINK_LAUNCH_TYPE_UNKNOWN)
 
         assertEquals(expected.value, result.value)
     }
 
     @Test
     fun `does not use the default when the extra is present but an invalid integer value`() {
-        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch)
+        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch, applicationScope = scope)
 
-        val intent = Intent().apply {
-            putExtra(EXTRA_APP_LINK_LAUNCH_TYPE, -1)
-        }
+        val intent =
+            Intent().apply {
+                putExtra(EXTRA_APP_LINK_LAUNCH_TYPE, -1)
+            }
         val safeIntent = SafeIntent(intent)
 
         val result = handler.computeLoadUrlFlags(safeIntent)
-        val expected = EngineSession.LoadUrlFlags.select(EngineSession.LoadUrlFlags.external().value, APP_LINK_LAUNCH_TYPE_UNKNOWN)
+        val expected =
+            EngineSession.LoadUrlFlags.select(EngineSession.LoadUrlFlags.external().value, APP_LINK_LAUNCH_TYPE_UNKNOWN)
 
         // Invalid integer value might mean a new app link launch type that's not handled on GeckoView.
         // In that case, this test should fail to alarm for a non-mapped launch type value.
@@ -444,24 +451,26 @@ class TabIntentProcessorTest {
 
     @Test
     fun `process intent sets app link intent launch type value`() {
-        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch)
+        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch, applicationScope = scope)
 
         val intent: Intent = mock()
         whenever(intent.action).thenReturn(Intent.ACTION_VIEW)
         whenever(intent.dataString).thenReturn("http://mozilla.org")
         whenever(intent.hasExtra(EXTRA_APP_LINK_LAUNCH_TYPE)).thenReturn(true)
-        whenever(intent.getIntExtra(EXTRA_APP_LINK_LAUNCH_TYPE, APP_LINK_LAUNCH_TYPE_UNKNOWN)).thenReturn(APP_LINK_LAUNCH_TYPE_COLD)
+        whenever(intent.getIntExtra(EXTRA_APP_LINK_LAUNCH_TYPE, APP_LINK_LAUNCH_TYPE_UNKNOWN))
+            .thenReturn(APP_LINK_LAUNCH_TYPE_COLD)
 
         handler.process(intent)
 
-        val expected = EngineSession.LoadUrlFlags.select(EngineSession.LoadUrlFlags.external().value, APP_LINK_LAUNCH_TYPE_COLD)
+        val expected =
+            EngineSession.LoadUrlFlags.select(EngineSession.LoadUrlFlags.external().value, APP_LINK_LAUNCH_TYPE_COLD)
 
         assertEquals(expected.value, store.state.tabs[0].engineState.initialLoadFlags.value)
     }
 
     @Test
     fun `process intent sets does not app link intent launch type value when there's no extra`() {
-        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch)
+        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch, applicationScope = scope)
 
         val intent: Intent = mock()
         whenever(intent.action).thenReturn(Intent.ACTION_VIEW)
@@ -477,7 +486,7 @@ class TabIntentProcessorTest {
 
     @Test
     fun `process intent sets default app link intent launch type value when there's no valid value for type`() {
-        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch)
+        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch, applicationScope = scope)
 
         val intent: Intent = mock()
         whenever(intent.action).thenReturn(Intent.ACTION_VIEW)
@@ -495,7 +504,13 @@ class TabIntentProcessorTest {
     fun `getHostForDnsWarmup returns app link host when DoH is disabled`() {
         val settings = DefaultSettings(dohSettingsMode = Engine.DohSettingsMode.DEFAULT)
         whenever(engine.settings).thenReturn(settings)
-        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch, engine = engine)
+        val handler =
+            TabIntentProcessor(
+                TabsUseCases(store),
+                searchUseCases.newTabSearch,
+                engine = engine,
+                applicationScope = scope,
+            )
 
         val result = handler.getHostForDnsWarmup("https://mozilla.org/path")
 
@@ -506,7 +521,13 @@ class TabIntentProcessorTest {
     fun `getHostForDnsWarmup returns app link host when DoH is OFF`() {
         val settings = DefaultSettings(dohSettingsMode = Engine.DohSettingsMode.OFF)
         whenever(engine.settings).thenReturn(settings)
-        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch, engine = engine)
+        val handler =
+            TabIntentProcessor(
+                TabsUseCases(store),
+                searchUseCases.newTabSearch,
+                engine = engine,
+                applicationScope = scope,
+            )
 
         val result = handler.getHostForDnsWarmup("https://mozilla.org/path")
 
@@ -515,12 +536,19 @@ class TabIntentProcessorTest {
 
     @Test
     fun `getHostForDnsWarmup returns DoH provider host when DoH is INCREASED`() {
-        val settings = DefaultSettings(
-            dohSettingsMode = Engine.DohSettingsMode.INCREASED,
-            dohProviderUrl = "https://cloudflare-dns.com/dns-query",
-        )
+        val settings =
+            DefaultSettings(
+                dohSettingsMode = Engine.DohSettingsMode.INCREASED,
+                dohProviderUrl = "https://cloudflare-dns.com/dns-query",
+            )
         whenever(engine.settings).thenReturn(settings)
-        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch, engine = engine)
+        val handler =
+            TabIntentProcessor(
+                TabsUseCases(store),
+                searchUseCases.newTabSearch,
+                engine = engine,
+                applicationScope = scope,
+            )
 
         val result = handler.getHostForDnsWarmup("https://mozilla.org/path")
 
@@ -529,12 +557,19 @@ class TabIntentProcessorTest {
 
     @Test
     fun `getHostForDnsWarmup returns DoH provider host when DoH is MAX`() {
-        val settings = DefaultSettings(
-            dohSettingsMode = Engine.DohSettingsMode.MAX,
-            dohProviderUrl = "https://dns.nextdns.io/abc123",
-        )
+        val settings =
+            DefaultSettings(
+                dohSettingsMode = Engine.DohSettingsMode.MAX,
+                dohProviderUrl = "https://dns.nextdns.io/abc123",
+            )
         whenever(engine.settings).thenReturn(settings)
-        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch, engine = engine)
+        val handler =
+            TabIntentProcessor(
+                TabsUseCases(store),
+                searchUseCases.newTabSearch,
+                engine = engine,
+                applicationScope = scope,
+            )
 
         val result = handler.getHostForDnsWarmup("https://mozilla.org/path")
 
@@ -543,12 +578,19 @@ class TabIntentProcessorTest {
 
     @Test
     fun `getHostForDnsWarmup returns null when DoH is enabled but provider URL is empty`() {
-        val settings = DefaultSettings(
-            dohSettingsMode = Engine.DohSettingsMode.INCREASED,
-            dohProviderUrl = "",
-        )
+        val settings =
+            DefaultSettings(
+                dohSettingsMode = Engine.DohSettingsMode.INCREASED,
+                dohProviderUrl = "",
+            )
         whenever(engine.settings).thenReturn(settings)
-        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch, engine = engine)
+        val handler =
+            TabIntentProcessor(
+                TabsUseCases(store),
+                searchUseCases.newTabSearch,
+                engine = engine,
+                applicationScope = scope,
+            )
 
         val result = handler.getHostForDnsWarmup("https://mozilla.org/path")
 
@@ -557,7 +599,13 @@ class TabIntentProcessorTest {
 
     @Test
     fun `getHostForDnsWarmup returns app link host when engine is null`() {
-        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch, engine = null)
+        val handler =
+            TabIntentProcessor(
+                TabsUseCases(store),
+                searchUseCases.newTabSearch,
+                engine = null,
+                applicationScope = scope,
+            )
 
         val result = handler.getHostForDnsWarmup("https://mozilla.org/path")
 
@@ -568,7 +616,13 @@ class TabIntentProcessorTest {
     fun `getHostForDnsWarmup returns null for malformed app link URL`() {
         val settings = DefaultSettings(dohSettingsMode = Engine.DohSettingsMode.OFF)
         whenever(engine.settings).thenReturn(settings)
-        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch, engine = engine)
+        val handler =
+            TabIntentProcessor(
+                TabsUseCases(store),
+                searchUseCases.newTabSearch,
+                engine = engine,
+                applicationScope = scope,
+            )
 
         val result = handler.getHostForDnsWarmup("not a valid url")
 
@@ -577,12 +631,19 @@ class TabIntentProcessorTest {
 
     @Test
     fun `getHostForDnsWarmup returns null for malformed DoH provider URL`() {
-        val settings = DefaultSettings(
-            dohSettingsMode = Engine.DohSettingsMode.INCREASED,
-            dohProviderUrl = "not a valid url",
-        )
+        val settings =
+            DefaultSettings(
+                dohSettingsMode = Engine.DohSettingsMode.INCREASED,
+                dohProviderUrl = "not a valid url",
+            )
         whenever(engine.settings).thenReturn(settings)
-        val handler = TabIntentProcessor(TabsUseCases(store), searchUseCases.newTabSearch, engine = engine)
+        val handler =
+            TabIntentProcessor(
+                TabsUseCases(store),
+                searchUseCases.newTabSearch,
+                engine = engine,
+                applicationScope = scope,
+            )
 
         val result = handler.getHostForDnsWarmup("https://mozilla.org/path")
 

@@ -235,6 +235,12 @@ SDBConnection::Init(nsIPrincipal* aPrincipal,
   MOZ_ASSERT(NS_IsMainThread());
   MOZ_ASSERT(aPrincipal);
 
+  if (!BackgroundChild::ValidatePrincipal(aPrincipal, {})) {
+    MOZ_ASSERT_UNREACHABLE(
+        "Process is not allowed to access simpleDB for this principal");
+    return NS_ERROR_INVALID_ARG;
+  }
+
   UniquePtr<PrincipalInfo> principalInfo(new PrincipalInfo());
   nsresult rv = PrincipalToPrincipalInfo(aPrincipal, principalInfo.get());
   if (NS_WARN_IF(NS_FAILED(rv))) {
@@ -379,7 +385,7 @@ SDBConnection::Write(JS::Handle<JS::Value> aValue, JSContext* aCx,
   }
 
   SDBRequestWriteParams params;
-  params.data() = data;
+  params.data() = std::move(data);
 
   RefPtr<SDBRequest> request = new SDBRequest(this);
 

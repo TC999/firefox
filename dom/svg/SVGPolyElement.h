@@ -16,7 +16,7 @@ using SVGPolyElementBase = SVGGeometryElement;
 
 class SVGPolyElement : public SVGPolyElementBase {
  protected:
-  explicit SVGPolyElement(already_AddRefed<mozilla::dom::NodeInfo>&& aNodeInfo);
+  explicit SVGPolyElement(already_AddRefed<mozilla::dom::NodeInfo> aNodeInfo);
 
   virtual ~SVGPolyElement() = default;
 
@@ -37,9 +37,8 @@ class SVGPolyElement : public SVGPolyElementBase {
   bool AttributeDefinesGeometry(const nsAtom* aName) override;
   bool IsMarkable() override { return true; }
   void GetMarkPoints(nsTArray<SVGMark>* aMarks) override;
-  bool GetGeometryBounds(
-      Rect* aBounds, const StrokeOptions& aStrokeOptions,
-      const Matrix& aToBoundsSpace,
+  Maybe<Rect> GetGeometryBounds(
+      const StrokeOptions& aStrokeOptions, const Matrix& aToBoundsSpace,
       const Matrix* aToNonScalingStrokeSpace = nullptr) override;
 
   // WebIDL

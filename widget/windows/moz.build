@@ -24,6 +24,9 @@ with Files("OSK*"):
 with Files("*TSF*"):
     BUG_COMPONENT = ("Core", "DOM: UI Events & Focus Handling")
 
+with Files("*permission_monitor.rs"):
+    BUG_COMPONENT = ("Core", "Permission Manager")
+
 DIRS += [
     "filedialog",
 ]
@@ -48,12 +51,12 @@ EXPORTS.mozilla += [
 ]
 
 EXPORTS.mozilla.widget += [
-    "AudioSession.h",
     "CompositorWidgetChild.h",
     "CompositorWidgetParent.h",
     "InProcessWinCompositorWidget.h",
     "JumpListBuilder.h",
     "nsWindowLoggedMessages.h",
+    "WinAudioSession.h",
     "WinCompositorWidget.h",
     "WinCompositorWindowThread.h",
     "WindowsSMTCProvider.h",
@@ -66,7 +69,6 @@ EXPORTS.mozilla.widget += [
 ]
 
 UNIFIED_SOURCES += [
-    "AudioSession.cpp",
     "CompositorWidgetChild.cpp",
     "DirectManipulationOwner.cpp",
     "GfxInfo.cpp",
@@ -108,6 +110,7 @@ UNIFIED_SOURCES += [
     "TSFStaticSink.cpp",
     "TSFTextStore.cpp",
     "TSFTextStoreBase.cpp",
+    "WinAudioSession.cpp",
     "WinCompositorWindowThread.cpp",
     "WindowHook.cpp",
     "WindowsConsole.cpp",
@@ -208,6 +211,7 @@ USE_LIBS += [
 
 OS_LIBS += [
     "ktmw32",
+    "pathcch",
     "rpcrt4",
     "shcore",
     "urlmon",

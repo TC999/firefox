@@ -5,19 +5,19 @@
 #ifndef _nsAccessibilityService_h_
 #define _nsAccessibilityService_h_
 
+#include "mozilla/Preferences.h"
+#include "mozilla/StaticPtr.h"
 #include "mozilla/a11y/CacheConstants.h"
 #include "mozilla/a11y/DocManager.h"
 #include "mozilla/a11y/FocusManager.h"
 #include "mozilla/a11y/Platform.h"
 #include "mozilla/a11y/Role.h"
 #include "mozilla/a11y/SelectionManager.h"
-#include "mozilla/Preferences.h"
-
 #include "nsAtomHashKeys.h"
-#include "nsIContent.h"
-#include "nsIObserver.h"
 #include "nsIAccessibleEvent.h"
+#include "nsIContent.h"
 #include "nsIEventListenerService.h"
+#include "nsIObserver.h"
 #include "nsXULAppAPI.h"
 #include "xpcAccessibilityService.h"
 
@@ -57,8 +57,8 @@ SelectionManager* SelectionMgr();
 ApplicationAccessible* ApplicationAcc();
 xpcAccessibleApplication* XPCApplicationAcc();
 
-typedef LocalAccessible*(New_Accessible)(mozilla::dom::Element * aElement,
-                                         LocalAccessible* aContext);
+typedef already_AddRefed<LocalAccessible>(New_Accessible)(
+    mozilla::dom::Element* aElement, LocalAccessible* aContext);
 
 // These fields are not `nsStaticAtom* const` because MSVC doesn't like it.
 struct MarkupAttrInfo {
@@ -133,6 +133,9 @@ class nsAccessibilityService final : public mozilla::a11y::DocManager,
  public:
   NS_DECL_ISUPPORTS_INHERITED
   NS_DECL_NSIOBSERVER
+
+  nsAccessibilityService(const nsAccessibilityService&) = delete;
+  nsAccessibilityService& operator=(const nsAccessibilityService&) = delete;
 
   LocalAccessible* GetRootDocumentAccessible(mozilla::PresShell* aPresShell,
                                              bool aCanCreate);
@@ -233,12 +236,6 @@ class nsAccessibilityService final : public mozilla::a11y::DocManager,
   void UpdateImageMap(nsImageFrame* aImageFrame);
 
   /**
-   * Update the label accessible tree when rendered @value is changed.
-   */
-  void UpdateLabelValue(mozilla::PresShell* aPresShell, nsIContent* aLabelElm,
-                        const nsString& aNewValue);
-
-  /**
    * Notify accessibility that anchor jump has been accomplished to the given
    * target. Used by layout.
    */
@@ -309,6 +306,17 @@ class nsAccessibilityService final : public mozilla::a11y::DocManager,
    * changed. See dom::Element::ExplicitlySetAttrElement.
    */
   void NotifyAttrElementChanged(mozilla::dom::Element* aElement, nsAtom* aAttr);
+
+  /**
+   * Notify accessibility that an ARIA attribute reflected from ElementInternals
+   * is about to change / has changed. See dom::ElementInternals.
+   */
+  void NotifyARIAAttributeDefaultWillChange(mozilla::dom::Element* aElement,
+                                            nsAtom* aAttribute,
+                                            AttrModType aModType);
+  void NotifyARIAAttributeDefaultChanged(mozilla::dom::Element* aElement,
+                                         nsAtom* aAttribute,
+                                         AttrModType aModType);
 
   void AriaNotify(nsINode* aNode, const nsAString& aAnnouncement,
                   const mozilla::dom::AriaNotificationOptions& aOptions);
@@ -389,12 +397,27 @@ class nsAccessibilityService final : public mozilla::a11y::DocManager,
    *
    * ePlatformAPI - accessibility service is used by the platform api in the
    *                main process.
+   *
+   * ePdfOutput   - accessibility service is used to generate a tagged PDF for
+   *                a document being printed. While this is the only active
+   *                consumer, accessibility is suppressed for everything except
+   *                the document(s) being printed.
    */
   enum ServiceConsumer {
     eXPCOM = 1 << 0,
     eMainProcess = 1 << 1,
     ePlatformAPI = 1 << 2,
+    ePdfOutput = 1 << 3,
   };
+
+  /**
+   * Return true if the only active service consumer is ePdfOutput. In this
+   * mode the service is alive purely to build the accessibility tree for a
+   * document being printed and must not do work for any other document.
+   */
+  static bool IsOnlyForPdfOutput() { return gConsumers == ePdfOutput; }
+
+  static bool IsRunningInParentProcess() { return gConsumers & eMainProcess; }
 
   static uint64_t GetActiveCacheDomains() { return gCacheDomains; }
   bool ShouldAllowNewCacheDomains() { return mShouldAllowNewCacheDomains; }
@@ -407,19 +430,34 @@ class nsAccessibilityService final : public mozilla::a11y::DocManager,
   // nsAccessibilityService creation is controlled by friend
   // GetOrCreateAccService, keep constructors private.
   nsAccessibilityService();
-  nsAccessibilityService(const nsAccessibilityService&);
-  nsAccessibilityService& operator=(const nsAccessibilityService&);
 
  private:
   /**
    * Initialize accessibility service.
+   * @param aConsumer The consumer requesting initialization. When this is
+   *        ePdfOutput, work that is unnecessary for tagged PDF generation
+   *        will be skipped.
    */
-  bool Init(uint64_t aCacheDomains = kDefaultCacheDomains);
+  bool Init(uint64_t aCacheDomains = kDefaultCacheDomains,
+            uint32_t aConsumer = ePlatformAPI);
 
   /**
    * Shutdowns accessibility service.
    */
   void Shutdown();
+
+  /**
+   * Run init steps specific to a full (non-PDF) consumer: create initial docs,
+   * initialize the platform, and set cache domains.
+   */
+  void FullInit(uint64_t aCacheDomains, uint32_t aConsumer);
+
+  /**
+   * Run the init steps that Init skipped because the original consumer was
+   * ePdfOutput. Called from GetOrCreateAccService when a non-PDF consumer
+   * arrives while the service is still only for PDF output.
+   */
+  void PromoteFromPdfOutput(uint64_t aCacheDomains, uint32_t aConsumer);
 
   /**
    * Create an accessible whose type depends on the given frame.
@@ -450,13 +488,15 @@ class nsAccessibilityService final : public mozilla::a11y::DocManager,
   /**
    * Reference for accessibility service instance.
    */
-  static nsAccessibilityService* gAccessibilityService;
+  static mozilla::StaticRefPtr<nsAccessibilityService> gAccessibilityService;
 
   /**
    * Reference for application accessible instance.
    */
-  static mozilla::a11y::ApplicationAccessible* gApplicationAccessible;
-  static mozilla::a11y::xpcAccessibleApplication* gXPCApplicationAccessible;
+  static mozilla::StaticRefPtr<mozilla::a11y::ApplicationAccessible>
+      gApplicationAccessible;
+  static mozilla::StaticRefPtr<mozilla::a11y::xpcAccessibleApplication>
+      gXPCApplicationAccessible;
 
   /**
    * Contains a set of accessibility service consumers.

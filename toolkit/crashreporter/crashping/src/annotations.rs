@@ -228,8 +228,10 @@ fn convert_to_crash_quota_manager_shutdown_timeout(
 
 fn convert_to_crash_stack_traces(
     metric: &ObjectMetric<glean_metrics::crash::StackTracesObject>,
-    value: &serde_json::Value,
+    value: &str,
 ) -> anyhow::Result<()> {
+    // The JSON value is stored as a string, so we need to deserialize it.
+    let value: serde_json::Value = serde_json::from_str(value)?;
     let error = value["error"].as_str().map(|s| s.to_owned());
     let crash_type = value["crash_type"].as_str().map(|s| s.to_owned());
     let crash_address = value["crash_address"].as_str().map(|s| s.to_owned());

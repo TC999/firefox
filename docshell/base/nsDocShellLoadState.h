@@ -7,6 +7,7 @@
 
 #include "mozilla/dom/BrowsingContext.h"
 #include "mozilla/dom/NavigationBinding.h"
+#include "mozilla/dom/RemoteType.h"
 #include "mozilla/dom/SessionHistoryEntry.h"
 #include "mozilla/dom/UserNavigationInvolvement.h"
 #include "mozilla/dom/LoadURIOptionsBinding.h"
@@ -29,6 +30,9 @@ class nsIReferrerInfo;
 struct HTTPSFirstDowngradeData;
 namespace mozilla {
 class OriginAttributes;
+namespace net {
+class DocumentLoadListener;
+}
 namespace dom {
 class FormData;
 class DocShellLoadStateInit;
@@ -200,6 +204,8 @@ class nsDocShellLoadState final {
   void SetSHEntry(SessionHistoryEntry* aSHEntry);
 
   void SetPreviousEntryForActivation(nsISHEntry* aSHEntry);
+  void SetPreviousEntryForActivation(
+      const mozilla::Maybe<mozilla::dom::PreviousSessionHistoryInfo>& aInfo);
 
   const mozilla::dom::LoadingSessionHistoryInfo* GetLoadingSessionHistoryInfo()
       const;
@@ -350,21 +356,21 @@ class nsDocShellLoadState final {
 
   uint64_t GetLoadIdentifier() const { return mLoadIdentifier; }
 
-  void SetChannelInitialized(bool aInitilized) {
-    mChannelInitialized = aInitilized;
-  }
-
-  bool GetChannelInitialized() const { return mChannelInitialized; }
+  void SetSpeculativeListener(mozilla::net::DocumentLoadListener* aListener);
+  already_AddRefed<mozilla::net::DocumentLoadListener>
+  TakeSpeculativeListener();
 
   void SetIsMetaRefresh(bool aMetaRefresh) { mIsMetaRefresh = aMetaRefresh; }
 
   bool IsMetaRefresh() const { return mIsMetaRefresh; }
 
-  const mozilla::Maybe<nsCString>& GetRemoteTypeOverride() const {
+  const mozilla::Maybe<mozilla::dom::RemoteType>& GetRemoteTypeOverride()
+      const {
     return mRemoteTypeOverride;
   }
 
-  void SetRemoteTypeOverride(const nsCString& aRemoteTypeOverride);
+  void SetRemoteTypeOverride(
+      const mozilla::dom::RemoteType& aRemoteTypeOverride);
 
   void SetSchemelessInput(nsILoadInfo::SchemelessInputType aSchemelessInput) {
     mSchemelessInput = aSchemelessInput;
@@ -399,9 +405,10 @@ class nsDocShellLoadState final {
   // originally, however non-errorpage history loads are always considered to be
   // triggered by the parent process, as we can validate them against the
   // history entry.
-  const nsCString& GetEffectiveTriggeringRemoteType() const;
+  const mozilla::dom::RemoteType& GetEffectiveTriggeringRemoteType() const;
 
-  void SetTriggeringRemoteType(const nsACString& aTriggeringRemoteType);
+  void SetTriggeringRemoteType(
+      const mozilla::dom::RemoteType& aTriggeringRemoteType);
 
   // Diagnostic assert if this is a system-principal triggered load, and it is
   // trivial to determine that the effective triggering remote type would not be
@@ -439,6 +446,9 @@ class nsDocShellLoadState final {
   // This is used as the parameter for https://html.spec.whatwg.org/#navigate
   void SetSourceElement(mozilla::dom::Element* aElement);
   already_AddRefed<mozilla::dom::Element> GetSourceElement() const;
+  bool HasSourceElement() const {
+    return mSourceElement && mSourceElement->IsAlive();
+  }
 
   // This is used as the parameter for https://html.spec.whatwg.org/#navigate
   nsIStructuredCloneContainer* GetNavigationAPIState() const;
@@ -474,6 +484,22 @@ class nsDocShellLoadState final {
   }
   bool IsInitialAboutBlankHandlingProhibited() {
     return mIsInitialAboutBlankHandlingProhibited;
+  }
+
+  void SetIsResumingInterceptedNavigation(
+      bool aIsResumingInterceptedNavigation) {
+    mIsResumingInterceptedNavigation = aIsResumingInterceptedNavigation;
+  }
+
+  bool IsResumingInterceptedNavigation() const {
+    return mIsResumingInterceptedNavigation;
+  }
+
+  bool HasComputedNamedTargetBrowsingContext() const {
+    return mHasComputedNamedTargetBrowsingContext;
+  }
+  void SetHasComputedNamedTargetBrowsingContext(bool aValue) {
+    mHasComputedNamedTargetBrowsingContext = aValue;
   }
 
  protected:
@@ -653,8 +679,7 @@ class nsDocShellLoadState final {
   // When set, this is the Source Browsing Context for the navigation.
   MaybeDiscarded<BrowsingContext> mSourceBrowsingContext;
 
-  // Used for srcdoc loads to give view-source knowledge of the load's base URI
-  // as this information isn't embedded in the load's URI.
+  // BaseURI for the load, used when this information isn't clear from the URI.
   nsCOMPtr<nsIURI> mBaseURI;
 
   // Set of Load Flags, taken from nsDocShellLoadTypes.h and nsIWebNavigation
@@ -691,6 +716,9 @@ class nsDocShellLoadState final {
   // See nsILoadInfo.isFromProcessingFrameAttributes
   bool mIsFromProcessingFrameAttributes;
 
+  // Whether the target name has been looked up yet
+  bool mHasComputedNamedTargetBrowsingContext = false;
+
   // If set, a pending cross-process redirected channel should be used to
   // perform the load. The channel will be stored in this value.
   nsCOMPtr<nsIChannel> mPendingRedirectedChannel;
@@ -714,9 +742,14 @@ class nsDocShellLoadState final {
   // BrowsingContext::{Get, Set}CurrentLoadIdentifier)
   const uint64_t mLoadIdentifier;
 
-  // Optional value to indicate that a channel has been
+  // Optional DocumentLoadListener reference. This is only set in the parent
+  // process, and indicates that the channel has been pre-initialized in the
+  // parent process.
+  RefPtr<mozilla::net::DocumentLoadListener> mSpeculativeListener;
+
+  // Optional value available in content to indicate the channel has been
   // pre-initialized in the parent process.
-  bool mChannelInitialized;
+  bool mHasSpeculativeListener = false;
 
   // True if the load was triggered by a meta refresh.
   bool mIsMetaRefresh;
@@ -729,10 +762,10 @@ class nsDocShellLoadState final {
   nsCOMPtr<nsIURI> mUnstrippedURI;
 
   // If set, the remote type which the load should be completed within.
-  mozilla::Maybe<nsCString> mRemoteTypeOverride;
+  mozilla::Maybe<mozilla::dom::RemoteType> mRemoteTypeOverride;
 
   // Remote type of the process which originally requested the load.
-  nsCString mTriggeringRemoteType;
+  mozilla::dom::RemoteType mTriggeringRemoteType;
 
   // if the address had an intentional protocol
   nsILoadInfo::SchemelessInputType mSchemelessInput =
@@ -764,6 +797,14 @@ class nsDocShellLoadState final {
   // to take the regular load path. It will replace the previous document
   // and not load synchronous.
   bool mIsInitialAboutBlankHandlingProhibited;
+
+  // True when this LoadURI call is synchronously resuming a traversal
+  // navigation that was paused while the Navigation API's NavigateEvent was
+  // dispatched and intercepted. Set by Navigation::CommitNavigateEvent after
+  // the event commits, and consumed on the docshell side to keep the existing
+  // ongoing navigation in place (rather than resetting it) and to forward the
+  // flag through LoadHistoryEntry.
+  bool mIsResumingInterceptedNavigation = false;
 };
 
 #endif /* nsDocShellLoadState_h_ */

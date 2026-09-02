@@ -57,6 +57,7 @@ struct FuncExportInstanceData;
 struct MemoryDesc;
 struct MemoryInstanceData;
 class GlobalDesc;
+struct Handlers;
 struct TableDesc;
 struct TableInstanceData;
 struct TagDesc;
@@ -381,6 +382,8 @@ class alignas(16) Instance {
   SharedArrayRawBuffer* sharedMemoryBuffer(
       uint32_t memoryIndex) const;  // never null
   bool memoryAccessInGuardRegion(const uint8_t* addr, unsigned numBytes) const;
+  bool memoryAccessInMappedRegion(const uint8_t* addr, uint32_t* memoryIndex,
+                                  uint64_t* offset) const;
 
   // Methods to set, test and clear the interrupt fields. Both interrupt
   // fields are Relaxed and so no consistency/ordering can be assumed.
@@ -406,8 +409,6 @@ class alignas(16) Instance {
   const Code& code() const { return *code_; }
   inline const CodeMetadata& codeMeta() const;
   inline const CodeTailMetadata& codeTailMeta() const;
-  inline const CodeMetadataForAsmJS* codeMetaForAsmJS() const;
-  inline bool isAsmJS() const;
 
   // This method returns a pointer to the GC object that owns this Instance.
   // Instances may be reached via weak edges (e.g., Realm::instances_)
@@ -500,7 +501,6 @@ class alignas(16) Instance {
 
   void addSizeOfMisc(mozilla::MallocSizeOf mallocSizeOf,
                      SeenSet<CodeMetadata>* seenCodeMeta,
-                     SeenSet<CodeMetadataForAsmJS>* seenCodeMetaForAsmJS,
                      SeenSet<Code>* seenCode, SeenSet<Table>* seenTables,
                      size_t* code, size_t* data) const;
 
@@ -622,6 +622,11 @@ class alignas(16) Instance {
   static int32_t arrayCopy(Instance* instance, void* dstArray,
                            uint32_t dstIndex, void* srcArray, uint32_t srcIndex,
                            uint32_t numElements, uint32_t elementSize);
+#ifdef ENABLE_WASM_JSPI
+  static void* contNew(Instance* instance, void* funcRef, void* baseFrameStub);
+  static void* contNewEmpty(Instance* instance);
+  static void contUnwind(Instance* instance, wasm::Handlers* handlers);
+#endif
   static int32_t refTest(Instance* instance, void* refPtr,
                          const wasm::TypeDef* typeDef);
   static int32_t intrI8VecMul(Instance* instance, uint32_t dest, uint32_t src1,

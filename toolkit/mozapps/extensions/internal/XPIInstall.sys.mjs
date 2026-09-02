@@ -935,16 +935,24 @@ function shouldVerifySignedState(aAddonType, aLocation) {
  *        or undefined if the file wasn't signed.
  */
 export var verifyBundleSignedState = async function (aBundle, aAddon) {
-  let pkg = Package.get(aBundle);
   try {
-    let { signedState, signedTypes } = await pkg.verifySignedState(
-      aAddon.id,
-      aAddon.type,
-      aAddon.location
-    );
-    return { signedState, signedTypes };
-  } finally {
-    pkg.close();
+    let pkg = Package.get(aBundle);
+    try {
+      let { signedState, signedTypes } = await pkg.verifySignedState(
+        aAddon.id,
+        aAddon.type,
+        aAddon.location
+      );
+      return { signedState, signedTypes };
+    } finally {
+      pkg.close();
+    }
+  } catch (e) {
+    logger.warn(`verifyBundleSignedState failed for ${aAddon.id}`, e);
+    if (!shouldVerifySignedState(aAddon.type, aAddon.location)) {
+      return { signedState: AddonManager.SIGNEDSTATE_NOT_REQUIRED };
+    }
+    return { signedState: AddonManager.SIGNEDSTATE_BROKEN };
   }
 };
 
@@ -1677,7 +1685,7 @@ class AddonInstall {
 
         if (
           this.addon.adminInstallOnly &&
-          !this.addon.wrapper.isInstalledByEnterprisePolicy
+          !Services.policies?.isAddonRequiredByPolicy(this.addon.id)
         ) {
           return Promise.reject([
             AddonManager.ERROR_ADMIN_INSTALL_ONLY,
@@ -2894,7 +2902,7 @@ var DownloadAddonInstall = class extends AddonInstall {
     if (iid.equals(Ci.nsIAuthPrompt2)) {
       let win = null;
       if (this.browser) {
-        win = this.browser.contentWindow || this.browser.ownerGlobal;
+        win = this.browser.contentWindow || this.browser.documentGlobal;
       }
 
       let factory = Cc["@mozilla.org/prompter;1"].getService(
@@ -3136,7 +3144,10 @@ export var UpdateChecker = function (
     aReason == AddonManager.UPDATE_WHEN_NEW_APP_INSTALLED;
   this.isUserRequested = aReason == AddonManager.UPDATE_WHEN_USER_REQUESTED;
 
-  let updateURL = aAddon.updateURL;
+  // If bug 2032469 changes the policy behavior, this will need to be updated.
+  let updateURL =
+    Services.policies?.getExtensionSettings(aAddon.id)?.update_url?.href ||
+    aAddon.updateURL;
   if (!updateURL) {
     if (
       aReason == AddonManager.UPDATE_WHEN_PERIODIC_UPDATE &&
@@ -4362,6 +4373,16 @@ export var XPIInstall = {
       XPIExports.XPIInternal.PREF_BRANCH_INSTALLED_ADDON + id,
       true
     );
+
+    // Distribution installs don't go through AddonInstall, so the metadata
+    // fetch in AddonInstall.loadManifest() never runs for them. Fetch it here
+    // (if not already cached) so themes get their preview image. This is
+    // fire-and-forget: a failure shouldn't block the install.
+    if (!(await lazy.AddonRepository.getCachedAddonByID(id))) {
+      lazy.AddonRepository.cacheAddons([id]).catch(err => {
+        logger.debug(`Error getting metadata for ${id}: ${err.message}`);
+      });
+    }
 
     return addon;
   },

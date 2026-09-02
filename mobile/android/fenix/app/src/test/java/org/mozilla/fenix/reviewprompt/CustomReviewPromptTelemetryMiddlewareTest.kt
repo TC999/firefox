@@ -4,10 +4,10 @@
 
 package org.mozilla.fenix.reviewprompt
 
+import kotlin.test.assertNotNull
 import mozilla.components.support.test.robolectric.testContext
 import mozilla.telemetry.glean.private.RecordedEvent
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Rule
 import org.junit.Test
@@ -19,8 +19,7 @@ import org.robolectric.RobolectricTestRunner
 @RunWith(RobolectricTestRunner::class) // For gleanTestRule
 class CustomReviewPromptTelemetryMiddlewareTest {
 
-    @get:Rule
-    val gleanTestRule = FenixGleanTestRule(testContext)
+    @get:Rule val gleanTestRule = FenixGleanTestRule(testContext)
 
     @Test
     fun `WHEN Displayed action is dispatched THEN promptDisplayed event is recorded`() {
@@ -95,13 +94,11 @@ class CustomReviewPromptTelemetryMiddlewareTest {
     }
 
     private fun createStore(
-        initialState: CustomReviewPromptState = CustomReviewPromptState.PrePrompt,
+        initialState: CustomReviewPromptState = CustomReviewPromptState.PrePrompt
     ): CustomReviewPromptStore {
         return CustomReviewPromptStore(
             initialState = initialState,
-            middleware = listOf(
-                CustomReviewPromptTelemetryMiddleware(),
-            ),
+            middleware = listOf(CustomReviewPromptTelemetryMiddleware()),
         )
     }
 
@@ -111,7 +108,7 @@ class CustomReviewPromptTelemetryMiddlewareTest {
     ) {
         val snapshot = snapshotProvider()
         assertNotNull(snapshot)
-        assertEquals(1, snapshot!!.size)
+        assertEquals(1, snapshot.size)
         assertEquals(expectedName, snapshot.single().name)
     }
 }

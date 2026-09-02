@@ -5,11 +5,10 @@
 #ifndef mozilla_a11y_xpcAccessibleHyperText_h_
 #define mozilla_a11y_xpcAccessibleHyperText_h_
 
-#include "nsIAccessibleText.h"
-#include "nsIAccessibleHyperText.h"
-#include "nsIAccessibleEditableText.h"
-
 #include "HyperTextAccessible.h"
+#include "nsIAccessibleEditableText.h"
+#include "nsIAccessibleHyperText.h"
+#include "nsIAccessibleText.h"
 #include "xpcAccessibleGeneric.h"
 
 namespace mozilla {
@@ -25,6 +24,9 @@ class xpcAccessibleHyperText : public xpcAccessibleGeneric,
     if (aIntl->IsHyperText() && aIntl->IsTextRole()) mSupportedIfaces |= eText;
   }
 
+  xpcAccessibleHyperText(const xpcAccessibleHyperText&) = delete;
+  xpcAccessibleHyperText& operator=(const xpcAccessibleHyperText&) = delete;
+
   NS_DECL_ISUPPORTS_INHERITED
 
   NS_DECL_NSIACCESSIBLETEXT
@@ -32,7 +34,7 @@ class xpcAccessibleHyperText : public xpcAccessibleGeneric,
   NS_DECL_NSIACCESSIBLEEDITABLETEXT
 
  protected:
-  virtual ~xpcAccessibleHyperText() {}
+  virtual ~xpcAccessibleHyperText() = default;
 
  private:
   HyperTextAccessibleBase* Intl() { return mIntl->AsHyperTextBase(); }
@@ -44,9 +46,6 @@ class xpcAccessibleHyperText : public xpcAccessibleGeneric,
 
     return nullptr;
   }
-
-  xpcAccessibleHyperText(const xpcAccessibleHyperText&) = delete;
-  xpcAccessibleHyperText& operator=(const xpcAccessibleHyperText&) = delete;
 };
 
 }  // namespace a11y

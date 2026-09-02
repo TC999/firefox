@@ -5,10 +5,10 @@
 #ifndef MOZILLA_GFX_RECORDEDEVENT_H_
 #define MOZILLA_GFX_RECORDEDEVENT_H_
 
-#include <ostream>
-#include <sstream>
 #include <cstring>
 #include <functional>
+#include <ostream>
+#include <sstream>
 
 #include "RecordingTypes.h"
 #include "mozilla/PodOperations.h"
@@ -60,25 +60,7 @@ struct ReferencePtr {
 
   // Implement some operators so this class can be used as a key in
   // stdlib classes.
-  bool operator<(const ReferencePtr& aOther) const {
-    return mLongPtr < aOther.mLongPtr;
-  }
-
-  bool operator>(const ReferencePtr& aOther) const {
-    return mLongPtr > aOther.mLongPtr;
-  }
-
-  bool operator==(const ReferencePtr& aOther) const {
-    return mLongPtr == aOther.mLongPtr;
-  }
-
-  bool operator!=(const ReferencePtr& aOther) const {
-    return !(*this == aOther);
-  }
-
-  bool operator>=(const ReferencePtr& aOther) const {
-    return mLongPtr >= aOther.mLongPtr;
-  }
+  auto operator<=>(const ReferencePtr& aOther) const = default;
 
   uint64_t mLongPtr;
 };
@@ -259,15 +241,16 @@ struct MemWriter {
 struct MemReader {
   constexpr MemReader(const char* aData, size_t aLen)
       : mData(aData), mEnd(aData + aLen) {}
-  void read(char* s, std::streamsize n) {
+  [[nodiscard]] bool read(char* s, std::streamsize n) {
     if (n <= (mEnd - mData)) {
       memcpy(s, mData, n);
       mData += n;
-    } else {
-      // We've requested more data than is available
-      // set the Reader into an eof state
-      SetIsBad();
+      return true;
     }
+    // We've requested more data than is available
+    // set the Reader into an eof state
+    SetIsBad();
+    return false;
   }
   bool eof() { return mData > mEnd; }
   bool good() { return !eof(); }
@@ -389,7 +372,7 @@ struct MemStream {
 class EventStream {
  public:
   virtual void write(const char* aData, size_t aSize) = 0;
-  virtual void read(char* aOut, size_t aSize) = 0;
+  [[nodiscard]] virtual bool read(char* aOut, size_t aSize) = 0;
   virtual bool good() = 0;
   virtual void SetIsBad() = 0;
 };
@@ -587,8 +570,8 @@ class RecordedEventArray {
     if (!aStream.good() || !TryAlloc(aSize)) {
       return false;
     }
-    aStream.read(reinterpret_cast<char*>(mData.get()), sizeof(T) * mSize);
-    if (!aStream.good()) {
+    if (!aStream.read(reinterpret_cast<char*>(mData.get()),
+                      sizeof(T) * mSize)) {
       Clear();
       return false;
     }

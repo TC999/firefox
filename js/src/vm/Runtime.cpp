@@ -17,6 +17,7 @@
 #include "gc/GC.h"
 #include "gc/PublicIterators.h"
 #include "jit/IonCompileTask.h"
+#include "jit/JitOptions.h"  // js::fuzzingSafe
 #include "jit/JitRuntime.h"
 #include "jit/Simulator.h"
 #include "js/AllocationLogging.h"  // JS_COUNT_CTOR, JS_COUNT_DTOR
@@ -231,6 +232,9 @@ void JSRuntime::destroyRuntime() {
     CancelOffThreadDelazify(this);
     CancelOffThreadCompressions(this);
 
+    /* Wait for GC tasks to finish, including background allocation. */
+    gc.waitForBackgroundTasks();
+
     /*
      * Flag us as being destroyed. This allows the GC to free things like
      * interned atoms and Ion trampolines.
@@ -269,7 +273,7 @@ void JSRuntime::destroyRuntime() {
 #endif
 }
 
-void JSRuntime::addTelemetry(JSMetric id, uint32_t sample) {
+void JSRuntime::addTelemetry(JSMetric id, const JSTelemetryData& sample) {
   if (telemetryCallback) {
     (*telemetryCallback)(id, sample);
   }
@@ -369,7 +373,12 @@ void JSRuntime::addSizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf,
   }
 
   rtSizes->wasmRuntime +=
-      wasmInstances.lock()->sizeOfExcludingThis(mallocSizeOf);
+      wasmInstances.lock()->shallowSizeOfExcludingThis(mallocSizeOf);
+
+#ifdef ENABLE_WASM_JSPI
+  rtSizes->wasmContStacks +=
+      mainContextFromAnyThread()->wasm().contStacks().sizeOfNonHeap();
+#endif
 }
 
 static bool InvokeInterruptCallbacks(JSContext* cx) {
@@ -416,9 +425,12 @@ static bool HandleInterrupt(JSContext* cx, bool invokeCallback,
 
   if (!InvokeInterruptCallbacks(cx)) {
     // Debugger treats invoking the interrupt callback as a "step", so
-    // invoke the onStep handler.
-    if (cx->realm()->isDebuggee()) {
+    // invoke the onStep handler. Skip this in --fuzzing-safe mode because
+    // fuzzer-generated onStep handlers can mutate state that native/builtin
+    // code (e.g. TypedArrayJoinKernel) assumes is stable.
+    if (cx->realm()->isDebuggee() && !fuzzingSafe) {
       ScriptFrameIter iter(cx);
+      MOZ_ASSERT_IF(!iter.done(), !iter.isResumingGenerator());
       if (!iter.done() && cx->compartment() == iter.compartment() &&
           DebugAPI::stepModeEnabled(iter.script())) {
         if (!DebugAPI::onSingleStep(cx)) {
@@ -555,11 +567,31 @@ SharedScriptDataTableHolder& JSRuntime::scriptDataTableHolder() {
   return scriptDataTableHolder_;
 }
 
-bool JSRuntime::getHostDefinedData(JSContext* cx,
-                                   JS::MutableHandle<JSObject*> data) const {
+bool JSRuntime::getHostDefinedData(
+    JSContext* cx, JS::MutableHandle<JSObject*> incumbentGlobal,
+    JS::MutableHandle<JSObject*> optionalHostDefinedData) const {
   MOZ_ASSERT(cx->jobQueue);
 
-  return cx->jobQueue->getHostDefinedData(cx, data);
+  if (!cx->jobQueue->getHostDefinedData(cx, incumbentGlobal,
+                                        optionalHostDefinedData)) {
+    return false;
+  }
+
+  // incumbentGlobal is returned unwrapped. Callers will convert this to its
+  // Object.prototype representative and then wrap that into cx's compartment.
+  // It must therefore be a raw GlobalObject (or null), not a CCW.
+  //
+  // The intuition here would be that you would want to instead have a
+  // MutableHandle<GlobalObject*> outparam, however to reduce rooting
+  // costs, having two type-incompatible roots is probably the worse
+  // performance choice, and so instead we keep JSObject, as the
+  // final wrapped representative will have type JSObject.
+  MOZ_ASSERT_IF(incumbentGlobal, incumbentGlobal->is<GlobalObject>());
+
+  // optionalHostDefined data on the other hand should be same compartment,
+  // but will be wrapped as necessary.
+  cx->check(optionalHostDefinedData);
+  return true;
 }
 
 JS_PUBLIC_API JSObject*
@@ -708,6 +740,8 @@ void JSRuntime::commitPendingWrapperPreservations() {
 
 void JSRuntime::commitPendingWrapperPreservations(JS::Zone* zone) {
   for (JSObject* wrapper : zone->slurpPendingWrapperPreservations()) {
+    MOZ_RELEASE_ASSERT(!IsWrapper(wrapper));
+
     JS::Value objectWrapperSlot =
         JS::GetReservedSlot(wrapper, JS_OBJECT_WRAPPER_SLOT);
     // This mirrors logic in MaybePreserveDOMWrapper, and should be kept in
@@ -716,13 +750,8 @@ void JSRuntime::commitPendingWrapperPreservations(JS::Zone* zone) {
       continue;
     }
 
-    if (IsWrapper(wrapper)) {
-      wrapper = UncheckedUnwrap(wrapper);
-    }
-
     Rooted<JSObject*> rooted(mainContextFromOwnThread(), wrapper);
-    bool success = preserveWrapperCallback(mainContextFromOwnThread(), rooted);
-    MOZ_RELEASE_ASSERT(success);
+    preserveWrapperCallback(mainContextFromOwnThread(), rooted);
   }
 
   // The callback must not cause more wrappers to be preserved or they will

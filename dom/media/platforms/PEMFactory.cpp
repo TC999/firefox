@@ -36,12 +36,12 @@ namespace mozilla {
 
 LazyLogModule sPEMLog("PlatformEncoderModule");
 
-#define LOGE(fmt, ...)                       \
-  MOZ_LOG(sPEMLog, mozilla::LogLevel::Error, \
-          ("[PEMFactory] %s: " fmt, __func__, ##__VA_ARGS__))
-#define LOG(fmt, ...)                        \
-  MOZ_LOG(sPEMLog, mozilla::LogLevel::Debug, \
-          ("[PEMFactory] %s: " fmt, __func__, ##__VA_ARGS__))
+#define LOGE(fmt, ...)                                                    \
+  MOZ_LOG_FMT(sPEMLog, mozilla::LogLevel::Error, "[PEMFactory] {}: " fmt, \
+              __func__, ##__VA_ARGS__)
+#define LOG(fmt, ...)                                                     \
+  MOZ_LOG_FMT(sPEMLog, mozilla::LogLevel::Debug, "[PEMFactory] {}: " fmt, \
+              __func__, ##__VA_ARGS__)
 
 static CodecType MediaCodecToCodecType(MediaCodec aCodec) {
   switch (aCodec) {
@@ -74,7 +74,7 @@ static CodecType MediaCodecToCodecType(MediaCodec aCodec) {
 }
 
 void PEMFactory::InitGpuPEMs() {
-  if (!StaticPrefs::media_use_remote_encoder_video()) {
+  if (!StaticPrefs::media_use_remote_encoder_video_platform()) {
     return;
   }
 
@@ -115,7 +115,7 @@ void PEMFactory::InitGpuPEMs() {
 
 void PEMFactory::InitRddPEMs() {
 #ifdef MOZ_APPLEMEDIA
-  if (StaticPrefs::media_use_remote_encoder_video() &&
+  if (StaticPrefs::media_use_remote_encoder_video_platform() &&
       StaticPrefs::media_rdd_applemedia_enabled()) {
     RefPtr<PlatformEncoderModule> m(new AppleEncoderModule());
     mCurrentPEMs.AppendElement(m);
@@ -123,7 +123,7 @@ void PEMFactory::InitRddPEMs() {
 #endif
 
 #ifdef XP_WIN
-  if (StaticPrefs::media_use_remote_encoder_video() &&
+  if (StaticPrefs::media_use_remote_encoder_video_platform() &&
       StaticPrefs::media_wmf_enabled() &&
       StaticPrefs::media_rdd_wmf_enabled()) {
     mCurrentPEMs.AppendElement(new WMFEncoderModule());
@@ -131,14 +131,15 @@ void PEMFactory::InitRddPEMs() {
 #endif
 
 #ifdef MOZ_FFVPX_AUDIOONLY
-  if (StaticPrefs::media_use_remote_encoder_audio() &&
+  if (StaticPrefs::media_use_remote_encoder_audio_software() &&
       StaticPrefs::media_ffmpeg_encoder_enabled() &&
       !StaticPrefs::media_utility_process_enabled() &&
       StaticPrefs::media_rdd_ffvpx_enabled())
 #else
-  if (((StaticPrefs::media_use_remote_encoder_audio() &&
+  if (((StaticPrefs::media_use_remote_encoder_audio_software() &&
         !StaticPrefs::media_utility_process_enabled()) ||
-       StaticPrefs::media_use_remote_encoder_video()) &&
+       StaticPrefs::media_use_remote_encoder_video_software() ||
+       StaticPrefs::media_use_remote_encoder_video_platform()) &&
       StaticPrefs::media_ffmpeg_encoder_enabled() &&
       StaticPrefs::media_rdd_ffvpx_enabled())
 #endif
@@ -151,14 +152,15 @@ void PEMFactory::InitRddPEMs() {
 
 #ifdef MOZ_FFMPEG
 #  ifdef MOZ_FFVPX_AUDIOONLY
-  if (StaticPrefs::media_use_remote_encoder_audio() &&
+  if (StaticPrefs::media_use_remote_encoder_audio_software() &&
       StaticPrefs::media_ffmpeg_encoder_enabled() &&
       !StaticPrefs::media_utility_process_enabled() &&
       StaticPrefs::media_rdd_ffmpeg_enabled())
 #  else
-  if (((StaticPrefs::media_use_remote_encoder_audio() &&
+  if (((StaticPrefs::media_use_remote_encoder_audio_software() &&
         !StaticPrefs::media_utility_process_enabled()) ||
-       StaticPrefs::media_use_remote_encoder_video()) &&
+       StaticPrefs::media_use_remote_encoder_video_software() ||
+       StaticPrefs::media_use_remote_encoder_video_platform()) &&
       StaticPrefs::media_ffmpeg_encoder_enabled() &&
       StaticPrefs::media_rdd_ffmpeg_enabled())
 #  endif
@@ -174,7 +176,7 @@ void PEMFactory::InitRddPEMs() {
 }
 
 void PEMFactory::InitUtilityPEMs() {
-  if (StaticPrefs::media_use_remote_encoder_audio() &&
+  if (StaticPrefs::media_use_remote_encoder_audio_software() &&
       StaticPrefs::media_ffmpeg_encoder_enabled()) {
     if (RefPtr<PlatformEncoderModule> pem =
             FFVPXRuntimeLinker::CreateEncoder()) {
@@ -183,7 +185,7 @@ void PEMFactory::InitUtilityPEMs() {
   }
 
 #ifdef MOZ_FFMPEG
-  if (StaticPrefs::media_use_remote_encoder_audio() &&
+  if (StaticPrefs::media_use_remote_encoder_audio_software() &&
       StaticPrefs::media_ffmpeg_enabled()) {
     if (RefPtr<PlatformEncoderModule> pem =
             FFmpegRuntimeLinker::CreateEncoder()) {
@@ -191,11 +193,26 @@ void PEMFactory::InitUtilityPEMs() {
     }
   }
 #endif
+
+#ifdef MOZ_WIDGET_ANDROID
+  if (StaticPrefs::media_utility_android_media_codec_enabled()) {
+    mCurrentPEMs.AppendElement(new AndroidEncoderModule());
+  }
+#endif
 }
 
 void PEMFactory::InitContentPEMs() {
-  if ((StaticPrefs::media_use_remote_encoder_video() ||
-       StaticPrefs::media_use_remote_encoder_audio()) &&
+  if (StaticPrefs::media_use_remote_encoder_video_platform() &&
+      StaticPrefs::media_gpu_process_encoder()) {
+    if (RefPtr<PlatformEncoderModule> pem =
+            RemoteEncoderModule::Create(RemoteMediaIn::GpuProcess)) {
+      mCurrentPEMs.AppendElement(std::move(pem));
+    }
+  }
+
+  if ((StaticPrefs::media_use_remote_encoder_video_platform() ||
+       StaticPrefs::media_use_remote_encoder_video_software() ||
+       StaticPrefs::media_use_remote_encoder_audio_software()) &&
       StaticPrefs::media_rdd_process_enabled()) {
     if (RefPtr<PlatformEncoderModule> pem =
             RemoteEncoderModule::Create(RemoteMediaIn::RddProcess)) {
@@ -203,7 +220,7 @@ void PEMFactory::InitContentPEMs() {
     }
   }
 
-  if (StaticPrefs::media_use_remote_encoder_audio() &&
+  if (StaticPrefs::media_use_remote_encoder_audio_software() &&
       StaticPrefs::media_utility_process_enabled()) {
 #ifdef MOZ_APPLEMEDIA
     if (RefPtr<PlatformEncoderModule> pem = RemoteEncoderModule::Create(
@@ -225,7 +242,7 @@ void PEMFactory::InitContentPEMs() {
     }
   }
 
-  if (!StaticPrefs::media_use_remote_encoder_video()) {
+  if (!StaticPrefs::media_use_remote_encoder_video_platform()) {
 #ifdef MOZ_APPLEMEDIA
     RefPtr<PlatformEncoderModule> m(new AppleEncoderModule());
     mCurrentPEMs.AppendElement(m);
@@ -243,11 +260,11 @@ void PEMFactory::InitContentPEMs() {
   }
 
 #ifdef MOZ_FFVPX_AUDIOONLY
-  if (!StaticPrefs::media_use_remote_encoder_audio() &&
+  if (!StaticPrefs::media_use_remote_encoder_audio_software() &&
       StaticPrefs::media_ffmpeg_encoder_enabled())
 #else
-  if ((!StaticPrefs::media_use_remote_encoder_audio() ||
-       !StaticPrefs::media_use_remote_encoder_video()) &&
+  if ((!StaticPrefs::media_use_remote_encoder_audio_software() ||
+       !StaticPrefs::media_use_remote_encoder_video_software()) &&
       StaticPrefs::media_ffmpeg_encoder_enabled())
 #endif
   {
@@ -259,12 +276,12 @@ void PEMFactory::InitContentPEMs() {
 
 #ifdef MOZ_FFMPEG
 #  ifdef MOZ_FFVPX_AUDIOONLY
-  if (!StaticPrefs::media_use_remote_encoder_audio() &&
+  if (!StaticPrefs::media_use_remote_encoder_audio_software() &&
       StaticPrefs::media_ffmpeg_enabled() &&
       StaticPrefs::media_ffmpeg_encoder_enabled())
 #  else
-  if ((!StaticPrefs::media_use_remote_encoder_audio() ||
-       !StaticPrefs::media_use_remote_encoder_video()) &&
+  if ((!StaticPrefs::media_use_remote_encoder_audio_software() ||
+       !StaticPrefs::media_use_remote_encoder_video_software()) &&
       StaticPrefs::media_ffmpeg_enabled() &&
       StaticPrefs::media_ffmpeg_encoder_enabled())
 #  endif
@@ -352,8 +369,13 @@ already_AddRefed<MediaDataEncoder> PEMFactory::CreateEncoder(
     return nullptr;
   }
 
-  return aConfig.IsVideo() ? m->CreateVideoEncoder(aConfig, aTaskQueue)
-                           : nullptr;
+  if (aConfig.IsVideo()) {
+    return m->CreateVideoEncoder(aConfig, aTaskQueue);
+  }
+  if (aConfig.IsAudio()) {
+    return m->CreateAudioEncoder(aConfig, aTaskQueue);
+  }
+  return nullptr;
 }
 
 RefPtr<PlatformEncoderModule::CreateEncoderPromise>
@@ -432,11 +454,11 @@ EncodeSupportSet PEMFactory::Supports(const EncoderConfig& aConfig) const {
     EncodeSupportSet supports = m->Supports(aConfig);
     if (!supports.isEmpty()) {
       // TODO name
-      LOG("Checking if %s supports codec %s: yes", m->GetName(),
+      LOG("Checking if {} supports codec {}: yes", m->GetName(),
           EnumValueToString(aConfig.mCodec));
       return supports;
     }
-    LOG("Checking if %s supports codec %s: no", m->GetName(),
+    LOG("Checking if {} supports codec {}: no", m->GetName(),
         EnumValueToString(aConfig.mCodec));
   }
   return EncodeSupportSet{};
@@ -447,12 +469,12 @@ EncodeSupportSet PEMFactory::SupportsCodec(CodecType aCodec) const {
   for (const auto& m : mCurrentPEMs) {
     EncodeSupportSet pemSupports = m->SupportsCodec(aCodec);
     // TODO name
-    LOG("Checking if %s supports codec %d: %s", m->GetName(),
+    LOG("Checking if {} supports codec {}: {}", m->GetName(),
         static_cast<int>(aCodec), pemSupports.isEmpty() ? "no" : "yes");
     supports += pemSupports;
   }
   if (supports.isEmpty()) {
-    LOG("No PEM support %d", static_cast<int>(aCodec));
+    LOG("No PEM support {}", static_cast<int>(aCodec));
   }
   return supports;
 }

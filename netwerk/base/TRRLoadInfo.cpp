@@ -3,12 +3,13 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "TRRLoadInfo.h"
+
+#include "LoadInfo.h"
 #include "mozilla/dom/ClientSource.h"
-#include "mozilla/dom/FeaturePolicy.h"
 #include "mozilla/dom/DOMTypes.h"
+#include "mozilla/dom/FeaturePolicy.h"
 #include "nsContentUtils.h"
 #include "nsIRedirectHistoryEntry.h"
-#include "LoadInfo.h"
 
 using namespace mozilla::dom;
 
@@ -84,12 +85,17 @@ void TRRLoadInfo::ResetSandboxedNullPrincipalID() {}
 nsIPrincipal* TRRLoadInfo::GetTopLevelPrincipal() { return nullptr; }
 
 NS_IMETHODIMP
-TRRLoadInfo::GetTriggeringRemoteType(nsACString& aTriggeringRemoteType) {
+TRRLoadInfo::GetXPCOMTriggeringRemoteType(nsACString& aTriggeringRemoteType) {
   return NS_ERROR_NOT_IMPLEMENTED;
 }
 
 NS_IMETHODIMP
-TRRLoadInfo::SetTriggeringRemoteType(const nsACString& aTriggeringRemoteType) {
+TRRLoadInfo::GetTriggeringRemoteType(RemoteType& aTriggeringRemoteType) {
+  return NS_ERROR_NOT_IMPLEMENTED;
+}
+
+NS_IMETHODIMP
+TRRLoadInfo::SetTriggeringRemoteType(const RemoteType& aTriggeringRemoteType) {
   return NS_ERROR_NOT_IMPLEMENTED;
 }
 
@@ -352,6 +358,12 @@ TRRLoadInfo::SetLoadTriggeredFromExternal(bool aLoadTriggeredFromExternal) {
 
 NS_IMETHODIMP
 TRRLoadInfo::GetLoadTriggeredFromExternal(bool* aLoadTriggeredFromExternal) {
+  return NS_ERROR_NOT_IMPLEMENTED;
+}
+
+NS_IMETHODIMP
+TRRLoadInfo::GetServiceWorkerTaintingSynthesized(
+    bool* aServiceWorkerTaintingSynthesized) {
   return NS_ERROR_NOT_IMPLEMENTED;
 }
 

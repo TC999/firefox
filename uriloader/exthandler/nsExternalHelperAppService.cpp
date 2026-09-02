@@ -6,6 +6,7 @@
 
 /* This must occur *after* base/basictypes.h to avoid typedefs conflicts. */
 #include "mozilla/Base64.h"
+#include "mozilla/BasePrincipal.h"
 #include "mozilla/ResultExtensions.h"
 
 #include "mozilla/dom/ContentChild.h"
@@ -13,10 +14,12 @@
 #include "mozilla/dom/CanonicalBrowsingContext.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/Element.h"
+#include "mozilla/dom/WindowContext.h"
 #include "mozilla/dom/WindowGlobalParent.h"
 #include "mozilla/RandomNum.h"
 #include "mozilla/ScopeExit.h"
 #include "mozilla/StaticPrefs_dom.h"
+#include "mozilla/StaticPrefs_network.h"
 #include "mozilla/StaticPrefs_security.h"
 #include "mozilla/StaticPtr.h"
 #include "nsXULAppAPI.h"
@@ -51,8 +54,9 @@
 #include "nsOSHelperAppService.h"
 #include "nsOSHelperAppServiceChild.h"
 #include "nsContentSecurityUtils.h"
-#include "nsUTF8Utils.h"
 #include "nsUnicodeProperties.h"
+#include "mozilla/Utf16.h"
+#include "mozilla/Utf8.h"
 
 // used to access our datastore of user-configured helper applications
 #include "nsIHandlerService.h"
@@ -66,6 +70,7 @@
 
 #include "nsIApplicationReputation.h"
 
+#include "nsContentUtils.h"
 #include "nsDSURIContentListener.h"
 #include "nsMimeTypes.h"
 #include "nsMIMEInfoImpl.h"
@@ -99,6 +104,7 @@
 #include "ContentChild.h"
 #include "nsXULAppAPI.h"
 #include "nsPIDOMWindow.h"
+#include "nsPIDOMWindowInlines.h"
 #include "ExternalHelperAppChild.h"
 
 #include "mozilla/dom/nsHTTPSOnlyUtils.h"
@@ -392,12 +398,29 @@ NS_IMETHODIMP nsExternalHelperAppService::GetPreferredDownloadsDirectory(
  * set.)
  *
  * Optionally, skip availability of the directory and storage.
+ *
+ * Also optionally, if a CanonicalBrowsingContext is provided and its top-level
+ * context has a DownloadFolderOverride set, that directory is used instead.
  */
 static Result<nsCOMPtr<nsIFile>, nsresult> GetInitialDownloadDirectory(
-    bool aSkipChecks = false) {
+    bool aSkipChecks = false,
+    CanonicalBrowsingContext* aBrowsingContext = nullptr) {
 #if defined(ANDROID)
   return Err(NS_ERROR_FAILURE);
 #else
+
+  if (aBrowsingContext) {
+    nsString folderPath;
+    aBrowsingContext->Top()->GetDownloadFolderOverride(folderPath);
+    if (!folderPath.IsEmpty()) {
+      nsCOMPtr<nsIFile> dir;
+      nsresult rv = NS_NewLocalFile(folderPath, getter_AddRefs(dir));
+      if (NS_SUCCEEDED(rv)) {
+        return dir;
+      }
+    }
+  }
+
   if (StaticPrefs::browser_download_start_downloads_in_tmp_dir()) {
     return GetOsTmpDownloadDirectory();
   }
@@ -470,6 +493,7 @@ static const nsDefaultMimeTypeEntry defaultMimeEntries[] = {
     {APPLICATION_XHTML_XML, "xhtml"},
     {APPLICATION_XHTML_XML, "xht"},
     {TEXT_PLAIN, "txt"},
+    {TEXT_CSV, "csv"},
     {APPLICATION_JSON, "json"},
     {APPLICATION_RDF, "rdf"},
     {APPLICATION_XJAVASCRIPT, "mjs"},
@@ -699,7 +723,6 @@ nsresult nsExternalHelperAppService::DoContentContentProcessHelper(
   nsCString disp;
   nsCOMPtr<nsIURI> uri;
   int64_t contentLength = -1;
-  bool wasFileChannel = false;
   uint32_t contentDisposition = -1;
   nsAutoString fileName;
   nsCOMPtr<nsILoadInfo> loadInfo;
@@ -711,9 +734,6 @@ nsresult nsExternalHelperAppService::DoContentContentProcessHelper(
   aChannel->GetContentDispositionHeader(disp);
   loadInfo = aChannel->LoadInfo();
 
-  nsCOMPtr<nsIFileChannel> fileChan(do_QueryInterface(aChannel));
-  wasFileChannel = fileChan != nullptr;
-
   nsCOMPtr<nsIURI> referrer;
   NS_GetReferrerFromChannel(aChannel, getter_AddRefs(referrer));
 
@@ -724,11 +744,11 @@ nsresult nsExternalHelperAppService::DoContentContentProcessHelper(
   // protocol will act as a listener on the child-side and create a "real"
   // helperAppService listener on the parent-side, via another call to
   // DoContent.
-  RefPtr<ExternalHelperAppChild> childListener = new ExternalHelperAppChild();
+  RefPtr childListener = MakeRefPtr<ExternalHelperAppChild>();
   MOZ_ALWAYS_TRUE(child->SendPExternalHelperAppConstructor(
       childListener, uri, loadInfoArgs, nsCString(aMimeContentType), disp,
-      contentDisposition, fileName, aForceSave, contentLength, wasFileChannel,
-      referrer, aContentContext));
+      contentDisposition, fileName, aForceSave, contentLength, referrer,
+      aContentContext));
 
   NS_ADDREF(*aStreamListener = childListener);
 
@@ -737,12 +757,9 @@ nsresult nsExternalHelperAppService::DoContentContentProcessHelper(
 
   SanitizeFileName(fileName, 0);
 
-  RefPtr<nsExternalAppHandler> handler =
-      new nsExternalAppHandler(nullptr, u""_ns, aContentContext, aWindowContext,
-                               this, fileName, reason, aForceSave);
-  if (!handler) {
-    return NS_ERROR_OUT_OF_MEMORY;
-  }
+  RefPtr handler = MakeRefPtr<nsExternalAppHandler>(
+      nullptr, u""_ns, aContentContext, aWindowContext, this, fileName, reason,
+      aForceSave);
 
   childListener->SetHandler(handler);
   return NS_OK;
@@ -854,6 +871,13 @@ NS_IMETHODIMP nsExternalHelperAppService::ApplyDecodingForExtension(
     const nsACString& aExtension, const nsACString& aEncodingType,
     bool* aApplyDecoding) {
   *aApplyDecoding = true;
+  // By default we decode the Content-Encoding even when the file extension
+  // matches the encoding, to avoid saving double-compressed files (bug 610679,
+  // bug 1470011). The legacy behavior can be restored via the pref.
+  if (StaticPrefs::
+          network_http_decode_content_for_known_compressed_extensions()) {
+    return NS_OK;
+  }
   uint32_t i;
   for (i = 0; i < std::size(nonDecodableExtensions); ++i) {
     if (aExtension.LowerCaseEqualsASCII(
@@ -951,6 +975,49 @@ static const char kExternalProtocolDefaultPref[] =
     "network.protocol-handler.external-default";
 
 // static
+bool nsExternalHelperAppService::SchemeRequiresUserActivationToLaunch(
+    nsIPrincipal* aTriggeringPrincipal, const nsACString& aScheme) {
+  if (!StaticPrefs::network_protocol_handler_prompt_without_user_activation()) {
+    return false;
+  }
+
+  // Only web content has to prove user activation; chrome and extensions are
+  // trusted to launch these protocols on their own. This mirrors the exemption
+  // in nsContentDispatchChooser._hasProtocolHandlerPermission, so that we never
+  // consume an activation for a load that isn't going to be gated. Both
+  // allowlist privileged principals; everything else is gated.
+  if (aTriggeringPrincipal &&
+      (aTriggeringPrincipal->IsSystemPrincipal() ||
+       aTriggeringPrincipal->GetIsAddonOrExpandedAddonPrincipal())) {
+    return false;
+  }
+
+  // Only schemes that would otherwise launch without a prompt (i.e. those with
+  // `network.protocol-handler.external.<scheme>` set) are gated. Currently this
+  // is only mailto.
+  nsAutoCString externalPref(kExternalProtocolPrefPrefix);
+  externalPref += aScheme;
+  return Preferences::GetBool(externalPref.get(), false);
+}
+
+// static
+void nsExternalHelperAppService::MaybeConsumeUserActivationForExternalScheme(
+    mozilla::dom::WindowContext* aWindowContext,
+    nsIPrincipal* aTriggeringPrincipal, const nsACString& aScheme) {
+  // A null window context is expected: a document being torn down or not yet
+  // associated with an inner window has none, and then there is no activation
+  // to consume. When we do have one it must be in-process, because
+  // ConsumeTransientUserGestureActivation() only acts on the process hosting
+  // the context; an out-of-process context would silently no-op and let a
+  // single gesture chain multiple launches.
+  MOZ_DIAGNOSTIC_ASSERT(!aWindowContext || aWindowContext->IsInProcess());
+  if (aWindowContext &&
+      SchemeRequiresUserActivationToLaunch(aTriggeringPrincipal, aScheme)) {
+    aWindowContext->ConsumeTransientUserGestureActivation();
+  }
+}
+
+// static
 nsresult nsExternalHelperAppService::EscapeURI(nsIURI* aURI, nsIURI** aResult) {
   MOZ_ASSERT(aURI);
   MOZ_ASSERT(aResult);
@@ -1011,11 +1078,13 @@ nsExternalHelperAppService::LoadURI(nsIURI* aURI,
                                     bool aHasValidUserGestureActivation,
                                     bool aNewWindowTarget) {
   NS_ENSURE_ARG_POINTER(aURI);
+  NS_ENSURE_ARG_POINTER(aTriggeringPrincipal);
 
   if (XRE_IsContentProcess()) {
     mozilla::dom::ContentChild::GetSingleton()->SendLoadURIExternal(
-        aURI, aTriggeringPrincipal, aRedirectPrincipal, aBrowsingContext,
-        aTriggeredExternally, aHasValidUserGestureActivation, aNewWindowTarget);
+        WrapNotNull(aURI), WrapNotNull(aTriggeringPrincipal),
+        aRedirectPrincipal, aBrowsingContext, aTriggeredExternally,
+        aHasValidUserGestureActivation, aNewWindowTarget);
     return NS_OK;
   }
 
@@ -1083,7 +1152,7 @@ nsExternalHelperAppService::LoadURI(nsIURI* aURI,
   // links can always navigate everywhere, so this is a minor additional
   // restriction, only aiming to prevent some types of spoofing attacks
   // from otherwise disjoint browsingcontext trees.
-  if (aBrowsingContext && aTriggeringPrincipal &&
+  if (aBrowsingContext &&
       // Add-on principals are always allowed:
       !BasePrincipal::Cast(aTriggeringPrincipal)->AddonPolicy() &&
       // As is chrome code:
@@ -1154,7 +1223,7 @@ nsExternalHelperAppService::LoadURI(nsIURI* aURI,
   return chooser->HandleURI(
       handler, escapedURI,
       aRedirectPrincipal ? aRedirectPrincipal : aTriggeringPrincipal,
-      aBrowsingContext, aTriggeredExternally);
+      aBrowsingContext, aTriggeredExternally, aHasValidUserGestureActivation);
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1436,7 +1505,8 @@ void nsExternalAppHandler::RetargetLoadNotifications(nsIRequest* request) {
 nsresult nsExternalAppHandler::SetUpTempFile(nsIChannel* aChannel) {
   // First we need to try to get the destination directory for the temporary
   // file.
-  auto res = GetInitialDownloadDirectory();
+  auto res = GetInitialDownloadDirectory(
+      false, mBrowsingContext ? mBrowsingContext->Canonical() : nullptr);
   if (res.isErr()) return res.unwrapErr();
   mTempFile = res.unwrap();
 
@@ -1696,7 +1766,8 @@ NS_IMETHODIMP nsExternalAppHandler::OnStartRequest(nsIRequest* request) {
     mCanceled = true;
     request->Cancel(transferError);
 
-    auto res = GetInitialDownloadDirectory(true);
+    auto res = GetInitialDownloadDirectory(
+        true, mBrowsingContext ? mBrowsingContext->Canonical() : nullptr);
     if (res.isErr()) {
       // Just send the file name as we can't get a download path.
       // TODO: evaluate adding a more specific error here.
@@ -1801,6 +1872,16 @@ NS_IMETHODIMP nsExternalAppHandler::OnStartRequest(nsIRequest* request) {
 
   bool shouldAutomaticallyHandleInternally =
       action == nsIMIMEInfo::handleInternally;
+
+  // The built-in viewer is the only way to handle a PDF internally, so when it
+  // is disabled the user has to be asked instead: launching the file would fail
+  // because nsIMIMEInfo::handleInternally has no application to launch.
+  if (shouldAutomaticallyHandleInternally &&
+      MIMEType.EqualsLiteral(APPLICATION_PDF) &&
+      !nsContentUtils::IsPDFJSEnabled()) {
+    shouldAutomaticallyHandleInternally = false;
+    alwaysAsk = true;
+  }
 
   if (aChannel) {
     uint32_t disposition = -1;
@@ -1930,7 +2011,7 @@ NS_IMETHODIMP nsExternalAppHandler::OnStartRequest(nsIRequest* request) {
 bool nsExternalAppHandler::IsDownloadSpam(nsIChannel* aChannel) {
   nsCOMPtr<nsILoadInfo> loadInfo = aChannel->LoadInfo();
   nsCOMPtr<nsIPermissionManager> permissionManager =
-      mozilla::services::GetPermissionManager();
+      mozilla::components::PermissionManager::Service();
   nsCOMPtr<nsIPrincipal> principal = loadInfo->TriggeringPrincipal();
   bool exactHostMatch = false;
   constexpr auto type = "automatic-download"_ns;
@@ -2423,7 +2504,8 @@ nsresult nsExternalAppHandler::CreateFailedTransfer() {
   if (!mFinalFileDestination) {
     // If we don't have a download directory we're kinda screwed but it's OK
     // we'll still report the error via the prompter.
-    auto res = GetInitialDownloadDirectory(true);
+    auto res = GetInitialDownloadDirectory(
+        true, mBrowsingContext ? mBrowsingContext->Canonical() : nullptr);
     if (res.isErr()) return res.unwrapErr();
     nsCOMPtr<nsIFile> pseudoFile = res.unwrap();
 
@@ -2650,7 +2732,8 @@ NS_IMETHODIMP nsExternalAppHandler::SetDownloadToLaunch(
   if (aNewFileLocation) {
     fileToUse = aNewFileLocation;
   } else {
-    auto res = GetInitialDownloadDirectory();
+    auto res = GetInitialDownloadDirectory(
+        false, mBrowsingContext ? mBrowsingContext->Canonical() : nullptr);
     if (res.isErr()) return res.unwrapErr();
     fileToUse = res.unwrap();
 
@@ -3576,7 +3659,7 @@ void nsExternalHelperAppService::SanitizeFileName(nsAString& aFileName,
     const char16_t* charStart = cp;
     // Get the full character code, and advance cp past it.
     bool err = false;
-    char32_t nextChar = UTF16CharEnumerator::NextChar(&cp, end, &err);
+    char32_t nextChar = DecodeOneUtf16CodePoint(&cp, end, &err);
     allBits |= nextChar;
     if (NS_WARN_IF(err)) {
       // Invalid (unpaired) surrogate: replace with REPLACEMENT CHARACTER,
@@ -3738,7 +3821,7 @@ void nsExternalHelperAppService::SanitizeFileName(nsAString& aFileName,
     const char16_t* end = aString.EndReading();
     for (const char16_t* cp = aString.BeginReading(); cp < end;) {
       bool err = false;
-      char32_t ch = UTF16CharEnumerator::NextChar(&cp, end, &err);
+      char32_t ch = DecodeOneUtf16CodePoint(&cp, end, &err);
       MOZ_ASSERT(!err, "unexpected lone surrogate");
       result += ch < 0x80 ? 1 : ch < 0x800 ? 2 : ch < 0x10000 ? 3 : 4;
     }
@@ -3777,13 +3860,17 @@ void nsExternalHelperAppService::SanitizeFileName(nsAString& aFileName,
   aFileName.Truncate();
   const char* endUtf8 = truncated.EndReading();
   for (const char* cp = truncated.BeginReading(); cp < endUtf8;) {
-    bool err = false;
-    char32_t ch = UTF8CharEnumerator::NextChar(&cp, endUtf8, &err);
-    if (err) {
+    Utf8Unit unit(*cp++);
+    if (IsAscii(unit)) {
+      aFileName.Append(char(unit.toUint8()));
+      continue;
+    }
+    Maybe<char32_t> ch = DecodeOneUtf8CodePoint(unit, &cp, endUtf8);
+    if (ch.isNothing()) {
       // Discard a possible broken final character.
       break;
     }
-    AppendUCS4ToUTF16(ch, aFileName);
+    AppendUCS4ToUTF16(ch.value(), aFileName);
   }
 
   // Trim any trailing space/vowel-separator/dots at the truncation point.

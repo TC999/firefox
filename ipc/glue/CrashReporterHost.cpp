@@ -10,6 +10,7 @@
 #include "mozilla/glean/IpcMetrics.h"
 #include "nsServiceManagerUtils.h"
 #include "nsICrashService.h"
+#include "nsIDUtils.h"
 #include "nsXULAppAPI.h"
 #include "nsIFile.h"
 
@@ -21,12 +22,21 @@
 
 namespace mozilla::ipc {
 
+ChildThreadId GetChildThreadIdFromArgs(
+    const CrashReporter::CrashReporterInitArgs& aInitArgs) {
+#if defined(XP_DARWIN)
+  return RetainMachSendRight(aInitArgs.threadId().get());
+#else
+  return aInitArgs.threadId();
+#endif  // defined(XP_DARWIN)
+}
+
 CrashReporterHost::CrashReporterHost(
     GeckoProcessType aProcessType, GeckoChildID aChildID,
     const CrashReporter::CrashReporterInitArgs& aInitArgs)
     : mProcessType(aProcessType),
       mChildID(aChildID),
-      mThreadId(aInitArgs.threadId()),
+      mThreadId(GetChildThreadIdFromArgs(aInitArgs)),
       mStartTime(::time(nullptr)),
       mFinalized(false) {
 #if defined(XP_LINUX) && defined(MOZ_CRASHREPORTER) && \
@@ -90,6 +100,14 @@ void CrashReporterHost::FinalizeCrashReport() {
   MOZ_ASSERT(HasMinidump());
 
   mExtraAnnotations[CrashReporter::Annotation::ProcessType] = ProcessType();
+
+  // Add a CrashEventID in case we haven't added one yet (every crash should
+  // have one).
+  if (mExtraAnnotations[CrashReporter::Annotation::CrashEventID].IsEmpty()) {
+    NSID_TrimBracketsASCII uuidString(nsID::GenerateUUID());
+    mExtraAnnotations[CrashReporter::Annotation::CrashEventID] =
+        std::move(uuidString);
+  }
 
   char startTime[32];
   SprintfLiteral(startTime, "%lld", static_cast<long long>(mStartTime));

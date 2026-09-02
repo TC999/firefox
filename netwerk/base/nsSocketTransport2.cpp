@@ -2,23 +2,23 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include <algorithm>
-
 #include "nsSocketTransport2.h"
+
+#include <algorithm>
 
 #include "MockNetworkLayer.h"
 #include "MockNetworkLayerController.h"
 #include "NSSErrorsService.h"
 #include "NetworkDataCountLayer.h"
 #include "QuicSocketControl.h"
+#include "mozilla/ProfilerBandwidthCounter.h"
 #include "mozilla/StaticPrefs_network.h"
 #include "mozilla/SyncRunnable.h"
-#include "mozilla/glean/NetwerkMetrics.h"
 #include "mozilla/Telemetry.h"
 #include "mozilla/dom/ToJSValue.h"
+#include "mozilla/glean/NetwerkMetrics.h"
 #include "mozilla/net/NeckoChild.h"
 #include "mozilla/net/SSLTokensCache.h"
-#include "mozilla/ProfilerBandwidthCounter.h"
 #include "nsCOMPtr.h"
 #include "nsICancelable.h"
 #include "nsIClassInfoImpl.h"
@@ -54,11 +54,16 @@
 #  include "ShutdownLayer.h"
 #endif
 
+#if defined(MOZ_WIDGET_ANDROID)
+#  include "AndroidLocalNetworkPermission.h"
+#  include "AndroidNetworkBlockedReason.h"
+#endif
+
 /* Following inclusions required for keepalive config not supported by NSPR. */
 #include "private/pprio.h"
 #if defined(XP_WIN)
-#  include <winsock2.h>
 #  include <mstcpip.h>
+#  include <winsock2.h>
 #elif defined(XP_UNIX)
 #  include <errno.h>
 #  include <netinet/tcp.h>
@@ -169,10 +174,8 @@ nsresult ErrorAccordingToNSPR(PRErrorCode errorCode) {
       break;
     case PR_CONNECT_ABORTED_ERROR:
     case PR_CONNECT_RESET_ERROR:
+    case PR_END_OF_FILE_ERROR:  // unexpected EOF is treated the same as reset
       rv = NS_ERROR_NET_RESET;
-      break;
-    case PR_END_OF_FILE_ERROR:  // XXX document this correlation
-      rv = NS_ERROR_NET_INTERRUPT;
       break;
     case PR_CONNECT_REFUSED_ERROR:
     // We lump the following NSPR codes in with PR_CONNECT_REFUSED_ERROR. We
@@ -736,9 +739,15 @@ nsresult nsSocketTransport::Init(const nsTArray<nsCString>& types,
   if (dnsRecord) {
     mExternalDNSResolution = true;
     mDNSRecord = do_QueryInterface(dnsRecord);
-    mDNSRecord->IsTRR(&mResolvedByTRR);
-    mDNSRecord->GetEffectiveTRRMode(&mEffectiveTRRMode);
-    mDNSRecord->GetTrrSkipReason(&mTRRSkipReason);
+    bool resolvedByTRR;
+    mDNSRecord->IsTRR(&resolvedByTRR);
+    mResolvedByTRR = resolvedByTRR;
+    nsIRequest::TRRMode effectiveTRRMode;
+    mDNSRecord->GetEffectiveTRRMode(&effectiveTRRMode);
+    mEffectiveTRRMode = effectiveTRRMode;
+    nsITRRSkipReason::value trrSkipReason;
+    mDNSRecord->GetTrrSkipReason(&trrSkipReason);
+    mTRRSkipReason = trrSkipReason;
   }
 
   // init socket type info
@@ -1604,6 +1613,15 @@ nsresult nsSocketTransport::InitiateSocket() {
     }
   }
 
+#if defined(MOZ_WIDGET_ANDROID)
+  // Android 17+ refuses connections to the local network unless the app holds
+  // ACCESS_LOCAL_NETWORK. Ask for it here, as the connection is made, rather
+  // than after a 30 second connect timeout.
+  if (mNetAddr.GetIpAddressSpace() == nsILoadInfo::IPAddressSpace::Private) {
+    RequestAndroidLocalNetworkPermission();
+  }
+#endif
+
   status = PR_Connect(fd, &prAddr, NS_SOCKET_CONNECT_TIMEOUT);
   PRErrorCode code = PR_GetError();
   if (status == PR_SUCCESS) {
@@ -1767,9 +1785,17 @@ bool nsSocketTransport::RecoverFromError() {
   // try next ip address only if past the resolver stage...
   if (mState == STATE_CONNECTING && mDNSRecord) {
     nsresult rv = mDNSRecord->GetNextAddr(SocketPort(), &mNetAddr);
-    mDNSRecord->IsTRR(&mResolvedByTRR);
-    mDNSRecord->GetEffectiveTRRMode(&mEffectiveTRRMode);
-    mDNSRecord->GetTrrSkipReason(&mTRRSkipReason);
+    {
+      bool resolvedByTRR;
+      mDNSRecord->IsTRR(&resolvedByTRR);
+      mResolvedByTRR = resolvedByTRR;
+      nsIRequest::TRRMode effectiveTRRMode;
+      mDNSRecord->GetEffectiveTRRMode(&effectiveTRRMode);
+      mEffectiveTRRMode = effectiveTRRMode;
+      nsITRRSkipReason::value trrSkipReason;
+      mDNSRecord->GetTrrSkipReason(&trrSkipReason);
+      mTRRSkipReason = trrSkipReason;
+    }
     if (NS_SUCCEEDED(rv)) {
       SOCKET_LOG(("  trying again with next ip address\n"));
       tryAgain = true;
@@ -2075,9 +2101,15 @@ void nsSocketTransport::OnSocketEvent(uint32_t type, nsresult status,
 
       if (mDNSRecord) {
         mDNSRecord->GetNextAddr(SocketPort(), &mNetAddr);
-        mDNSRecord->IsTRR(&mResolvedByTRR);
-        mDNSRecord->GetEffectiveTRRMode(&mEffectiveTRRMode);
-        mDNSRecord->GetTrrSkipReason(&mTRRSkipReason);
+        bool resolvedByTRR;
+        mDNSRecord->IsTRR(&resolvedByTRR);
+        mResolvedByTRR = resolvedByTRR;
+        nsIRequest::TRRMode effectiveTRRMode;
+        mDNSRecord->GetEffectiveTRRMode(&effectiveTRRMode);
+        mEffectiveTRRMode = effectiveTRRMode;
+        nsITRRSkipReason::value trrSkipReason;
+        mDNSRecord->GetTrrSkipReason(&trrSkipReason);
+        mTRRSkipReason = trrSkipReason;
       }
       // status contains DNS lookup status
       if (NS_FAILED(status)) {
@@ -2161,6 +2193,17 @@ void nsSocketTransport::OnSocketReady(PRFileDesc* fd, int16_t outFlags) {
   if (outFlags == -1) {
     SOCKET_LOG(("socket timeout expired\n"));
     mCondition = NS_ERROR_NET_TIMEOUT;
+#if defined(MOZ_WIDGET_ANDROID)
+    // A TCP connect blocked by Android's Local Network Protection reaches
+    // us as a plain timeout, with no distinguishing errno, so we must ask
+    // the OS directly whether that's what happened. Only applies while
+    // still connecting -- a read/write timeout on an already-established
+    // socket can't be an LNP block. See bug 2053432.
+    if (mState == STATE_CONNECTING &&
+        IsConnectBlockedByAndroidLocalNetworkPermission(fd)) {
+      mCondition = NS_ERROR_OS_LOCAL_NETWORK_ACCESS_DENIED;
+    }
+#endif
     return;
   }
 
@@ -2240,6 +2283,15 @@ void nsSocketTransport::OnSocketReady(PRFileDesc* fd, int16_t outFlags) {
             !mProxyHost.IsEmpty()) {
           mCondition = NS_ERROR_PROXY_CONNECTION_REFUSED;
         }
+#if defined(MOZ_WIDGET_ANDROID)
+        // Defensive: per Android's docs a blocked TCP connect should only
+        // ever manifest as a timeout (handled above), but some OEMs/API
+        // levels may surface a synchronous failure instead. See bug
+        // 2053432.
+        else if (IsConnectBlockedByAndroidLocalNetworkPermission(fd)) {
+          mCondition = NS_ERROR_OS_LOCAL_NETWORK_ACCESS_DENIED;
+        }
+#endif
         SOCKET_LOG(("  connection failed! [reason=%" PRIx32 "]\n",
                     static_cast<uint32_t>(mCondition)));
       }
@@ -2819,9 +2871,15 @@ nsSocketTransport::OnLookupComplete(nsICancelable* request, nsIDNSRecord* rec,
   }
 
   if (nsCOMPtr<nsIDNSAddrRecord> addrRecord = do_QueryInterface(rec)) {
-    addrRecord->IsTRR(&mResolvedByTRR);
-    addrRecord->GetEffectiveTRRMode(&mEffectiveTRRMode);
-    addrRecord->GetTrrSkipReason(&mTRRSkipReason);
+    bool resolvedByTRR;
+    addrRecord->IsTRR(&resolvedByTRR);
+    mResolvedByTRR = resolvedByTRR;
+    nsIRequest::TRRMode effectiveTRRMode;
+    addrRecord->GetEffectiveTRRMode(&effectiveTRRMode);
+    mEffectiveTRRMode = effectiveTRRMode;
+    nsITRRSkipReason::value trrSkipReason;
+    addrRecord->GetTrrSkipReason(&trrSkipReason);
+    mTRRSkipReason = trrSkipReason;
   }
 
   // flag host lookup complete for the benefit of the ResolveHost method.
@@ -2902,12 +2960,6 @@ nsSocketTransport::SetConnectionFlags(uint32_t value) {
       ("nsSocketTransport::SetConnectionFlags %p flags=%u", this, value));
 
   mConnectionFlags = value;
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-nsSocketTransport::SetIsPrivate(bool aIsPrivate) {
-  mIsPrivate = aIsPrivate;
   return NS_OK;
 }
 
@@ -3118,8 +3170,9 @@ nsSocketTransport::SetKeepaliveVals(int32_t aIdleTime, int32_t aRetryInterval) {
 
 #ifdef ENABLE_SOCKET_TRACING
 
-#  include <stdio.h>
 #  include <ctype.h>
+#  include <stdio.h>
+
 #  include "prenv.h"
 
 static void DumpBytesToFile(const char* path, const char* header,

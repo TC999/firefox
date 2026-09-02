@@ -6,13 +6,13 @@
 #define nsBaseClipboard_h_
 
 #include "mozilla/Array.h"
-#include "mozilla/dom/PContent.h"
 #include "mozilla/Logging.h"
 #include "mozilla/MoveOnlyFunction.h"
 #include "mozilla/Result.h"
+#include "mozilla/dom/PContent.h"
+#include "nsCOMPtr.h"
 #include "nsIClipboard.h"
 #include "nsITransferable.h"
-#include "nsCOMPtr.h"
 
 extern mozilla::LazyLogModule gWidgetClipboardLog;
 #define MOZ_CLIPBOARD_LOG(...) \
@@ -53,6 +53,17 @@ class nsBaseClipboard : public nsIClipboard {
   NS_IMETHOD GetData(
       nsITransferable* aTransferable, ClipboardType aWhichClipboard,
       mozilla::dom::WindowContext* aWindowContext) override final;
+  NS_IMETHOD GetDataIfSmallerThan(
+      nsITransferable* aTransferable, uint64_t aThreshold,
+      ClipboardType aWhichClipboard,
+      mozilla::dom::WindowContext* aWindowContext, JSContext* aJSContext,
+      mozilla::dom::Promise** aPromise) override final;
+  // If the clipboard data could not be taken by threshold,
+  // returns NS_ERROR_CLIPBOARD_TOO_BIG.
+  NS_IMETHOD GetDataIfSmallerThanNative(
+      nsITransferable* aTransferable, uint64_t aThreshold,
+      ClipboardType aWhichClipboard,
+      mozilla::dom::WindowContext* aWindowContext) override final;
   NS_IMETHOD GetDataSnapshot(
       const nsTArray<nsCString>& aFlavorList, ClipboardType aWhichClipboard,
       mozilla::dom::WindowContext* aRequestingWindowContext,
@@ -78,6 +89,8 @@ class nsBaseClipboard : public nsIClipboard {
   using GetNativeDataCallback = mozilla::MoveOnlyFunction<void(
       mozilla::Result<nsCOMPtr<nsISupports>, nsresult>)>;
   using HasMatchingFlavorsCallback = mozilla::MoveOnlyFunction<void(
+      mozilla::Result<nsTArray<nsCString>, nsresult>)>;
+  using GetWebCustomFormatsCallback = mozilla::MoveOnlyFunction<void(
       mozilla::Result<nsTArray<nsCString>, nsresult>)>;
 
   mozilla::Maybe<uint64_t> GetClipboardCacheInnerWindowId(
@@ -106,7 +119,8 @@ class nsBaseClipboard : public nsIClipboard {
                                     ClipboardType aWhichClipboard) = 0;
   virtual mozilla::Result<nsCOMPtr<nsISupports>, nsresult>
   GetNativeClipboardData(const nsACString& aFlavor,
-                         ClipboardType aWhichClipboard) = 0;
+                         ClipboardType aWhichClipboard,
+                         uint64_t aThreshold = 0) = 0;
   virtual void AsyncGetNativeClipboardData(const nsACString& aFlavor,
                                            ClipboardType aWhichClipboard,
                                            GetNativeDataCallback&& aCallback);
@@ -118,7 +132,34 @@ class nsBaseClipboard : public nsIClipboard {
       const nsTArray<nsCString>& aFlavorList, ClipboardType aWhichClipboard,
       HasMatchingFlavorsCallback&& aCallback);
 
+  nsTArray<nsCString> GetWebCustomFormatsFromClipboard(
+      ClipboardType aWhichClipboard);
+
   void ClearClipboardCache(ClipboardType aClipboardType);
+
+  /**
+   *  This method is used to check if the passed in flavor is a valid flavor
+   *  for nsIClipboard.
+   *  @param aFlavor [in] the web custom format to be checked.
+   *  @return        false, if aFlavor is a invalid, otherwise, true.
+   *
+   *                 mimeType is a valid flavor.
+   *                 mimeType with parameters is a valid flavor.
+   *                 any string not a web custom format is a valid flavor.
+   *                 web custom format is a valid flavor.
+   *                 web custom format with parameters is not valid flavor.
+   *
+   *  example:  "text/plain" -> true             // mimeType
+   *            "text/plain;foo=1" -> true       // mimeType with parameters
+   *            "web text/plain" -> true         // A valid web custom format
+   *            "web " - false                   // Not a valid web custom
+   *                                                format
+   *            "web text/plain;foo=1" -> false  // A web custom format with
+   *                                             // parameters is invalid
+   *            "Not MimeType" -> true           // any string which is not web
+   *                                             // custom format
+   */
+  static bool IsValidFlavor(const nsACString& aFlavor);
 
  private:
   void RejectPendingAsyncSetDataRequestIfAny(ClipboardType aClipboardType);

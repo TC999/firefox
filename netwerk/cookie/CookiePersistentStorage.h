@@ -5,15 +5,15 @@
 #ifndef mozilla_net_CookiePersistentStorage_h
 #define mozilla_net_CookiePersistentStorage_h
 
+#include "Cookie.h"
 #include "CookieStorage.h"
-
-#include "mozilla/Atomics.h"
-#include "mozilla/Monitor.h"
-#include "mozilla/net/NeckoChannelParams.h"
 #include "mozIStorageBindingParamsArray.h"
 #include "mozIStorageCompletionCallback.h"
 #include "mozIStorageStatement.h"
 #include "mozIStorageStatementCallback.h"
+#include "mozilla/Atomics.h"
+#include "mozilla/Monitor.h"
+#include "mozilla/net/NeckoChannelParams.h"
 #include "nsIAsyncShutdown.h"
 
 class mozIStorageAsyncStatement;
@@ -89,7 +89,7 @@ class CookiePersistentStorage final : public CookieStorage,
                    Cookie* aCookie) override;
 
  private:
-  CookiePersistentStorage();
+  CookiePersistentStorage() = default;
   ~CookiePersistentStorage() = default;
 
   static void UpdateCookieInList(Cookie* aCookie, int64_t aLastAccessed,
@@ -135,7 +135,7 @@ class CookiePersistentStorage final : public CookieStorage,
   struct CookieDomainTuple {
     CookieKey key;
     OriginAttributes originAttributes;
-    UniquePtr<CookieStruct> cookie;
+    RefPtr<Cookie> cookie;
   };
 
   // thread
@@ -146,9 +146,9 @@ class CookiePersistentStorage final : public CookieStorage,
   // Synchronized by the same mMonitor + mInitialized pattern as mReadArray.
   nsTArray<CookieDomainTuple> mCleanupArray;
 
-  Monitor mMonitor MOZ_UNANNOTATED;
+  Monitor mMonitor MOZ_ANNOTATED{"CookiePersistentStorage"};
 
-  Atomic<bool> mInitialized;
+  Atomic<bool> mInitialized{false};
   Atomic<bool> mInitializedDBConn;
 
   nsCOMPtr<nsIFile> mCookieFile;
@@ -157,7 +157,7 @@ class CookiePersistentStorage final : public CookieStorage,
   nsCOMPtr<mozIStorageAsyncStatement> mStmtDelete;
   nsCOMPtr<mozIStorageAsyncStatement> mStmtUpdate;
 
-  CorruptFlag mCorruptFlag;
+  Atomic<CorruptFlag, Relaxed> mCorruptFlag{OK};
 
   // Various parts representing asynchronous read state. These are useful
   // while the background read is taking place.

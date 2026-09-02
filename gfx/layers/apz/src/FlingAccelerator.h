@@ -5,8 +5,8 @@
 #ifndef mozilla_layers_FlingAccelerator_h
 #define mozilla_layers_FlingAccelerator_h
 
-#include "mozilla/layers/SampleTime.h"
 #include "Units.h"
+#include "mozilla/layers/SampleTime.h"
 
 namespace mozilla {
 namespace layers {
@@ -19,7 +19,7 @@ struct FlingHandoffState;
  */
 class FlingAccelerator final {
  public:
-  FlingAccelerator() {}
+  FlingAccelerator() = default;
 
   // Resets state so that the next fling will not be accelerated.
   void Reset();

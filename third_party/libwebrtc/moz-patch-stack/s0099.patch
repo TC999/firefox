@@ -1,68 +1,25 @@
 From: Michael Froman <mfroman@mozilla.com>
-Date: Thu, 10 Oct 2024 13:42:00 +0000
-Subject: Bug 1921707 - libwebrtc preprocessor, .json, .gni, and *.gn changes
- r=ng,webrtc-reviewers
+Date: Tue, 19 Nov 2024 16:05:00 -0600
+Subject: Bug 1928110 - (fix-b9c4c242d4) handle upstream last_arrival_timestamp
+ to last_arrival_ntp_timestamp
 
-Differential Revision: https://phabricator.services.mozilla.com/D224076
-Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/7017edc7cfc880bb19f94115d4f48a8c58920a9b
+Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/6918cf2d9126fa3e3676386349f6e383c298d8ab
 ---
- .gn                           | 2 +-
- media/BUILD.gn                | 2 +-
- modules/video_coding/BUILD.gn | 2 +-
- webrtc.gni                    | 4 ++--
- 4 files changed, 5 insertions(+), 5 deletions(-)
+ modules/rtp_rtcp/source/rtcp_receiver.cc | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
 
-diff --git a/.gn b/.gn
-index 1e5613d230..750ba408af 100644
---- a/.gn
-+++ b/.gn
-@@ -18,7 +18,7 @@ script_executable = "python3"
- # The secondary source root is a parallel directory tree where
- # GN build files are placed when they can not be placed directly
- # in the source tree, e.g. for third party source trees.
--secondary_source = "//build/secondary/"
-+secondary_source = "//libwebrtc/"
+diff --git a/modules/rtp_rtcp/source/rtcp_receiver.cc b/modules/rtp_rtcp/source/rtcp_receiver.cc
+index 7a4aa9c35a..2675374f1b 100644
+--- a/modules/rtp_rtcp/source/rtcp_receiver.cc
++++ b/modules/rtp_rtcp/source/rtcp_receiver.cc
+@@ -326,8 +326,8 @@ void RTCPReceiver::RemoteRTCPSenderInfo(uint32_t* packet_count,
+   MutexLock lock(&rtcp_receiver_lock_);
+   *packet_count = remote_sender_.packets_sent;
+   *octet_count = remote_sender_.bytes_sent;
+-  *ntp_timestamp_ms = remote_sender_.last_arrival_timestamp.ToMs();
+-  *remote_ntp_timestamp_ms = remote_sender_.last_remote_timestamp.ToMs();
++  *ntp_timestamp_ms = remote_sender_.last_arrival_ntp_timestamp.ToMs();
++  *remote_ntp_timestamp_ms = remote_sender_.last_remote_ntp_timestamp.ToMs();
+ }
  
- # These are the targets to skip header checking by default. The files in targets
- # matching these patterns (see "gn help label_pattern" for format) will not have
-diff --git a/media/BUILD.gn b/media/BUILD.gn
-index 0308944e07..6c6bc9c109 100644
---- a/media/BUILD.gn
-+++ b/media/BUILD.gn
-@@ -7,7 +7,7 @@
- # be found in the AUTHORS file in the root of the source tree.
- 
- import("//build/config/linux/pkg_config.gni")
--import("//third_party/libaom/options.gni")
-+import("//libwebrtc/third_party/libaom/options.gni")
- import("../webrtc.gni")
- 
- group("media") {
-diff --git a/modules/video_coding/BUILD.gn b/modules/video_coding/BUILD.gn
-index 34ff20e3f5..0cd19e98f1 100644
---- a/modules/video_coding/BUILD.gn
-+++ b/modules/video_coding/BUILD.gn
-@@ -7,7 +7,7 @@
- # be found in the AUTHORS file in the root of the source tree.
- 
- import("//build/config/linux/pkg_config.gni")
--import("//third_party/libaom/options.gni")
-+import("//libwebrtc/third_party/libaom/options.gni")
- import("../../webrtc.gni")
- 
- rtc_library("encoded_frame") {
-diff --git a/webrtc.gni b/webrtc.gni
-index ff1c50163c..59e4083b17 100644
---- a/webrtc.gni
-+++ b/webrtc.gni
-@@ -486,8 +486,8 @@ all_poison_types = [
-   "default_neural_residual_echo_estimator",
- ]
- 
--absl_include_config = "//third_party/abseil-cpp:absl_include_config"
--absl_define_config = "//third_party/abseil-cpp:absl_define_config"
-+absl_include_config = "//libwebrtc/third_party/abseil-cpp:absl_include_config"
-+absl_define_config = "//libwebrtc/third_party/abseil-cpp:absl_define_config"
- 
- # Abseil Flags are testonly, so this config will only be applied to WebRTC targets
- # that are testonly.
+ std::vector<ReportBlockData> RTCPReceiver::GetLatestReportBlockData() const {

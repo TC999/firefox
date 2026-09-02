@@ -28,10 +28,7 @@
  */
 add_task(async function test_fail_closed_default() {
   await SpecialPowers.pushPrefEnv({
-    set: [
-      ["browser.smartwindow.enabled", true],
-      ["browser.ml.security.enabled", true],
-    ],
+    set: [["browser.smartwindow.enabled", true]],
   });
 
   const tab = await BrowserTestUtils.openNewForegroundTab(
@@ -59,8 +56,12 @@ add_task(async function test_fail_closed_default() {
 
       const elJS = el.wrappedJSObject || el;
 
-      elJS.role = "assistant";
-      el.setAttribute("role", "assistant");
+      // `role` reflects to the `data-message-role` attribute: the bare `role`
+      // attribute is the native ARIA role and collides with the reactive
+      // property, so it's set via the data-* attribute instead.
+      // TODO: rename the reactive property off `role` so callers can set it
+      // directly (`elJS.role = "assistant"`).
+      el.setAttribute("data-message-role", "assistant");
       elJS.messageId = "test-fail-closed";
       el.setAttribute("data-message-id", "test-fail-closed");
       elJS.message =
@@ -107,10 +108,7 @@ add_task(async function test_fail_closed_default() {
  */
 add_task(async function test_trusted_and_untrusted_links() {
   await SpecialPowers.pushPrefEnv({
-    set: [
-      ["browser.smartwindow.enabled", true],
-      ["browser.ml.security.enabled", true],
-    ],
+    set: [["browser.smartwindow.enabled", true]],
   });
 
   const tab = await BrowserTestUtils.openNewForegroundTab(
@@ -146,8 +144,9 @@ add_task(async function test_trusted_and_untrusted_links() {
 
         // Set seenUrls BEFORE message so it's available during first render
         elJS.seenUrls = Cu.cloneInto(new Set([seen]), content);
-        elJS.role = "assistant";
-        el.setAttribute("role", "assistant");
+        // See note above: drive `role` via `data-message-role` (ARIA role
+        // collision; TODO rename the reactive property off `role`).
+        el.setAttribute("data-message-role", "assistant");
         elJS.messageId = "test-trusted-untrusted";
         el.setAttribute("data-message-id", "test-trusted-untrusted");
         elJS.message = `Visit [Trusted](${seen}) or [Untrusted](${unseen}).`;
@@ -206,10 +205,7 @@ add_task(async function test_trusted_and_untrusted_links() {
  */
 add_task(async function test_trust_update_triggers_rerender() {
   await SpecialPowers.pushPrefEnv({
-    set: [
-      ["browser.smartwindow.enabled", true],
-      ["browser.ml.security.enabled", true],
-    ],
+    set: [["browser.smartwindow.enabled", true]],
   });
 
   const tab = await BrowserTestUtils.openNewForegroundTab(
@@ -240,8 +236,9 @@ add_task(async function test_trust_update_triggers_rerender() {
       const elJS = el.wrappedJSObject || el;
 
       // Initial render with empty seenUrls (default)
-      elJS.role = "assistant";
-      el.setAttribute("role", "assistant");
+      // See note above: drive `role` via `data-message-role` (ARIA role
+      // collision; TODO rename the reactive property off `role`).
+      el.setAttribute("data-message-role", "assistant");
       elJS.messageId = "test-trust-update";
       el.setAttribute("data-message-id", "test-trust-update");
       elJS.message = `Read this [Article](${url}).`;
@@ -311,10 +308,7 @@ add_task(async function test_trust_update_triggers_rerender() {
  */
 add_task(async function test_aiwindow_component_trust_smoke() {
   await SpecialPowers.pushPrefEnv({
-    set: [
-      ["browser.smartwindow.enabled", true],
-      ["browser.ml.security.enabled", true],
-    ],
+    set: [["browser.smartwindow.enabled", true]],
   });
 
   const restoreSignIn = skipSignIn();
@@ -347,7 +341,7 @@ add_task(async function test_aiwindow_component_trust_smoke() {
     });
 
     if (innerBC.currentURI.spec != "about:aichatcontent") {
-      await BrowserTestUtils.browserLoaded(innerBC, {
+      await BrowserTestUtils.browserLoaded(innerBC.embedderElement, {
         wantLoad: "about:aichatcontent",
       });
       innerBC = browser.browsingContext.children[0];
@@ -494,6 +488,43 @@ add_task(async function test_aiwindow_component_trust_smoke() {
       await BrowserTestUtils.closeWindow(win);
     }
     restoreSignIn();
+    await SpecialPowers.popPrefEnv();
+  }
+});
+
+/**
+ * Regression test: A malformed URL that causes URL.parse() to return null must
+ * not throw. Exercises the full flow from LLM response to rendered message.
+ */
+add_task(async function test_malformed_url_does_not_throw() {
+  await SpecialPowers.pushPrefEnv({
+    set: [["browser.smartwindow.enabled", true]],
+  });
+  const { restore } = await stubEngineNetworkBoundaries({
+    serverOptions: { streamChunks: ["Oops: [click](http://[unclosed)"] },
+  });
+  const restoreSignIn = skipSignIn();
+
+  let win;
+  try {
+    win = await openAIWindow();
+    const browser = win.gBrowser.selectedBrowser;
+
+    await typeInSmartbar(browser, "hello");
+    await submitSmartbar(browser);
+
+    // If #isSettingsURL throws on a null-parsed URL then getAssistantMessage()
+    // never completes and no assistant message appears.
+    await TestUtils.waitForCondition(async () => {
+      const messages = await getSidebarChatMessages(browser);
+      return messages.some(m => m.role === "assistant" && m.hasRendered);
+    }, "Assistant message should render without throwing for a malformed URL");
+  } finally {
+    if (win) {
+      await BrowserTestUtils.closeWindow(win);
+    }
+    restoreSignIn();
+    await restore();
     await SpecialPowers.popPrefEnv();
   }
 });

@@ -1904,7 +1904,7 @@ bool JSStructuredCloneWriter::traverseSavedFrame(HandleObject obj) {
     return false;
   }
 
-  context()->markAtom(savedFrame->getSource());
+  context()->recordRef(savedFrame->getSource());
   val = StringValue(savedFrame->getSource());
   if (!writePrimitive(val)) {
     return false;
@@ -1922,7 +1922,7 @@ bool JSStructuredCloneWriter::traverseSavedFrame(HandleObject obj) {
 
   auto name = savedFrame->getFunctionDisplayName();
   if (name) {
-    context()->markAtom(name);
+    context()->recordRef(name);
   }
   val = name ? StringValue(name) : NullValue();
   if (!writePrimitive(val)) {
@@ -1931,7 +1931,7 @@ bool JSStructuredCloneWriter::traverseSavedFrame(HandleObject obj) {
 
   auto cause = savedFrame->getAsyncCause();
   if (cause) {
-    context()->markAtom(cause);
+    context()->recordRef(cause);
   }
   val = cause ? StringValue(cause) : NullValue();
   if (!writePrimitive(val)) {
@@ -2371,11 +2371,6 @@ bool JSStructuredCloneWriter::transferOwnership() {
         return false;
       }
 
-      if (arrayBuffer->isPreparedForAsmJS()) {
-        reportDataCloneError(JS_SCERR_WASM_NO_TRANSFER);
-        return false;
-      }
-
       if (scope == JS::StructuredCloneScope::DifferentProcess ||
           scope == JS::StructuredCloneScope::DifferentProcessForIndexedDB ||
           arrayBuffer->isResizable()) {
@@ -2547,7 +2542,7 @@ bool JSStructuredCloneWriter::write(HandleValue v) {
 
         if (found) {
 #if FUZZING_JS_FUZZILLI
-          // supress calls into user code
+          // suppress calls into user code
           if (js::SupportDifferentialTesting()) {
             fprintf(stderr, "Differential testing: cannot call GetProperty\n");
             return false;
@@ -2693,8 +2688,11 @@ BigInt* JSStructuredCloneReader::readBigInt(uint32_t data) {
   if (!result) {
     return nullptr;
   }
-  if (!in.readArray(result->digits().data(), length)) {
-    return nullptr;
+  {
+    auto digits = result->unguardedDigits();
+    if (!in.readArray(digits.data(), length)) {
+      return nullptr;
+    }
   }
   return JS::BigInt::destructivelyTrimHighZeroDigits(context(), result);
 }
@@ -3017,6 +3015,10 @@ bool JSStructuredCloneReader::readSharedWasmMemory(uint32_t nbytes,
     return false;
   }
 
+  // Reserve a slot in allObjs for this WasmMemoryObject before reading the
+  // embedded SAB.  The writer calls startObject() on the memory first, so the
+  // memory occupies writer-index N while the SAB occupies N+1.  Mirroring that
+  // order here keeps back-reference indices consistent.
   uint32_t placeholderIndex = allObjs.length();
   if (!allObjs.append(UndefinedValue())) {
     return false;
@@ -3040,17 +3042,17 @@ bool JSStructuredCloneReader::readSharedWasmMemory(uint32_t nbytes,
     return false;
   }
   if (!payload.isObject() ||
-      !payload.toObject().is<SharedArrayBufferObject>() ||
-      payload.toObject().as<SharedArrayBufferObject>().isGrowable()) {
+      !payload.toObject().is<SharedArrayBufferObject>()) {
     JS_ReportErrorNumberASCII(context(), GetErrorMessage, nullptr,
                               JSMSG_SC_BAD_SERIALIZED_DATA,
                               "shared wasm memory must be backed by a "
-                              "non-growable SharedArrayBuffer");
+                              "SharedArrayBuffer");
     return false;
   }
 
-  Rooted<ArrayBufferObjectMaybeShared*> sab(
+  Rooted<SharedArrayBufferObject*> sab(
       cx, &payload.toObject().as<SharedArrayBufferObject>());
+  MOZ_RELEASE_ASSERT(sab->isWasm());
 
   // Construct the memory.
   RootedObject proto(
@@ -3187,7 +3189,7 @@ bool JSStructuredCloneReader::startReadUnchecked(
       if (!in.readDouble(&d)) {
         return false;
       }
-      vp.setDouble(CanonicalizeNaN(d));
+      vp.setDouble(d);
       if (!PrimitiveToObject(context(), vp)) {
         return false;
       }
@@ -3227,7 +3229,9 @@ bool JSStructuredCloneReader::startReadUnchecked(
     }
 
     case SCTAG_REGEXP_OBJECT: {
-      if ((data & RegExpFlag::AllFlags) != data) {
+      // Reject invalid flags. /u and /v are mutually exclusive.
+      if ((data & RegExpFlag::AllFlags) != data ||
+          ((data & RegExpFlag::Unicode) && (data & RegExpFlag::UnicodeSets))) {
         JS_ReportErrorNumberASCII(context(), GetErrorMessage, nullptr,
                                   JSMSG_SC_BAD_SERIALIZED_DATA, "regexp");
         return false;
@@ -3271,7 +3275,7 @@ bool JSStructuredCloneReader::startReadUnchecked(
         obj = NewDenseUnallocatedArray(
             context(), NativeEndian::swapFromLittleEndian(data), kind);
       } else {
-        obj = NewPlainObject(context(), kind);
+        obj = NewPlainObject(context(), {.newKind = kind});
       }
       if (!obj || !objs.append(ObjectValue(*obj))) {
         return false;
@@ -3402,7 +3406,7 @@ bool JSStructuredCloneReader::startReadUnchecked(
     default: {
       if (tag <= SCTAG_FLOAT_MAX) {
         double d = ReinterpretPairAsDouble(tag, data);
-        vp.setNumber(CanonicalizeNaN(d));
+        vp.setNumber(d);
         break;
       }
 
@@ -4050,8 +4054,8 @@ bool JSStructuredCloneReader::readObjectField(HandleObject obj,
   // corrupt or malicious data.
   if (id.isString() && obj->is<PlainObject>() &&
       MOZ_LIKELY(!obj->as<PlainObject>().contains(context(), id))) {
-    return AddDataPropertyToPlainObject(context(), obj.as<PlainObject>(), id,
-                                        val);
+    return AddDataPropertyToNativeObjectNoHooks(context(),
+                                                obj.as<PlainObject>(), id, val);
   }
 
   // Fast path for adding an array element. The index shouldn't exceed the
@@ -4325,6 +4329,7 @@ void JSAutoStructuredCloneBuffer::clear() {
   data_.discardTransferables();
   data_.ownTransferables_ = OwnTransferablePolicy::NoTransferables;
   data_.refsHeld_.releaseAll();
+  MOZ_ASSERT(data_.stringBufferRefsHeld_.isStorageConsistent());
   data_.stringBufferRefsHeld_.clear();
   data_.Clear();
   version_ = 0;
@@ -4452,8 +4457,8 @@ JS_PUBLIC_API bool JS_ReadTypedArray(JSStructuredCloneReader* r,
   return false;
 }
 
-JS_PUBLIC_API bool JS_WriteUint32Pair(JSStructuredCloneWriter* w, uint32_t tag,
-                                      uint32_t data) {
+JS_PUBLIC_API bool JS_WriteUint32PairUnchecked(JSStructuredCloneWriter* w,
+                                               uint32_t tag, uint32_t data) {
   return w->output().writePair(tag, data);
 }
 

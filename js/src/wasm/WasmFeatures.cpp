@@ -58,7 +58,7 @@ JS_FOR_WASM_FEATURES(WASM_FEATURE);
 #undef WASM_FEATURE
 
 #define WASM_FEATURE(NAME, LOWER_NAME, COMPILE_PRED, COMPILER_PRED, FLAG_PRED, \
-                     FLAG_FORCE_ON, FLAG_FUZZ_ON, PREF)                        \
+                     FLAG_FORCE_ON, PREF)                                      \
   static inline bool Wasm##NAME##Flag(JSContext* cx) {                         \
     if (!(COMPILE_PRED)) {                                                     \
       return false;                                                            \
@@ -164,9 +164,6 @@ bool wasm::IonAvailable(JSContext* cx) {
   bool isDisabled = false;
   MOZ_ALWAYS_TRUE(IonDisabledByFeatures(cx, &isDisabled));
   return !isDisabled;
-}
-bool wasm::WasmCompilerForAsmJSAvailable(JSContext* cx) {
-  return IonAvailable(cx);
 }
 
 template <size_t ArrayLength>

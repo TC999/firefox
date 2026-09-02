@@ -22,13 +22,18 @@ projects:
     - components:concept-ai-controls
     - components:concept-awesomebar
     - components:concept-base
+    - components:concept-bookmarks-file
+    - components:concept-bookmarks-parser
     - components:concept-engine
     - components:concept-fetch
     - components:concept-integrity
     - components:concept-llm
     - components:concept-menu
+    - components:concept-passwords-file
+    - components:concept-passwords-parser
     - components:concept-push
     - components:concept-storage
+    - components:concept-storage-bookmarks
     - components:concept-sync
     - components:concept-tabstray
     - components:concept-toolbar
@@ -37,15 +42,20 @@ projects:
     - components:feature-addons
     - components:feature-app-links
     - components:feature-autofill
+    - components:feature-automotive
     - components:feature-awesomebar
     - components:feature-contextmenu
     - components:feature-customtabs
     - components:feature-downloads
     - components:feature-findinpage
     - components:feature-fxsuggest
+    - components:feature-importer
     - components:feature-intent
+    - components:feature-ipprotection
+    - components:feature-listentopage
     - components:feature-logins
     - components:feature-media
+    - components:feature-password-importer
     - components:feature-privatemode
     - components:feature-prompts
     - components:feature-protection-dashboard
@@ -70,11 +80,15 @@ projects:
     - components:feature-webnotifications
     - components:lib-accelerometer-sensormanager
     - components:lib-ai-controls
+    - components:lib-bookmark-parser-jsoup
+    - components:lib-bookmarks-file
     - components:lib-crash
     - components:lib-crash-sentry
     - components:lib-dataprotect
     - components:lib-integrity-googleplay
     - components:lib-llm-mlpa
+    - components:lib-password-parser-csv
+    - components:lib-passwords-file
     - components:lib-publicsuffixlist
     - components:lib-push-firebase
     - components:lib-shake
@@ -103,13 +117,16 @@ projects:
     - components:support-test-libstate
     - components:support-utils
     - components:support-webextensions
+    - components:tooling-detekt
     - components:tooling-lint
+    - components:ui-animation
     - components:ui-autocomplete
     - components:ui-colors
     - components:ui-icons
     - components:ui-richtext
     - components:ui-tabcounter
     - components:ui-widgets
+    - mozilla-detekt-rules
 variants:
 - apks:
   - abi: arm64-v8a

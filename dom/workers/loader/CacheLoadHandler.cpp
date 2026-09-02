@@ -46,7 +46,8 @@ void CachePromiseHandler::ResolvedCallback(JSContext* aCx,
                                            JS::Handle<JS::Value> aValue,
                                            ErrorResult& aRv) {
   AssertIsOnMainThread();
-  if (mRequestHandle->IsEmpty()) {
+  // skip to schedule execution if it has been scheduled already.
+  if (mRequestHandle->mExecutionScheduled) {
     return;
   }
   WorkerLoadContext* loadContext = mRequestHandle->GetContext();
@@ -69,7 +70,8 @@ void CachePromiseHandler::RejectedCallback(JSContext* aCx,
                                            JS::Handle<JS::Value> aValue,
                                            ErrorResult& aRv) {
   AssertIsOnMainThread();
-  if (mRequestHandle->IsEmpty()) {
+  // skip to schedule execution if it has been scheduled already.
+  if (mRequestHandle->mExecutionScheduled) {
     return;
   }
   WorkerLoadContext* loadContext = mRequestHandle->GetContext();
@@ -84,7 +86,7 @@ void CachePromiseHandler::RejectedCallback(JSContext* aCx,
 
   // This will delete the cache object and will call LoadingFinished() with an
   // error for each ongoing operation.
-  auto* cacheCreator = mRequestHandle->GetCacheCreator();
+  RefPtr<CacheCreator> cacheCreator = mRequestHandle->GetCacheCreator();
   if (cacheCreator) {
     cacheCreator->DeleteCache(NS_ERROR_FAILURE);
   }
@@ -261,6 +263,11 @@ void CacheLoadHandler::Fail(nsresult aRv) {
     mPump->Cancel(aRv);
     mPump = nullptr;
   }
+
+  if (mRequestHandle->mExecutionScheduled) {
+    return;
+  }
+
   if (mRequestHandle->IsEmpty()) {
     return;
   }
@@ -275,7 +282,20 @@ void CacheLoadHandler::Fail(nsresult aRv) {
 
   loadContext->mCachePromise = nullptr;
 
-  mRequestHandle->LoadingFinished(aRv);
+  if (loadContext->mLoadingFinished) {
+    loadContext->mLoadResult = aRv;
+    mRequestHandle->MaybeExecuteFinishedScripts();
+  } else {
+    if (loadContext->mChannel) {
+      nsresult rv = loadContext->mChannel->Cancel(aRv);
+      if (NS_SUCCEEDED(rv)) {
+        return;
+      }
+
+      NS_WARNING("Failed to cancel channel!");
+    }
+    mRequestHandle->LoadingFinished(aRv);
+  }
 }
 
 void CacheLoadHandler::Load(Cache* aCache) {
@@ -300,7 +320,7 @@ void CacheLoadHandler::Load(Cache* aCache) {
   }
 
   mozilla::dom::RequestOrUTF8String request;
-  request.SetAsUTF8String().ShareOrDependUpon(loadContext->mFullURL);
+  request.SetAsUTF8String() = loadContext->mFullURL;
 
   mozilla::dom::CacheQueryOptions params;
 
@@ -422,7 +442,7 @@ void CacheLoadHandler::ResolvedCallback(JSContext* aCx,
     loadContext->mCacheStatus = WorkerLoadContext::Cached;
 
     if (mRequestHandle->IsCancelled()) {
-      auto* cacheCreator = mRequestHandle->GetCacheCreator();
+      RefPtr<CacheCreator> cacheCreator = mRequestHandle->GetCacheCreator();
       if (cacheCreator) {
         cacheCreator->DeleteCache(mRequestHandle->GetCancelResult());
       }

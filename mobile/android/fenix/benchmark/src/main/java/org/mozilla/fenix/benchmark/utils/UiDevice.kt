@@ -47,22 +47,6 @@ fun UiDevice.completeOnboarding() {
 
     // Step 2: Set as default browser
     clickIfExistsWithResourceId("android:id/button2")
-
-    // Step3: Add Firefox Widget
-    clickIfExistsWithText("Not now")
-
-    // Step 4: Sync
-    clickIfExistsWithText("Not now")
-
-    // Step 5: Notifications
-    clickIfExistsWithText("Not now")
-
-    // Step 6: Notifications
-    clickIfExistsWithText("Turn on notifications")
-    clickIfExistsWithText("Allow")
-
-    // Stp 7: Address bar position
-    clickIfExistsWithText("Continue")
 }
 
 fun UiDevice.waitForHomepage() {
@@ -73,15 +57,17 @@ fun UiDevice.waitForHomepage() {
 
 fun UiDevice.clickIfExistsWithText(text: String) {
     findObject(UiSelector().text(text)).run {
-        waitForExists(WAITING_TIME_MS)
-        click()
+        if (waitForExists(WAITING_TIME_MS)) {
+            click()
+        }
     }
 }
 
 fun UiDevice.clickIfExistsWithResourceId(resourceId: String) {
     findObject(UiSelector().resourceId(resourceId)).run {
-        waitForExists(WAITING_TIME_MS)
-        click()
+        if (waitForExists(WAITING_TIME_MS)) {
+            click()
+        }
     }
 }
 

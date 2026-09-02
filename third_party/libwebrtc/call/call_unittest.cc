@@ -28,6 +28,7 @@
 #include "api/test/mock_audio_mixer.h"
 #include "api/test/mock_video_decoder_factory.h"
 #include "api/test/video/function_video_encoder_factory.h"
+#include "api/units/time_delta.h"
 #include "api/units/timestamp.h"
 #include "api/video/builtin_video_bitrate_allocator_factory.h"
 #include "api/video_codecs/sdp_video_format.h"
@@ -55,6 +56,7 @@
 #include "test/mock_audio_decoder_factory.h"
 #include "test/mock_transport.h"
 #include "test/run_loop.h"
+#include "test/time_controller/simulated_time_controller.h"
 #include "video/config/video_encoder_config.h"
 
 namespace webrtc {
@@ -81,7 +83,8 @@ struct CallHelper {
             : make_ref_counted<NiceMock<MockAudioProcessing>>();
     audio_state_config.audio_device_module =
         make_ref_counted<MockAudioDeviceModule>();
-    CallConfig config(CreateTestEnvironment({.event_log = &log_}));
+    CallConfig config = CallConfig::CreateSingleThreaded(
+        CreateTestEnvironment({.event_log = &log_}));
     config.audio_state = AudioState::Create(audio_state_config);
     call_ = Call::Create(std::move(config));
   }
@@ -135,7 +138,7 @@ TEST(CallTest, CreateDestroy_AudioReceiveStream) {
     config.rtcp_send_transport = &rtcp_send_transport;
     config.decoder_factory = make_ref_counted<MockAudioDecoderFactory>();
     AudioReceiveStreamInterface* stream =
-        call->CreateAudioReceiveStream(config);
+        call->CreateAudioReceiveStream(std::move(config));
     EXPECT_NE(stream, nullptr);
     call->DestroyAudioReceiveStream(stream);
   }
@@ -169,16 +172,17 @@ TEST(CallTest, CreateDestroy_AudioSendStreams) {
 TEST(CallTest, CreateDestroy_AudioReceiveStreams) {
   for (bool use_null_audio_processing : {false, true}) {
     CallHelper call(use_null_audio_processing);
-    AudioReceiveStreamInterface::Config config;
     MockTransport rtcp_send_transport;
-    config.rtcp_send_transport = &rtcp_send_transport;
-    config.decoder_factory = make_ref_counted<MockAudioDecoderFactory>();
+    auto decoder_factory = make_ref_counted<MockAudioDecoderFactory>();
     std::list<AudioReceiveStreamInterface*> streams;
     for (int i = 0; i < 2; ++i) {
       for (uint32_t ssrc = 0; ssrc < 1234567; ssrc += 34567) {
+        AudioReceiveStreamInterface::Config config;
+        config.rtcp_send_transport = &rtcp_send_transport;
+        config.decoder_factory = decoder_factory;
         config.rtp.remote_ssrc = ssrc;
         AudioReceiveStreamInterface* stream =
-            call->CreateAudioReceiveStream(config);
+            call->CreateAudioReceiveStream(std::move(config));
         EXPECT_NE(stream, nullptr);
         if (ssrc & 1) {
           streams.push_back(stream);
@@ -500,7 +504,7 @@ class CallRtcEventLogTest : public ::testing::Test {
     // Needed for DCHECKs.
     audio_config.rtcp_send_transport = &transport_;
     audio_config.decoder_factory = audio_decoder_factory_;
-    audio_stream_ = call_->CreateAudioReceiveStream(audio_config);
+    audio_stream_ = call_->CreateAudioReceiveStream(std::move(audio_config));
 
     // Video.
     VideoReceiveStreamInterface::Config video_config(&transport_);
@@ -510,7 +514,6 @@ class CallRtcEventLogTest : public ::testing::Test {
     video_config.decoders.emplace_back(SdpVideoFormat("VP8"),
                                        /*payload_type=*/96);
     video_config.decoder_factory = &video_decoder_factory_;
-    video_config.rtp.local_ssrc = kVideoSsrc + 1;
     video_config.renderer = &renderer_;
     video_stream_ = call_->CreateVideoReceiveStream(std::move(video_config));
 
@@ -613,6 +616,55 @@ TEST_F(CallRtcEventLogTest, LogsRtpPacketIncomingForVideoFlexfecPacket) {
   call_->Receiver()->DeliverRtpPacket(
       MediaType::VIDEO, flexfec_packet,
       un_demuxable_packet_handler_.AsStdFunction());
+}
+
+TEST(CallTest, HandlesAudioSyncGroupUpdate) {
+  // Set up a call with an audio stream and a video stream in the same sync
+  // group.
+  GlobalSimulatedTimeController time_controller(Timestamp::Seconds(1));
+  Environment env = CreateTestEnvironment({.time = &time_controller});
+
+  AudioState::Config audio_state_config;
+  audio_state_config.audio_mixer = make_ref_counted<MockAudioMixer>();
+  audio_state_config.audio_device_module =
+      make_ref_counted<MockAudioDeviceModule>();
+  CallConfig config = CallConfig::CreateSingleThreaded(env);
+  config.audio_state = AudioState::Create(audio_state_config);
+  std::unique_ptr<Call> call(Call::Create(std::move(config)));
+
+  AudioReceiveStreamInterface::Config audio_config;
+  MockTransport rtcp_send_transport;
+  audio_config.rtp.remote_ssrc = 42;
+  audio_config.rtcp_send_transport = &rtcp_send_transport;
+  audio_config.decoder_factory = make_ref_counted<MockAudioDecoderFactory>();
+  audio_config.sync_group = "group1";
+  AudioReceiveStreamInterface* audio_stream =
+      call->CreateAudioReceiveStream(std::move(audio_config));
+  ASSERT_NE(audio_stream, nullptr);
+
+  MockTransport video_rtcp_transport;
+  test::FakeVideoRenderer video_renderer;
+  VideoReceiveStreamInterface::Config video_config(&video_rtcp_transport);
+  video_config.rtp.remote_ssrc = 43;
+  video_config.sync_group = "group1";
+  video_config.renderer = &video_renderer;
+  MockVideoDecoderFactory video_decoder_factory;
+  video_config.decoder_factory = &video_decoder_factory;
+  VideoReceiveStreamInterface::Decoder decoder;
+  decoder.payload_type = 96;
+  decoder.video_format = SdpVideoFormat("VP8");
+  video_config.decoders.push_back(decoder);
+  VideoReceiveStreamInterface* video_stream =
+      call->CreateVideoReceiveStream(std::move(video_config));
+  ASSERT_NE(video_stream, nullptr);
+
+  // Move the audio stream to a new sync group and then remove it.
+  call->OnUpdateSyncGroup(*audio_stream, "group2");
+  call->DestroyAudioReceiveStream(audio_stream);
+
+  // The video stream should not be affected.
+  time_controller.AdvanceTime(TimeDelta::Seconds(2));
+  call->DestroyVideoReceiveStream(video_stream);
 }
 
 }  // namespace webrtc

@@ -5,12 +5,12 @@
 #ifndef A11Y_AOM_ACCESSIBLENODE_H
 #define A11Y_AOM_ACCESSIBLENODE_H
 
-#include "nsTHashMap.h"
-#include "nsRefPtrHashtable.h"
-#include "nsWrapperCache.h"
 #include "mozilla/dom/BindingDeclarations.h"
 #include "mozilla/dom/DOMString.h"
 #include "mozilla/dom/Nullable.h"
+#include "nsRefPtrHashtable.h"
+#include "nsTHashMap.h"
+#include "nsWrapperCache.h"
 
 class nsINode;
 
@@ -98,6 +98,9 @@ class AccessibleNode : public nsISupports, public nsWrapperCache {
  public:
   explicit AccessibleNode(nsINode* aNode);
 
+  AccessibleNode(const AccessibleNode& aCopy) = delete;
+  AccessibleNode& operator=(const AccessibleNode& aCopy) = delete;
+
   NS_DECL_CYCLE_COLLECTING_ISUPPORTS;
   NS_DECL_CYCLE_COLLECTION_WRAPPERCACHE_CLASS(AccessibleNode);
 
@@ -133,8 +136,6 @@ class AccessibleNode : public nsISupports, public nsWrapperCache {
   ANODE_RELATION_PROPS(ActiveDescendant, Details, ErrorMessage)
 
  protected:
-  AccessibleNode(const AccessibleNode& aCopy) = delete;
-  AccessibleNode& operator=(const AccessibleNode& aCopy) = delete;
   virtual ~AccessibleNode();
 
   void GetProperty(AOMStringProperty aProperty, nsAString& aRetval) {

@@ -4,16 +4,24 @@
 
 package mozilla.components.concept.engine.ipprotection
 
+import mozilla.components.ExperimentalAndroidComponentsApi
 import mozilla.components.concept.engine.Engine
 
-/**
- * Engine-to-app callbacks for IP protection state changes. Passed to [Engine.registerIPProtectionDelegate].
- */
+/** Engine-to-app callbacks for IP protection state changes. Passed to [Engine.registerIPProtectionDelegate]. */
+@ExperimentalAndroidComponentsApi
 interface IPProtectionDelegate {
     /**
      * Called when the IP protection proxy state changes.
      *
      * @param info The current [IPProtectionHandler.StateInfo].
      */
-    fun onStateChanged(info: IPProtectionHandler.StateInfo) {}
+    fun onStateChanged(info: IPProtectionHandler.StateInfo)
+
+    /**
+     * Called when the list of available proxy countries changes, either in response to
+     * [IPProtectionHandler.updateCountryList] or by a server side push.
+     *
+     * @param countries The current list of available [IPProtectionHandler.Country] entries.
+     */
+    fun onCountryListChanged(countries: List<IPProtectionHandler.Country>) = Unit
 }

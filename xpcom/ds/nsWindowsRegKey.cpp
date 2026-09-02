@@ -2,11 +2,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include <windows.h>
-#include "nsCOMPtr.h"
 #include "nsWindowsRegKey.h"
+
+#include <windows.h>
+
 #include "mozilla/RefPtr.h"
 #include "mozilla/widget/WinRegistry.h"
+#include "nsCOMPtr.h"
 
 //-----------------------------------------------------------------------------
 
@@ -57,7 +59,7 @@ nsWindowsRegKey::OpenChild(const nsAString& aPath, uint32_t aMode,
     return NS_ERROR_NOT_INITIALIZED;
   }
 
-  RefPtr<nsWindowsRegKey> child = new nsWindowsRegKey();
+  RefPtr child = mozilla::MakeRefPtr<nsWindowsRegKey>();
   child->mKey = WinRegistry::Key(mKey, PromiseFlatString(aPath),
                                  WinRegistry::KeyMode(aMode));
   if (!child->mKey) {
@@ -74,7 +76,7 @@ nsWindowsRegKey::CreateChild(const nsAString& aPath, uint32_t aMode,
     return NS_ERROR_NOT_INITIALIZED;
   }
 
-  RefPtr<nsWindowsRegKey> child = new nsWindowsRegKey();
+  RefPtr child = mozilla::MakeRefPtr<nsWindowsRegKey>();
   child->mKey =
       WinRegistry::Key(mKey, PromiseFlatString(aPath),
                        WinRegistry::KeyMode(aMode), WinRegistry::Key::Create);
@@ -273,7 +275,7 @@ nsWindowsRegKey::WriteBinaryValue(const nsAString& aName,
 //-----------------------------------------------------------------------------
 
 void NS_NewWindowsRegKey(nsIWindowsRegKey** aResult) {
-  RefPtr<nsWindowsRegKey> key = new nsWindowsRegKey();
+  RefPtr key = mozilla::MakeRefPtr<nsWindowsRegKey>();
   key.forget(aResult);
 }
 

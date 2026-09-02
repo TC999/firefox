@@ -16,12 +16,10 @@ import {
 const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
-  UrlbarPrefs: "moz-src:///browser/components/urlbar/UrlbarPrefs.sys.mjs",
-  UrlbarResult: "moz-src:///browser/components/urlbar/UrlbarResult.sys.mjs",
+  UrlbarResult: "chrome://browser/content/urlbar/UrlbarResult.mjs",
   UrlbarSearchUtils:
     "moz-src:///browser/components/urlbar/UrlbarSearchUtils.sys.mjs",
-  UrlbarTokenizer:
-    "moz-src:///browser/components/urlbar/UrlbarTokenizer.sys.mjs",
+  UrlbarShared: "chrome://browser/content/urlbar/UrlbarShared.mjs",
   UrlUtils: "resource://gre/modules/UrlUtils.sys.mjs",
 });
 
@@ -34,10 +32,10 @@ export class UrlbarProviderHeuristicFallback extends UrlbarProvider {
   }
 
   /**
-   * @returns {Values<typeof UrlbarUtils.PROVIDER_TYPE>}
+   * @returns {Values<typeof lazy.UrlbarShared.PROVIDER_TYPE>}
    */
   get type() {
-    return UrlbarUtils.PROVIDER_TYPE.HEURISTIC;
+    return lazy.UrlbarShared.PROVIDER_TYPE.HEURISTIC;
   }
 
   /**
@@ -70,7 +68,7 @@ export class UrlbarProviderHeuristicFallback extends UrlbarProvider {
   async startQuery(queryContext, addCallback) {
     let instance = this.queryInstance;
 
-    if (queryContext.sapName != "searchbar") {
+    if (queryContext.navigationEnabled) {
       let result =
         UrlbarProviderHeuristicFallback.matchUnknownUrl(queryContext);
       if (result) {
@@ -81,7 +79,7 @@ export class UrlbarProviderHeuristicFallback extends UrlbarProvider {
         let str = queryContext.searchString;
         if (!URL.canParse(str)) {
           if (
-            lazy.UrlbarPrefs.get("keyword.enabled") &&
+            queryContext.keywordEnabled &&
             (lazy.UrlUtils.looksLikeOrigin(str, {
               noIp: true,
               noPort: true,
@@ -109,9 +107,8 @@ export class UrlbarProviderHeuristicFallback extends UrlbarProvider {
     }
 
     if (
-      queryContext.sapName == "searchbar" ||
-      lazy.UrlbarPrefs.get("keyword.enabled") ||
-      queryContext.restrictSource == UrlbarUtils.RESULT_SOURCE.SEARCH ||
+      queryContext.keywordEnabled ||
+      queryContext.restrictSource == lazy.UrlbarShared.RESULT_SOURCE.SEARCH ||
       queryContext.searchMode
     ) {
       result = await this._engineSearchResult({
@@ -133,8 +130,8 @@ export class UrlbarProviderHeuristicFallback extends UrlbarProvider {
     // URLs into URL results when search mode is active or a search mode
     // restriction token was typed.
     if (
-      queryContext.restrictSource == UrlbarUtils.RESULT_SOURCE.SEARCH ||
-      lazy.UrlbarTokenizer.SEARCH_MODE_RESTRICT.has(
+      queryContext.restrictSource == lazy.UrlbarShared.RESULT_SOURCE.SEARCH ||
+      lazy.UrlbarShared.SEARCH_MODE_RESTRICT.has(
         queryContext.restrictToken?.value
       ) ||
       queryContext.searchMode
@@ -142,7 +139,7 @@ export class UrlbarProviderHeuristicFallback extends UrlbarProvider {
       return null;
     }
 
-    let unescapedSearchString = UrlbarUtils.unEscapeURIForUI(
+    let unescapedSearchString = lazy.UrlbarShared.unEscapeURIForUI(
       queryContext.searchString
     );
     let [prefix, suffix] = UrlbarUtils.stripURLPrefix(unescapedSearchString);
@@ -157,11 +154,11 @@ export class UrlbarProviderHeuristicFallback extends UrlbarProvider {
     if (queryContext.fixupError) {
       if (
         queryContext.fixupError == Cr.NS_ERROR_MALFORMED_URI &&
-        !lazy.UrlbarPrefs.get("keyword.enabled")
+        !queryContext.keywordEnabled
       ) {
         return new lazy.UrlbarResult({
-          type: UrlbarUtils.RESULT_TYPE.URL,
-          source: UrlbarUtils.RESULT_SOURCE.OTHER_LOCAL,
+          type: lazy.UrlbarShared.RESULT_TYPE.URL,
+          source: lazy.UrlbarShared.RESULT_SOURCE.OTHER_LOCAL,
           heuristic: true,
           payload: {
             title: searchUrl,
@@ -199,7 +196,7 @@ export class UrlbarProviderHeuristicFallback extends UrlbarProvider {
     // pass the pretty, unescaped URL as the result's title, since it is
     // displayed to the user.
     let escapedURL = uri.toString();
-    let displayURL = UrlbarUtils.prepareUrlForDisplay(uri, {
+    let displayURL = lazy.UrlbarShared.prepareUrlForDisplay(uri, {
       trimURL: false,
       // If the user didn't type a protocol, and we added one, don't show it,
       // as https-first may upgrade it, potentially breaking expectations.
@@ -222,8 +219,8 @@ export class UrlbarProviderHeuristicFallback extends UrlbarProvider {
     }
 
     return new lazy.UrlbarResult({
-      type: UrlbarUtils.RESULT_TYPE.URL,
-      source: UrlbarUtils.RESULT_SOURCE.OTHER_LOCAL,
+      type: lazy.UrlbarShared.RESULT_TYPE.URL,
+      source: lazy.UrlbarShared.RESULT_SOURCE.OTHER_LOCAL,
       heuristic: true,
       payload: {
         title: displayURL,
@@ -239,7 +236,7 @@ export class UrlbarProviderHeuristicFallback extends UrlbarProvider {
     }
 
     let firstToken = queryContext.tokens[0].value;
-    if (!lazy.UrlbarTokenizer.SEARCH_MODE_RESTRICT.has(firstToken)) {
+    if (!lazy.UrlbarShared.SEARCH_MODE_RESTRICT.has(firstToken)) {
       return null;
     }
 
@@ -269,7 +266,7 @@ export class UrlbarProviderHeuristicFallback extends UrlbarProvider {
       return null;
     }
 
-    if (queryContext.restrictSource == UrlbarUtils.RESULT_SOURCE.SEARCH) {
+    if (queryContext.restrictSource == lazy.UrlbarShared.RESULT_SOURCE.SEARCH) {
       return await this._engineSearchResult({
         queryContext,
         keyword: firstToken,
@@ -279,8 +276,8 @@ export class UrlbarProviderHeuristicFallback extends UrlbarProvider {
 
     query = query.trimStart();
     return new lazy.UrlbarResult({
-      type: UrlbarUtils.RESULT_TYPE.SEARCH,
-      source: UrlbarUtils.RESULT_SOURCE.OTHER_LOCAL,
+      type: lazy.UrlbarShared.RESULT_TYPE.SEARCH,
+      source: lazy.UrlbarShared.RESULT_SOURCE.OTHER_LOCAL,
       heuristic: true,
       payload: {
         query,
@@ -315,7 +312,7 @@ export class UrlbarProviderHeuristicFallback extends UrlbarProvider {
     let query = queryContext.searchString;
     if (
       queryContext.tokens[0] &&
-      queryContext.tokens[0].value === lazy.UrlbarTokenizer.RESTRICT.SEARCH
+      queryContext.tokens[0].value === lazy.UrlbarShared.RESTRICT_TOKENS.SEARCH
     ) {
       query = UrlbarUtils.substringAfter(
         query,
@@ -324,12 +321,12 @@ export class UrlbarProviderHeuristicFallback extends UrlbarProvider {
     }
 
     return new lazy.UrlbarResult({
-      type: UrlbarUtils.RESULT_TYPE.SEARCH,
-      source: UrlbarUtils.RESULT_SOURCE.SEARCH,
+      type: lazy.UrlbarShared.RESULT_TYPE.SEARCH,
+      source: lazy.UrlbarShared.RESULT_SOURCE.SEARCH,
       heuristic,
       payload: {
         engine: engine.name,
-        icon: UrlbarUtils.ICON.SEARCH_GLASS,
+        icon: lazy.UrlbarShared.ICON.SEARCH_GLASS,
         query,
         title: query,
         keyword,

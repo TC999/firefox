@@ -700,6 +700,7 @@ class MarkerSchema {
   // the marker and used in PayloadField. This type is the expected input type
   // to the marker data.
   enum class InputType {
+    Undefined,
     Uint64,
     Uint32,
     Uint8,
@@ -796,18 +797,25 @@ class MarkerSchema {
     // ----------------------------------------------------
     // Numeric types
 
-    // For time data that represents a duration of time.
-    // e.g. "Label: 5s, 5ms, 5μs"
+    // For time data that represents a duration of time in ms.
+    // Pick closest unit.
+    // e.g.
+    // Value | Label
+    // ------+------
+    // 5000  | "5s"
+    // 5     | "5ms"
+    // 0.005 | "5μs"
     Duration,
-    // Data that happened at a specific time, relative to the start of the
+    // Data that happened at a specific time in ms, relative to the start of the
     // profile. e.g. "Label: 15.5s, 20.5ms, 30.5μs"
     Time,
     // The following are alternatives to display a time only in a specific unit
-    // of time.
-    Seconds,       // "Label: 5s"
-    Milliseconds,  // "Label: 5ms"
-    Microseconds,  // "Label: 5μs"
-    Nanoseconds,   // "Label: 5ns"
+    // of time (even if it is not the closest).
+    // Value unit cannot be in ms for μs and ns.
+    Seconds,       // Value in ms: 500, Label: "0.5s"
+    Milliseconds,  // Value in ms: 5000, Label: "5000ms"
+    Microseconds,  // Value in μs: 5, Label: "5μs"
+    Nanoseconds,   // Value in ns: 5, Label: "5ns"
     // e.g. "Label: 5.55mb, 5 bytes, 312.5kb"
     Bytes,
     // This should be a value between 0 and 1.
@@ -821,6 +829,11 @@ class MarkerSchema {
     // Do not use it for time information.
     // "Label: 52.23, 0.0054, 123,456.78"
     Decimal,
+    // The hexadecimal should be used for integers that are more meaningful in
+    // base 16, like bit flags. Values wider than a 32-bit unsigned integer
+    // might get truncated on the frontend side.
+    // "Label: 0x1f, 0xdeadbeef"
+    Hexadecimal,
 
     // A flow is a u64 identifier that's unique across processes. All of
     // the markers with same flow id before a terminating flow id will be
@@ -873,12 +886,16 @@ class MarkerSchema {
   // This is one field of payload to be used for additional marker data.
   struct PayloadField {
     // Key identifying the marker.
-    const char* Key;
+    // Must be set.
+    const char* Key = nullptr;
     // Input type, this represents the data type specified.
-    InputType InputTy;
+    // Must be set.
+    InputType InputTy = InputType::Undefined;
     // Label, additional description.
+    // Optional.
     const char* Label = nullptr;
     // Format as written to the JSON.
+    // Optional.
     Format Fmt = Format::String;
     // Optional PayloadFlags.
     PayloadFlags Flags = PayloadFlags::None;
@@ -1098,6 +1115,28 @@ struct StreamPayloadHelper<Flow, aFormat> {
   }
 };
 
+template <MarkerSchema::Format aFormat>
+struct StreamPayloadHelper<TimeDuration, aFormat> {
+  static void Stream(baseprofiler::SpliceableJSONWriter& aWriter,
+                     const Span<const char> aKey,
+                     const TimeDuration& aDuration) {
+    using MS = MarkerSchema;
+    static_assert(aFormat == MS::Format::Milliseconds ||
+                      aFormat == MS::Format::Duration ||
+                      aFormat == MS::Format::Seconds ||
+                      aFormat == MS::Format::Microseconds ||
+                      aFormat == MS::Format::Nanoseconds,
+                  "Wrong MarkerSchema::Format for TimeDuration");
+    if constexpr (aFormat == MS::Format::Microseconds) {
+      aWriter.DoubleProperty(aKey, aDuration.ToMicroseconds());
+    } else if constexpr (aFormat == MS::Format::Nanoseconds) {
+      aWriter.DoubleProperty(aKey, aDuration.ToMicroseconds() * 1000.0);
+    } else {
+      aWriter.DoubleProperty(aKey, aDuration.ToMilliseconds());
+    }
+  }
+};
+
 template <MarkerSchema::InputType IT>
 struct InputTypeToCpp;
 template <>
@@ -1163,6 +1202,22 @@ using PayloadFieldsTuple = decltype(PayloadFieldsTupleHelper<T>(
 
 }  // namespace detail
 
+// Check if T::PayloadFields exists and if it is not empty
+template <typename T, typename = void>
+struct MarkerHasPayloadFields : std::false_type {};
+template <typename T>
+struct MarkerHasPayloadFields<
+    T, std::void_t<decltype(T::PayloadFields),
+                   decltype(std::size(T::PayloadFields))>> : std::true_type {};
+
+// Check if T::TranslateMarkerInputToSchema exists
+template <typename T, typename = void>
+struct MarkerHasTranslator : std::false_type {};
+template <typename T>
+struct MarkerHasTranslator<
+    T, std::void_t<decltype(T::TranslateMarkerInputToSchema)>>
+    : std::true_type {};
+
 // This helper class is used by MarkerTypes that want to support the general
 // MarkerType object schema. When using this the markers will also transmit
 // their payload to the ETW tracer as well as requiring less inline code.
@@ -1193,25 +1248,31 @@ struct BaseMarkerType {
   static MarkerSchema MarkerTypeDisplay() {
     using MS = MarkerSchema;
     MS schema{T::Locations, std::size(T::Locations)};
-    if (T::AllLabels) {
+    if constexpr (T::AllLabels) {
       schema.SetAllLabels(T::AllLabels);
     }
-    if (T::ChartLabel) {
+    if constexpr (T::ChartLabel) {
       schema.SetChartLabel(T::ChartLabel);
     }
-    if (T::TableLabel) {
+    if constexpr (T::TableLabel) {
       schema.SetTableLabel(T::TableLabel);
     }
-    if (T::TooltipLabel) {
+    if constexpr (T::TooltipLabel) {
       schema.SetTooltipLabel(T::TooltipLabel);
     }
-    if (T::IsStackBased) {
+    if constexpr (T::IsStackBased) {
       schema.SetIsStackBased();
     }
-    if (T::ColorField) {
+    if constexpr (T::ColorField) {
       schema.SetColorField(T::ColorField);
     }
-    for (const MS::PayloadField field : T::PayloadFields) {
+    if constexpr (std::extent_v<decltype(T::PayloadFields)>) {
+      static_assert(
+          CheckPayloadFields(T::PayloadFields),
+          "PayloadField requires a non-null Key and an InputTy other than "
+          "Undefined");
+    }
+    for (const MS::PayloadField& field : T::PayloadFields) {
       if (field.Label) {
         schema.AddKeyLabelFormat(field.Key, field.Label, field.Fmt,
                                  field.Flags);
@@ -1219,7 +1280,7 @@ struct BaseMarkerType {
         schema.AddKeyFormat(field.Key, field.Fmt, field.Flags);
       }
     }
-    if (T::Description) {
+    if constexpr (T::Description) {
       schema.AddStaticLabelValue("Description", T::Description);
     }
     return schema;
@@ -1252,6 +1313,21 @@ struct BaseMarkerType {
     StreamJSONMarkerDataImplHelper(
         aWriter, std::index_sequence_for<PayloadArguments...>{},
         aPayloadArguments...);
+  }
+
+ private:
+  template <std::size_t N>
+  static constexpr bool CheckPayloadFields(
+      const MarkerSchema::PayloadField (&aPayloadFields)[N]) {
+    for (const auto& field : aPayloadFields) {
+      if (field.Key == nullptr) {
+        return false;
+      }
+      if (field.InputTy == MarkerSchema::InputType::Undefined) {
+        return false;
+      }
+    }
+    return true;
   }
 };
 }  // namespace mozilla

@@ -17,6 +17,7 @@
 
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
     <uses-permission android:name="android.permission.CAMERA" />
 
     <!-- This is needed because the android.permission.CAMERA above automatically
@@ -56,6 +57,10 @@
 
     <uses-permission android:name="${applicationId}.permission.PROFILER_INTERNAL" />
 
+    <!-- Needed to prompt the user directly for app uninstallation as part of an
+    'uninstall survey' experiment. This is ONLY used to uninstall the Firefox application -->
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" tools:node="replace" />
+
     <permission
         android:name="${applicationId}.permission.PROFILER_INTERNAL"
         android:protectionLevel="signature" />
@@ -69,6 +74,7 @@
         android:supportsRtl="true"
         android:theme="@style/NormalTheme"
         android:usesCleartextTraffic="true"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:enableOnBackInvokedCallback="@bool/enableOnBackInvokedCallback"
         tools:ignore="UnusedAttribute">
 
@@ -521,12 +527,16 @@
                 <data android:host="install_search_widget"/>
                 <data android:host="make_default_browser"/>
                 <data android:host="open"/>
+                <data android:host="privacy_report"/>
                 <data android:host="settings"/>
                 <data android:host="settings_accessibility"/>
                 <data android:host="settings_addon_manager"/>
+                <data android:host="settings_ai_controls"/>
                 <data android:host="settings_delete_browsing_data"/>
+                <data android:host="settings_ip_protection"/>
                 <data android:host="settings_logins"/>
                 <data android:host="settings_notifications"/>
+                <data android:host="settings_marketing_notifications"/>
                 <data android:host="settings_privacy"/>
                 <data android:host="settings_search_engine"/>
                 <data android:host="settings_tracking_protection"/>
@@ -536,6 +546,7 @@
                 <data android:host="urls_bookmarks"/>
                 <data android:host="urls_history"/>
                 <data android:host="settings_private_browsing"/>
+                <data android:host="protections_dashboard"/>
             </intent-filter>
         </activity>
 
@@ -655,8 +666,21 @@
             android:excludeFromRecents="true"
             />
 
+        <activity android:name=".widget.LensSearchActivity"
+            android:theme="@style/Theme.LensCamera"
+            android:taskAffinity=""
+            android:excludeFromRecents="true"
+            android:exported="false"
+            />
+
         <activity android:name="mozilla.components.feature.qr.QrScanActivity"
             android:theme="@style/Theme.AppCompat.Translucent"
+            android:exported="false"
+            android:taskAffinity=""
+            />
+
+        <activity android:name=".components.lens.LensCameraActivity"
+            android:theme="@style/Theme.LensCamera"
             android:exported="false"
             android:taskAffinity=""
             />
@@ -744,6 +768,10 @@
             </intent-filter>
         </receiver>
 
+        <receiver
+            android:name=".privacyreport.PrivacyReportNotificationReceiver"
+            android:exported="false" />
+
         <service
             android:name=".session.PrivateNotificationService"
             android:exported="false"
@@ -772,6 +800,16 @@
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Developer tool: Shows notification during performance profiling" />
         </service>
+
+        <provider
+            android:name=".components.LensFileProvider"
+            android:authorities="${applicationId}.lens.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_provider_paths" />
+        </provider>
 
         <provider
             android:name=".perf.ProfilerProvider"
@@ -846,6 +884,26 @@
             <intent-filter>
                 <action android:name="org.mozilla.fenix.ACTION_PRINT" />
             </intent-filter>
+        </receiver>
+
+        <receiver
+          android:name="org.mozilla.fenix.messaging.QAMessageNotificationWorkerReceiver"
+          android:exported="true"
+          android:enabled="true"
+          android:permission="android.permission.DUMP">
+          <intent-filter>
+            <action android:name="org.mozilla.fenix.TRIGGER_MESSAGE_WORKER" />
+          </intent-filter>
+        </receiver>
+
+        <receiver
+          android:name="org.mozilla.fenix.experiments.QANimbusToolingReceiver"
+          android:exported="true"
+          android:enabled="true"
+          android:permission="android.permission.DUMP">
+          <intent-filter>
+            <action android:name="org.mozilla.fenix.NIMBUS_TOOLING" />
+          </intent-filter>
         </receiver>
     </application>
 

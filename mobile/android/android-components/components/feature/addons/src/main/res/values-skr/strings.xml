@@ -67,6 +67,12 @@
   <string name="mozac_feature_addons_permissions_tabs_description_for_update">براؤزر ٹیبز تائیں رسائی حاصل کرو۔</string>
   <!-- Description for the "webNavigation" WebExtensions API permission for the update notification. Multiple permissions may be simply appended one after the other, and separated with a space, which is why the period is important. -->
   <string name="mozac_feature_addons_permissions_web_navigation_description_for_update">نیویگیشݨ دے دوران براوئزر دی سرگرمی تائیں رسائی۔</string>
+  <!-- Description for the "bookmarks" WebExtensions API permission for the update notification. Multiple permissions may be simply appended one after the other, and separated with a space, which is why the period is important. -->
+  <string name="mozac_feature_addons_permissions_bookmarks_description_for_update">نشانیاں پڑھو تے ترمیم کرو۔</string>
+  <!-- Description for the "browserSettings" WebExtensions API permission for the update notification. Multiple permissions may be simply appended one after the other, and separated with a space, which is why the period is important. -->
+  <string name="mozac_feature_addons_permissions_browser_settings_description_for_update">براؤزر ترتیباں پڑھو تے تبدیل کرو۔</string>
+  <!-- Description for the "browsingData" WebExtensions API permission for the update notification. Multiple permissions may be simply appended one after the other, and separated with a space, which is why the period is important. -->
+  <string name="mozac_feature_addons_permissions_browsing_data_description_for_update">حالیہ براؤزنگ تاریخ۔ کوکیاں تے متعلقہ ڈیٹا صاف کرو۔</string>
   <!-- Description for the "geolocation" WebExtensions API permission for the update notification. Multiple permissions may be simply appended one after the other, and separated with a space, which is why the period is important. -->
   <string name="mozac_feature_addons_permissions_geolocation_description_for_update">آپݨے مقام تائیں اپڑو۔</string>
   <!-- Short description for the bookmarksInfo data collection permission -->
@@ -167,8 +173,6 @@
   <string name="mozac_feature_addons_not_yet_supported_caption2">ایکسٹنشناساں فی الحال تجویز تھئے ایکسٹنشناں دے موہری انتخاب کیتے سہارا بݨیندے پئے ہیں۔</string>
   <!-- This is the caption for the extension installation progress overlay -->
   <string name="mozac_extension_install_progress_caption">اایکسٹنشن ڈاؤن لوڈ تے تصدیق کریندا پئے۔۔۔</string>
-  <!-- Error shown when something unexpected happened while trying to get the extension list from the server -->
-  <string name="mozac_feature_addons_failed_to_query_extensions">ایکسٹنشناں دریافت کرݨ وچ ناکام!</string>
   <!-- Error shown when unable to find a translation for an add-on field. %1$s is the locale of the user and %2$s is the default language of the add-on -->
   <string name="mozac_feature_addons_failed_to_translate">%1$s زبان کیتے تے نہ ہی پہلوں مقرر زبان %2$s کیتے ترجمہ لبھے</string>
   <!-- Text shown after successfully installed an add-on. %1$s is the add-on name. -->

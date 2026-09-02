@@ -27,6 +27,8 @@
 
 #![deny(missing_docs)]
 
+// Needed by macros that refer to `$crate::cssparser`.
+#[allow(clippy::single_component_path_imports)]
 pub(crate) use cssparser;
 
 #[macro_use]
@@ -115,6 +117,7 @@ pub mod thread_state;
 pub mod traversal;
 pub mod traversal_flags;
 pub mod typed_om;
+pub mod url;
 pub mod use_counters;
 
 #[macro_use]
@@ -158,6 +161,7 @@ pub type Namespace = crate::values::GenericAtomIdent<web_atoms::NamespaceStaticS
 pub type Prefix = crate::values::GenericAtomIdent<web_atoms::PrefixStaticSet>;
 
 pub use style_traits::arc_slice::ArcSlice;
+pub use style_traits::owned_array::OwnedArray;
 pub use style_traits::owned_slice::OwnedSlice;
 pub use style_traits::owned_str::OwnedStr;
 

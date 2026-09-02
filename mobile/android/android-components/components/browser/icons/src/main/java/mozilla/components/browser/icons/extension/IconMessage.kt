@@ -15,21 +15,22 @@ import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
 
-private val typeMap: Map<String, IconRequest.Resource.Type> = mutableMapOf(
-    "manifest" to IconRequest.Resource.Type.MANIFEST_ICON,
-    "icon" to IconRequest.Resource.Type.FAVICON,
-    "shortcut icon" to IconRequest.Resource.Type.FAVICON,
-    "fluid-icon" to IconRequest.Resource.Type.FLUID_ICON,
-    "apple-touch-icon" to IconRequest.Resource.Type.APPLE_TOUCH_ICON,
-    "image_src" to IconRequest.Resource.Type.IMAGE_SRC,
-    "apple-touch-icon image_src" to IconRequest.Resource.Type.APPLE_TOUCH_ICON,
-    "apple-touch-icon-precomposed" to IconRequest.Resource.Type.APPLE_TOUCH_ICON,
-    "og:image" to IconRequest.Resource.Type.OPENGRAPH,
-    "og:image:url" to IconRequest.Resource.Type.OPENGRAPH,
-    "og:image:secure_url" to IconRequest.Resource.Type.OPENGRAPH,
-    "twitter:image" to IconRequest.Resource.Type.TWITTER,
-    "msapplication-TileImage" to IconRequest.Resource.Type.MICROSOFT_TILE,
-)
+private val typeMap: Map<String, IconRequest.Resource.Type> =
+    mutableMapOf(
+        "manifest" to IconRequest.Resource.Type.MANIFEST_ICON,
+        "icon" to IconRequest.Resource.Type.FAVICON,
+        "shortcut icon" to IconRequest.Resource.Type.FAVICON,
+        "fluid-icon" to IconRequest.Resource.Type.FLUID_ICON,
+        "apple-touch-icon" to IconRequest.Resource.Type.APPLE_TOUCH_ICON,
+        "image_src" to IconRequest.Resource.Type.IMAGE_SRC,
+        "apple-touch-icon image_src" to IconRequest.Resource.Type.APPLE_TOUCH_ICON,
+        "apple-touch-icon-precomposed" to IconRequest.Resource.Type.APPLE_TOUCH_ICON,
+        "og:image" to IconRequest.Resource.Type.OPENGRAPH,
+        "og:image:url" to IconRequest.Resource.Type.OPENGRAPH,
+        "og:image:secure_url" to IconRequest.Resource.Type.OPENGRAPH,
+        "twitter:image" to IconRequest.Resource.Type.TWITTER,
+        "msapplication-TileImage" to IconRequest.Resource.Type.MICROSOFT_TILE,
+    )
 
 private fun Map<String, IconRequest.Resource.Type>.reverseLookup(type: IconRequest.Resource.Type): String {
     forEach { (value, currentType) ->
@@ -43,8 +44,8 @@ private fun Map<String, IconRequest.Resource.Type>.reverseLookup(type: IconReque
 
 internal fun List<IconRequest.Resource>.toJSON(): JSONArray {
     return mapNotNull { resource ->
-        if (resource.type == IconRequest.Resource.Type.TIPPY_TOP) {
-            // Ignore the URLs coming from the "tippy top" list.
+        if (resource.type == IconRequest.Resource.Type.MERINO_MANIFEST) {
+            // Ignore the URLs coming from the Merino manifest.
             return@mapNotNull null
         }
 
@@ -60,7 +61,8 @@ internal fun List<IconRequest.Resource>.toJSON(): JSONArray {
 
             put("maskable", resource.maskable)
         }
-    }.toJSONArray()
+    }
+        .toJSONArray()
 }
 
 internal fun JSONObject.toIconRequest(isPrivate: Boolean): IconRequest? {
@@ -75,9 +77,7 @@ internal fun JSONObject.toIconRequest(isPrivate: Boolean): IconRequest? {
 }
 
 internal fun JSONArray.toIconResources(): List<IconRequest.Resource> {
-    return asSequence { i -> getJSONObject(i) }
-        .mapNotNull { it.toIconResource() }
-        .toList()
+    return asSequence { i -> getJSONObject(i) }.mapNotNull { it.toIconResource() }.toList()
 }
 
 private fun JSONObject.toIconResource(): IconRequest.Resource? {
@@ -105,9 +105,7 @@ private fun JSONArray?.toResourceSizes(): List<Size> {
     val array = this ?: return emptyList()
 
     return try {
-        array.asSequence { i -> getString(i) }
-            .mapNotNull { raw -> Size.parse(raw) }
-            .toList()
+        array.asSequence { i -> getString(i) }.mapNotNull { raw -> Size.parse(raw) }.toList()
     } catch (e: JSONException) {
         Logger.warn("Could not parse message from icons extensions", e)
         emptyList()

@@ -11,14 +11,14 @@ import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.SwitchPreferenceCompat
 import org.mozilla.fenix.R
 import org.mozilla.fenix.e2e.SystemInsetsPaddedFragment
-import org.mozilla.fenix.ext.settings
+import org.mozilla.fenix.ext.components
 import org.mozilla.fenix.ext.showToolbar
 import org.mozilla.fenix.settings.SharedPreferenceUpdater
 import org.mozilla.fenix.settings.requirePreference
 
 /**
- * Settings screen allowing users to configure what browsing data to automatically delete when
- * choosing the Quit options in the main menu.
+ * Settings screen allowing users to configure what browsing data to automatically delete when choosing the Quit options
+ * in the main menu.
  */
 class DeleteBrowsingDataOnQuitFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment {
 
@@ -43,31 +43,31 @@ class DeleteBrowsingDataOnQuitFragment : PreferenceFragmentCompat(), SystemInset
         showToolbar(getString(R.string.preferences_delete_browsing_data_on_quit))
 
         // Delete Browsing Data on Quit Switch
-        val deleteOnQuitPref = requirePreference<SwitchPreferenceCompat>(
-            R.string.pref_key_delete_browsing_data_on_quit,
-        )
+        val deleteOnQuitPref = requirePreference<SwitchPreferenceCompat>(R.string.pref_key_delete_browsing_data_on_quit)
         deleteOnQuitPref.apply {
-            onPreferenceChangeListener = object : SharedPreferenceUpdater() {
+            onPreferenceChangeListener =
+                object : SharedPreferenceUpdater() {
+                    override fun onPreferenceChange(preference: Preference, newValue: Any?): Boolean {
+                        setAllCheckboxes(newValue as Boolean)
+                        return super.onPreferenceChange(preference, newValue)
+                    }
+                }
+            isChecked = context.components.settings.shouldDeleteBrowsingDataOnQuit
+        }
+
+        val checkboxUpdater =
+            object : SharedPreferenceUpdater() {
                 override fun onPreferenceChange(preference: Preference, newValue: Any?): Boolean {
-                    setAllCheckboxes(newValue as Boolean)
-                    return super.onPreferenceChange(preference, newValue)
+                    super.onPreferenceChange(preference, newValue)
+                    val settings = preference.context.components.settings
+
+                    if (!settings.shouldDeleteAnyDataOnQuit()) {
+                        deleteOnQuitPref.isChecked = false
+                        settings.shouldDeleteBrowsingDataOnQuit = false
+                    }
+                    return true
                 }
             }
-            isChecked = context.settings().shouldDeleteBrowsingDataOnQuit
-        }
-
-        val checkboxUpdater = object : SharedPreferenceUpdater() {
-            override fun onPreferenceChange(preference: Preference, newValue: Any?): Boolean {
-                super.onPreferenceChange(preference, newValue)
-                val settings = preference.context.settings()
-
-                if (!settings.shouldDeleteAnyDataOnQuit()) {
-                    deleteOnQuitPref.isChecked = false
-                    settings.shouldDeleteBrowsingDataOnQuit = false
-                }
-                return true
-            }
-        }
 
         checkboxes.forEach { (_, pref) ->
             pref.onPreferenceChangeListener = checkboxUpdater
@@ -77,7 +77,7 @@ class DeleteBrowsingDataOnQuitFragment : PreferenceFragmentCompat(), SystemInset
     private fun setAllCheckboxes(newValue: Boolean) {
         checkboxes.forEach { (type, pref) ->
             pref.isChecked = newValue
-            pref.context.settings().setDeleteDataOnQuit(type, newValue)
+            pref.context.components.settings.setDeleteDataOnQuit(type, newValue)
         }
     }
 }

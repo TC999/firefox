@@ -137,7 +137,7 @@ namespace testing {
 class [[nodiscard]] AssertionResult;
 #endif  // !SWIG
 
-class GTEST_API_ AssertionResult {
+class GTEST_API_ [[nodiscard]] AssertionResult {
  public:
   // Copy constructor.
   // Used in EXPECT_TRUE/FALSE(assertion_result).
@@ -161,8 +161,7 @@ class GTEST_API_ AssertionResult {
   template <typename T>
   explicit AssertionResult(
       const T& success,
-      typename std::enable_if<
-          !std::is_convertible<T, AssertionResult>::value>::type*
+      std::enable_if_t<!std::is_convertible_v<T, AssertionResult>>*
       /*enabler*/
       = nullptr)
       : success_(success) {}

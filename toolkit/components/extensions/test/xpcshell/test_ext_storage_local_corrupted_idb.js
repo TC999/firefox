@@ -63,12 +63,10 @@ add_setup(async () => {
 });
 
 add_task(async function test_idb_autoreset_default() {
-  // TODO(Bug 1992973): change the expected default behavior as part of enabling auto-reset
-  // corrupted storage.local IndexedDB databases on all channels.
   Assert.equal(
     ExtensionStorageLocalIDB.disabledAutoResetOnCorrupted,
-    true,
-    "Expect auto-reset on corrupted IDB storage to be disabled by default"
+    false,
+    "Expect auto-reset on corrupted IDB storage to be enabled by default"
   );
 });
 
@@ -475,11 +473,11 @@ add_task(async function test_corrupted_idb_key() {
     [
       {
         addon_id: extension.id,
-        reason: "RejectedClear:UnknownError",
+        reason: "RejectedClear:NotReadableError",
         is_addon_active: "true",
       },
     ],
-    "Got the expected telemetry event recorded when the UnknownError is being hit by storage.local.clear API calls"
+    "Got the expected telemetry event recorded when the NotReadableError is being hit by storage.local.clear API calls"
   );
 
   await extension.unload();

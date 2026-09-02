@@ -31,7 +31,7 @@
 
 namespace mozilla::dom {
 
-CharacterData::CharacterData(already_AddRefed<dom::NodeInfo>&& aNodeInfo)
+CharacterData::CharacterData(already_AddRefed<dom::NodeInfo> aNodeInfo)
     : nsIContent(std::move(aNodeInfo)) {
   MOZ_ASSERT(mNodeInfo->NodeType() == TEXT_NODE ||
                  mNodeInfo->NodeType() == CDATA_SECTION_NODE ||
@@ -377,8 +377,8 @@ nsresult CharacterData::BindToTree(BindContext& aContext, nsINode& aParent) {
   MOZ_ASSERT(!IsInComposedDoc(), "Already have a document.  Unbind first!");
   // Note that as we recurse into the kids, they'll have a non-null parent.  So
   // only assert if our parent is _changing_ while we have a parent.
-  MOZ_ASSERT(!GetParentNode() || &aParent == GetParentNode(),
-             "Already have a parent.  Unbind first!");
+  MOZ_DIAGNOSTIC_ASSERT(!GetParentNode() || &aParent == GetParentNode(),
+                        "Already have a different parent.  Unbind first!");
 
   const bool hadParent = !!GetParentNode();
 

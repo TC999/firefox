@@ -16,11 +16,11 @@
 #include "mozilla/Span.h"       // for mozilla::Span
 #include "mozilla/TextUtils.h"  // for mozilla::IsAscii and via Latin1.h for
                                 // encoding_rs_mem.h and MOZ_HAS_JSRUST.
-#include "mozilla/Types.h"      // for MFBT_API
+#include <limits.h>             // for CHAR_BIT
+#include <stddef.h>             // for size_t
+#include <stdint.h>             // for uint8_t
 
-#include <limits.h>  // for CHAR_BIT
-#include <stddef.h>  // for size_t
-#include <stdint.h>  // for uint8_t
+#include "mozilla/Types.h"  // for MFBT_API
 
 #if MOZ_HAS_JSRUST()
 #  include <limits>  // for std::numeric_limits
@@ -585,6 +585,32 @@ inline Maybe<char32_t> DecodeOneUtf8CodePoint(const Utf8Unit aLeadUnit,
                                               Iter* aIter,
                                               const EndIter& aEnd) {
   return DecodeOneUtf8CodePointInline(aLeadUnit, aIter, aEnd);
+}
+
+/**
+ * As above, but replacing invalid codepoints by replacement characters in the
+ * same way all Gecko string conversions do.
+ */
+template <typename Iter, typename EndIter>
+inline char32_t LossyDecodeOneUtf8CodePoint(const Utf8Unit aLeadUnit,
+                                            Iter* aIter, const EndIter& aEnd) {
+  return DecodeOneUtf8CodePointInline(
+             aLeadUnit, aIter, aEnd, [&] { (*aIter)++; },
+             [&](uint8_t aUnitsAvailable, uint8_t) {
+               // Not enough units: only the bytes that are actually
+               // continuation bytes belong to the subpart (the count isn't
+               // validated upfront).
+               uint8_t n = 1;
+               while (n < aUnitsAvailable &&
+                      IsTrailingUnit(Utf8Unit((*aIter)[n]))) {
+                 ++n;
+               }
+               (*aIter) += n;
+             },
+             [&](uint8_t aUnitsObserved) { (*aIter) += aUnitsObserved - 1; },
+             [&](char32_t, uint8_t) { (*aIter)++; },
+             [&](char32_t, uint8_t) { (*aIter)++; })
+      .valueOr(0xfffdu);
 }
 
 }  // namespace mozilla

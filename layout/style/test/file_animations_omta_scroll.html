@@ -91,7 +91,7 @@ function finish() {
   o.SimpleTest.finish();
 }
 
-function new_scroller() {
+async function new_scroller() {
   gScroller = document.createElement('div');
   gScroller.className = `scroller`;
 
@@ -100,6 +100,8 @@ function new_scroller() {
 
   gScroller.appendChild(content);
   document.getElementById("display").appendChild(gScroller);
+  await waitForPaintsFlushed();
+
   return gScroller;
 }
 
@@ -132,7 +134,7 @@ waitUntilApzStable().then(() => {
 // The non-omta property with scroll-timeline together with an omta property
 // with document-timeline.
 addAsyncAnimTest(async function() {
-  new_scroller();
+  await new_scroller();
   new_div("animation: geometry 10s, always_fifty 1s infinite; " +
           "animation-timeline: --scroll_timeline, auto");
   await waitForPaintsFlushed();
@@ -148,7 +150,7 @@ addAsyncAnimTest(async function() {
 
 // transform property with scroll-driven animations.
 addAsyncAnimTest(async function() {
-  let scroller = new_scroller();
+  let scroller = await new_scroller();
   new_div("animation: transform_anim 1s linear; " +
           "animation-timeline: --scroll_timeline;");
   await waitForPaintsFlushed();
@@ -168,7 +170,7 @@ addAsyncAnimTest(async function() {
 // The scroll-driven animation with an underlying value and make it go from the
 // active phase to the before phase.
 addAsyncAnimTest(async function() {
-  let scroller = new_scroller();
+  let scroller = await new_scroller();
   new_div("animation: always_fifty 5s linear 5s; " +
           "animation-timeline: --scroll_timeline; " +
           "transform: translate(25px);");
@@ -223,7 +225,7 @@ addAsyncAnimTest(async function() {
 // The scroll-driven animation without an underlying value and make it go from
 // the active phase to the before phase.
 addAsyncAnimTest(async function() {
-  let scroller = new_scroller();
+  let scroller = await new_scroller();
   new_div("animation: always_fifty 5s linear 5s; " +
           "animation-timeline: --scroll_timeline;");
   await waitForPaintsFlushed();
@@ -265,10 +267,55 @@ addAsyncAnimTest(async function() {
   done_scroller();
 });
 
+addAsyncAnimTest(async function no_base_style_crash() {
+  let scroller = await new_scroller();
+  new_div("animation: always_fifty linear; " +
+          "animation-timeline: --scroll_timeline; " +
+          "animation-range: 20% 80%;");
+  await waitForPaintsFlushed();
+
+  scroller.scrollTop = 75;
+  await waitForPaintsFlushed();
+
+  omta_is_approx("transform", { tx: 50 }, 0.1, RunningOn.Compositor,
+                 "scroll transform animations should runs on compositor " +
+                 "thread");
+
+  // Use setAsyncScrollOffset() to update apz (compositor thread only) so that
+  // it samples the before phase on the compositor with the main thread not
+  // having had a chance to do so.
+  let utils = SpecialPowers.wrap(window).windowUtils;
+  utils.setAsyncScrollOffset(scroller, 0, -75);
+
+  // We have no base style, so we keep the previously sampled value until the
+  // main thread catches up.
+  let compositorStr =
+    SpecialPowers.DOMWindowUtils.getOMTAStyle(gDiv, "transform");
+  is(compositorStr, "matrix(1, 0, 0, 1, 50, 0)",
+     `scroll animation without a base style out of animation ranges gets the ` +
+     `OMTA style "${compositorStr}"`);
+
+  utils.advanceTimeAndRefresh(16);
+  utils.restoreNormalRefresh();
+  await waitForPaints();
+
+  scroller.scrollTop = 0;
+  await waitForPaintsFlushed();
+
+  compositorStr = SpecialPowers.DOMWindowUtils.getOMTAStyle(gDiv, "transform");
+  is(compositorStr, "",
+     "scroll animation out of ranges clears its OMTA style");
+  omta_is_approx("transform", { tx: 0 }, 0.1, RunningOn.Either,
+                 "The scroll animation is out of animation ranges");
+
+  done_div();
+  done_scroller();
+});
+
 // The scroll-driven animation is in delay, together with other runing
 // animations.
 addAsyncAnimTest(async function() {
-  let scroller = new_scroller();
+  let scroller = await new_scroller();
   new_div("animation: transform_anim 10s linear -5s paused, " +
           "           always_fifty 5s linear 5s; " +
           "animation-timeline: auto, --scroll_timeline;");

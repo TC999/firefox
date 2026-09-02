@@ -573,7 +573,7 @@ add_task(async function test_reset_action() {
     "Should only have 1 tab remaining."
   );
 
-  await BrowserTestUtils.waitForCondition(
+  await TestUtils.waitForCondition(
     () =>
       win.gBrowser.selectedBrowser.currentURI.spec == "about:privatebrowsing"
   );
@@ -648,7 +648,7 @@ add_task(async function test_tab_close_warning_suppressed() {
     "Should only have 1 tab remaining."
   );
 
-  await BrowserTestUtils.waitForCondition(
+  await TestUtils.waitForCondition(
     () =>
       win.gBrowser.selectedBrowser.currentURI.spec == "about:privatebrowsing"
   );
@@ -797,7 +797,7 @@ add_task(async function test_reset_action_closes_pinned_and_selected_tabs() {
   await ResetPBMPanel._restartPBM(win);
 
   info("Wait for all tabs to be closed.");
-  await promisesTabsClosed;
+  await Promise.all(promisesTabsClosed);
 
   Assert.equal(
     win.gBrowser.tabs.length,
@@ -805,7 +805,7 @@ add_task(async function test_reset_action_closes_pinned_and_selected_tabs() {
     "Should only have 1 tab remaining."
   );
 
-  await BrowserTestUtils.waitForCondition(
+  await TestUtils.waitForCondition(
     () =>
       win.gBrowser.selectedBrowser.currentURI.spec == "about:privatebrowsing"
   );

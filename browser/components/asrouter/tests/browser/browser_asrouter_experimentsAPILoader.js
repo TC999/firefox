@@ -4,7 +4,7 @@ const { RemoteSettings } = ChromeUtils.importESModule(
 const { ASRouter } = ChromeUtils.importESModule(
   "resource:///modules/asrouter/ASRouter.sys.mjs"
 );
-const { EnrollmentType, ExperimentAPI } = ChromeUtils.importESModule(
+const { EnrollmentType } = ChromeUtils.importESModule(
   "resource://nimbus/ExperimentAPI.sys.mjs"
 );
 const { NimbusTestUtils } = ChromeUtils.importESModule(
@@ -24,69 +24,18 @@ const MESSAGE_CONTENT = {
   id: "xman_test_message",
   groups: [],
   content: {
-    text: "This is a test CFR",
-    addon: {
-      id: "954390",
-      icon: "chrome://activity-stream/content/data/content/assets/cfr_fb_container.png",
-      title: "Facebook Container",
-      users: "1455872",
-      author: "Mozilla",
-      rating: "4.5",
-      amo_url: "https://addons.mozilla.org/firefox/addon/facebook-container/",
-    },
-    buttons: {
-      primary: {
-        label: {
-          string_id: "cfr-doorhanger-extension-ok-button",
-        },
+    type: "tab",
+    text: "Welcome to the experiment",
+    buttons: [
+      {
+        label: "Primary CTA",
+        primary: true,
+        accessKey: "P",
         action: {
-          data: {
-            url: "about:blank",
-          },
-          type: "INSTALL_ADDON_FROM_URL",
+          type: "CANCEL",
         },
       },
-      secondary: [
-        {
-          label: {
-            string_id: "cfr-doorhanger-extension-cancel-button",
-          },
-          action: {
-            type: "CANCEL",
-          },
-        },
-        {
-          label: {
-            string_id: "cfr-doorhanger-extension-never-show-recommendation",
-          },
-        },
-        {
-          label: {
-            string_id: "cfr-doorhanger-extension-manage-settings-button",
-          },
-          action: {
-            data: {
-              origin: "CFR",
-              category: "general-cfraddons",
-            },
-            type: "OPEN_PREFERENCES_PAGE",
-          },
-        },
-      ],
-    },
-    category: "cfrAddons",
-    layout: "short_message",
-    bucket_id: "CFR_M1",
-    info_icon: {
-      label: {
-        string_id: "cfr-doorhanger-extension-sumo-link",
-      },
-      sumo_path: "extensionrecommendations",
-    },
-    heading_text: "Welcome to the experiment",
-    notification_text: {
-      string_id: "cfr-doorhanger-extension-notification2",
-    },
+    ],
   },
   trigger: {
     id: "openURL",
@@ -102,7 +51,7 @@ const MESSAGE_CONTENT = {
       "messenger.com",
     ],
   },
-  template: "cfr_doorhanger",
+  template: "infobar",
   frequency: {
     lifetime: 3,
   },
@@ -154,6 +103,11 @@ async function setup(experiment) {
 }
 
 async function cleanup() {
+  const box = gBrowser.getNotificationBox(gBrowser.selectedBrowser);
+  const node = box.getNotificationWithValue(MESSAGE_CONTENT.id);
+  if (node) {
+    box.removeNotification(node);
+  }
   await client.db.clear();
   await secureClient.db.clear();
   await SpecialPowers.popPrefEnv();
@@ -172,7 +126,7 @@ async function cleanup() {
  */
 async function assertMessageInState(id, found = true, wait = true) {
   if (wait) {
-    await BrowserTestUtils.waitForCondition(
+    await TestUtils.waitForCondition(
       () => !!ASRouter.state.messages.find(m => m.id === id) === found,
       `Message ${id} should ${found ? "" : "not"} be found in ASRouter state`
     );
@@ -191,7 +145,7 @@ add_task(async function test_loading_experimentsAPI() {
   await setup(experiment);
   // Fetch the new recipe from RS
   await ExperimentAPI._rsLoader.updateRecipes();
-  await BrowserTestUtils.waitForCondition(
+  await TestUtils.waitForCondition(
     () => NimbusFeatures.cfr.getEnrollmentMetadata(EnrollmentType.EXPERIMENT),
     "ExperimentAPI should return an experiment"
   );
@@ -209,7 +163,7 @@ add_task(async function test_loading_fxms_message_1_feature() {
   await setup(experiment);
   // Fetch the new recipe from RS
   await ExperimentAPI._rsLoader.updateRecipes();
-  await BrowserTestUtils.waitForCondition(
+  await TestUtils.waitForCondition(
     () =>
       NimbusFeatures["fxms-message-1"].getEnrollmentMetadata(
         EnrollmentType.EXPERIMENT
@@ -229,7 +183,7 @@ add_task(async function test_loading_experimentsAPI_rollout() {
 
   await setup(rollout);
   await ExperimentAPI._rsLoader.updateRecipes();
-  await BrowserTestUtils.waitForCondition(() =>
+  await TestUtils.waitForCondition(() =>
     NimbusFeatures.cfr.getEnrollmentMetadata("rollout")
   );
 
@@ -246,7 +200,7 @@ add_task(async function test_exposure_ping() {
   Services.telemetry.clearScalars();
   // Fetch the new recipe from RS
   await ExperimentAPI._rsLoader.updateRecipes();
-  await BrowserTestUtils.waitForCondition(
+  await TestUtils.waitForCondition(
     () => NimbusFeatures.cfr.getEnrollmentMetadata(EnrollmentType.EXPERIMENT),
     "ExperimentAPI should return an experiment"
   );
@@ -297,7 +251,7 @@ add_task(async function test_update_on_enrollments_changed() {
   await setup(experiment);
   await ExperimentAPI._rsLoader.updateRecipes();
 
-  await BrowserTestUtils.waitForCondition(
+  await TestUtils.waitForCondition(
     () => NimbusFeatures.cfr.getEnrollmentMetadata(EnrollmentType.EXPERIMENT),
     "ExperimentAPI should return an experiment"
   );
@@ -322,7 +276,7 @@ add_task(async function test_emptyMessage() {
 
   await setup(experiment);
   await ExperimentAPI._rsLoader.updateRecipes();
-  await BrowserTestUtils.waitForCondition(
+  await TestUtils.waitForCondition(
     () => NimbusFeatures.cfr.getEnrollmentMetadata(EnrollmentType.EXPERIMENT),
     "ExperimentAPI should return an experiment"
   );
@@ -373,7 +327,7 @@ add_task(async function test_multiMessageTreatment() {
 
   await setup(recipe);
   await ExperimentAPI._rsLoader.updateRecipes();
-  await BrowserTestUtils.waitForCondition(
+  await TestUtils.waitForCondition(
     () =>
       NimbusFeatures[featureId].getEnrollmentMetadata(
         EnrollmentType.EXPERIMENT
@@ -381,7 +335,7 @@ add_task(async function test_multiMessageTreatment() {
     "ExperimentAPI should return an experiment"
   );
 
-  await BrowserTestUtils.waitForCondition(
+  await TestUtils.waitForCondition(
     () =>
       messages
         .map(m => ASRouter.state.messages.find(n => n.id === m.id))

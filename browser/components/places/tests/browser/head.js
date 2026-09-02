@@ -94,20 +94,30 @@ function promiseClipboard(aPopulateClipboardFn, aFlavor) {
   });
 }
 
-function synthesizeClickOnSelectedTreeCell(aTree, aOptions) {
+async function synthesizeClickOnSelectedTreeCell(aTree, aOptions) {
   if (aTree.view.selection.count < 1) {
     throw new Error("The test node should be successfully selected");
   }
+  await TestUtils.waitForCondition(
+    () => aTree.getBoundingClientRect().width > 0,
+    "Tree should have non-zero width before clicking"
+  );
   // Get selection rowID.
   let min = {},
     max = {};
   aTree.view.selection.getRangeAt(0, min, max);
   let rowID = min.value;
   aTree.ensureRowIsVisible(rowID);
-  // Calculate the click coordinates.
-  var rect = aTree.getCoordsForCellItem(rowID, aTree.columns[0], "text");
-  var x = rect.x + rect.width / 2;
-  var y = rect.y + rect.height / 2;
+  // Calculate the click coordinates. getCoordsForCellItem returns the width the
+  // text would need rather than the space it actually gets, so for a cropped
+  // cell the rect can extend past the tree body (bug 1708159). Clamp it to the
+  // body's content box, which is what the rows are laid out in, or the midpoint
+  // we click lands outside the tree and hits an unrelated element.
+  let rect = aTree.getCoordsForCellItem(rowID, aTree.columns[0], "text");
+  let minX = aTree.body.clientLeft;
+  let maxX = minX + aTree.body.clientWidth;
+  let x = (Math.max(rect.x, minX) + Math.min(rect.x + rect.width, maxX)) / 2;
+  let y = rect.y + rect.height / 2;
   if (aTree.id == "bookmarks-view" || aTree.id == "historyTree") {
     // We are purposefully keeping the main <tree> element unlabeled, because in
     // this specific case, the on-screen label for either "Bookmarks" or
@@ -125,7 +135,7 @@ function synthesizeClickOnSelectedTreeCell(aTree, aOptions) {
     x,
     y,
     aOptions || {},
-    aTree.ownerGlobal
+    aTree.documentGlobal
   );
   AccessibilityUtils.resetEnv();
 }
@@ -444,6 +454,74 @@ function promisePopupHidden(popup) {
   });
 }
 
+/**
+ * Boilerplate code to ensure the bookmarks toolbar is visible and contains
+ * at least one bookmark.
+ */
+async function ensureBookmarksToolbarIsVisibleAndPopulated() {
+  await SpecialPowers.pushPrefEnv({
+    set: [["browser.toolbars.bookmarks.visibility", "always"]],
+  });
+
+  // Necessary to avoid intermittent failures in verify-fission where default
+  // bookmarks may or may not have been imported yet.
+  await promisePlacesInitComplete();
+  await PlacesUtils.bookmarks.eraseEverything();
+
+  // Avoid the empty toolbar placeholder shifting stuff around.
+  let bm = await PlacesUtils.bookmarks.insert({
+    parentGuid: PlacesUtils.bookmarks.toolbarGuid,
+    title: "initial",
+    url: "about:robots",
+  });
+
+  let toolbar = document.getElementById("PersonalToolbar");
+  let wasCollapsed = toolbar.collapsed;
+  if (wasCollapsed) {
+    await promiseSetToolbarVisibility(toolbar, true);
+    await BrowserTestUtils.waitForEvent(
+      toolbar,
+      "BookmarksToolbarVisibilityUpdated"
+    );
+  }
+
+  registerCleanupFunction(async () => {
+    if (wasCollapsed) {
+      await promiseSetToolbarVisibility(toolbar, false);
+    }
+    try {
+      await PlacesUtils.bookmarks.remove(bm);
+    } catch (ex) {
+      // The bookmark may have been removed already.
+    }
+  });
+
+  await waitForBookmarksToolbarElements(1);
+}
+
+/**
+ * Ensure N bookmarks are visible on the Bookmarks Toolbar.
+ *
+ * @param {integer} expectedCount The number of bookmarks to wait for.
+ * @returns {Promise} resolved when the condition is satisfied.
+ */
+function waitForBookmarksToolbarElements(expectedCount) {
+  let container = document.getElementById("PlacesToolbarItems");
+  if (container.childElementCount == expectedCount) {
+    return Promise.resolve();
+  }
+  return new Promise(resolve => {
+    info("Waiting for bookmarks");
+    let mut = new MutationObserver(() => {
+      if (container.childElementCount == expectedCount) {
+        resolve();
+        mut.disconnect();
+      }
+    });
+    mut.observe(container, { childList: true });
+  });
+}
+
 // Identify a bookmark node in the Bookmarks Toolbar by its guid.
 function getToolbarNodeForItemGuid(itemGuid, win = window) {
   let children = win.document.getElementById("PlacesToolbarItems").childNodes;
@@ -469,7 +547,7 @@ async function clickBookmarkStar(win = window) {
     menuList,
     { attributes: true },
     () => !!menuList.getAttribute("selectedGuid"),
-    "Should select the menu folder item"
+    { msg: "Should select the menu folder item" }
   );
 }
 
@@ -543,7 +621,7 @@ function setSearch(searchBox, query) {
     });
     searchBox.select();
     if (query) {
-      EventUtils.sendString(query, searchBox.ownerGlobal);
+      EventUtils.sendString(query, searchBox.documentGlobal);
     } else {
       searchBox.clear();
     }

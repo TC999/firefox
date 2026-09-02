@@ -185,8 +185,6 @@
   <string name="mozac_feature_addons_not_yet_supported_caption2">Emaomp o sevel peadra da gemer e kont skor un dibab a askouezhioù erbedet.</string>
   <!-- This is the caption for the extension installation progress overlay -->
   <string name="mozac_extension_install_progress_caption">O pellgargañ hag o wiriañ an askouezh…</string>
-  <!-- Error shown when something unexpected happened while trying to get the extension list from the server -->
-  <string name="mozac_feature_addons_failed_to_query_extensions">Ne cʼhaller ket kaout roll an enlugelladoù!</string>
   <!-- Error shown when unable to find a translation for an add-on field. %1$s is the locale of the user and %2$s is the default language of the add-on -->
   <string name="mozac_feature_addons_failed_to_translate">N’eo ket bet kavet an droidigezh, nag evit ar yezh %1$s nag evit ar yezh dre ziouer %2$s</string>
   <!-- Text shown after successfully installed an add-on. %1$s is the add-on name. -->
@@ -206,7 +204,7 @@
   <!-- Text shown when attempting to install an add-on and an error occurred because the extension was incompatible. %1$s is the add-on name, %2$s is the app name and %3$s is the app version. -->
   <string name="mozac_feature_addons_failed_to_install_incompatible_error">%1$s n’hall ket bezañ staliet rak ne glot ket gant %2$s %3$s.</string>
   <!-- Text shown when attempting to install a (hard) blocked add-on. %1$s is the add-on name. %2$s is the app name. -->
-  <string name="mozac_feature_addons_blocklisted_2">%1$s a za a-enep da bolitikerezh Mozilla ha n’hall ket bezañ staliet war %2$s.</string>
+  <string name="mozac_feature_addons_blocklisted_2" tools:ignore="BrandUsage">%1$s a za a-enep da bolitikerezh Mozilla ha n’hall ket bezañ staliet war %2$s.</string>
   <!-- Text shown when attempting to install an add-on that can only be install via Enterprise Policies, which is not supported on Android.  %1$s is the add-on name. -->
   <string name="mozac_feature_addons_admin_install_only">%1$s n’hall ket bezañ staliet rak n’hall bezañ staliet gant un aozadur a ra gant ar reolennoù embregerezh, ar pezh n’eo ket skoret war ar savenn-mañ.</string>
   <!-- Text shown after failed to enable an add-on. %1$s is the add-on name. -->
@@ -246,7 +244,7 @@
   <!-- "See details" link displayed below an add-on status message. -->
   <string name="mozac_feature_addons_status_see_details">Gwelet ar munudoù</string>
   <!-- Status message below an add-on in the add-ons manager when this add-on has been blocklisted. %1$s is the add-on name. -->
-  <string name="mozac_feature_addons_status_blocklisted_1">Stanket eo an adkouezh-mañ dre ma za a-enep da bolitikerezh Mozilla ha diweredekaet eo bet.</string>
+  <string name="mozac_feature_addons_status_blocklisted_1" tools:ignore="BrandUsage">Stanket eo an adkouezh-mañ dre ma za a-enep da bolitikerezh Mozilla ha diweredekaet eo bet.</string>
   <!-- Status message below an add-on in the add-ons manager when this add-on hasn't been signed correctly. %1$s is the add-on name. -->
   <string name="mozac_feature_addons_status_unsigned">N’haller ket gwiriekaat ma’z eo diogel %1$s ha diweredekaet eo bet.</string>
   <!-- Status message below an add-on in the add-ons manager when this add-on isn't compatible with the application version. %1$s is the add-on name, %2$s is the app name and %3$s is the app version. -->

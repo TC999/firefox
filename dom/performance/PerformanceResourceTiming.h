@@ -130,6 +130,10 @@ class PerformanceResourceTiming : public PerformanceEntry {
 
   IMPL_RESOURCE_TIMING_TAO_PROTECTED_TIMING_PROP(ResponseStart)
 
+  IMPL_RESOURCE_TIMING_TAO_PROTECTED_TIMING_PROP(FirstInterimResponseStart)
+
+  IMPL_RESOURCE_TIMING_TAO_PROTECTED_TIMING_PROP(FinalResponseHeadersStart)
+
   DOMHighResTimeStamp ResponseEnd() const {
     return mTimingData->ResponseEndHighRes(mPerformance);
   }
@@ -170,6 +174,13 @@ class PerformanceResourceTiming : public PerformanceEntry {
     return 0;
   }
 
+  void GetDeliveryType(nsAString& aDeliveryType) const {
+    aDeliveryType = mDeliveryType;
+  }
+  void SetDeliveryType(const nsAString& aDeliveryType) {
+    mDeliveryType = aDeliveryType;
+  }
+
   void GetContentType(nsAString& aContentType,
                       nsIPrincipal& aSubjectPrincipal) const {
     if (BodyInfoAccessAllowedForCaller(aSubjectPrincipal) ==
@@ -203,6 +214,7 @@ class PerformanceResourceTiming : public PerformanceEntry {
                                bool aEnsureSameOriginAndIgnoreTAO) const;
 
   nsString mInitiatorType;
+  nsString mDeliveryType;
   const UniquePtr<PerformanceTimingData> mTimingData;  // always non-null
   RefPtr<Performance> mPerformance;
 

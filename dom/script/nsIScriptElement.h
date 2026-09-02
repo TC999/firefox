@@ -122,6 +122,14 @@ class nsIScriptElement : public nsIScriptLoaderObserver {
   }
 
   /**
+   * Is the script a speculation rule set.
+   */
+  bool GetScriptIsSpeculationRules() {
+    MOZ_ASSERT(mFrozen, "Not ready for this call yet!");
+    return mKind == JS::loader::ScriptKind::eSpeculationRules;
+  }
+
+  /**
    * Is the script deferred.
    */
   bool GetScriptDeferred() {
@@ -216,7 +224,7 @@ class nsIScriptElement : public nsIScriptLoaderObserver {
    * @return whether a non-null aParser would be blocked while this script is
    *         being loaded.
    */
-  bool AttemptToExecute(nsCOMPtr<nsIParser> aParser);
+  MOZ_CAN_RUN_SCRIPT bool AttemptToExecute(nsCOMPtr<nsIParser> aParser);
 
   /**
    * Get the CORS mode of the script element
@@ -241,7 +249,7 @@ class nsIScriptElement : public nsIScriptLoaderObserver {
   /**
    * Fire an error event
    */
-  virtual nsresult FireErrorEvent() = 0;
+  MOZ_CAN_RUN_SCRIPT virtual nsresult FireErrorEvent() = 0;
 
   /**
    * This must be called on scripts with mIsTrusted set to false in
@@ -268,7 +276,8 @@ class nsIScriptElement : public nsIScriptLoaderObserver {
    * @return whether the parser will be blocked while this script is being
    *         loaded
    */
-  virtual bool MaybeProcessScript(nsCOMPtr<nsIParser> aParser) = 0;
+  MOZ_CAN_RUN_SCRIPT virtual bool MaybeProcessScript(
+      nsCOMPtr<nsIParser> aParser) = 0;
 
   /**
    * Since we've removed the XPCOM interface to HTML elements, we need a way to

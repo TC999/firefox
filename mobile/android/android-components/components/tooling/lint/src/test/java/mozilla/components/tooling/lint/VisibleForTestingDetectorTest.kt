@@ -18,43 +18,49 @@ class VisibleForTestingDetectorTest : LintDetectorTest() {
         return VisibleForTestingDetector()
     }
 
-    override fun getIssues(): List<Issue> = listOf(
-        VisibleForTestingDetector.ISSUE_VISIBLE_FOR_TESTING_ANNOTATION,
-    )
+    override fun getIssues(): List<Issue> = listOf(VisibleForTestingDetector.ISSUE_VISIBLE_FOR_TESTING_ANNOTATION)
 
-    private val androidXAnnotationStub = kotlin(
-        """
+    private val androidXAnnotationStub =
+        kotlin(
+            """
             package androidx.annotation
 
             @Target(AnnotationTarget.CLASS, AnnotationTarget.FUNCTION, AnnotationTarget.PROPERTY)
             @Retention(AnnotationRetention.RUNTIME)
             annotation class VisibleForTesting
-        """.trimIndent(),
-    )
+            """
+                .trimIndent()
+        )
 
-    private val jetBrainsAnnotationStub = kotlin(
-        """
+    private val jetBrainsAnnotationStub =
+        kotlin(
+            """
             package org.jetbrains.annotations
 
             @Target(AnnotationTarget.CLASS, AnnotationTarget.FUNCTION, AnnotationTarget.PROPERTY)
             @Retention(AnnotationRetention.RUNTIME)
             annotation class VisibleForTesting
-        """.trimIndent(),
-    )
+            """
+                .trimIndent()
+        )
 
-    private val randomAnnotationStub = kotlin(
-        """
-            package org.random.annotations
+    private val randomAnnotationStub =
+        kotlin(
+                """
+                package org.random.annotations
 
-            @Target(AnnotationTarget.CLASS, AnnotationTarget.FUNCTION, AnnotationTarget.PROPERTY)
-            @Retention(AnnotationRetention.RUNTIME)
-            annotation class VisibleForTesting
-        """.trimIndent(),
-    ).indented()
+                @Target(AnnotationTarget.CLASS, AnnotationTarget.FUNCTION, AnnotationTarget.PROPERTY)
+                @Retention(AnnotationRetention.RUNTIME)
+                annotation class VisibleForTesting
+                """
+                    .trimIndent()
+            )
+            .indented()
 
     @Test
     fun `test valid VisibleForTesting usage`() {
-        val validCode = """
+        val validCode =
+            """
             package mozilla.components.tooling.lint
 
             import androidx.annotation.VisibleForTesting
@@ -63,10 +69,10 @@ class VisibleForTestingDetectorTest : LintDetectorTest() {
                 @VisibleForTesting
                 fun myMethod() {}
             }
-        """.trimIndent()
+            """
+                .trimIndent()
 
         lint()
-            .allowMissingSdk()
             .files(
                 kotlin(validCode),
                 androidXAnnotationStub,
@@ -77,7 +83,8 @@ class VisibleForTestingDetectorTest : LintDetectorTest() {
 
     @Test
     fun `test invalid JetBrains VisibleForTesting usage`() {
-        val invalidCode = """
+        val invalidCode =
+            """
             package mozilla.components.tooling.lint
 
             import org.jetbrains.annotations.VisibleForTesting
@@ -86,10 +93,10 @@ class VisibleForTestingDetectorTest : LintDetectorTest() {
                 @VisibleForTesting
                 fun myMethod() {}
             }
-        """.trimIndent()
+            """
+                .trimIndent()
 
         lint()
-            .allowMissingSdk()
             .skipTestModes(TestMode.IMPORT_ALIAS)
             .files(
                 kotlin(invalidCode),
@@ -98,17 +105,19 @@ class VisibleForTestingDetectorTest : LintDetectorTest() {
             .run()
             .expect(
                 """
-src/mozilla/components/tooling/lint/MyClass.kt:3: Error: Invalid @VisibleForTesting annotation usage. Found org.jetbrains.annotations.VisibleForTesting. Please use androidx.annotation.VisibleForTesting instead. [VisibleForTestingAnnotation]
-import org.jetbrains.annotations.VisibleForTesting
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-1 errors, 0 warnings
-                """.trimIndent(),
+                src/mozilla/components/tooling/lint/MyClass.kt:3: Error: Invalid @VisibleForTesting annotation usage. Found org.jetbrains.annotations.VisibleForTesting. Please use androidx.annotation.VisibleForTesting instead. [VisibleForTestingAnnotation]
+                import org.jetbrains.annotations.VisibleForTesting
+                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+                1 errors, 0 warnings
+                """
+                    .trimIndent()
             )
     }
 
     @Test
     fun `test random other package VisibleForTesting usage`() {
-        val invalidCode = """
+        val invalidCode =
+            """
             package mozilla.components.tooling.lint
 
             import org.random.annotations.VisibleForTesting
@@ -117,10 +126,10 @@ import org.jetbrains.annotations.VisibleForTesting
                 @VisibleForTesting
                 fun myMethod() {}
             }
-        """.trimIndent()
+            """
+                .trimIndent()
 
         lint()
-            .allowMissingSdk()
             .skipTestModes(TestMode.IMPORT_ALIAS)
             .files(
                 kotlin(invalidCode),
@@ -129,11 +138,12 @@ import org.jetbrains.annotations.VisibleForTesting
             .run()
             .expect(
                 """
-src/mozilla/components/tooling/lint/MyClass.kt:3: Error: Invalid @VisibleForTesting annotation usage. Found org.random.annotations.VisibleForTesting. Please use androidx.annotation.VisibleForTesting instead. [VisibleForTestingAnnotation]
-import org.random.annotations.VisibleForTesting
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-1 errors, 0 warnings
-                """.trimIndent(),
+                src/mozilla/components/tooling/lint/MyClass.kt:3: Error: Invalid @VisibleForTesting annotation usage. Found org.random.annotations.VisibleForTesting. Please use androidx.annotation.VisibleForTesting instead. [VisibleForTestingAnnotation]
+                import org.random.annotations.VisibleForTesting
+                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+                1 errors, 0 warnings
+                """
+                    .trimIndent()
             )
     }
 }

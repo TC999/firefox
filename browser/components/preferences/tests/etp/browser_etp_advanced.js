@@ -9,12 +9,16 @@ const CAT_PREF = "browser.contentblocking.category";
 const BASELINE_PREF = "privacy.trackingprotection.allow_list.baseline.enabled";
 const CONVENIENCE_PREF =
   "privacy.trackingprotection.allow_list.convenience.enabled";
+const ALLOW_LIST_CATEGORY_MIGRATION_PREF =
+  "privacy.trackingprotection.allow_list.hasMigratedCategoryPrefs";
 const PERMISSIONS_DIALOG_URL =
   "chrome://browser/content/preferences/dialogs/permissions.xhtml";
 
 add_setup(async function () {
   await SpecialPowers.pushPrefEnv({
-    set: [["browser.settings-redesign.enabled", true]],
+    set: [
+      ["privacy.trackingprotection.allow_list.hasMigratedCategoryPrefs", true],
+    ],
   });
 });
 
@@ -101,7 +105,7 @@ add_task(async function test_etp_category_radios_and_customize_navigation() {
   synthesizeClick(customizeButton);
   await paneShown;
   is(
-    win.history.state,
+    win.gLastCategory?.category,
     "paneEtpCustomize",
     "Customize button navigated to the ETP custom pane"
   );
@@ -147,7 +151,7 @@ add_task(async function test_reload_tabs_message_bar() {
   await prefChange;
 
   info("Wait for message bar to become visible");
-  await BrowserTestUtils.waitForCondition(
+  await TestUtils.waitForCondition(
     () => BrowserTestUtils.isVisible(reloadTabsHint),
     "Waiting for reload tabs message bar to become visible"
   );
@@ -160,10 +164,23 @@ add_task(async function test_reload_tabs_message_bar() {
   let reloadButton = reloadTabsHint.querySelector("moz-button");
   ok(reloadButton, "Reload button exists in the message bar");
 
+  info("Click the message bar body (not the button) should not reload tabs");
+  // Disable a11y checks on the message bar click: we're deliberately verifying
+  // that this isn't interactive by clicking it and verifying no effect.
+  AccessibilityUtils.setEnv({ mustHaveAccessibleRule: false });
+  synthesizeClick(reloadTabsHint);
+  // Give any potential reload/hide logic a chance to run before checking.
+  await new Promise(resolve => requestAnimationFrame(resolve));
+  ok(
+    BrowserTestUtils.isVisible(reloadTabsHint),
+    "Reload tabs message bar remains visible after clicking its body"
+  );
+  AccessibilityUtils.resetEnv();
+
   info("Click reload button to hide the message bar");
   synthesizeClick(reloadButton);
 
-  await BrowserTestUtils.waitForCondition(
+  await TestUtils.waitForCondition(
     () => BrowserTestUtils.isHidden(reloadTabsHint),
     "Waiting for reload tabs message bar to become hidden"
   );

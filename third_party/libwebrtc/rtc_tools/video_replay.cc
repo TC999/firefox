@@ -28,6 +28,7 @@
 #include "api/field_trials.h"
 #include "api/field_trials_view.h"
 #include "api/media_types.h"
+#include "api/rtp_header_extension_id.h"
 #include "api/rtp_parameters.h"
 #include "api/task_queue/task_queue_base.h"
 #include "api/task_queue/task_queue_factory.h"
@@ -227,9 +228,8 @@ std::string ReadFileToString(const std::string& file_path) {
 }  // namespace
 
 namespace webrtc {
-namespace {
 
-const uint32_t kReceiverLocalSsrc = 0x123456;
+namespace {
 
 class NullRenderer : public VideoSinkInterface<VideoFrame> {
  public:
@@ -419,7 +419,6 @@ std::unique_ptr<StreamState> ConfigureFromFlags(
   VideoReceiveStreamInterface::Config receive_config(
       &(stream_state->transport));
   receive_config.rtp.remote_ssrc = absl::GetFlag(FLAGS_ssrc);
-  receive_config.rtp.local_ssrc = kReceiverLocalSsrc;
   receive_config.rtp.rtx_ssrc = absl::GetFlag(FLAGS_ssrc_rtx);
   receive_config.rtp.rtx_associated_payload_types[absl::GetFlag(
       FLAGS_media_payload_type_rtx)] = absl::GetFlag(FLAGS_media_payload_type);
@@ -529,7 +528,8 @@ class RtpReplayer final {
         "worker_thread", TaskQueueFactory::Priority::kNormal);
     Event event;
     worker_thread_->PostTask([&]() {
-      call_ = Call::Create(CallConfig(env_));
+      call_ = Call::Create(CallConfig::CreateWithJoinedWorkerAndNetworkQueue(
+          env_, worker_thread_.get()));
 
       // Creation of the streams must happen inside a task queue because it is
       // resued as a worker thread.
@@ -600,7 +600,8 @@ class RtpReplayer final {
       std::pair<std::string, std::string> ext = absl::StrSplit(extension, ':');
       if (auto it = kKnownExtensions.find(ext.first);
           it != kKnownExtensions.end()) {
-        res.RegisterByUri(std::stoi(ext.second), it->second);
+        res.RegisterByUri(RtpHeaderExtensionId(std::stoi(ext.second)),
+                          it->second);
       } else {
         RTC_DCHECK_NOTREACHED() << "Unknown extension \"" << ext.first << "\"";
       }
@@ -741,6 +742,7 @@ void RtpReplay() {
 }
 
 }  // namespace
+
 }  // namespace webrtc
 
 int main(int argc, char* argv[]) {

@@ -10,11 +10,11 @@
 #ifndef mozilla_image_IDecodingTask_h
 #define mozilla_image_IDecodingTask_h
 
+#include "SourceBuffer.h"
 #include "imgFrame.h"
 #include "mozilla/NotNull.h"
 #include "mozilla/RefPtr.h"
 #include "nsIEventTarget.h"
-#include "SourceBuffer.h"
 
 namespace mozilla {
 namespace image {
@@ -44,7 +44,7 @@ class IDecodingTask : public IResumable {
   void Resume() override;
 
  protected:
-  virtual ~IDecodingTask() {}
+  virtual ~IDecodingTask() = default;
 
   /// Notify @aImage of @aDecoder's progress.
   void NotifyProgress(NotNull<RasterImage*> aImage, NotNull<Decoder*> aDecoder);
@@ -75,7 +75,7 @@ class MetadataDecodingTask final : public IDecodingTask {
   TaskPriority Priority() const override { return TaskPriority::eHigh; }
 
  private:
-  virtual ~MetadataDecodingTask() {}
+  virtual ~MetadataDecodingTask() = default;
 
   /// Mutex protecting access to mDecoder.
   Mutex mMutex MOZ_UNANNOTATED;
@@ -101,7 +101,7 @@ class AnonymousDecodingTask : public IDecodingTask {
   void Resume() override;
 
  protected:
-  virtual ~AnonymousDecodingTask() {}
+  virtual ~AnonymousDecodingTask() = default;
 
   NotNull<RefPtr<Decoder>> mDecoder;
   bool mResumable;

@@ -126,6 +126,15 @@ export class ExtensionControlledPopup {
     if (lazy.distributionAddonsList.has(id)) {
       return true;
     }
+    // Without a preferencesLocation the only action we can offer is disabling
+    // the add-on, which enterprise policy may forbid.
+    if (
+      !this.preferencesLocation &&
+      Services.policies &&
+      !Services.policies.isAllowed(`disable-extension:${id}`)
+    ) {
+      return true;
+    }
     let setting = lazy.ExtensionSettingsStore.getSetting(
       this.confirmedType,
       id
@@ -342,7 +351,7 @@ export class ExtensionControlledPopup {
     }
     popupnotification.show();
     if (anchor?.id == "unified-extensions-button") {
-      const { gUnifiedExtensions } = anchor.ownerGlobal;
+      const { gUnifiedExtensions } = anchor.documentGlobal;
       gUnifiedExtensions.recordButtonTelemetry("extension_controlled_setting");
       gUnifiedExtensions.ensureButtonShownBeforeAttachingPanel(panel);
     }

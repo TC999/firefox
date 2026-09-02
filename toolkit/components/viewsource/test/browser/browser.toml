@@ -2,6 +2,7 @@
 support-files = [
   "head.js",
   "file_bug464222.html",
+  "file_bug2048851.html",
 ]
 
 ["browser_bug464222.js"]
@@ -14,6 +15,8 @@ skip-if = [
   "os == 'mac' && os_version == '15.30' && arch == 'aarch64'", # Bug 1775668
 ]
 
+["browser_bug2048851.js"]
+
 ["browser_contextmenu.js"]
 skip-if = [
   "os == 'mac' && os_version == '10.15' && arch == 'x86_64' && opt", # Bug 1713913 - new Fission platform triage
@@ -21,16 +24,15 @@ skip-if = [
   "os == 'mac' && os_version == '15.30' && arch == 'aarch64' && opt", # Bug 1713913 - new Fission platform triage
 ]
 
+["browser_contextmenu_error_pages.js"]
+
 ["browser_gotoline.js"]
 
 ["browser_open_docgroup.js"]
 
 ["browser_partialsource.js"]
-skip-if = [
-  "os == 'mac' && os_version == '10.15' && arch == 'x86_64' && opt", # Bug 1713913 - new Fission platform triage
-  "os == 'mac' && os_version == '14.70' && arch == 'x86_64' && opt", # Bug 1713913 - new Fission platform triage
-  "os == 'mac' && os_version == '15.30' && arch == 'aarch64' && opt", # Bug 1713913 - new Fission platform triage
-]
+
+["browser_partialsource_reload.js"]
 
 ["browser_srcdoc.js"]
 

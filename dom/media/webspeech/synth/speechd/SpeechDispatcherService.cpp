@@ -146,7 +146,7 @@ class SpeechDispatcherCallback final : public nsISpeechTaskCallback {
                            SpeechDispatcherService* aService)
       : mTask(aTask), mService(aService) {}
 
-  NS_DECL_CYCLE_COLLECTING_ISUPPORTS
+  NS_DECL_CYCLE_COLLECTING_ISUPPORTS_FINAL
   NS_DECL_CYCLE_COLLECTION_CLASS_AMBIGUOUS(SpeechDispatcherCallback,
                                            nsISpeechTaskCallback)
 
@@ -365,7 +365,7 @@ void SpeechDispatcherService::Setup() {
   spd_set_notification_on(mSpeechdClient, SPD_END);
   spd_set_notification_on(mSpeechdClient, SPD_CANCEL);
 
-  if (list != NULL) {
+  if (list != nullptr) {
     for (int i = 0; list[i]; i++) {
       nsAutoString uri;
 

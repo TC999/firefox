@@ -5,9 +5,11 @@
 package org.mozilla.fenix.home.topsites
 
 import android.content.res.Resources
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import java.io.ByteArrayInputStream
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.SerializationException
@@ -22,7 +24,6 @@ import org.junit.Before
 import org.junit.Test
 import org.mozilla.fenix.R
 import org.mozilla.fenix.utils.Settings
-import java.io.ByteArrayInputStream
 
 class DefaultTopSitesBindingTest {
 
@@ -43,9 +44,10 @@ class DefaultTopSitesBindingTest {
 
         browserStore = BrowserStore()
 
-        every { resources.openRawResource(R.raw.initial_shortcuts) } answers {
-            this.javaClass.classLoader!!.getResourceAsStream("raw/test_initial_shortcuts.json")!!
-        }
+        every { resources.openRawResource(R.raw.initial_shortcuts) } answers
+            {
+                this.javaClass.classLoader!!.getResourceAsStream("raw/test_initial_shortcuts.json")!!
+            }
 
         every { settings.showFirefoxJpGuideDefaultSite } returns true
     }
@@ -58,11 +60,9 @@ class DefaultTopSitesBindingTest {
             val binding = createBinding()
             binding.start()
 
-            browserStore.dispatch(
-                SearchAction.SetRegionAction(RegionState.Default),
-            )
+            browserStore.dispatch(SearchAction.SetRegionAction(RegionState.Default))
 
-            verify(exactly = 0) {
+            coVerify(exactly = 0) {
                 topSitesStorage.addTopSites(topSites = any(), isDefault = any())
                 settings.defaultTopSitesAdded = any()
             }
@@ -76,14 +76,12 @@ class DefaultTopSitesBindingTest {
             val binding = createBinding(isReleased = false)
             binding.start()
 
-            browserStore.dispatch(
-                SearchAction.SetRegionAction(RegionState.Default),
-            )
+            browserStore.dispatch(SearchAction.SetRegionAction(RegionState.Default))
 
             val topSites = binding.getTopSites(region = "XX")
             dispatcher.scheduler.advanceUntilIdle()
 
-            verify {
+            coVerify {
                 topSitesStorage.addTopSites(topSites = topSites, isDefault = true)
                 settings.defaultTopSitesAdded = true
             }
@@ -98,14 +96,12 @@ class DefaultTopSitesBindingTest {
             val binding = createBinding()
             binding.start()
 
-            browserStore.dispatch(
-                SearchAction.SetRegionAction(RegionState(home = region, current = region)),
-            )
+            browserStore.dispatch(SearchAction.SetRegionAction(RegionState(home = region, current = region)))
 
             val topSites = binding.getTopSites(region = region)
             dispatcher.scheduler.advanceUntilIdle()
 
-            verify {
+            coVerify {
                 topSitesStorage.addTopSites(topSites = topSites, isDefault = true)
                 settings.defaultTopSitesAdded = true
             }
@@ -120,11 +116,9 @@ class DefaultTopSitesBindingTest {
             val binding = createBinding()
             binding.start()
 
-            browserStore.dispatch(
-                SearchAction.SetRegionAction(RegionState(home = region, current = region)),
-            )
+            browserStore.dispatch(SearchAction.SetRegionAction(RegionState(home = region, current = region)))
 
-            verify(exactly = 0) {
+            coVerify(exactly = 0) {
                 topSitesStorage.addTopSites(topSites = any(), isDefault = any())
                 settings.defaultTopSitesAdded = any()
             }
@@ -221,9 +215,8 @@ class DefaultTopSitesBindingTest {
         runTest(dispatcher) {
             val malformedJson =
                 "{\"data\": [{\"url\": \"https://example.com\", \"title\": \"Valid\"}, {\"id\": \"invalid\"}]}"
-            every { resources.openRawResource(R.raw.initial_shortcuts) } returns ByteArrayInputStream(
-                malformedJson.toByteArray(),
-            )
+            every { resources.openRawResource(R.raw.initial_shortcuts) } returns
+                ByteArrayInputStream(malformedJson.toByteArray())
 
             val binding = createBinding()
             val topSites = binding.getTopSites(region = "XX")
@@ -233,7 +226,7 @@ class DefaultTopSitesBindingTest {
                 crashReporter.recordCrashBreadcrumb(any())
                 crashReporter.submitCaughtException(any<SerializationException>())
             }
-            verify(exactly = 0) {
+            coVerify(exactly = 0) {
                 topSitesStorage.addTopSites(topSites = any(), isDefault = any())
                 settings.defaultTopSitesAdded = any()
             }
@@ -243,9 +236,8 @@ class DefaultTopSitesBindingTest {
     fun `GIVEN malformed json WHEN getTopSites is called THEN return empty list and report crash for illegal argument`() =
         runTest(dispatcher) {
             val malformedJson = "this is not a valid json"
-            every { resources.openRawResource(R.raw.initial_shortcuts) } returns ByteArrayInputStream(
-                malformedJson.toByteArray(),
-            )
+            every { resources.openRawResource(R.raw.initial_shortcuts) } returns
+                ByteArrayInputStream(malformedJson.toByteArray())
 
             val binding = createBinding()
             val topSites = binding.getTopSites(region = "XX")
@@ -255,22 +247,21 @@ class DefaultTopSitesBindingTest {
                 crashReporter.recordCrashBreadcrumb(any())
                 crashReporter.submitCaughtException(any<SerializationException>())
             }
-            verify(exactly = 0) {
+            coVerify(exactly = 0) {
                 topSitesStorage.addTopSites(topSites = any(), isDefault = any())
                 settings.defaultTopSitesAdded = any()
             }
         }
 
-    private fun createBinding(
-        isReleased: Boolean = true,
-    ) = DefaultTopSitesBinding(
-        browserStore = browserStore,
-        topSitesStorage = topSitesStorage,
-        settings = settings,
-        resources = resources,
-        crashReporter = crashReporter,
-        isReleased = isReleased,
-        mainDispatcher = dispatcher,
-        ioDispatcher = dispatcher,
-    )
+    private fun createBinding(isReleased: Boolean = true) =
+        DefaultTopSitesBinding(
+            browserStore = browserStore,
+            topSitesStorage = topSitesStorage,
+            settings = settings,
+            resources = resources,
+            crashReporter = crashReporter,
+            isReleased = isReleased,
+            mainDispatcher = dispatcher,
+            ioDispatcher = dispatcher,
+        )
 }

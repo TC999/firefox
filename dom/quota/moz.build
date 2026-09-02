@@ -60,6 +60,10 @@ EXPORTS.mozilla.dom.quota += [
     "DirectoryMetadata.h",
     "DummyCipherStrategy.h",
     "EncryptedBlock.h",
+    "EncryptedRandomAccessBlock.h",
+    "EncryptedRandomAccessBlockView.h",
+    "EncryptedRandomAccessStream.h",
+    "EncryptedRandomAccessStream_impl.h",
     "EncryptingOutputStream.h",
     "EncryptingOutputStream_impl.h",
     "ErrorHandling.h",
@@ -75,6 +79,7 @@ EXPORTS.mozilla.dom.quota += [
     "NotifyUtils.h",
     "NotifyUtilsCommon.h",
     "NSSCipherStrategy.h",
+    "NSSRandomAccessCipherStrategy.h",
     "OpenClientDirectoryInfo.h",
     "OriginDirectoryLock.h",
     "OriginOperationCallbacks.h",
@@ -123,9 +128,12 @@ UNIFIED_SOURCES += [
     "ClientDirectoryLock.cpp",
     "ClientDirectoryLockHandle.cpp",
     "ClientUsageArray.cpp",
+    "CommonMetadata.cpp",
     "DecryptingInputStream.cpp",
     "DirectoryLockImpl.cpp",
     "DirectoryMetadata.cpp",
+    "DirtyTrackingAutoLock.cpp",
+    "EncryptedRandomAccessStream.cpp",
     "EncryptingOutputStream.cpp",
     "FileStreams.cpp",
     "FileUtils.cpp",
@@ -137,12 +145,14 @@ UNIFIED_SOURCES += [
     "NotifyUtilsCommon.cpp",
     "nsIndexedDBProtocolHandler.cpp",
     "NSSCipherStrategy.cpp",
+    "NSSRandomAccessCipherStrategy.cpp",
     "OpenClientDirectoryInfo.cpp",
     "OriginDirectoryLock.cpp",
     "OriginInfo.cpp",
     "OriginOperationBase.cpp",
     "OriginOperations.cpp",
     "OriginParser.cpp",
+    "OriginUpserter.cpp",
     "PersistenceScope.cpp",
     "PersistenceType.cpp",
     "PrincipalUtils.cpp",
@@ -180,7 +190,7 @@ IPDL_SOURCES += [
     "PRemoteQuotaObject.ipdl",
 ]
 
-EXTRA_JS_MODULES += [
+MOZ_SRC_FILES += [
     "QuotaUtilsService.sys.mjs",
 ]
 

@@ -22,6 +22,30 @@ export class GenericAutocompleteItem {
 }
 
 /**
+ * Adapts an external autocomplete descriptor for use in an autocomplete
+ * result. Specialized items retain their provider-specific representation;
+ * other descriptors are converted into GenericAutocompleteItem instances.
+ *
+ * @param {object} item
+ *   The external autocomplete item to adapt.
+ * @returns {object}
+ *   The adapted autocomplete item.
+ */
+export function adaptExternalAutocompleteItem(item) {
+  if (item.style == "smartFormFill") {
+    return item;
+  }
+
+  return new GenericAutocompleteItem(
+    item.image,
+    item.label,
+    item.secondary,
+    item.fillMessageName,
+    item.fillMessageData
+  );
+}
+
+/**
  * Show confirmation tooltip
  *
  * @param {object} browser - An object representing the browser.
@@ -36,6 +60,9 @@ export function showConfirmation(
   messageId,
   anchorId = "identity-icon-box"
 ) {
-  const anchor = browser.ownerDocument.getElementById(anchorId);
-  anchor.ownerGlobal.ConfirmationHint.show(anchor, messageId, {});
+  let anchor = browser.ownerDocument.getElementById(anchorId);
+  if (!anchor.checkVisibility()) {
+    anchor = browser.ownerDocument.getElementById("trust-icon-container");
+  }
+  anchor.documentGlobal.ConfirmationHint.show(anchor, messageId, {});
 }

@@ -4,21 +4,22 @@
 
 #include "UrlClassifierFeatureHarmfulAddonProtection.h"
 
+#include "ChannelClassifierService.h"
 #include "mozilla/AntiTrackingUtils.h"
+#include "mozilla/StaticPrefs_privacy.h"
+#include "mozilla/StaticPtr.h"
 #include "mozilla/extensions/WebExtensionPolicy.h"
 #include "mozilla/glean/GleanPings.h"
 #include "mozilla/glean/NetwerkMetrics.h"
+#include "mozilla/net/ChannelClassifierUtils.h"
 #include "mozilla/net/UrlClassifierCommon.h"
-#include "ChannelClassifierService.h"
-#include "mozilla/StaticPrefs_privacy.h"
-#include "nsNetUtil.h"
-#include "mozilla/StaticPtr.h"
 #include "nsIChannel.h"
 #include "nsIEffectiveTLDService.h"
 #include "nsIHttpChannelInternal.h"
 #include "nsIObserverService.h"
 #include "nsIWebProgressListener.h"
 #include "nsIWritablePropertyBag2.h"
+#include "nsNetUtil.h"
 
 namespace mozilla {
 namespace net {
@@ -300,7 +301,7 @@ UrlClassifierFeatureHarmfulAddonProtection::ProcessChannel(
   NS_ENSURE_ARG_POINTER(aChannel);
   NS_ENSURE_ARG_POINTER(aShouldContinue);
 
-  bool isAllowListed = UrlClassifierCommon::IsAllowListed(aChannel);
+  bool isAllowListed = ChannelClassifierUtils::IsAllowListed(aChannel);
 
   // This is a blocking feature.
   *aShouldContinue = isAllowListed;
@@ -338,8 +339,8 @@ UrlClassifierFeatureHarmfulAddonProtection::ProcessChannel(
     }
   }
 
-  UrlClassifierCommon::SetBlockedContent(aChannel, NS_ERROR_HARMFULADDON_URI,
-                                         list, ""_ns, ""_ns);
+  ChannelClassifierUtils::SetBlockedContent(aChannel, NS_ERROR_HARMFULADDON_URI,
+                                            list, ""_ns, ""_ns);
 
   UC_LOG(
       ("UrlClassifierFeatureHarmfulAddonProtection::ProcessChannel - "

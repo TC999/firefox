@@ -14,10 +14,15 @@
 
 #include "absl/meta/type_traits.h"
 
+#include <array>
 #include <cstdint>
+#include <functional>
 #include <string>
+#include <string_view>
+#include <tuple>
 #include <type_traits>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "gtest/gtest.h"
@@ -26,31 +31,33 @@
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 
-#ifdef ABSL_HAVE_STD_STRING_VIEW
-#include <string_view>
-#endif
-
 namespace {
 
 using ::testing::StaticAssertTypeEq;
 
 template <typename T>
-using IsOwnerAndNotView =
-    absl::conjunction<absl::type_traits_internal::IsOwner<T>,
-                      absl::negation<absl::type_traits_internal::IsView<T>>>;
+using IsViewAndNotOwner =
+    std::conjunction<absl::type_traits_internal::IsView<T>,
+                     std::negation<absl::type_traits_internal::IsOwner<T>>>;
 
+template <typename T>
+using IsOwnerAndNotView =
+    std::conjunction<absl::type_traits_internal::IsOwner<T>,
+                      std::negation<absl::type_traits_internal::IsView<T>>>;
+
+static_assert(
+    IsOwnerAndNotView<std::pair<std::vector<int>, std::string>>::value,
+    "pair of owners is an owner, not a view");
 static_assert(IsOwnerAndNotView<std::vector<int>>::value,
               "vector is an owner, not a view");
 static_assert(IsOwnerAndNotView<std::string>::value,
               "string is an owner, not a view");
 static_assert(IsOwnerAndNotView<std::wstring>::value,
               "wstring is an owner, not a view");
-#ifdef ABSL_HAVE_STD_STRING_VIEW
-static_assert(!IsOwnerAndNotView<std::string_view>::value,
+static_assert(IsViewAndNotOwner<std::string_view>::value,
               "string_view is a view, not an owner");
-static_assert(!IsOwnerAndNotView<std::wstring_view>::value,
+static_assert(IsViewAndNotOwner<std::wstring_view>::value,
               "wstring_view is a view, not an owner");
-#endif
 
 template <class T, class U>
 struct simple_pair {
@@ -71,14 +78,12 @@ struct StructB {};
 struct StructC {};
 
 struct TypeWithBarFunction {
-  template <class T,
-            absl::enable_if_t<std::is_same<T&&, StructA&>::value, int> = 0>
+  template <class T, std::enable_if_t<std::is_same_v<T&&, StructA&>, int> = 0>
   ReturnType bar(T&&, const StructB&, StructC&&) &&;  // NOLINT
 };
 
 struct TypeWithBarFunctionAndConvertibleReturnType {
-  template <class T,
-            absl::enable_if_t<std::is_same<T&&, StructA&>::value, int> = 0>
+  template <class T, std::enable_if_t<std::is_same_v<T&&, StructA&>, int> = 0>
   ConvertibleToReturnType bar(T&&, const StructB&, StructC&&) &&;  // NOLINT
 };
 
@@ -112,31 +117,40 @@ TEST(VoidTTest, BasicUsage) {
 }
 
 TEST(TypeTraitsTest, TestRemoveCVRef) {
+  EXPECT_TRUE((std::is_same_v<typename absl::remove_cvref<int>::type, int>));
+  EXPECT_TRUE((std::is_same_v<typename absl::remove_cvref<int&>::type, int>));
+  EXPECT_TRUE((std::is_same_v<typename absl::remove_cvref<int&&>::type, int>));
   EXPECT_TRUE(
-      (std::is_same<typename absl::remove_cvref<int>::type, int>::value));
-  EXPECT_TRUE(
-      (std::is_same<typename absl::remove_cvref<int&>::type, int>::value));
-  EXPECT_TRUE(
-      (std::is_same<typename absl::remove_cvref<int&&>::type, int>::value));
-  EXPECT_TRUE((
-      std::is_same<typename absl::remove_cvref<const int&>::type, int>::value));
-  EXPECT_TRUE(
-      (std::is_same<typename absl::remove_cvref<int*>::type, int*>::value));
+      (std::is_same_v<typename absl::remove_cvref<const int&>::type, int>));
+  EXPECT_TRUE((std::is_same_v<typename absl::remove_cvref<int*>::type, int*>));
   // Does not remove const in this case.
-  EXPECT_TRUE((std::is_same<typename absl::remove_cvref<const int*>::type,
-                            const int*>::value));
+  EXPECT_TRUE((std::is_same_v<typename absl::remove_cvref<const int*>::type,
+                              const int*>));
   EXPECT_TRUE(
-      (std::is_same<typename absl::remove_cvref<int[2]>::type, int[2]>::value));
-  EXPECT_TRUE((std::is_same<typename absl::remove_cvref<int(&)[2]>::type,
-                            int[2]>::value));
-  EXPECT_TRUE((std::is_same<typename absl::remove_cvref<int(&&)[2]>::type,
-                            int[2]>::value));
-  EXPECT_TRUE((std::is_same<typename absl::remove_cvref<const int[2]>::type,
-                            int[2]>::value));
-  EXPECT_TRUE((std::is_same<typename absl::remove_cvref<const int(&)[2]>::type,
-                            int[2]>::value));
-  EXPECT_TRUE((std::is_same<typename absl::remove_cvref<const int(&&)[2]>::type,
-                            int[2]>::value));
+      (std::is_same_v<typename absl::remove_cvref<int[2]>::type, int[2]>));
+  EXPECT_TRUE(
+      (std::is_same_v<typename absl::remove_cvref<int (&)[2]>::type, int[2]>));
+  EXPECT_TRUE(
+      (std::is_same_v<typename absl::remove_cvref<int (&&)[2]>::type, int[2]>));
+  EXPECT_TRUE((
+      std::is_same_v<typename absl::remove_cvref<const int[2]>::type, int[2]>));
+  EXPECT_TRUE(
+      (std::is_same_v<typename absl::remove_cvref<const int (&)[2]>::type,
+                      int[2]>));
+  EXPECT_TRUE(
+      (std::is_same_v<typename absl::remove_cvref<const int (&&)[2]>::type,
+                      int[2]>));
+}
+
+TEST(TypeTraitsTest, TestTypeIdentity) {
+  EXPECT_TRUE((std::is_same_v<typename absl::type_identity<int>::type, int>));
+  EXPECT_TRUE((std::is_same_v<absl::type_identity_t<int>, int>));
+  EXPECT_TRUE((std::is_same_v<typename absl::type_identity<int&>::type, int&>));
+  EXPECT_TRUE((std::is_same_v<absl::type_identity_t<int&>, int&>));
+
+  EXPECT_FALSE(
+      (std::is_same_v<typename absl::type_identity<int64_t>::type, int32_t>));
+  EXPECT_FALSE((std::is_same_v<absl::type_identity_t<int64_t>, int32_t>));
 }
 
 struct TypeA {};
@@ -150,20 +164,17 @@ struct Wrap {};
 enum class TypeEnum { A, B, C, D };
 
 struct GetTypeT {
-  template <typename T,
-            absl::enable_if_t<std::is_same<T, TypeA>::value, int> = 0>
+  template <typename T, std::enable_if_t<std::is_same_v<T, TypeA>, int> = 0>
   TypeEnum operator()(Wrap<T>) const {
     return TypeEnum::A;
   }
 
-  template <typename T,
-            absl::enable_if_t<std::is_same<T, TypeB>::value, int> = 0>
+  template <typename T, std::enable_if_t<std::is_same_v<T, TypeB>, int> = 0>
   TypeEnum operator()(Wrap<T>) const {
     return TypeEnum::B;
   }
 
-  template <typename T,
-            absl::enable_if_t<std::is_same<T, TypeC>::value, int> = 0>
+  template <typename T, std::enable_if_t<std::is_same_v<T, TypeC>, int> = 0>
   TypeEnum operator()(Wrap<T>) const {
     return TypeEnum::C;
   }
@@ -173,7 +184,7 @@ struct GetTypeT {
 
 struct GetTypeExtT {
   template <typename T>
-  absl::result_of_t<const GetTypeT&(T)> operator()(T&& arg) const {
+  std::invoke_result_t<const GetTypeT&, T> operator()(T&& arg) const {
     return GetType(std::forward<T>(arg));
   }
 
@@ -205,7 +216,6 @@ void swap(SpecialNoexceptSwap&, SpecialNoexceptSwap&) noexcept {}
 
 TEST(TypeTraitsTest, IsSwappable) {
   using absl::type_traits_internal::IsSwappable;
-  using absl::type_traits_internal::StdSwapIsUnconstrained;
 
   EXPECT_TRUE(IsSwappable<int>::value);
 
@@ -218,14 +228,14 @@ TEST(TypeTraitsTest, IsSwappable) {
     ~NoConstruct() = default;
   };
 
-  EXPECT_EQ(IsSwappable<NoConstruct>::value, StdSwapIsUnconstrained::value);
+  EXPECT_FALSE(IsSwappable<NoConstruct>::value);
   struct NoAssign {
     NoAssign(NoAssign&&) {}
     NoAssign& operator=(NoAssign&&) = delete;
     ~NoAssign() = default;
   };
 
-  EXPECT_EQ(IsSwappable<NoAssign>::value, StdSwapIsUnconstrained::value);
+  EXPECT_FALSE(IsSwappable<NoAssign>::value);
 
   EXPECT_FALSE(IsSwappable<adl_namespace::DeletedSwap>::value);
 
@@ -234,7 +244,6 @@ TEST(TypeTraitsTest, IsSwappable) {
 
 TEST(TypeTraitsTest, IsNothrowSwappable) {
   using absl::type_traits_internal::IsNothrowSwappable;
-  using absl::type_traits_internal::StdSwapIsUnconstrained;
 
   EXPECT_TRUE(IsNothrowSwappable<int>::value);
 
@@ -268,9 +277,9 @@ TEST(TypeTraitsTest, IsNothrowSwappable) {
 }
 
 TEST(TriviallyRelocatable, PrimitiveTypes) {
-  static_assert(absl::is_trivially_relocatable<int>::value, "");
-  static_assert(absl::is_trivially_relocatable<char>::value, "");
-  static_assert(absl::is_trivially_relocatable<void*>::value, "");
+  static_assert(absl::is_trivially_relocatable<int>::value);
+  static_assert(absl::is_trivially_relocatable<char>::value);
+  static_assert(absl::is_trivially_relocatable<void*>::value);
 }
 
 // User-defined types can be trivially relocatable as long as they don't have a
@@ -281,7 +290,7 @@ TEST(TriviallyRelocatable, UserDefinedTriviallyRelocatable) {
     int y;
   };
 
-  static_assert(absl::is_trivially_relocatable<S>::value, "");
+  static_assert(absl::is_trivially_relocatable<S>::value);
 }
 
 // A user-provided move constructor disqualifies a type from being trivially
@@ -291,7 +300,7 @@ TEST(TriviallyRelocatable, UserProvidedMoveConstructor) {
     S(S&&) {}  // NOLINT(modernize-use-equals-default)
   };
 
-  static_assert(!absl::is_trivially_relocatable<S>::value, "");
+  static_assert(!absl::is_trivially_relocatable<S>::value);
 }
 
 // A user-provided copy constructor disqualifies a type from being trivially
@@ -301,7 +310,7 @@ TEST(TriviallyRelocatable, UserProvidedCopyConstructor) {
     S(const S&) {}  // NOLINT(modernize-use-equals-default)
   };
 
-  static_assert(!absl::is_trivially_relocatable<S>::value, "");
+  static_assert(!absl::is_trivially_relocatable<S>::value);
 }
 
 // A user-provided copy assignment operator disqualifies a type from
@@ -314,7 +323,7 @@ TEST(TriviallyRelocatable, UserProvidedCopyAssignment) {
     }
   };
 
-  static_assert(!absl::is_trivially_relocatable<S>::value, "");
+  static_assert(!absl::is_trivially_relocatable<S>::value);
 }
 
 // A user-provided move assignment operator disqualifies a type from
@@ -325,7 +334,7 @@ TEST(TriviallyRelocatable, UserProvidedMoveAssignment) {
     S& operator=(S&&) { return *this; }  // NOLINT(modernize-use-equals-default)
   };
 
-  static_assert(!absl::is_trivially_relocatable<S>::value, "");
+  static_assert(!absl::is_trivially_relocatable<S>::value);
 }
 
 // A user-provided destructor disqualifies a type from being trivially
@@ -335,53 +344,106 @@ TEST(TriviallyRelocatable, UserProvidedDestructor) {
     ~S() {}  // NOLINT(modernize-use-equals-default)
   };
 
-  static_assert(!absl::is_trivially_relocatable<S>::value, "");
+  static_assert(!absl::is_trivially_relocatable<S>::value);
 }
 
-// TODO(b/275003464): remove the opt-out for Clang on Windows once
-// __is_trivially_relocatable is used there again.
-// TODO(b/324278148): remove the opt-out for Apple once
-// __is_trivially_relocatable is fixed there.
-// TODO(b/325479096): remove the opt-out for Clang once
-// __is_trivially_relocatable is fixed there.
-#if defined(ABSL_HAVE_ATTRIBUTE_TRIVIAL_ABI) &&      \
-    ABSL_HAVE_BUILTIN(__is_trivially_relocatable) && \
-    (defined(__cpp_impl_trivially_relocatable) ||    \
-     (!defined(__clang__) && !defined(__APPLE__) && !defined(__NVCC__)))
-// A type marked with the "trivial ABI" attribute is trivially relocatable even
-// if it has user-provided special members.
-TEST(TriviallyRelocatable, TrivialAbi) {
-  struct ABSL_ATTRIBUTE_TRIVIAL_ABI S {
-    S(S&&) {}       // NOLINT(modernize-use-equals-default)
-    S(const S&) {}  // NOLINT(modernize-use-equals-default)
-    S& operator=(S&&) { return *this; }
-    S& operator=(const S&) { return *this; }
-    ~S() {}  // NOLINT(modernize-use-equals-default)
-  };
+TEST(Ownership, References) {
+  static_assert(IsViewAndNotOwner<std::string&>::value,
+                "std::string& is a view, not an owner");
+  static_assert(IsViewAndNotOwner<int&>::value, "int& is a view, not an owner");
 
-  static_assert(absl::is_trivially_relocatable<S>::value, "");
+  static_assert(IsViewAndNotOwner<std::string&&>::value,
+                "std::string&& is a view, not an owner");
+  static_assert(IsViewAndNotOwner<int&&>::value,
+                "int&& is a view, not an owner");
+
+  static_assert(IsViewAndNotOwner<std::reference_wrapper<std::string>>::value,
+                "std::reference_wrapper<std::string> is a view, not an owner");
+  static_assert(IsViewAndNotOwner<std::reference_wrapper<int>>::value,
+                "std::reference_wrapper<int> is a view, not an owner");
 }
-#endif
 
-// TODO(b/275003464): remove the opt-out for Clang on Windows once
-// __is_trivially_relocatable is used there again.
-// TODO(b/324278148): remove the opt-out for Apple once
-// __is_trivially_relocatable is fixed there.
-#if defined(ABSL_HAVE_ATTRIBUTE_TRIVIAL_ABI) &&                            \
-    ABSL_HAVE_BUILTIN(__is_trivially_relocatable) && defined(__clang__) && \
-    !(defined(_WIN32) || defined(_WIN64)) && !defined(__APPLE__) &&        \
-    !defined(__NVCC__)
-// A type marked with the "trivial ABI" attribute is trivially relocatable even
-// if it has a user-provided copy constructor and a user-provided destructor.
-TEST(TriviallyRelocatable, TrivialAbi_NoUserProvidedMove) {
-  struct ABSL_ATTRIBUTE_TRIVIAL_ABI S {
-    S(const S&) {}  // NOLINT(modernize-use-equals-default)
-    ~S() {}  // NOLINT(modernize-use-equals-default)
-  };
+TEST(Ownership, CVQualifiers) {
+  static_assert(IsOwnerAndNotView<const std::string>::value,
+                "const std::string is an owner, not a view");
+  static_assert(IsViewAndNotOwner<const std::string_view>::value,
+                "const std::string_view is a view, not an owner");
 
-  static_assert(absl::is_trivially_relocatable<S>::value, "");
+  static_assert(IsOwnerAndNotView<volatile std::string>::value,
+                "volatile std::string is an owner, not a view");
+  static_assert(IsViewAndNotOwner<volatile std::string_view>::value,
+                "volatile std::string_view is a view, not an owner");
+
+  static_assert(IsOwnerAndNotView<const volatile std::string>::value,
+                "const volatile std::string is an owner, not a view");
+  static_assert(IsViewAndNotOwner<const volatile std::string_view>::value,
+                "const volatile std::string_view is a view, not an owner");
 }
-#endif
+
+TEST(Ownership, Array) {
+  static_assert(!IsOwnerAndNotView<std::array<std::string, 0>>::value,
+                "empty array is not an owner");
+  static_assert(!IsViewAndNotOwner<std::array<std::string, 0>>::value,
+                "empty array is not a view");
+
+  static_assert(!IsOwnerAndNotView<std::array<std::string_view, 0>>::value,
+                "empty array is not an owner");
+  static_assert(!IsViewAndNotOwner<std::array<std::string_view, 0>>::value,
+                "empty array is not a view");
+
+  static_assert(IsOwnerAndNotView<std::array<std::string, 5>>::value,
+                "array of owners is an owner");
+  static_assert(IsViewAndNotOwner<std::array<std::string_view, 5>>::value,
+                "array of views is a view");
+}
+
+TEST(Ownership, Variant) {
+  static_assert(!IsOwnerAndNotView<std::variant<>>::value,
+                "empty variant is not an owner");
+  static_assert(!IsViewAndNotOwner<std::variant<>>::value,
+                "empty variant is not a view");
+
+  static_assert(IsOwnerAndNotView<std::variant<std::string, std::vector<char>,
+                                               std::vector<int>>>::value,
+                "aggregate of owners is an owner");
+  static_assert(IsViewAndNotOwner<
+                    std::variant<std::wstring_view, std::string_view>>::value,
+                "aggregate of views is a view");
+
+  static_assert(
+      !IsOwnerAndNotView<std::variant<const char*, std::string>>::value,
+      "variant of mixed-ownership types is not considered an owner");
+  static_assert(
+      !IsViewAndNotOwner<std::variant<const char*, std::string>>::value,
+      "variant of mixed-ownership types is not considered a view");
+
+  static_assert(
+      IsViewAndNotOwner<std::variant<std::reference_wrapper<const int>>>::value,
+      "variant of reference is considered a view");
+}
+
+TEST(Ownership, Tuple) {
+  static_assert(!IsOwnerAndNotView<std::tuple<>>::value,
+                "empty tuple is not an owner");
+  static_assert(!IsViewAndNotOwner<std::tuple<>>::value,
+                "empty tuple is not a view");
+
+  static_assert(
+      IsOwnerAndNotView<
+          std::tuple<std::string, std::vector<char>, std::vector<int>>>::value,
+      "aggregate of owners is an owner");
+  static_assert(
+      IsViewAndNotOwner<std::tuple<std::wstring_view, std::string_view>>::value,
+      "aggregate of views is a view");
+
+  static_assert(!IsOwnerAndNotView<std::tuple<const char*, std::string>>::value,
+                "tuple of mixed-ownership types is not considered an owner");
+  static_assert(!IsViewAndNotOwner<std::tuple<const char*, std::string>>::value,
+                "tuple of mixed-ownership types is not considered a view");
+
+  static_assert(IsViewAndNotOwner<std::tuple<const int&>>::value,
+                "tuple of reference is considered a view");
+}
 
 #ifdef ABSL_HAVE_CONSTANT_EVALUATED
 

@@ -15,6 +15,7 @@
 #include "mozilla/UniquePtr.h"
 #include "mozilla/dom/PeerConnectionObserverEnumsBinding.h"
 #include "nsError.h"
+#include "nsTArray.h"
 #include "sdp/Sdp.h"
 
 namespace mozilla {
@@ -30,6 +31,25 @@ enum JsepSignalingState {
   kJsepStateHaveRemotePranswer,
   kJsepStateClosed
 };
+
+inline const char* format_as(JsepSignalingState aState) {
+  switch (aState) {
+    case kJsepStateStable:
+      return "stable";
+    case kJsepStateHaveLocalOffer:
+      return "have-local-offer";
+    case kJsepStateHaveRemoteOffer:
+      return "have-remote-offer";
+    case kJsepStateHaveLocalPranswer:
+      return "have-local-pranswer";
+    case kJsepStateHaveRemotePranswer:
+      return "have-remote-pranswer";
+    case kJsepStateClosed:
+      return "closed";
+  }
+  MOZ_CRASH(
+      "Garbage JsepSignalingState, this is likely a memory error. Crashing.");
+}
 
 enum JsepSdpType {
   kJsepSdpOffer,
@@ -54,6 +74,8 @@ struct JsepAnswerOptions : public JsepOAOptions {};
 
 enum JsepBundlePolicy { kBundleBalanced, kBundleMaxCompat, kBundleMaxBundle };
 
+enum JsepRtcpMuxPolicy { kRtcpMuxRequire, kRtcpMuxNegotiate };
+
 enum JsepMediaType { kNone = 0, kAudio, kVideo, kAudioVideo };
 
 struct JsepExtmapMediaType {
@@ -67,7 +89,7 @@ class JsepSession {
       : mName(name), mState(kJsepStateStable), mNegotiations(0) {}
   virtual ~JsepSession() {}
 
-  virtual JsepSession* Clone() const = 0;
+  virtual UniquePtr<JsepSession> Clone() const = 0;
 
   virtual nsresult Init() = 0;
 
@@ -78,6 +100,8 @@ class JsepSession {
 
   // Set up the ICE And DTLS data.
   virtual nsresult SetBundlePolicy(JsepBundlePolicy policy) = 0;
+  virtual nsresult SetRtcpMuxPolicy(JsepRtcpMuxPolicy policy) = 0;
+  virtual JsepRtcpMuxPolicy GetRtcpMuxPolicy() const = 0;
   virtual bool RemoteIsIceLite() const = 0;
   virtual std::vector<std::string> GetIceOptions() const = 0;
 
@@ -85,29 +109,24 @@ class JsepSession {
                                       const std::vector<uint8_t>& value) = 0;
 
   virtual nsresult AddRtpExtension(
-      JsepMediaType mediaType, const std::string& extensionName,
+      JsepMediaType mediaType, const nsACString& extensionName,
       SdpDirectionAttribute::Direction direction) = 0;
   virtual nsresult AddAudioRtpExtension(
-      const std::string& extensionName,
+      const nsACString& extensionName,
       SdpDirectionAttribute::Direction direction) = 0;
   virtual nsresult AddVideoRtpExtension(
-      const std::string& extensionName,
+      const nsACString& extensionName,
       SdpDirectionAttribute::Direction direction) = 0;
   virtual nsresult AddAudioVideoRtpExtension(
-      const std::string& extensionName,
+      const nsACString& extensionName,
       SdpDirectionAttribute::Direction direction) = 0;
 
-  // Kinda gross to be locking down the data structure type like this, but
-  // returning by value is problematic due to the lack of stl move semantics in
-  // our build config, since we can't use UniquePtr in the container. The
-  // alternative is writing a raft of accessor functions that allow arbitrary
-  // manipulation (which will be unwieldy), or allowing functors to be injected
-  // that manipulate the data structure (still pretty unwieldy).
-  virtual std::vector<UniquePtr<JsepCodecDescription>>& Codecs() = 0;
+  virtual Span<UniquePtr<JsepCodecDescription>> Codecs() = 0;
 
   template <class UnaryFunction>
   void ForEachCodec(UnaryFunction& function) {
-    std::for_each(Codecs().begin(), Codecs().end(), function);
+    Span codecs = Codecs();
+    std::for_each(codecs.begin(), codecs.end(), function);
     for (auto& transceiver : GetTransceivers()) {
       transceiver.mSendTrack.ForEachCodec(function);
       transceiver.mRecvTrack.ForEachCodec(function);
@@ -116,7 +135,8 @@ class JsepSession {
 
   template <class BinaryPredicate>
   void SortCodecs(BinaryPredicate& sorter) {
-    std::stable_sort(Codecs().begin(), Codecs().end(), sorter);
+    Span codecs = Codecs();
+    std::stable_sort(codecs.begin(), codecs.end(), sorter);
     for (auto& transceiver : GetTransceivers()) {
       transceiver.mSendTrack.SortCodecs(sorter);
       transceiver.mRecvTrack.SortCodecs(sorter);
@@ -289,10 +309,13 @@ class JsepSession {
   }
 
   virtual void SetDefaultCodecs(
-      const std::vector<UniquePtr<JsepCodecDescription>>& aPreferredCodecs) = 0;
+      const nsTArray<UniquePtr<JsepCodecDescription>>& aPreferredCodecs) = 0;
 
   // See Bug 1642419, this can be removed when all sites are working with RTX.
   void SetRtxIsAllowed(bool aRtxIsAllowed) { mRtxIsAllowed = aRtxIsAllowed; }
+
+  virtual void SetAlwaysNegotiateDataChannels(
+      bool aAlwaysNegotiateDataChannels) = 0;
 
  protected:
   friend class JsepSessionTest;

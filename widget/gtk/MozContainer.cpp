@@ -6,7 +6,7 @@
 
 #include <glib.h>
 #include <gtk/gtk.h>
-#include <stdio.h>
+
 #include "mozilla/WidgetUtilsGtk.h"
 #include "nsWindow.h"
 #ifdef MOZ_WAYLAND
@@ -14,9 +14,9 @@
 #endif
 
 #ifdef MOZ_LOGGING
+#  include "Units.h"
 #  include "mozilla/Logging.h"
 #  include "nsTArray.h"
-#  include "Units.h"
 extern mozilla::LazyLogModule gWidgetLog;
 #  define LOGCONTAINER(args) MOZ_LOG(gWidgetLog, mozilla::LogLevel::Debug, args)
 #else
@@ -44,15 +44,15 @@ GType moz_container_get_type(void) {
   if (!moz_container_type) {
     static GTypeInfo moz_container_info = {
         sizeof(MozContainerClass),                /* class_size */
-        NULL,                                     /* base_init */
-        NULL,                                     /* base_finalize */
+        nullptr,                                  /* base_init */
+        nullptr,                                  /* base_finalize */
         (GClassInitFunc)moz_container_class_init, /* class_init */
-        NULL,                                     /* class_destroy */
-        NULL,                                     /* class_data */
+        nullptr,                                  /* class_destroy */
+        nullptr,                                  /* class_data */
         sizeof(MozContainer),                     /* instance_size */
         0,                                        /* n_preallocs */
         (GInstanceInitFunc)moz_container_init,    /* instance_init */
-        NULL,                                     /* value_table */
+        nullptr,                                  /* value_table */
     };
 
     moz_container_type =

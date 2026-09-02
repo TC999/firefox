@@ -1,5 +1,3 @@
-# -*- Mode: python; indent-tabs-mode: nil; tab-width: 40 -*-
-# vim: set filetype=python:
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
@@ -9,25 +7,25 @@ XPI_PKGNAME = "mozscreenshots@mozilla.org"
 
 USE_EXTENSION_MANIFEST = True
 
-FINAL_TARGET_FILES += [
+extension_files = [
     "api.js",
     "manifest.json",
     "schema.json",
 ]
-
-FINAL_TARGET_FILES.resources += [
+resources_files = [
     "Screenshot.sys.mjs",
     "TestRunner.sys.mjs",
 ]
-
-FINAL_TARGET_FILES.resources.configurations += [
+configurations_files = [
     "configurations/AppMenu.sys.mjs",
     "configurations/Buttons.sys.mjs",
+    "configurations/ColorScheme.sys.mjs",
     "configurations/ControlCenter.sys.mjs",
     "configurations/CustomizeMode.sys.mjs",
     "configurations/CustomTitlebar.sys.mjs",
     "configurations/DevTools.sys.mjs",
     "configurations/LightweightThemes.sys.mjs",
+    "configurations/Nova.sys.mjs",
     "configurations/PermissionPrompts.sys.mjs",
     "configurations/Preferences.sys.mjs",
     "configurations/Tabs.sys.mjs",
@@ -35,8 +33,7 @@ FINAL_TARGET_FILES.resources.configurations += [
     "configurations/UIDensities.sys.mjs",
     "configurations/WindowSize.sys.mjs",
 ]
-
-FINAL_TARGET_FILES.resources.lib += [
+lib_files = [
     "lib/borderify.xpi",
     "lib/mozscreenshots-script.js",
     "lib/mozscreenshots-style.css",
@@ -49,11 +46,20 @@ FINAL_TARGET_FILES.resources.lib += [
     "lib/robot_uncropped.png",
     "lib/robot_upperleft.png",
 ]
-
-FINAL_TARGET_FILES.resources.lib.controlCenter += [
+control_center_files = [
     "lib/controlCenter/mixed.html",
     "lib/controlCenter/mixed_active.html",
     "lib/controlCenter/mixed_passive.html",
     "lib/controlCenter/password.html",
     "lib/controlCenter/tracking.html",
 ]
+
+for output_dir in [
+    FINAL_TARGET_FILES,
+    OBJDIR_FILES._tests.testing.mochitest.browser.browser.tools.mozscreenshots.mozscreenshots.extension.mozscreenshots.browser,
+]:
+    output_dir += extension_files
+    output_dir.resources += resources_files
+    output_dir.resources.configurations += configurations_files
+    output_dir.resources.lib += lib_files
+    output_dir.resources.lib.controlCenter += control_center_files

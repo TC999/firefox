@@ -4,6 +4,8 @@
 
 #include "PeerConnectionCtx.h"
 
+#include <span>
+
 #include "PeerConnectionImpl.h"
 #include "WebrtcGlobalChild.h"
 #include "WebrtcGlobalInformation.h"
@@ -110,8 +112,7 @@ class DummyAudioProcessing : public AudioProcessing {
     MOZ_CRASH("Unexpected call");
     return kNoError;
   }
-  bool GetLinearAecOutput(
-      webrtc::ArrayView<std::array<float, 160>>) const override {
+  bool GetLinearAecOutput(std::span<std::array<float, 160>>) const override {
     MOZ_CRASH("Unexpected call");
     return false;
   }
@@ -130,12 +131,12 @@ class DummyAudioProcessing : public AudioProcessing {
   }
   void set_stream_key_pressed(bool) override { MOZ_CRASH("Unexpected call"); }
   bool CreateAndAttachAecDump(absl::string_view, int64_t,
-                              absl::Nonnull<TaskQueueBase*>) override {
+                              TaskQueueBase* absl_nonnull) override {
     MOZ_CRASH("Unexpected call");
     return false;
   }
   bool CreateAndAttachAecDump(FILE*, int64_t,
-                              absl::Nonnull<TaskQueueBase*>) override {
+                              TaskQueueBase* absl_nonnull) override {
     MOZ_CRASH("Unexpected call");
     return false;
   }
@@ -441,7 +442,7 @@ void PeerConnectionCtx::UpdateNetworkState(bool online) {
   if (ctx->mPeerConnections.empty()) {
     return;
   }
-  for (auto pc : ctx->mPeerConnections) {
+  for (const auto& pc : ctx->mPeerConnections) {
     pc.second->UpdateNetworkState(online);
   }
 }
@@ -496,17 +497,15 @@ void PeerConnectionCtx::AddPeerConnection(const std::string& aKey,
     audioStateConfig.audio_device_module =
         new webrtc::RefCountedObject<FakeAudioDeviceModule>();
 
-    constexpr bool supportTailDispatch = true;
     // This task queue is passed into libwebrtc by means of
     // webrtc::TaskQueueBase::GetCurrent() while running on it.
     // WebrtcCallWrapper guarantees that it outlives its webrtc::Call instance.
     // Outside of libwebrtc it works as a regular TaskQueue.
     auto callWorkerThread = CreateWebrtcTaskQueueWrapper(
         GetMediaThreadPool(MediaThreadType::WEBRTC_CALL_THREAD),
-        "CallWorker"_ns, supportTailDispatch);
+        "CallWorker"_ns, TailDispatchPolicy::ConsistentOrdering);
 
-    UniquePtr<webrtc::FieldTrialsView> trials =
-        WrapUnique(new MozTrialsConfig());
+    auto trials = MakeUnique<MozTrialsConfig>();
 
     mSharedWebrtcState = MakeAndAddRef<SharedWebrtcState>(
         std::move(callWorkerThread), std::move(audioStateConfig),

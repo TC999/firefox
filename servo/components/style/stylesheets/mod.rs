@@ -223,7 +223,7 @@ impl UrlExtraData {
     /// This method doesn't touch refcount.
     #[inline]
     pub unsafe fn from_ptr_ref(ptr: &*mut structs::URLExtraData) -> &Self {
-        mem::transmute(ptr)
+        unsafe { mem::transmute(ptr) }
     }
 
     /// Returns a pointer to the Gecko URLExtraData object.
@@ -306,7 +306,7 @@ fn style_or_page_rule_to_css(
     let has_declarations = !declaration_block.declarations().is_empty();
 
     // Step 3
-    if let Some(ref rules) = rules {
+    if let Some(rules) = rules {
         let rules = rules.read_with(guard);
         // Step 6 (here because it's more convenient)
         if !rules.is_empty() {
@@ -638,6 +638,14 @@ impl CssRuleTypes {
     pub const IMPORTANT_FORBIDDEN: Self =
         Self(CssRuleType::PositionTry.bit() | CssRuleType::Keyframe.bit());
 
+    /// Rules without element context.
+    pub const WITHOUT_ELEMENT_CONTEXT: Self = Self(
+        CssRuleType::CounterStyle.bit()
+            | CssRuleType::FontFace.bit()
+            | CssRuleType::FontFeatureValues.bit()
+            | CssRuleType::Page.bit(),
+    );
+
     /// Returns whether the rule is in the current set.
     #[inline]
     pub fn contains(self, ty: CssRuleType) -> bool {
@@ -729,13 +737,14 @@ impl CssRule {
         let namespaces = &parent_stylesheet_contents.namespaces;
         let mut context = ParserContext::new(
             parent_stylesheet_contents.origin,
-            &url_data,
+            url_data,
             None,
             ParsingMode::DEFAULT,
             parent_stylesheet_contents.quirks_mode,
-            Cow::Borrowed(&*namespaces),
+            Cow::Borrowed(namespaces),
             None,
             None,
+            /* attr_taint */ Default::default(),
         );
         // Override the nesting context with existing data.
         context.nesting_context = NestingContext::new(
@@ -758,7 +767,7 @@ impl CssRule {
         // nested rules are in the body state
         let mut parser = TopLevelRuleParser {
             context,
-            shared_lock: &shared_lock,
+            shared_lock,
             loader,
             state,
             dom_error: None,

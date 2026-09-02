@@ -10,6 +10,9 @@ import androidx.room.Room
 import androidx.room.testing.MigrationTestHelper
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.platform.app.InstrumentationRegistry
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import kotlin.test.assertNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import mozilla.components.feature.logins.exceptions.LoginException
@@ -18,13 +21,10 @@ import mozilla.components.feature.logins.exceptions.adapter.LoginExceptionAdapte
 import mozilla.components.feature.logins.exceptions.db.LoginExceptionDatabase
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
 
 @Suppress("LargeClass")
 class LoginExceptionStorageTest {
@@ -32,27 +32,23 @@ class LoginExceptionStorageTest {
     private lateinit var storage: LoginExceptionStorage
     private lateinit var executor: ExecutorService
 
-    @get:Rule
-    var instantTaskExecutorRule = InstantTaskExecutorRule()
+    @get:Rule var instantTaskExecutorRule = InstantTaskExecutorRule()
 
     @get:Rule
-    val helper: MigrationTestHelper = MigrationTestHelper(
-        InstrumentationRegistry.getInstrumentation(),
-        LoginExceptionDatabase::class.java,
-    )
+    val helper: MigrationTestHelper =
+        MigrationTestHelper(
+            InstrumentationRegistry.getInstrumentation(),
+            LoginExceptionDatabase::class.java,
+        )
 
     @Before
     fun setUp() {
         executor = Executors.newSingleThreadExecutor()
 
         context = ApplicationProvider.getApplicationContext()
-        val database =
-            Room.inMemoryDatabaseBuilder(context, LoginExceptionDatabase::class.java).build()
+        val database = Room.inMemoryDatabaseBuilder(context, LoginExceptionDatabase::class.java).build()
 
-        storage =
-            LoginExceptionStorage(
-                context,
-            )
+        storage = LoginExceptionStorage(context)
         storage.database = lazy { database }
     }
 
@@ -117,7 +113,7 @@ class LoginExceptionStorageTest {
         val exception = storage.findExceptionByOrigin("mozilla.org")
 
         assertNotNull(exception)
-        assertEquals("mozilla.org", exception!!.origin)
+        assertEquals("mozilla.org", exception.origin)
     }
 
     @Test
@@ -131,9 +127,8 @@ class LoginExceptionStorageTest {
     }
 
     private fun getAllExceptions(): List<LoginException> {
-        return storage.database.value.loginExceptionDao().getLoginExceptionsList()
-            .map { loginExceptionEntity ->
-                LoginExceptionAdapter(loginExceptionEntity)
-            }
+        return storage.database.value.loginExceptionDao().getLoginExceptionsList().map { loginExceptionEntity ->
+            LoginExceptionAdapter(loginExceptionEntity)
+        }
     }
 }

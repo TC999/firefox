@@ -138,7 +138,10 @@ endif
 endif
 ifeq ($(CPU_ARCH),aarch64)
     ifdef CC_IS_CLANG
-        DEFINES += -DUSE_HW_AES -DUSE_HW_SHA1 -DUSE_HW_SHA2 -DHAVE_PLATFORM_GHASH
+        DEFINES += -DUSE_HW_AES -DUSE_HW_SHA1 -DUSE_HW_SHA2
+        ifeq ($(LITTLE_ENDIAN),1)
+            DEFINES += -DHAVE_PLATFORM_GHASH
+        endif
         EXTRA_SRCS += aes-armv8.c ghash-aarch64.c sha1-armv8.c sha256-armv8.c
     else ifeq (1,$(CC_IS_GCC))
         # GCC versions older than 4.9 don't support ARM AES. The check
@@ -146,18 +149,52 @@ ifeq ($(CPU_ARCH),aarch64)
         # and then rejects any major versions prior to 5. Note that
         # there has been no GCC 4.10, as it was renamed to GCC 5.
         ifneq (,$(filter 4.9,$(word 1,$(GCC_VERSION)).$(word 2,$(GCC_VERSION))))
-            DEFINES += -DUSE_HW_AES -DUSE_HW_SHA1 -DUSE_HW_SHA2 -DHAVE_PLATFORM_GHASH
+            DEFINES += -DUSE_HW_AES -DUSE_HW_SHA1 -DUSE_HW_SHA2
+            ifeq ($(LITTLE_ENDIAN),1)
+                DEFINES += -DHAVE_PLATFORM_GHASH
+            endif
             EXTRA_SRCS += aes-armv8.c ghash-aarch64.c sha1-armv8.c sha256-armv8.c
         endif
         ifeq (,$(filter 0 1 2 3 4,$(word 1,$(GCC_VERSION))))
-            DEFINES += -DUSE_HW_AES -DUSE_HW_SHA1 -DUSE_HW_SHA2 -DHAVE_PLATFORM_GHASH
+            DEFINES += -DUSE_HW_AES -DUSE_HW_SHA1 -DUSE_HW_SHA2
+            ifeq ($(LITTLE_ENDIAN),1)
+                DEFINES += -DHAVE_PLATFORM_GHASH
+            endif
             EXTRA_SRCS += aes-armv8.c ghash-aarch64.c sha1-armv8.c sha256-armv8.c
         endif
+    endif
+    # AArch64 AES-GCM implementation from AWS-LC. Not supported on Windows.
+    ifndef USE_STUB_BUILD
+    ifneq ($(OS_TARGET),WINNT)
+        DEFINES += -DHAVE_PLATFORM_GCM
+        EXTRA_SRCS += aarch64-gcm-wrap.c
+        AARCH64_GCM = 1
+        # The .S assembly files are preprocessed and therefore not handled by
+        # the ASFILES suffix substitution (which only matches $(ASM_SUFFIX)),
+        # so add their object files to OBJS explicitly. This must happen before
+        # coreconf/rules.mk is included so they become link prerequisites. The
+        # C wrapper rides along in EXTRA_SRCS, which the parent (loader-only)
+        # build discards by resetting CSRCS; the OBJS addition bypasses that, so
+        # restrict it to the child build that compiles the real library.
+        AARCH64_GCM_ASFILES = \
+            aarch64-gcm-slothy/gcm-128-enc.S \
+            aarch64-gcm-slothy/gcm-192-enc.S \
+            aarch64-gcm-slothy/gcm-256-enc.S \
+            aarch64-gcm-slothy/gcm-128-dec.S \
+            aarch64-gcm-slothy/gcm-192-dec.S \
+            aarch64-gcm-slothy/gcm-256-dec.S \
+            $(NULL)
+        ifdef FREEBL_CHILD_BUILD
+            OBJS += $(addprefix $(OBJDIR)/$(PROG_PREFIX), $(AARCH64_GCM_ASFILES:.S=$(OBJ_SUFFIX)))
+        endif
+    endif
     endif
 endif
 ifeq ($(CPU_ARCH),arm)
 ifndef NSS_DISABLE_ARM32_NEON
-    DEFINES += -DHAVE_PLATFORM_GHASH
+    ifeq ($(LITTLE_ENDIAN),1)
+        DEFINES += -DHAVE_PLATFORM_GHASH
+    endif
     EXTRA_SRCS += ghash-arm32-neon.c
 endif
     ifdef CC_IS_CLANG
@@ -290,7 +327,9 @@ ifeq ($(CPU_ARCH),arm)
     MPI_SRCS += mpi_arm.c
 endif
 ifeq ($(CPU_ARCH),ppc)
-    DEFINES += -DHAVE_PLATFORM_GHASH
+    ifeq ($(LITTLE_ENDIAN),1)
+        DEFINES += -DHAVE_PLATFORM_GHASH
+    endif
     EXTRA_SRCS += ghash-ppc.c
 ifdef USE_64
     DEFINES += -DNSS_NO_INIT_SUPPORT
@@ -601,9 +640,21 @@ ifndef NSS_DISABLE_KYBER
 KYBER_PQCRYSTALS = kyber-pqcrystals-ref.c
 endif
 
-VERIFIED_SRCS += Hacl_Hash_SHA3.c Hacl_P256.c Hacl_P384.c Hacl_P521.c libcrux_sha3_portable.c libcrux_mlkem768_portable.c libcrux_mlkem1024_portable.c libcrux_mlkem_portable.c libcrux_core.c
+VERIFIED_SRCS += Hacl_Hash_SHA3.c Hacl_P256.c Hacl_P384.c Hacl_P521.c
 VERIFIED_SRCS += Hacl_Ed25519.c
 VERIFIED_SRCS += Hacl_Curve25519_51.c
+
+# Vendored libcrux ML-KEM + ML-DSA combined extraction (see lib/freebl/libcrux/).
+# These share one SHA-3/combined_core and are compiled with an isolated include
+# scope (see below) so their krml/eurydice headers don't collide with the HACL*
+# extraction in verified/.
+LIBCRUX_SRCS = combined_core.c libcrux_ct_ops.c libcrux_sha3_portable.c \
+               libcrux_mlkem_core.c libcrux_mlkem_portable.c \
+               libcrux_mlkem768_portable.c libcrux_mlkem1024_portable.c \
+               libcrux_mldsa_core.c libcrux_mldsa_portable.c \
+               libcrux_mldsa44_portable.c libcrux_mldsa65_portable.c \
+               libcrux_mldsa87_portable.c
+CSRCS += $(LIBCRUX_SRCS)
 
 # Bug 1918767 / Bug 1918711 - by setting KRML_MUSTINLINE=inline here, we
 # avoid it being defined to `inline __forceinline` (for msvc) or `inline
@@ -643,11 +694,29 @@ rijndael_tables:
 	$(OBJDIR)/make_rijndael_tab
 
 vpath %.h mpi ecl verified deprecated
-vpath %.c mpi ecl verified deprecated
+vpath %.c mpi ecl verified deprecated libcrux
 vpath %.S mpi ecl
 vpath %.s mpi ecl
 vpath %.asm mpi ecl
-INCLUDES += -Impi -Iecl -Iverified -Iverified/internal -Iverified/karamel/include -Iverified/karamel/krmllib/dist/minimal -Iverified/eurydice -Ideprecated
+INCLUDES += -Impi -Iecl -Iverified -Iverified/internal -Iverified/karamel/include -Iverified/karamel/krmllib/dist/minimal -Ideprecated
+
+# The vendored libcrux objects and the freebl wrappers that use them (kyber.c,
+# ml_dsa.c) are compiled with the libcrux/ include dirs searched FIRST, so their
+# krml/eurydice headers resolve to the libcrux copies rather than the HACL*
+# copies under verified/.
+LIBCRUX_OBJS = $(addprefix $(OBJDIR)/$(PROG_PREFIX),$(LIBCRUX_SRCS:.c=$(OBJ_SUFFIX)))
+LIBCRUX_USERS = $(LIBCRUX_OBJS) \
+                $(OBJDIR)/$(PROG_PREFIX)kyber$(OBJ_SUFFIX) \
+                $(OBJDIR)/$(PROG_PREFIX)ml_dsa$(OBJ_SUFFIX)
+$(LIBCRUX_USERS): INCLUDES := -Ilibcrux -Ilibcrux/internal -Ilibcrux/karamel $(INCLUDES)
+
+ifeq ($(OS_TARGET),WINNT)
+# C4146: unary minus applied to an unsigned type. eurydice_glue.h does this
+# deliberately in its wrapping_neg helpers, where the wrapped result is the
+# intended value. The extraction is kept byte-identical to upstream (CI diffs
+# it), so silence the warning here rather than patching the header.
+$(LIBCRUX_USERS): CFLAGS += -wd4146
+endif
 
 
 DEFINES += -DMP_API_COMPATIBLE
@@ -761,6 +830,16 @@ $(OBJDIR)/$(PROG_PREFIX)aes-armv8$(OBJ_SUFFIX): CFLAGS += -march=armv8-a+crypto
 $(OBJDIR)/$(PROG_PREFIX)ghash-aarch64$(OBJ_SUFFIX): CFLAGS += -march=armv8-a+crypto
 $(OBJDIR)/$(PROG_PREFIX)sha1-armv8$(OBJ_SUFFIX): CFLAGS += -march=armv8-a+crypto
 $(OBJDIR)/$(PROG_PREFIX)sha256-armv8$(OBJ_SUFFIX): CFLAGS += -march=armv8-a+crypto
+endif
+
+ifdef AARCH64_GCM
+# Compile the preprocessed .S assembly with an explicit rule. The generic
+# pattern rules for .s and .S share the same target pattern, so leaving these
+# to implicit-rule resolution lets make chain through a generated .s file and
+# (with some make versions) delete the .S source as an intermediate.
+$(addprefix $(OBJDIR)/$(PROG_PREFIX), $(AARCH64_GCM_ASFILES:.S=$(OBJ_SUFFIX))): $(OBJDIR)/$(PROG_PREFIX)%$(OBJ_SUFFIX): %.S | $$(@D)/d
+	$(CC) -o $@ -c $(CFLAGS) -march=armv8-a+crypto $<
+$(OBJDIR)/$(PROG_PREFIX)aarch64-gcm-wrap$(OBJ_SUFFIX): CFLAGS += -march=armv8-a+crypto
 endif
 
 ifeq ($(CPU_ARCH),ppc)

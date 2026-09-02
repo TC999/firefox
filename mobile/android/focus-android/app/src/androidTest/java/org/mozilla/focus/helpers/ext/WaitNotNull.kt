@@ -6,7 +6,7 @@ package org.mozilla.focus.helpers.ext
 
 import androidx.test.uiautomator.SearchCondition
 import androidx.test.uiautomator.UiDevice
-import org.junit.Assert.assertNotNull
+import kotlin.test.assertNotNull
 import org.mozilla.focus.helpers.TestHelper
 
 /**

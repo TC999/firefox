@@ -156,7 +156,7 @@ class SessionStoreTestCase(WindowManagerMixin, MarionetteTestCase):
                         null,
                         AppConstants.BROWSER_CHROME_URL,
                         "_blank",
-                        "chrome,dialog=no,titlebar,close,toolbar,location,personalbar=no,status,menubar=no,resizable,minimizable,scrollbars",
+                        "chrome,dialog=no,titlebar,close,toolbar,location,personalbar=no,status,menubar=no,resizable,minimizable",
                         args
                     );
                     await new Promise(resolve => {
@@ -443,7 +443,7 @@ class SessionStoreTestCase(WindowManagerMixin, MarionetteTestCase):
             msg=f"Not all requested windows have been opened. Expected {self.all_windows}, got {current_windows_set}.",
         )
 
-        self.marionette.quit(callback=lambda: self.simulate_os_shutdown())
+        self.marionette.quit(callback=self.simulate_os_shutdown)
 
         saved_args = self.marionette.instance.app_args
         try:

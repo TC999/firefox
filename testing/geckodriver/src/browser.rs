@@ -16,6 +16,12 @@ use std::path::{Path, PathBuf};
 use std::time;
 use webdriver::error::{ErrorStatus, WebDriverError, WebDriverResult};
 
+// Status of the browser process.
+pub(crate) enum BrowserStatus {
+    Exited(Option<i32>),
+    Running,
+}
+
 /// A running Gecko instance.
 #[derive(Debug)]
 #[allow(clippy::large_enum_variant)]
@@ -31,7 +37,7 @@ impl Browser {
     pub(crate) fn close(self, wait_for_shutdown: bool) -> WebDriverResult<()> {
         match self {
             Browser::Local(x) => x.close(wait_for_shutdown),
-            Browser::Remote(x) => x.close(),
+            Browser::Remote(x) => x.close(wait_for_shutdown),
             Browser::Existing(_) => Ok(()),
         }
     }
@@ -41,6 +47,14 @@ impl Browser {
             Browser::Local(x) => x.marionette_port(),
             Browser::Remote(x) => x.marionette_port(),
             Browser::Existing(x) => Ok(Some(*x)),
+        }
+    }
+
+    pub(crate) fn check_status(&mut self) -> Option<(u32, BrowserStatus)> {
+        match self {
+            Browser::Local(x) => Some(x.check_status()),
+            Browser::Remote(x) => Some(x.check_status()),
+            Browser::Existing(_) => None,
         }
     }
 
@@ -121,9 +135,6 @@ impl LocalBrowser {
         if jsdebugger {
             runner.arg("--jsdebugger");
         }
-        if system_access {
-            runner.arg("--remote-allow-system-access");
-        }
         if let Some(args) = options.args.as_ref() {
             runner.args(args);
         }
@@ -133,6 +144,10 @@ impl LocalBrowser {
             .env("MOZ_CRASHREPORTER", "1")
             .env("MOZ_CRASHREPORTER_NO_REPORT", "1")
             .env("MOZ_CRASHREPORTER_SHUTDOWN", "1");
+
+        if system_access {
+            runner.env("MOZ_REMOTE_ALLOW_SYSTEM_ACCESS", "1");
+        }
 
         let process = match runner.start() {
             Ok(process) => process,
@@ -189,17 +204,14 @@ impl LocalBrowser {
         self.marionette_port = port;
     }
 
-    pub(crate) fn check_status(&mut self) -> Option<String> {
-        match self.process.try_wait() {
-            Ok(Some(status)) => Some(
-                status
-                    .code()
-                    .map(|c| c.to_string())
-                    .unwrap_or_else(|| "signal".into()),
-            ),
-            Ok(None) => None,
-            Err(_) => Some("{unknown}".into()),
-        }
+    pub(crate) fn check_status(&mut self) -> (u32, BrowserStatus) {
+        let pid = self.process.pid();
+        let status = match self.process.try_wait() {
+            Ok(Some(exit_status)) => BrowserStatus::Exited(exit_status.code()),
+            Ok(None) => BrowserStatus::Running,
+            Err(_) => BrowserStatus::Exited(None),
+        };
+        (pid, status)
     }
 }
 
@@ -249,6 +261,7 @@ fn read_marionette_port(profile_path: &Path) -> Option<u16> {
 pub(crate) struct RemoteBrowser {
     pub(crate) handler: AndroidHandler,
     marionette_port: u16,
+    pid: u32,
     prefs_backup: Option<PrefsBackup>,
 }
 
@@ -297,16 +310,52 @@ impl RemoteBrowser {
 
         handler.prepare(&profile, options.args, options.env.unwrap_or_default())?;
 
-        handler.launch()?;
+        let pid = handler.launch()?;
 
         Ok(RemoteBrowser {
             handler,
             marionette_port,
+            pid,
             prefs_backup,
         })
     }
 
-    fn close(&self) -> WebDriverResult<()> {
+    fn close(&self, wait_for_shutdown: bool) -> WebDriverResult<()> {
+        if wait_for_shutdown {
+            // TODO(https://bugzil.la/1443922):
+            // Use toolkit.asyncshutdown.crash_timeout pref
+            let timeout = time::Duration::from_secs(70);
+            let poll_interval = time::Duration::from_millis(100);
+            let start = time::Instant::now();
+
+            debug!(
+                "Waiting {}s for Android process {} (package {}) to exit",
+                timeout.as_secs(),
+                self.pid,
+                &self.handler.process.package
+            );
+
+            loop {
+                let (_, status) = self.check_status();
+                if matches!(status, BrowserStatus::Exited(_)) {
+                    debug!(
+                        "Android package {} has exited",
+                        &self.handler.process.package
+                    );
+                    break;
+                }
+
+                if start.elapsed() >= timeout {
+                    warn!(
+                        "Timed out waiting for Android package {} to exit",
+                        &self.handler.process.package
+                    );
+                    break;
+                }
+
+                std::thread::sleep(poll_interval);
+            }
+        }
         self.handler.force_stop()?;
         Ok(())
     }
@@ -317,6 +366,24 @@ impl RemoteBrowser {
 
     fn update_marionette_port(&mut self, port: u16) {
         self.marionette_port = port;
+    }
+
+    pub(crate) fn check_status(&self) -> (u32, BrowserStatus) {
+        let command = format!("test -d /proc/{} && echo 0 || echo 1", self.pid);
+        let status = match self
+            .handler
+            .process
+            .device
+            .execute_host_shell_command(&command)
+        {
+            Ok(output) if output.trim() == "0" => BrowserStatus::Running,
+            Ok(_) => BrowserStatus::Exited(None),
+            Err(e) => {
+                warn!("Failed to check browser status via adb: {}", e);
+                BrowserStatus::Running
+            }
+        };
+        (self.pid, status)
     }
 }
 
@@ -483,8 +550,8 @@ mod tests {
     use super::*;
     use crate::browser::read_marionette_port;
     use crate::capabilities::{FirefoxOptions, ProfileType};
-    use base64::prelude::BASE64_STANDARD;
     use base64::Engine;
+    use base64::prelude::BASE64_STANDARD;
     use mozprofile::preferences::{Pref, PrefValue};
     use mozprofile::profile::Profile;
     use serde_json::{Map, Value};

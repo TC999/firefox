@@ -113,6 +113,21 @@ void nsLayoutHistoryState::RemoveState(const nsCString& aKey) {
   mStates.Remove(aKey);
 }
 
+UniquePtr<PresState> nsLayoutHistoryState::TakeState(const nsCString& aKey) {
+  UniquePtr<PresState> state;
+  if (auto entry = mStates.Extract(aKey)) {
+    state = std::move(*entry);
+  }
+
+  if (state && mScrollPositionOnly) {
+    // Ensure any state that shouldn't be restored is removed
+    state->contentData() = void_t();
+    state->disabledSet() = false;
+  }
+
+  return state;
+}
+
 bool nsLayoutHistoryState::HasStates() { return mStates.Count() != 0; }
 
 void nsLayoutHistoryState::SetScrollPositionOnly(const bool aFlag) {
@@ -153,6 +168,8 @@ UniquePtr<PresState> NewPresState() {
       /* resolution */ 1.0,
       /* disabledSet */ false,
       /* disabled */ false,
-      /* droppedDown */ false);
+      /* droppedDown */ false,
+      /* horizontalOverflow */ false,
+      /* verticalOverflow */ false);
 }
 }  // namespace mozilla

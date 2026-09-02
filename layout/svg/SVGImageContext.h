@@ -6,6 +6,7 @@
 #define LAYOUT_SVG_SVGIMAGECONTEXT_H_
 
 #include "Units.h"
+#include "mozilla/Casting.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/SVGContextPaint.h"
 #include "mozilla/SVGPreserveAspectRatio.h"
@@ -44,7 +45,7 @@ class SVGImageContext {
    * that utility and stop using Maybe for this parameter.
    */
   explicit SVGImageContext(
-      const Maybe<CSSIntSize>& aViewportSize,
+      const Maybe<CSSSize>& aViewportSize,
       const Maybe<SVGPreserveAspectRatio>& aPreserveAspectRatio = Nothing(),
       const Maybe<ColorScheme>& aColorScheme = Nothing())
       : mViewportSize(aViewportSize),
@@ -63,11 +64,9 @@ class SVGImageContext {
                                      nsISVGPaintContext* aPaintContext,
                                      imgIContainer* aImgContainer);
 
-  const Maybe<CSSIntSize>& GetViewportSize() const { return mViewportSize; }
+  const Maybe<CSSSize>& GetViewportSize() const { return mViewportSize; }
 
-  void SetViewportSize(const Maybe<CSSIntSize>& aSize) {
-    mViewportSize = aSize;
-  }
+  void SetViewportSize(const Maybe<CSSSize>& aSize) { mViewportSize = aSize; }
 
   const Maybe<ColorScheme>& GetColorScheme() const { return mColorScheme; }
 
@@ -83,16 +82,18 @@ class SVGImageContext {
     mPreserveAspectRatio = aPAR;
   }
 
-  const SVGEmbeddingContextPaint* GetContextPaint() const {
-    return mContextPaint.get();
+  const StyleLinkParameters& GetLinkParameters() const {
+    return mLinkParameters;
   }
 
-  SVGEmbeddingContextPaint* GetOrCreateContextPaint() {
-    if (!mContextPaint) {
-      mContextPaint = MakeRefPtr<SVGEmbeddingContextPaint>();
-    }
+  void SetLinkParameters(const StyleLinkParameters& aLinkParameters) {
+    mLinkParameters = aLinkParameters;
+  }
 
-    return mContextPaint.get();
+  const SVGContextPaint* GetContextPaint() const { return mContextPaint.get(); }
+
+  void SetContextPaint(Maybe<nscolor> aFill, Maybe<nscolor> aStroke) {
+    mContextPaint = MakeRefPtr<SVGContextPaint>(aFill, aStroke);
   }
 
   void ClearContextPaint() { mContextPaint = nullptr; }
@@ -107,24 +108,25 @@ class SVGImageContext {
 
     return contextPaintIsEqual && mViewportSize == aOther.mViewportSize &&
            mPreserveAspectRatio == aOther.mPreserveAspectRatio &&
-           mColorScheme == aOther.mColorScheme;
+           mColorScheme == aOther.mColorScheme &&
+           mLinkParameters == aOther.mLinkParameters;
   }
-
-  bool operator!=(const SVGImageContext&) const = default;
 
   PLDHashNumber Hash() const {
     PLDHashNumber hash = 0;
     if (mContextPaint) {
-      hash = HashGeneric(hash, mContextPaint->Hash());
+      hash = AddToHash(hash, mContextPaint->Hash());
     }
-    return HashGeneric(hash, mViewportSize.map(HashSize).valueOr(0),
-                       mPreserveAspectRatio.map(HashPAR).valueOr(0),
-                       mColorScheme.map(HashColorScheme).valueOr(0));
+    return AddToHash(hash, mViewportSize.map(HashSize).valueOr(0),
+                     mPreserveAspectRatio.map(HashPAR).valueOr(0),
+                     mColorScheme.map(HashColorScheme).valueOr(0),
+                     HashLinkParameters(mLinkParameters));
   }
 
  private:
-  static PLDHashNumber HashSize(const CSSIntSize& aSize) {
-    return HashGeneric(aSize.width, aSize.height);
+  static PLDHashNumber HashSize(const CSSSize& aSize) {
+    return HashGeneric(BitwiseCast<uint32_t>(aSize.width),
+                       BitwiseCast<uint32_t>(aSize.height));
   }
   static PLDHashNumber HashPAR(const SVGPreserveAspectRatio& aPAR) {
     return aPAR.Hash();
@@ -132,12 +134,26 @@ class SVGImageContext {
   static PLDHashNumber HashColorScheme(ColorScheme aScheme) {
     return HashGeneric(uint8_t(aScheme));
   }
+  static PLDHashNumber HashLinkParam(const StyleLinkParam& aLinkParam) {
+    return AddToHash(aLinkParam.name.AsAtom()->hash(),
+                     HashString(aLinkParam.value.AsString()));
+  }
+
+  static PLDHashNumber HashLinkParameters(
+      const StyleLinkParameters& aLinkParameters) {
+    PLDHashNumber hash = 0;
+    for (const auto& p : aLinkParameters._0.AsSpan()) {
+      hash = AddToHash(hash, HashLinkParam(p));
+    }
+    return hash;
+  }
 
   // NOTE: When adding new member-vars, remember to update Hash() & operator==.
-  RefPtr<SVGEmbeddingContextPaint> mContextPaint;
-  Maybe<CSSIntSize> mViewportSize;
+  RefPtr<SVGContextPaint> mContextPaint;
+  Maybe<CSSSize> mViewportSize;
   Maybe<SVGPreserveAspectRatio> mPreserveAspectRatio;
   Maybe<ColorScheme> mColorScheme;
+  StyleLinkParameters mLinkParameters;
 };
 
 }  // namespace mozilla

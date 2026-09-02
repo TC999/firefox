@@ -5,22 +5,20 @@
 #include <iostream>
 #include <map>
 
+#include "mozilla/Preferences.h"
 #include "nss.h"
 #include "ssl.h"
 
-#include "mozilla/Preferences.h"
-
 #define GTEST_HAS_RTTI 0
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
-
 #include "CodecConfig.h"
 #include "PeerConnectionImpl.h"
-#include "sdp/SdpMediaSection.h"
-#include "sdp/SipccSdpParser.h"
-#include "jsep/JsepTrack.h"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "jsep/JsepSession.h"
 #include "jsep/JsepSessionImpl.h"
+#include "jsep/JsepTrack.h"
+#include "sdp/SdpMediaSection.h"
+#include "sdp/SipccSdpParser.h"
 
 using testing::ElementsAre;
 using testing::Pair;
@@ -48,8 +46,8 @@ class FakeUuidGenerator : public mozilla::JsepUuidGenerator {
     return true;
   }
 
-  mozilla::JsepUuidGenerator* Clone() const {
-    return new FakeUuidGenerator(*this);
+  mozilla::UniquePtr<mozilla::JsepUuidGenerator> Clone() const {
+    return mozilla::MakeUnique<FakeUuidGenerator>(*this);
   }
 
  private:
@@ -80,8 +78,10 @@ class JsepSessionTest : public JsepSessionTestBase,
     EXPECT_EQ(NS_OK, mSessionOff->Init());
     EXPECT_EQ(NS_OK, mSessionAns->Init());
 
-    std::vector<UniquePtr<JsepCodecDescription>> preferredCodecs;
-    PeerConnectionImpl::SetupPreferredCodecs(preferredCodecs);
+    DefaultCodecPreferences prefs;
+    AutoTArray<UniquePtr<JsepCodecDescription>, 16> preferredCodecs;
+    EnumerateDefaultVideoCodecs(&preferredCodecs, prefs);
+    EnumerateDefaultAudioCodecs(&preferredCodecs, prefs);
     for (auto& codec : preferredCodecs) {
       // Make H264 P0 recvonly everywhere for better test coverage.
       // TODO: For unit testing JSEP, the preferred codecs list should be
@@ -96,8 +96,8 @@ class JsepSessionTest : public JsepSessionTestBase,
     mSessionOff->SetDefaultCodecs(preferredCodecs);
     mSessionAns->SetDefaultCodecs(preferredCodecs);
 
-    std::vector<PeerConnectionImpl::RtpExtensionHeader> preferredHeaders;
-    PeerConnectionImpl::SetupPreferredRtpExtensions(preferredHeaders);
+    AutoTArray<PeerConnectionImpl::RtpExtensionHeader, 16> preferredHeaders;
+    PeerConnectionImpl::GetDefaultRtpExtensions(prefs, &preferredHeaders);
 
     for (const auto& header : preferredHeaders) {
       mSessionOff->AddRtpExtension(header.mMediaType, header.extensionname,
@@ -1408,7 +1408,7 @@ class JsepSessionTest : public JsepSessionTestBase,
     return parsed;
   }
 
-  std::string SetExtmap(const std::string& aSdp, const std::string& aUri,
+  std::string SetExtmap(const std::string& aSdp, const nsACString& aUri,
                         uint16_t aId, uint16_t* aOldId = nullptr) {
     UniquePtr<Sdp> munge(Parse(aSdp));
     for (size_t i = 0; i < munge->GetMediaSectionCount(); ++i) {
@@ -1436,7 +1436,7 @@ class JsepSessionTest : public JsepSessionTestBase,
     return munge->ToString();
   }
 
-  uint16_t GetExtmap(const std::string& aSdp, const std::string& aUri) {
+  uint16_t GetExtmap(const std::string& aSdp, const nsACString& aUri) {
     UniquePtr<Sdp> parsed(Parse(aSdp));
     for (size_t i = 0; i < parsed->GetMediaSectionCount(); ++i) {
       auto& attrs = parsed->GetMediaSection(i).GetAttributeList();
@@ -2664,11 +2664,53 @@ TEST_P(JsepSessionTest, ParseRejectsBadMediaFormat) {
   std::string offer = CreateOffer();
   UniquePtr<Sdp> munge(Parse(offer));
   SdpMediaSection& mediaSection = munge->GetMediaSection(0);
+  mediaSection.AddCodec("19", "DummyFormatVal", 8000, 1);
+  std::string sdpString = munge->ToString();
+  JsepSession::Result result =
+      mSessionOff->SetLocalDescription(kJsepSdpOffer, sdpString);
+  ASSERT_EQ(dom::PCError::InvalidAccessError, *result.mError);
+}
+
+TEST_P(JsepSessionTest, ParseRejectsRtcpMuxPayloadTypeInRtcpRange) {
+  AddTracks(*mSessionOff);
+  if (types.front() == SdpMediaSection::MediaType::kApplication) {
+    return;
+  }
+  std::string offer = CreateOffer();
+  UniquePtr<Sdp> munge(Parse(offer));
+  SdpMediaSection& mediaSection = munge->GetMediaSection(0);
+  ASSERT_TRUE(mediaSection.GetAttributeList().HasAttribute(
+      SdpAttribute::kRtcpMuxAttribute));
+  // https://www.rfc-editor.org/info/rfc5761/#section-4
+  // Payload types in the range 64-95 collide with RTCP packet types when
+  // rtcp-mux is in use (RFC 5761 section 4), and must be rejected.
   mediaSection.AddCodec("75", "DummyFormatVal", 8000, 1);
   std::string sdpString = munge->ToString();
   JsepSession::Result result =
       mSessionOff->SetLocalDescription(kJsepSdpOffer, sdpString);
-  ASSERT_EQ(dom::PCError::OperationError, *result.mError);
+  ASSERT_EQ(dom::PCError::InvalidAccessError, *result.mError);
+}
+
+TEST_P(JsepSessionTest, AnswerRejectsRtcpMuxPayloadTypeInRtcpRange) {
+  AddTracks(*mSessionOff);
+  AddTracks(*mSessionAns);
+  if (types.front() == SdpMediaSection::MediaType::kApplication) {
+    return;
+  }
+  std::string offer = CreateOffer();
+  SetLocalOffer(offer);
+  SetRemoteOffer(offer);
+  std::string answer = CreateAnswer();
+  UniquePtr<Sdp> munge(Parse(answer));
+  SdpMediaSection& mediaSection = munge->GetMediaSection(0);
+  ASSERT_TRUE(mediaSection.GetAttributeList().HasAttribute(
+      SdpAttribute::kRtcpMuxAttribute));
+  // RFC 5761 section 4, see ParseRejectsRtcpMuxPayloadTypeInRtcpRange
+  mediaSection.AddCodec("75", "DummyFormatVal", 8000, 1);
+  std::string sdpString = munge->ToString();
+  JsepSession::Result result =
+      mSessionOff->SetRemoteDescription(kJsepSdpAnswer, sdpString);
+  ASSERT_EQ(dom::PCError::InvalidAccessError, *result.mError);
 }
 
 TEST_P(JsepSessionTest, FullCallWithCandidates) {
@@ -3865,7 +3907,7 @@ TEST_F(JsepSessionTest, ValidateNoFmtpLineForRedInOfferAndAnswer) {
   ASSERT_TRUE(offerTransceivers[1].mSendTrack.GetNegotiatedDetails());
   ASSERT_TRUE(offerTransceivers[1].mRecvTrack.GetNegotiatedDetails());
   // Note that the number of recv/send codecs here differ because some codecs
-  // are recvonly. See SetupPreferredCodecs above.
+  // are recvonly. See EnumerateDefault*Codecs above.
   ASSERT_EQ(7U, offerTransceivers[1]
                     .mSendTrack.GetNegotiatedDetails()
                     ->GetEncoding(0)
@@ -3938,10 +3980,10 @@ static void GetCodec(JsepSession& session, size_t transceiverIndex,
                             ->GetEncoding(encodingIndex)
                             .GetCodecs()
                             .size());
-  codecOut->reset(track.GetNegotiatedDetails()
-                      ->GetEncoding(encodingIndex)
-                      .GetCodecs()[codecIndex]
-                      ->Clone());
+  *codecOut = track.GetNegotiatedDetails()
+                  ->GetEncoding(encodingIndex)
+                  .GetCodecs()[codecIndex]
+                  ->Clone();
 }
 
 static void ForceH264(JsepSession& session, uint32_t profileLevelId) {
@@ -4318,7 +4360,7 @@ TEST_F(JsepSessionTest, TestIceLite) {
 
   UniquePtr<Sdp> parsedOffer(Parse(offer));
   parsedOffer->GetAttributeList().SetAttribute(
-      new SdpFlagAttribute(SdpAttribute::kIceLiteAttribute));
+      MakeUnique<SdpFlagAttribute>(SdpAttribute::kIceLiteAttribute));
 
   std::ostringstream os;
   parsedOffer->Serialize(os);
@@ -4481,7 +4523,7 @@ TEST_F(JsepSessionTest, TestAnswererIsControllingWhenRemoteIsIceLite) {
 
   UniquePtr<Sdp> parsedOffer(Parse(offer));
   parsedOffer->GetAttributeList().SetAttribute(
-      new SdpFlagAttribute(SdpAttribute::kIceLiteAttribute));
+      MakeUnique<SdpFlagAttribute>(SdpAttribute::kIceLiteAttribute));
   std::ostringstream os;
   parsedOffer->Serialize(os);
   std::string iceLiteOffer = os.str();
@@ -4517,7 +4559,7 @@ TEST_F(JsepSessionTest, TestIceRoleUpdatedWhenRemoteSwitchesToIceLite) {
 
   UniquePtr<Sdp> parsedReoffer(Parse(reoffer));
   parsedReoffer->GetAttributeList().SetAttribute(
-      new SdpFlagAttribute(SdpAttribute::kIceLiteAttribute));
+      MakeUnique<SdpFlagAttribute>(SdpAttribute::kIceLiteAttribute));
   std::ostringstream os;
   parsedReoffer->Serialize(os);
   std::string iceLiteReoffer = os.str();
@@ -4547,9 +4589,9 @@ TEST_F(JsepSessionTest, TestExtmap) {
   // csrc-audio-level will be 2 for both
   // mid will be 3 for both
   // video related extensions take 4 - 7
-  mSessionOff->AddAudioRtpExtension("foo");  // Default mapping of 8
-  mSessionOff->AddAudioRtpExtension("bar");  // Default mapping of 9
-  mSessionAns->AddAudioRtpExtension("bar");  // Default mapping of 8
+  mSessionOff->AddAudioRtpExtension("foo"_ns);  // Default mapping of 8
+  mSessionOff->AddAudioRtpExtension("bar"_ns);  // Default mapping of 9
+  mSessionAns->AddAudioRtpExtension("bar"_ns);  // Default mapping of 8
   std::string offer = CreateOffer();
   SetLocalOffer(offer, CHECK_SUCCESS);
   SetRemoteOffer(offer, CHECK_SUCCESS);
@@ -4563,20 +4605,25 @@ TEST_F(JsepSessionTest, TestExtmap) {
   auto& offerMediaAttrs = parsedOffer->GetMediaSection(0).GetAttributeList();
   ASSERT_TRUE(offerMediaAttrs.HasAttribute(SdpAttribute::kExtmapAttribute));
   auto& offerExtmap = offerMediaAttrs.GetExtmap().mExtmaps;
-  ASSERT_EQ(5U, offerExtmap.size());
-  ASSERT_EQ("urn:ietf:params:rtp-hdrext:ssrc-audio-level",
+  ASSERT_EQ(6U, offerExtmap.size());
+  ASSERT_EQ("urn:ietf:params:rtp-hdrext:ssrc-audio-level"_ns,
             offerExtmap[0].extensionname);
   ASSERT_EQ(1U, offerExtmap[0].entry);
-  ASSERT_EQ("urn:ietf:params:rtp-hdrext:csrc-audio-level",
+  ASSERT_EQ("urn:ietf:params:rtp-hdrext:csrc-audio-level"_ns,
             offerExtmap[1].extensionname);
   ASSERT_EQ(2U, offerExtmap[1].entry);
-  ASSERT_EQ("urn:ietf:params:rtp-hdrext:sdes:mid",
+  ASSERT_EQ("urn:ietf:params:rtp-hdrext:sdes:mid"_ns,
             offerExtmap[2].extensionname);
   ASSERT_EQ(3U, offerExtmap[2].entry);
-  ASSERT_EQ("foo", offerExtmap[3].extensionname);
-  ASSERT_EQ(8U, offerExtmap[3].entry);
-  ASSERT_EQ("bar", offerExtmap[4].extensionname);
-  ASSERT_EQ(9U, offerExtmap[4].entry);
+  ASSERT_EQ(
+      "http://www.ietf.org/id/"
+      "draft-holmer-rmcat-transport-wide-cc-extensions-01"_ns,
+      offerExtmap[3].extensionname);
+  ASSERT_EQ(7U, offerExtmap[3].entry);
+  ASSERT_EQ("foo"_ns, offerExtmap[4].extensionname);
+  ASSERT_EQ(8U, offerExtmap[4].entry);
+  ASSERT_EQ("bar"_ns, offerExtmap[5].extensionname);
+  ASSERT_EQ(9U, offerExtmap[5].entry);
 
   UniquePtr<Sdp> parsedAnswer(Parse(answer));
   ASSERT_EQ(1U, parsedAnswer->GetMediaSectionCount());
@@ -4584,16 +4631,21 @@ TEST_F(JsepSessionTest, TestExtmap) {
   auto& answerMediaAttrs = parsedAnswer->GetMediaSection(0).GetAttributeList();
   ASSERT_TRUE(answerMediaAttrs.HasAttribute(SdpAttribute::kExtmapAttribute));
   auto& answerExtmap = answerMediaAttrs.GetExtmap().mExtmaps;
-  ASSERT_EQ(3U, answerExtmap.size());
-  ASSERT_EQ("urn:ietf:params:rtp-hdrext:ssrc-audio-level",
+  ASSERT_EQ(4U, answerExtmap.size());
+  ASSERT_EQ("urn:ietf:params:rtp-hdrext:ssrc-audio-level"_ns,
             answerExtmap[0].extensionname);
   ASSERT_EQ(1U, answerExtmap[0].entry);
-  ASSERT_EQ("urn:ietf:params:rtp-hdrext:sdes:mid",
+  ASSERT_EQ("urn:ietf:params:rtp-hdrext:sdes:mid"_ns,
             answerExtmap[1].extensionname);
   ASSERT_EQ(3U, answerExtmap[1].entry);
+  ASSERT_EQ(
+      "http://www.ietf.org/id/"
+      "draft-holmer-rmcat-transport-wide-cc-extensions-01"_ns,
+      answerExtmap[2].extensionname);
+  ASSERT_EQ(7U, answerExtmap[2].entry);
   // We ensure that the entry for "bar" matches what was in the offer
-  ASSERT_EQ("bar", answerExtmap[2].extensionname);
-  ASSERT_EQ(9U, answerExtmap[2].entry);
+  ASSERT_EQ("bar"_ns, answerExtmap[3].extensionname);
+  ASSERT_EQ(9U, answerExtmap[3].entry);
 }
 
 TEST_F(JsepSessionTest, TestExtmapDefaults) {
@@ -4617,16 +4669,21 @@ TEST_F(JsepSessionTest, TestExtmapDefaults) {
   ASSERT_TRUE(
       offerAudioMediaAttrs.HasAttribute(SdpAttribute::kExtmapAttribute));
   auto& offerAudioExtmap = offerAudioMediaAttrs.GetExtmap().mExtmaps;
-  ASSERT_EQ(3U, offerAudioExtmap.size());
+  ASSERT_EQ(4U, offerAudioExtmap.size());
 
-  ASSERT_EQ("urn:ietf:params:rtp-hdrext:ssrc-audio-level",
+  ASSERT_EQ("urn:ietf:params:rtp-hdrext:ssrc-audio-level"_ns,
             offerAudioExtmap[0].extensionname);
   ASSERT_EQ(1U, offerAudioExtmap[0].entry);
-  ASSERT_EQ("urn:ietf:params:rtp-hdrext:csrc-audio-level",
+  ASSERT_EQ("urn:ietf:params:rtp-hdrext:csrc-audio-level"_ns,
             offerAudioExtmap[1].extensionname);
   ASSERT_EQ(2U, offerAudioExtmap[1].entry);
-  ASSERT_EQ("urn:ietf:params:rtp-hdrext:sdes:mid",
+  ASSERT_EQ("urn:ietf:params:rtp-hdrext:sdes:mid"_ns,
             offerAudioExtmap[2].extensionname);
+  ASSERT_EQ(
+      "http://www.ietf.org/id/"
+      "draft-holmer-rmcat-transport-wide-cc-extensions-01"_ns,
+      offerAudioExtmap[3].extensionname);
+  ASSERT_EQ(7U, offerAudioExtmap[3].entry);
 
   auto& offerVideoMediaAttrs =
       parsedOffer->GetMediaSection(1).GetAttributeList();
@@ -4636,20 +4693,20 @@ TEST_F(JsepSessionTest, TestExtmapDefaults) {
   ASSERT_EQ(5U, offerVideoExtmap.size());
 
   ASSERT_EQ(3U, offerVideoExtmap[0].entry);
-  ASSERT_EQ("urn:ietf:params:rtp-hdrext:sdes:mid",
+  ASSERT_EQ("urn:ietf:params:rtp-hdrext:sdes:mid"_ns,
             offerVideoExtmap[0].extensionname);
-  ASSERT_EQ("http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time",
+  ASSERT_EQ("http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time"_ns,
             offerVideoExtmap[1].extensionname);
   ASSERT_EQ(4U, offerVideoExtmap[1].entry);
-  ASSERT_EQ("urn:ietf:params:rtp-hdrext:toffset",
+  ASSERT_EQ("urn:ietf:params:rtp-hdrext:toffset"_ns,
             offerVideoExtmap[2].extensionname);
   ASSERT_EQ(5U, offerVideoExtmap[2].entry);
-  ASSERT_EQ("http://www.webrtc.org/experiments/rtp-hdrext/playout-delay",
+  ASSERT_EQ("http://www.webrtc.org/experiments/rtp-hdrext/playout-delay"_ns,
             offerVideoExtmap[3].extensionname);
   ASSERT_EQ(6U, offerVideoExtmap[3].entry);
   ASSERT_EQ(
       "http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-"
-      "extensions-01",
+      "extensions-01"_ns,
       offerVideoExtmap[4].extensionname);
   ASSERT_EQ(7U, offerVideoExtmap[4].entry);
 
@@ -4661,14 +4718,19 @@ TEST_F(JsepSessionTest, TestExtmapDefaults) {
   ASSERT_TRUE(
       answerAudioMediaAttrs.HasAttribute(SdpAttribute::kExtmapAttribute));
   auto& answerAudioExtmap = answerAudioMediaAttrs.GetExtmap().mExtmaps;
-  ASSERT_EQ(2U, answerAudioExtmap.size());
+  ASSERT_EQ(3U, answerAudioExtmap.size());
 
-  ASSERT_EQ("urn:ietf:params:rtp-hdrext:ssrc-audio-level",
+  ASSERT_EQ("urn:ietf:params:rtp-hdrext:ssrc-audio-level"_ns,
             answerAudioExtmap[0].extensionname);
   ASSERT_EQ(1U, answerAudioExtmap[0].entry);
-  ASSERT_EQ("urn:ietf:params:rtp-hdrext:sdes:mid",
+  ASSERT_EQ("urn:ietf:params:rtp-hdrext:sdes:mid"_ns,
             answerAudioExtmap[1].extensionname);
   ASSERT_EQ(3U, answerAudioExtmap[1].entry);
+  ASSERT_EQ(
+      "http://www.ietf.org/id/"
+      "draft-holmer-rmcat-transport-wide-cc-extensions-01"_ns,
+      answerAudioExtmap[2].extensionname);
+  ASSERT_EQ(7U, answerAudioExtmap[2].entry);
 
   auto& answerVideoMediaAttrs =
       parsedAnswer->GetMediaSection(1).GetAttributeList();
@@ -4678,17 +4740,17 @@ TEST_F(JsepSessionTest, TestExtmapDefaults) {
   ASSERT_EQ(4U, answerVideoExtmap.size());
 
   ASSERT_EQ(3U, answerVideoExtmap[0].entry);
-  ASSERT_EQ("urn:ietf:params:rtp-hdrext:sdes:mid",
+  ASSERT_EQ("urn:ietf:params:rtp-hdrext:sdes:mid"_ns,
             answerVideoExtmap[0].extensionname);
-  ASSERT_EQ("http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time",
+  ASSERT_EQ("http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time"_ns,
             answerVideoExtmap[1].extensionname);
   ASSERT_EQ(4U, answerVideoExtmap[1].entry);
-  ASSERT_EQ("urn:ietf:params:rtp-hdrext:toffset",
+  ASSERT_EQ("urn:ietf:params:rtp-hdrext:toffset"_ns,
             answerVideoExtmap[2].extensionname);
   ASSERT_EQ(5U, answerVideoExtmap[2].entry);
   ASSERT_EQ(
       "http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-"
-      "extensions-01",
+      "extensions-01"_ns,
       answerVideoExtmap[3].extensionname);
   ASSERT_EQ(7U, answerVideoExtmap[3].entry);
 }
@@ -4700,12 +4762,12 @@ TEST_F(JsepSessionTest, TestExtmapWithDuplicates) {
   // csrc-audio-level will be 2 for both
   // mid will be 3 for both
   // video related extensions take 4 - 7
-  mSessionOff->AddAudioRtpExtension("foo");  // Default mapping of 8
-  mSessionOff->AddAudioRtpExtension("bar");  // Default mapping of 9
-  mSessionOff->AddAudioRtpExtension("bar");  // Should be ignored
-  mSessionOff->AddAudioRtpExtension("bar");  // Should be ignored
-  mSessionOff->AddAudioRtpExtension("baz");  // Default mapping of 10
-  mSessionOff->AddAudioRtpExtension("bar");  // Should be ignored
+  mSessionOff->AddAudioRtpExtension("foo"_ns);  // Default mapping of 8
+  mSessionOff->AddAudioRtpExtension("bar"_ns);  // Default mapping of 9
+  mSessionOff->AddAudioRtpExtension("bar"_ns);  // Should be ignored
+  mSessionOff->AddAudioRtpExtension("bar"_ns);  // Should be ignored
+  mSessionOff->AddAudioRtpExtension("baz"_ns);  // Default mapping of 10
+  mSessionOff->AddAudioRtpExtension("bar"_ns);  // Should be ignored
 
   std::string offer = CreateOffer();
   UniquePtr<Sdp> parsedOffer(Parse(offer));
@@ -4714,22 +4776,27 @@ TEST_F(JsepSessionTest, TestExtmapWithDuplicates) {
   auto& offerMediaAttrs = parsedOffer->GetMediaSection(0).GetAttributeList();
   ASSERT_TRUE(offerMediaAttrs.HasAttribute(SdpAttribute::kExtmapAttribute));
   auto& offerExtmap = offerMediaAttrs.GetExtmap().mExtmaps;
-  ASSERT_EQ(6U, offerExtmap.size());
-  ASSERT_EQ("urn:ietf:params:rtp-hdrext:ssrc-audio-level",
+  ASSERT_EQ(7U, offerExtmap.size());
+  ASSERT_EQ("urn:ietf:params:rtp-hdrext:ssrc-audio-level"_ns,
             offerExtmap[0].extensionname);
   ASSERT_EQ(1U, offerExtmap[0].entry);
-  ASSERT_EQ("urn:ietf:params:rtp-hdrext:csrc-audio-level",
+  ASSERT_EQ("urn:ietf:params:rtp-hdrext:csrc-audio-level"_ns,
             offerExtmap[1].extensionname);
   ASSERT_EQ(2U, offerExtmap[1].entry);
-  ASSERT_EQ("urn:ietf:params:rtp-hdrext:sdes:mid",
+  ASSERT_EQ("urn:ietf:params:rtp-hdrext:sdes:mid"_ns,
             offerExtmap[2].extensionname);
   ASSERT_EQ(3U, offerExtmap[2].entry);
-  ASSERT_EQ("foo", offerExtmap[3].extensionname);
-  ASSERT_EQ(8U, offerExtmap[3].entry);
-  ASSERT_EQ("bar", offerExtmap[4].extensionname);
-  ASSERT_EQ(9U, offerExtmap[4].entry);
-  ASSERT_EQ("baz", offerExtmap[5].extensionname);
-  ASSERT_EQ(10U, offerExtmap[5].entry);
+  ASSERT_EQ(
+      "http://www.ietf.org/id/"
+      "draft-holmer-rmcat-transport-wide-cc-extensions-01"_ns,
+      offerExtmap[3].extensionname);
+  ASSERT_EQ(7U, offerExtmap[3].entry);
+  ASSERT_EQ("foo"_ns, offerExtmap[4].extensionname);
+  ASSERT_EQ(8U, offerExtmap[4].entry);
+  ASSERT_EQ("bar"_ns, offerExtmap[5].extensionname);
+  ASSERT_EQ(9U, offerExtmap[5].entry);
+  ASSERT_EQ("baz"_ns, offerExtmap[6].extensionname);
+  ASSERT_EQ(10U, offerExtmap[6].entry);
 }
 
 TEST_F(JsepSessionTest, TestExtmapZeroId) {
@@ -4753,13 +4820,12 @@ TEST_F(JsepSessionTest, TestExtmapZeroId) {
   auto result = mSessionAns->SetRemoteDescription(kJsepSdpOffer, sdp);
   ASSERT_TRUE(result.mError == Some(dom::PCError::OperationError));
   ASSERT_EQ(
-      "Description contains invalid extension id 0 on level 0 which is"
-      " unsupported until 2-byte rtp header extensions are supported in"
-      " webrtc.org",
+      "Description contains invalid extension id 0 on level 0 (valid range is"
+      " 1-255)",
       mSessionAns->GetLastError());
 }
 
-TEST_F(JsepSessionTest, TestExtmapInvalidId) {
+TEST_F(JsepSessionTest, TestExtmapValidId15) {
   AddTracks(*mSessionAns, "video");
 
   std::string sdp =
@@ -4777,12 +4843,7 @@ TEST_F(JsepSessionTest, TestExtmapInvalidId) {
       "a=rtpmap:100 VP8/90000\r\n"
       "a=extmap:15 urn:ietf:params:rtp-hdrext:toffset\r\n";
   auto result = mSessionAns->SetRemoteDescription(kJsepSdpOffer, sdp);
-  ASSERT_TRUE(result.mError == Some(dom::PCError::OperationError));
-  ASSERT_EQ(
-      "Description contains invalid extension id 15 on level 0 which is"
-      " unsupported until 2-byte rtp header extensions are supported in"
-      " webrtc.org",
-      mSessionAns->GetLastError());
+  ASSERT_FALSE(result.mError.isSome());
 }
 
 TEST_F(JsepSessionTest, TestExtmapDuplicateId) {
@@ -4805,8 +4866,118 @@ TEST_F(JsepSessionTest, TestExtmapDuplicateId) {
       "a=extmap:2 "
       "http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time\r\n";
   auto result = mSessionAns->SetRemoteDescription(kJsepSdpOffer, sdp);
-  ASSERT_TRUE(result.mError == Some(dom::PCError::OperationError));
+  ASSERT_TRUE(result.mError == Some(dom::PCError::InvalidAccessError));
   ASSERT_EQ("Description contains duplicate extension id 2 on level 0",
+            mSessionAns->GetLastError());
+}
+
+TEST_F(JsepSessionTest, TestInvalidExtmapId256) {
+  AddTracks(*mSessionAns, "video");
+
+  std::string sdp =
+      "v=0\r\n"
+      "o=- 6 2 IN IP4 1r\r\n"
+      "t=0 0a\r\n"
+      "a=ice-ufrag:Xp\r\n"
+      "a=ice-pwd:he\r\n"
+      "a=setup:actpass\r\n"
+      "a=fingerprint:sha-256 "
+      "DC:FC:25:56:2B:88:77:2F:E4:FA:97:4E:2E:F1:D6:34:A6:A0:11:E2:E4:38:B3:98:"
+      "08:D2:F7:9D:F5:E2:C1:15\r\n"
+      "m=video 9 UDP/TLS/RTP/SAVPF 100\r\n"
+      "c=IN IP4 0\r\n"
+      "a=rtpmap:100 VP8/90000\r\n"
+      "a=extmap:256 urn:ietf:params:rtp-hdrext:toffset\r\n";
+  auto result = mSessionAns->SetRemoteDescription(kJsepSdpOffer, sdp);
+  ASSERT_TRUE(result.mError == Some(dom::PCError::OperationError));
+  ASSERT_EQ(
+      "Description contains invalid extension id 256 on level 0 (valid range "
+      "is 1-255)",
+      mSessionAns->GetLastError());
+}
+
+TEST_F(JsepSessionTest, TestValidTwoByteExtmapIds) {
+  AddTracks(*mSessionAns, "video");
+
+  // Test ID=15 (boundary - first two-byte ID)
+  std::string sdp15 =
+      "v=0\r\n"
+      "o=- 6 2 IN IP4 1r\r\n"
+      "t=0 0a\r\n"
+      "a=ice-ufrag:XpXX\r\n"
+      "a=ice-pwd:AAAA+BBBB+CCCC+DDDD+EE\r\n"
+      "a=setup:actpass\r\n"
+      "a=fingerprint:sha-256 "
+      "DC:FC:25:56:2B:88:77:2F:E4:FA:97:4E:2E:F1:D6:34:A6:A0:11:E2:E4:38:B3:98:"
+      "08:D2:F7:9D:F5:E2:C1:15\r\n"
+      "m=video 9 UDP/TLS/RTP/SAVPF 100\r\n"
+      "c=IN IP4 0\r\n"
+      "a=rtpmap:100 VP8/90000\r\n"
+      "a=extmap:15 urn:ietf:params:rtp-hdrext:toffset\r\n";
+  auto result15 = mSessionAns->SetRemoteDescription(kJsepSdpOffer, sdp15);
+  ASSERT_FALSE(result15.mError.isSome());
+
+  // Test ID=255 (maximum valid ID)
+  std::string sdp255 = sdp15;
+  // Find and replace "a=extmap:15" with "a=extmap:255"
+  size_t pos = sdp255.find("a=extmap:15");
+  ASSERT_NE(pos, std::string::npos);
+  sdp255.replace(pos, strlen("a=extmap:15"), "a=extmap:255");
+  auto result255 = mSessionAns->SetRemoteDescription(kJsepSdpOffer, sdp255);
+  ASSERT_FALSE(result255.mError.isSome());
+
+  // Test ID=256 (invalid - should fail)
+  std::string sdp256 = sdp15;
+  pos = sdp256.find("a=extmap:15");
+  ASSERT_NE(pos, std::string::npos);
+  sdp256.replace(pos, strlen("a=extmap:15"), "a=extmap:256");
+  auto result256 = mSessionAns->SetRemoteDescription(kJsepSdpOffer, sdp256);
+  ASSERT_TRUE(result256.mError == Some(dom::PCError::OperationError));
+}
+
+TEST_F(JsepSessionTest, TestMidLengthAtLimit) {
+  AddTracks(*mSessionAns, "video");
+
+  // 16 characters is the RTCP-SDES maximum and must be accepted.
+  std::string sdp =
+      "v=0\r\n"
+      "o=- 6 2 IN IP4 1r\r\n"
+      "t=0 0a\r\n"
+      "a=ice-ufrag:XpXX\r\n"
+      "a=ice-pwd:AAAA+BBBB+CCCC+DDDD+EE\r\n"
+      "a=setup:actpass\r\n"
+      "a=fingerprint:sha-256 "
+      "DC:FC:25:56:2B:88:77:2F:E4:FA:97:4E:2E:F1:D6:34:A6:A0:11:E2:E4:38:B3:98:"
+      "08:D2:F7:9D:F5:E2:C1:15\r\n"
+      "m=video 9 UDP/TLS/RTP/SAVPF 100\r\n"
+      "c=IN IP4 0\r\n"
+      "a=mid:0123456789ABCDEF\r\n"
+      "a=rtpmap:100 VP8/90000\r\n";
+  auto result = mSessionAns->SetRemoteDescription(kJsepSdpOffer, sdp);
+  ASSERT_FALSE(result.mError.isSome());
+}
+
+TEST_F(JsepSessionTest, TestMidLengthTooLong) {
+  AddTracks(*mSessionAns, "video");
+
+  // 17 characters exceeds the RTCP-SDES maximum and must be rejected.
+  std::string sdp =
+      "v=0\r\n"
+      "o=- 6 2 IN IP4 1r\r\n"
+      "t=0 0a\r\n"
+      "a=ice-ufrag:XpXX\r\n"
+      "a=ice-pwd:AAAA+BBBB+CCCC+DDDD+EE\r\n"
+      "a=setup:actpass\r\n"
+      "a=fingerprint:sha-256 "
+      "DC:FC:25:56:2B:88:77:2F:E4:FA:97:4E:2E:F1:D6:34:A6:A0:11:E2:E4:38:B3:98:"
+      "08:D2:F7:9D:F5:E2:C1:15\r\n"
+      "m=video 9 UDP/TLS/RTP/SAVPF 100\r\n"
+      "c=IN IP4 0\r\n"
+      "a=mid:0123456789ABCDEFG\r\n"
+      "a=rtpmap:100 VP8/90000\r\n";
+  auto result = mSessionAns->SetRemoteDescription(kJsepSdpOffer, sdp);
+  ASSERT_TRUE(result.mError == Some(dom::PCError::OperationError));
+  ASSERT_EQ("Invalid description, mid length greater than 16",
             mSessionAns->GetLastError());
 }
 
@@ -4858,25 +5029,27 @@ TEST_F(JsepSessionTest, TestNegotiatedExtmapStability) {
   ASSERT_TRUE(audioRecv);
   ASSERT_TRUE(videoSend);
   ASSERT_TRUE(videoRecv);
-  ASSERT_EQ(
-      11U,
-      audioSend->GetExt("urn:ietf:params:rtp-hdrext:ssrc-audio-level")->entry);
-  ASSERT_EQ(
-      11U,
-      audioRecv->GetExt("urn:ietf:params:rtp-hdrext:ssrc-audio-level")->entry);
+  ASSERT_EQ(11U,
+            audioSend->GetExt("urn:ietf:params:rtp-hdrext:ssrc-audio-level"_ns)
+                ->entry);
+  ASSERT_EQ(11U,
+            audioRecv->GetExt("urn:ietf:params:rtp-hdrext:ssrc-audio-level"_ns)
+                ->entry);
   ASSERT_EQ(12U,
-            videoSend->GetExt("urn:ietf:params:rtp-hdrext:toffset")->entry);
+            videoSend->GetExt("urn:ietf:params:rtp-hdrext:toffset"_ns)->entry);
   ASSERT_EQ(12U,
-            videoRecv->GetExt("urn:ietf:params:rtp-hdrext:toffset")->entry);
+            videoRecv->GetExt("urn:ietf:params:rtp-hdrext:toffset"_ns)->entry);
   ASSERT_EQ(
       13U,
       videoSend
-          ->GetExt("http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time")
+          ->GetExt(
+              "http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time"_ns)
           ->entry);
   ASSERT_EQ(
       13U,
       videoRecv
-          ->GetExt("http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time")
+          ->GetExt(
+              "http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time"_ns)
           ->entry);
 
   SwapOfferAnswerRoles();
@@ -4893,9 +5066,9 @@ TEST_F(JsepSessionTest, TestNegotiatedExtmapCollision) {
   // ssrc-audio-level will be extmap 1 for both
   // csrc-audio-level will be 2 for both
   // mid will be 3 for both
-  mSessionAns->AddAudioRtpExtension("foo");
-  mSessionAns->AddAudioRtpExtension("bar");
-  mSessionAns->AddAudioRtpExtension("baz");
+  mSessionAns->AddAudioRtpExtension("foo"_ns);
+  mSessionAns->AddAudioRtpExtension("bar"_ns);
+  mSessionAns->AddAudioRtpExtension("baz"_ns);
 
   // Set up an offer that uses the same extmap entries, but for different
   // things, causing collisions.
@@ -4936,18 +5109,18 @@ TEST_F(JsepSessionTest, TestNegotiatedExtmapCollision) {
   auto* audioRecv = transceivers[0].mRecvTrack.GetNegotiatedDetails();
   ASSERT_TRUE(audioSend);
   ASSERT_TRUE(audioRecv);
-  ASSERT_EQ(1U, audioSend->GetExt("foo")->entry);
-  ASSERT_EQ(1U, audioRecv->GetExt("foo")->entry);
-  ASSERT_EQ(2U, audioSend->GetExt("bar")->entry);
-  ASSERT_EQ(2U, audioRecv->GetExt("bar")->entry);
-  ASSERT_EQ(3U, audioSend->GetExt("baz")->entry);
-  ASSERT_EQ(3U, audioRecv->GetExt("baz")->entry);
-  ASSERT_EQ(
-      11U,
-      audioSend->GetExt("urn:ietf:params:rtp-hdrext:ssrc-audio-level")->entry);
-  ASSERT_EQ(
-      11U,
-      audioRecv->GetExt("urn:ietf:params:rtp-hdrext:ssrc-audio-level")->entry);
+  ASSERT_EQ(1U, audioSend->GetExt("foo"_ns)->entry);
+  ASSERT_EQ(1U, audioRecv->GetExt("foo"_ns)->entry);
+  ASSERT_EQ(2U, audioSend->GetExt("bar"_ns)->entry);
+  ASSERT_EQ(2U, audioRecv->GetExt("bar"_ns)->entry);
+  ASSERT_EQ(3U, audioSend->GetExt("baz"_ns)->entry);
+  ASSERT_EQ(3U, audioRecv->GetExt("baz"_ns)->entry);
+  ASSERT_EQ(11U,
+            audioSend->GetExt("urn:ietf:params:rtp-hdrext:ssrc-audio-level"_ns)
+                ->entry);
+  ASSERT_EQ(11U,
+            audioRecv->GetExt("urn:ietf:params:rtp-hdrext:ssrc-audio-level"_ns)
+                ->entry);
   SwapOfferAnswerRoles();
 
   // Make sure a reoffer uses the negotiated extmap
@@ -4981,7 +5154,7 @@ TEST_F(JsepSessionTest, TestExtmapAnswerChangesId) {
 
   std::string answer = CreateAnswer();
   std::string mungedAnswer =
-      SetExtmap(answer, "urn:ietf:params:rtp-hdrext:sdes:mid", 14);
+      SetExtmap(answer, "urn:ietf:params:rtp-hdrext:sdes:mid"_ns, 14);
   JsepSession::Result result =
       mSessionOff->SetRemoteDescription(kJsepSdpAnswer, mungedAnswer);
   ASSERT_TRUE(result.mError.isSome());
@@ -5005,7 +5178,7 @@ TEST_F(JsepSessionTest, TestExtmapChangeId) {
     SetLocalOffer(offer, ALL_CHECKS);
     uint16_t oldId = 0;
     std::string mungedOffer =
-        SetExtmap(offer, "urn:ietf:params:rtp-hdrext:sdes:mid", 14, &oldId);
+        SetExtmap(offer, "urn:ietf:params:rtp-hdrext:sdes:mid"_ns, 14, &oldId);
     ASSERT_NE(oldId, 0);
     SetRemoteOffer(mungedOffer, ALL_CHECKS);
 
@@ -5013,7 +5186,7 @@ TEST_F(JsepSessionTest, TestExtmapChangeId) {
     SetLocalAnswer(answer, ALL_CHECKS);
 
     std::string mungedAnswer =
-        SetExtmap(answer, "urn:ietf:params:rtp-hdrext:sdes:mid", oldId);
+        SetExtmap(answer, "urn:ietf:params:rtp-hdrext:sdes:mid"_ns, oldId);
     SetRemoteAnswer(mungedAnswer, ALL_CHECKS);
   }
 
@@ -5029,12 +5202,12 @@ TEST_F(JsepSessionTest, TestExtmapSwap) {
   OfferAnswer();
 
   std::string offer = CreateOffer();
-  uint16_t midId = GetExtmap(offer, "urn:ietf:params:rtp-hdrext:sdes:mid");
+  uint16_t midId = GetExtmap(offer, "urn:ietf:params:rtp-hdrext:sdes:mid"_ns);
   uint16_t ssrcLevelId = 0;
   std::string mungedOffer =
-      SetExtmap(offer, "urn:ietf:params:rtp-hdrext:ssrc-audio-level", midId,
+      SetExtmap(offer, "urn:ietf:params:rtp-hdrext:ssrc-audio-level"_ns, midId,
                 &ssrcLevelId);
-  mungedOffer = SetExtmap(mungedOffer, "urn:ietf:params:rtp-hdrext:sdes:mid",
+  mungedOffer = SetExtmap(mungedOffer, "urn:ietf:params:rtp-hdrext:sdes:mid"_ns,
                           ssrcLevelId);
 
   JsepSession::Result result =
@@ -5061,8 +5234,8 @@ TEST_F(JsepSessionTest, TestExtmapReuse) {
   ASSERT_TRUE(offerMediaAttrs.HasAttribute(SdpAttribute::kExtmapAttribute));
   auto offerExtmap = offerMediaAttrs.GetExtmap();
   for (auto& ext : offerExtmap.mExtmaps) {
-    if (ext.extensionname == "urn:ietf:params:rtp-hdrext:ssrc-audio-level") {
-      ext.extensionname = "foo";
+    if (ext.extensionname == "urn:ietf:params:rtp-hdrext:ssrc-audio-level"_ns) {
+      ext.extensionname = "foo"_ns;
     }
   }
 
@@ -5091,7 +5264,7 @@ TEST_F(JsepSessionTest, TestExtmapReuseAfterRenegotiation) {
     SetLocalOffer(offer, ALL_CHECKS);
     // Passing 0 removes urn:ietf:params:rtp-hdrext:ssrc-audio-level
     std::string mungedOffer =
-        SetExtmap(offer, "urn:ietf:params:rtp-hdrext:ssrc-audio-level", 0);
+        SetExtmap(offer, "urn:ietf:params:rtp-hdrext:ssrc-audio-level"_ns, 0);
     SetRemoteOffer(mungedOffer, ALL_CHECKS);
 
     std::string answer = CreateAnswer();
@@ -5110,8 +5283,9 @@ TEST_F(JsepSessionTest, TestExtmapReuseAfterRenegotiation) {
     ASSERT_TRUE(offerMediaAttrs.HasAttribute(SdpAttribute::kExtmapAttribute));
     auto offerExtmap = offerMediaAttrs.GetExtmap();
     for (auto& ext : offerExtmap.mExtmaps) {
-      if (ext.extensionname == "urn:ietf:params:rtp-hdrext:ssrc-audio-level") {
-        ext.extensionname = "foo";
+      if (ext.extensionname ==
+          "urn:ietf:params:rtp-hdrext:ssrc-audio-level"_ns) {
+        ext.extensionname = "foo"_ns;
       }
     }
 
@@ -5135,9 +5309,10 @@ TEST_F(JsepSessionTest, TestRtcpFbStar) {
   std::string offer = CreateOffer();
 
   UniquePtr<Sdp> parsedOffer(Parse(offer));
-  auto* rtcpfbs = new SdpRtcpFbAttributeList;
+  auto rtcpfbs = MakeUnique<SdpRtcpFbAttributeList>();
   rtcpfbs->PushEntry("*", SdpRtcpFbAttributeList::kNack);
-  parsedOffer->GetMediaSection(0).GetAttributeList().SetAttribute(rtcpfbs);
+  parsedOffer->GetMediaSection(0).GetAttributeList().SetAttribute(
+      std::move(rtcpfbs));
   offer = parsedOffer->ToString();
 
   SetLocalOffer(offer, CHECK_SUCCESS);
@@ -5952,6 +6127,70 @@ TEST_F(JsepSessionTest, AudioOnlyCalleeNoRtcpMux) {
   ASSERT_EQ(pos, std::string::npos);
 }
 
+TEST_P(JsepSessionTest, RtcpMuxRequireSuccessfulNegotiation) {
+  mSessionOff->SetRtcpMuxPolicy(kRtcpMuxRequire);
+  mSessionAns->SetRtcpMuxPolicy(kRtcpMuxRequire);
+  AddTracks(*mSessionOff);
+  AddTracks(*mSessionAns);
+  OfferAnswer();
+}
+
+TEST_F(JsepSessionTest, RtcpMuxRequireAllowsDisabledMsectionWithoutMux) {
+  mSessionOff->SetRtcpMuxPolicy(kRtcpMuxRequire);
+  mSessionAns->SetRtcpMuxPolicy(kRtcpMuxRequire);
+  types.push_back(SdpMediaSection::kAudio);
+  types.push_back(SdpMediaSection::kVideo);
+  AddTracks(*mSessionOff, "audio,video");
+  AddTracks(*mSessionAns, "audio,video");
+  OfferAnswer();
+
+  // Avoid bundle transport side effects; don't stop the BUNDLE-tag!
+  GetTransceivers(*mSessionOff).back().Stop();
+  GetTransceivers(*mSessionAns).back().Stop();
+
+  OfferAnswer(CHECK_SUCCESS);
+
+  auto offer = GetParsedLocalDescription(*mSessionOff);
+  const SdpMediaSection* disabled =
+      &offer->GetMediaSection(offer->GetMediaSectionCount() - 1);
+  ValidateDisabledMSection(disabled);
+}
+
+TEST_F(JsepSessionTest, RtcpMuxRequireRejectsOfferWithoutMux) {
+  mSessionAns->SetRtcpMuxPolicy(kRtcpMuxRequire);
+  types.push_back(SdpMediaSection::kAudio);
+  AddTracks(*mSessionOff, "audio");
+  AddTracks(*mSessionAns, "audio");
+  std::string offer = CreateOffer();
+  std::string rtcp_mux = "a=rtcp-mux\r\n";
+  std::size_t pos = offer.find(rtcp_mux);
+  ASSERT_NE(pos, std::string::npos);
+  offer.replace(pos, rtcp_mux.length(), "");
+  JsepSession::Result result =
+      mSessionAns->SetRemoteDescription(kJsepSdpOffer, offer);
+  ASSERT_TRUE(result.mError.isSome());
+  ASSERT_EQ(dom::PCError::InvalidAccessError, *result.mError);
+}
+
+TEST_F(JsepSessionTest, RtcpMuxRequireRejectsAnswerWithoutMux) {
+  mSessionOff->SetRtcpMuxPolicy(kRtcpMuxRequire);
+  types.push_back(SdpMediaSection::kAudio);
+  AddTracks(*mSessionOff, "audio");
+  AddTracks(*mSessionAns, "audio");
+  std::string offer = CreateOffer();
+  SetLocalOffer(offer);
+  SetRemoteOffer(offer);
+  std::string answer = CreateAnswer();
+  std::string rtcp_mux = "a=rtcp-mux\r\n";
+  std::size_t pos = answer.find(rtcp_mux);
+  ASSERT_NE(pos, std::string::npos);
+  answer.replace(pos, rtcp_mux.length(), "");
+  JsepSession::Result result =
+      mSessionOff->SetRemoteDescription(kJsepSdpAnswer, answer);
+  ASSERT_TRUE(result.mError.isSome());
+  ASSERT_EQ(dom::PCError::InvalidAccessError, *result.mError);
+}
+
 // This test comes from Bug 810220
 TEST_F(JsepSessionTest, AudioOnlyG711Call) {
   std::string offer =
@@ -6252,7 +6491,7 @@ TEST_F(JsepSessionTest, SetLocalAnswerInHaveLocalOffer) {
   // SetLocalDescription call fails.
   JsepSession::Result result =
       mSessionOff->SetLocalDescription(kJsepSdpAnswer, offer);
-  ASSERT_EQ(dom::PCError::InvalidModificationError, *result.mError);
+  ASSERT_EQ(dom::PCError::InvalidStateError, *result.mError);
   ASSERT_EQ(kJsepStateHaveLocalOffer, mSessionOff->GetState());
 }
 
@@ -6284,7 +6523,7 @@ TEST_F(JsepSessionTest, SetLocalOfferInHaveRemoteOffer) {
   // SetLocalDescription call fails.
   JsepSession::Result result =
       mSessionAns->SetLocalDescription(kJsepSdpOffer, offer);
-  ASSERT_EQ(dom::PCError::InvalidModificationError, *result.mError);
+  ASSERT_EQ(dom::PCError::InvalidStateError, *result.mError);
   ASSERT_EQ(kJsepStateHaveRemoteOffer, mSessionAns->GetState());
 }
 
@@ -7873,7 +8112,7 @@ TEST_F(JsepSessionTest, TestTransportAttributeValidation) {
   {
     UniquePtr<Sdp> parsed = Parse(sdpTemplate);
     parsed->GetMediaSection(0).GetAttributeList().SetAttribute(
-        new SdpSetupAttribute(SdpSetupAttribute::kHoldconn));
+        MakeUnique<SdpSetupAttribute>(SdpSetupAttribute::kHoldconn));
     auto sdp = parsed->ToString();
     auto result = mSessionOff->SetRemoteDescription(kJsepSdpOffer, sdp);
     ASSERT_TRUE(result.mError.isSome());
@@ -7935,7 +8174,7 @@ TEST_F(JsepSessionTest, TestTransportAttributeValidation) {
     parsed->GetMediaSection(1).GetAttributeList().RemoveAttribute(
         SdpAttribute::kIceUfragAttribute);
     parsed->GetMediaSection(1).GetAttributeList().SetAttribute(
-        new SdpFlagAttribute(SdpAttribute::kBundleOnlyAttribute));
+        MakeUnique<SdpFlagAttribute>(SdpAttribute::kBundleOnlyAttribute));
     auto sdp = parsed->ToString();
     auto result = mSessionOff->SetRemoteDescription(kJsepSdpOffer, sdp);
     ASSERT_FALSE(result.mError.isSome());
@@ -7947,7 +8186,7 @@ TEST_F(JsepSessionTest, TestTransportAttributeValidation) {
     parsed->GetMediaSection(1).GetAttributeList().RemoveAttribute(
         SdpAttribute::kIcePwdAttribute);
     parsed->GetMediaSection(1).GetAttributeList().SetAttribute(
-        new SdpFlagAttribute(SdpAttribute::kBundleOnlyAttribute));
+        MakeUnique<SdpFlagAttribute>(SdpAttribute::kBundleOnlyAttribute));
     auto sdp = parsed->ToString();
     auto result = mSessionOff->SetRemoteDescription(kJsepSdpOffer, sdp);
     ASSERT_FALSE(result.mError.isSome());
@@ -7959,7 +8198,7 @@ TEST_F(JsepSessionTest, TestTransportAttributeValidation) {
     parsed->GetMediaSection(1).GetAttributeList().RemoveAttribute(
         SdpAttribute::kFingerprintAttribute);
     parsed->GetMediaSection(1).GetAttributeList().SetAttribute(
-        new SdpFlagAttribute(SdpAttribute::kBundleOnlyAttribute));
+        MakeUnique<SdpFlagAttribute>(SdpAttribute::kBundleOnlyAttribute));
     auto sdp = parsed->ToString();
     auto result = mSessionOff->SetRemoteDescription(kJsepSdpOffer, sdp);
     ASSERT_FALSE(result.mError.isSome());
@@ -7991,7 +8230,7 @@ TEST_F(JsepSessionTest, TestBundleSupportWithZeroPort) {
     if (!attrs.HasAttribute(SdpAttribute::kBundleOnlyAttribute) &&
         i < num_m_sections - 1) {
       sdp->GetMediaSection(i).GetAttributeList().SetAttribute(
-          new SdpFlagAttribute(SdpAttribute::kBundleOnlyAttribute));
+          MakeUnique<SdpFlagAttribute>(SdpAttribute::kBundleOnlyAttribute));
       sdp->GetMediaSection(i).SetPort(0);
     } else {
       // For the last msection setting port to non 0 and removing bundle only if
@@ -8084,6 +8323,137 @@ TEST_F(JsepSessionTest, NoExtmapAllowMixedInDatachannel) {
       << "Data channel msection should not contain a=extmap-allow-mixed";
   ASSERT_EQ(std::string::npos, answer.find("a=extmap-allow-mixed"))
       << "Data channel msection should not contain a=extmap-allow-mixed";
+}
+
+static const char kTransceiverDirectionSdpHeader[] =
+    "v=0\r\n"
+    "o=- 0 3 IN IP4 127.0.0.1\r\n"
+    "s=-\r\n"
+    "t=0 0\r\n"
+    "a=fingerprint:sha-256 "
+    "DC:FC:25:56:2B:88:77:2F:E4:FA:97:4E:2E:F1:D6:34:A6:A0:11:E2:E4:38:B3:98:"
+    "08:D2:F7:9D:F5:E2:C1:15\r\n"
+    "a=ice-ufrag:ETEn\r\n"
+    "a=ice-pwd:OtSK0WpNtpUjkY4+86js7Z/l\r\n";
+
+static const char kAudioMsectionSendonly[] =
+    "m=audio 9 UDP/TLS/RTP/SAVPF 111\r\n"
+    "c=IN IP4 0.0.0.0\r\n"
+    "a=rtcp-mux\r\n"
+    "a=sendonly\r\n"
+    "a=mid:1\r\n"
+    "a=rtpmap:111 opus/48000/2\r\n"
+    "a=setup:actpass\r\n";
+
+static const char kAudioMsectionRecvonly[] =
+    "m=audio 9 UDP/TLS/RTP/SAVPF 111\r\n"
+    "c=IN IP4 0.0.0.0\r\n"
+    "a=rtcp-mux\r\n"
+    "a=recvonly\r\n"
+    "a=mid:2\r\n"
+    "a=rtpmap:111 opus/48000/2\r\n"
+    "a=setup:actpass\r\n";
+
+// A sendrecv transceiver created via addTrack should be bound to a remote
+// recvonly m-section rather than a preceding sendonly m-section.
+TEST_F(JsepSessionTest, SendrecvTransceiverMatchesRecvonlyOverSendonly) {
+  AddTracks(*mSessionAns, "audio");
+  const std::string uuid = GetTransceivers(*mSessionAns)[0].GetUuid();
+
+  std::string sdp = std::string(kTransceiverDirectionSdpHeader) +
+                    kAudioMsectionSendonly + kAudioMsectionRecvonly;
+
+  auto result = mSessionAns->SetRemoteDescription(kJsepSdpOffer, sdp);
+  ASSERT_FALSE(result.mError.isSome());
+
+  auto transceivers = GetTransceivers(*mSessionAns);
+  // The addTrack transceiver should be bound to level 1 (recvonly, mid "2").
+  auto addTrack = std::find_if(
+      transceivers.begin(), transceivers.end(),
+      [&uuid](const JsepTransceiver& t) { return t.GetUuid() == uuid; });
+  ASSERT_NE(addTrack, transceivers.end());
+  ASSERT_TRUE(addTrack->IsAssociated());
+  ASSERT_EQ(1U, addTrack->GetLevel());
+  ASSERT_EQ("2", addTrack->GetMid());
+}
+
+// When the recvonly m-section comes first, the addTrack transceiver should
+// still bind to it.
+TEST_F(JsepSessionTest, SendrecvTransceiverMatchesRecvonlyWhenFirst) {
+  AddTracks(*mSessionAns, "audio");
+  const std::string uuid = GetTransceivers(*mSessionAns)[0].GetUuid();
+
+  std::string sdp = std::string(kTransceiverDirectionSdpHeader) +
+                    kAudioMsectionRecvonly + kAudioMsectionSendonly;
+
+  auto result = mSessionAns->SetRemoteDescription(kJsepSdpOffer, sdp);
+  ASSERT_FALSE(result.mError.isSome());
+
+  auto transceivers = GetTransceivers(*mSessionAns);
+  auto addTrack = std::find_if(
+      transceivers.begin(), transceivers.end(),
+      [&uuid](const JsepTransceiver& t) { return t.GetUuid() == uuid; });
+  ASSERT_NE(addTrack, transceivers.end());
+  ASSERT_TRUE(addTrack->IsAssociated());
+  ASSERT_EQ(0U, addTrack->GetLevel());
+  ASSERT_EQ("2", addTrack->GetMid());
+}
+
+// When there is only a sendonly remote m-section, the addTrack sendrecv
+// transceiver should not be bound to it; a new recvonly transceiver is
+// created for the m-section instead.
+TEST_F(JsepSessionTest, AddTrackUnboundWhenRemoteOnlySendonly) {
+  AddTracks(*mSessionAns, "audio");
+  const std::string uuid = GetTransceivers(*mSessionAns)[0].GetUuid();
+
+  std::string sdp =
+      std::string(kTransceiverDirectionSdpHeader) + kAudioMsectionSendonly;
+
+  auto result = mSessionAns->SetRemoteDescription(kJsepSdpOffer, sdp);
+  ASSERT_FALSE(result.mError.isSome());
+
+  auto transceivers = GetTransceivers(*mSessionAns);
+  ASSERT_EQ(2U, transceivers.size());
+
+  // The addTrack transceiver is unbound.
+  auto addTrack = std::find_if(
+      transceivers.begin(), transceivers.end(),
+      [&uuid](const JsepTransceiver& t) { return t.GetUuid() == uuid; });
+  ASSERT_NE(addTrack, transceivers.end());
+  ASSERT_FALSE(addTrack->HasLevel());
+  ASSERT_FALSE(addTrack->IsAssociated());
+
+  // A new recvonly transceiver was created for the sendonly m-section.
+  auto bound = std::find_if(transceivers.begin(), transceivers.end(),
+                            [](const JsepTransceiver& t) {
+                              return t.HasLevel() && t.GetLevel() == 0;
+                            });
+  ASSERT_NE(bound, transceivers.end());
+  ASSERT_TRUE(bound->IsAssociated());
+  ASSERT_EQ("1", bound->GetMid());
+}
+
+// Per RFC 8829 §5.10, addTrack transceivers are only matched to sendrecv or
+// recvonly m-sections. A sendonly remote m-section does not match even when
+// the local transceiver's direction is recvonly.
+TEST_F(JsepSessionTest, RecvonlyAddTrackTransceiverDoesNotMatchSendonly) {
+  AddTracks(*mSessionAns, "audio");
+  const std::string uuid = GetTransceivers(*mSessionAns)[0].GetUuid();
+  SetDirection(*mSessionAns, 0, SdpDirectionAttribute::kRecvonly);
+
+  std::string sdp =
+      std::string(kTransceiverDirectionSdpHeader) + kAudioMsectionSendonly;
+
+  auto result = mSessionAns->SetRemoteDescription(kJsepSdpOffer, sdp);
+  ASSERT_FALSE(result.mError.isSome());
+
+  auto transceivers = GetTransceivers(*mSessionAns);
+  auto addTrack = std::find_if(
+      transceivers.begin(), transceivers.end(),
+      [&uuid](const JsepTransceiver& t) { return t.GetUuid() == uuid; });
+  ASSERT_NE(addTrack, transceivers.end());
+  ASSERT_FALSE(addTrack->HasLevel());
+  ASSERT_FALSE(addTrack->IsAssociated());
 }
 
 }  // namespace mozilla

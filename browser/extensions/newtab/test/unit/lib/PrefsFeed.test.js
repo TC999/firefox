@@ -1,4 +1,8 @@
-import { actionCreators as ac, actionTypes as at } from "common/Actions.mjs";
+import {
+  actionCreators as ac,
+  actionTypes as at,
+  actionUtils as au,
+} from "common/Actions.mjs";
 import { GlobalOverrider } from "test/unit/utils";
 import { PrefsFeed } from "lib/PrefsFeed.sys.mjs";
 
@@ -25,10 +29,26 @@ describe("PrefsFeed", () => {
         getStringPref: sinon.spy(),
         getIntPref: sinon.spy(),
         getBoolPref: sinon.spy(),
+        addObserver: sinon.spy(),
+        removeObserver: sinon.spy(),
+        prefHasUserValue: sinon.stub().returns(true),
+        // Trainhop writes pref defaults on every update, so every test that
+        // reaches _getTrainhopConfig needs this. Individual tests replace it
+        // with their own spy when they assert on the writes.
+        getDefaultBranch: sinon.stub().returns({
+          setBoolPref: sinon.spy(),
+          setIntPref: sinon.spy(),
+          setStringPref: sinon.spy(),
+        }),
       },
       obs: {
         removeObserver: sinon.spy(),
         addObserver: sinon.spy(),
+      },
+      // Version comparator for the theme-picker backward-compat gate; default to
+      // a supported (>= 155) host so existing browserNovaEnabled assertions hold.
+      vc: {
+        compare: sinon.stub().returns(0),
       },
     };
     SelectableProfileServiceStub = {
@@ -52,6 +72,7 @@ describe("PrefsFeed", () => {
       ignore: sinon.spy(),
       ignoreBranch: sinon.spy(),
       reset: sinon.stub(),
+      locked: sinon.stub().returns(false),
       _branchStr: "branch.str.",
     };
     overrider.set({
@@ -68,6 +89,53 @@ describe("PrefsFeed", () => {
   it("should set a pref when a SET_PREF action is received", () => {
     feed.onAction(ac.SetPref("foo", 2));
     assert.calledWith(feed._prefs.set, "foo", 2);
+  });
+  it("should set every pref when a SET_MULTIPLE_PREFS action is received", () => {
+    feed.onAction(ac.SetMultiplePrefs({ foo: 2, bar: 3 }));
+    assert.calledWith(feed._prefs.set, "foo", 2);
+    assert.calledWith(feed._prefs.set, "bar", 3);
+  });
+  it("should coalesce SET_MULTIPLE_PREFS into one content MULTIPLE_PREFS_CHANGED while still notifying feeds per pref", () => {
+    // The branch observer fires onPrefChanged synchronously per _prefs.set.
+    feed._prefs.set = sinon.spy((name, value) =>
+      feed.onPrefChanged(name, value)
+    );
+    feed.onAction(ac.SetMultiplePrefs({ foo: 2, bar: 3 }));
+
+    const dispatched = feed.store.dispatch.getCalls().map(call => call.args[0]);
+
+    // Content gets exactly one combined MULTIPLE_PREFS_CHANGED broadcast.
+    const prefsChanged = dispatched.filter(
+      a => a.type === at.MULTIPLE_PREFS_CHANGED
+    );
+    assert.equal(prefsChanged.length, 1);
+    assert.deepEqual(prefsChanged[0].data.values, { foo: 2, bar: 3 });
+    assert.isTrue(au.isBroadcastToContent(prefsChanged[0]));
+
+    // Feeds still get per-pref PREF_CHANGED, but main-only (not re-broadcast
+    // to content, which would re-stagger the resize).
+    const prefChanged = dispatched.filter(a => a.type === at.PREF_CHANGED);
+    assert.equal(prefChanged.length, 2);
+    prefChanged.forEach(a => assert.isFalse(au.isBroadcastToContent(a)));
+  });
+  it("should still route skipBroadcast prefs individually during a SET_MULTIPLE_PREFS transaction", () => {
+    feed._prefs.set = sinon.spy((name, value) =>
+      feed.onPrefChanged(name, value)
+    );
+    feed.onAction(ac.SetMultiplePrefs({ foo: 2, baz: 5 }));
+
+    const dispatched = feed.store.dispatch.getCalls().map(call => call.args[0]);
+    const prefsChanged = dispatched.filter(
+      a => a.type === at.MULTIPLE_PREFS_CHANGED
+    );
+    assert.equal(prefsChanged.length, 1);
+    assert.deepEqual(prefsChanged[0].data.values, { foo: 2 });
+
+    const bazChange = dispatched.find(
+      a => a.type === at.PREF_CHANGED && a.data.name === "baz"
+    );
+    assert.ok(bazChange, "baz should be dispatched individually");
+    assert.equal(bazChange.data.value, 5);
   });
   it("should call clearUserPref with action CLEAR_PREF", () => {
     feed.onAction({ type: at.CLEAR_PREF, data: { name: "pref.test" } });
@@ -154,6 +222,47 @@ describe("PrefsFeed", () => {
     const [{ data }] = feed.store.dispatch.firstCall.args;
     assert.deepEqual(data.featureConfig, {});
   });
+  describe("locked prefs", () => {
+    it("should dispatch PREFS_INITIAL_VALUES with the locked prefs", () => {
+      feed._prefs.locked = sinon.spy(name => name === "bar");
+      feed.onAction({ type: at.INIT });
+      assert.equal(
+        feed.store.dispatch.firstCall.args[0].type,
+        at.PREFS_INITIAL_VALUES
+      );
+      const [{ data }] = feed.store.dispatch.firstCall.args;
+      assert.deepEqual(data.lockedPrefs, ["bar"]);
+    });
+    it("should broadcast the locked prefs when a pref's lock state changes", () => {
+      feed.onAction({ type: at.INIT });
+      feed.store.dispatch.resetHistory();
+      feed._prefs.locked = sinon.spy(name => name === "foo");
+
+      feed.onPrefChanged("foo", 2);
+
+      const action = feed.store.dispatch
+        .getCalls()
+        .map(call => call.args[0])
+        .find(a => a.type === at.PREF_CHANGED && a.data.name === "lockedPrefs");
+      assert.deepEqual(action.data.value, ["foo"]);
+      assert.isTrue(au.isBroadcastToContent(action));
+    });
+    it("should not re-broadcast the locked prefs when nothing was locked or unlocked", () => {
+      feed.onAction({ type: at.INIT });
+      feed.store.dispatch.resetHistory();
+
+      feed.onPrefChanged("foo", 2);
+
+      assert.isUndefined(
+        feed.store.dispatch
+          .getCalls()
+          .map(call => call.args[0])
+          .find(
+            a => a.type === at.PREF_CHANGED && a.data.name === "lockedPrefs"
+          )
+      );
+    });
+  });
   it("should add one branch observer on init", () => {
     feed.onAction({ type: at.INIT });
     assert.calledOnce(feed._prefs.observeBranch);
@@ -186,6 +295,134 @@ describe("PrefsFeed", () => {
       feed,
       global.Region.REGION_TOPIC
     );
+  });
+  it("should add a browser.nova.enabled observer on init", () => {
+    feed.init();
+    assert.calledWith(
+      ServicesStub.prefs.addObserver,
+      "browser.nova.enabled",
+      feed
+    );
+  });
+  it("should remove the browser.nova.enabled observer on uninit", () => {
+    feed.uninit();
+    assert.calledWith(
+      ServicesStub.prefs.removeObserver,
+      "browser.nova.enabled",
+      feed
+    );
+  });
+  it("should broadcast browserNovaEnabled when browser.nova.enabled changes", () => {
+    ServicesStub.prefs.getBoolPref = sinon.stub().returns(true);
+    feed.observe(null, "nsPref:changed", "browser.nova.enabled");
+    assert.calledWith(
+      feed.store.dispatch,
+      ac.BroadcastToContent({
+        type: at.PREF_CHANGED,
+        data: { name: "browserNovaEnabled", value: true },
+      })
+    );
+  });
+  it("keeps browserNovaEnabled false on hosts older than 155 even when the pref is on", () => {
+    ServicesStub.prefs.getBoolPref = sinon.stub().returns(true);
+    ServicesStub.vc.compare = sinon.stub().returns(-1);
+    feed.observe(null, "nsPref:changed", "browser.nova.enabled");
+    assert.calledWith(
+      feed.store.dispatch,
+      ac.BroadcastToContent({
+        type: at.PREF_CHANGED,
+        data: { name: "browserNovaEnabled", value: false },
+      })
+    );
+  });
+  describe("recordsHistory", () => {
+    // The initial values are what the first new tab of a session reads, so the
+    // widget-hiding depends on this being present before any pref changes.
+    it("is included in the initial values when history is on", () => {
+      ServicesStub.prefs.getBoolPref = sinon.stub().returns(true);
+      feed.onAction({ type: at.INIT });
+      const [{ data }] = feed.store.dispatch.firstCall.args;
+      assert.isTrue(data.recordsHistory);
+    });
+    it("is false in the initial values when history is off", () => {
+      const getBoolPref = sinon.stub().returns(true);
+      getBoolPref.withArgs("places.history.enabled", true).returns(false);
+      ServicesStub.prefs.getBoolPref = getBoolPref;
+      feed.onAction({ type: at.INIT });
+      const [{ data }] = feed.store.dispatch.firstCall.args;
+      assert.isFalse(data.recordsHistory);
+    });
+    it("observes both history prefs on init and drops them on uninit", () => {
+      feed.init();
+      feed.uninit();
+      for (const pref of [
+        "places.history.enabled",
+        "browser.privatebrowsing.autostart",
+      ]) {
+        assert.calledWith(ServicesStub.prefs.addObserver, pref, feed);
+        assert.calledWith(ServicesStub.prefs.removeObserver, pref, feed);
+      }
+    });
+    it("broadcasts the value when places.history.enabled changes", () => {
+      ServicesStub.prefs.getBoolPref = sinon.stub().returns(false);
+      feed.observe(null, "nsPref:changed", "places.history.enabled");
+      assert.calledWith(
+        feed.store.dispatch,
+        ac.BroadcastToContent({
+          type: at.PREF_CHANGED,
+          data: { name: "recordsHistory", value: false },
+        })
+      );
+    });
+    it("ignores a pref write that leaves the derived value alone", () => {
+      // Two prefs collapse into one boolean, so moving autostart while
+      // places.history.enabled is already false changes nothing.
+      const getBoolPref = sinon.stub().returns(true);
+      getBoolPref.withArgs("places.history.enabled", true).returns(false);
+      ServicesStub.prefs.getBoolPref = getBoolPref;
+      feed.init();
+      feed.store.dispatch.resetHistory();
+
+      feed.observe(null, "nsPref:changed", "browser.privatebrowsing.autostart");
+      assert.notCalled(feed.store.dispatch);
+    });
+    it("broadcasts once per flip, not once per write", () => {
+      ServicesStub.prefs.getBoolPref = sinon.stub().returns(true);
+      feed.init();
+      feed.store.dispatch.resetHistory();
+
+      const getBoolPref = sinon.stub().returns(true);
+      getBoolPref.withArgs("places.history.enabled", true).returns(false);
+      ServicesStub.prefs.getBoolPref = getBoolPref;
+      feed.observe(null, "nsPref:changed", "places.history.enabled");
+      assert.calledWith(
+        feed.store.dispatch,
+        ac.BroadcastToContent({
+          type: at.PREF_CHANGED,
+          data: { name: "recordsHistory", value: false },
+        })
+      );
+
+      // A second write with the same resulting value is a no-op.
+      feed.store.dispatch.resetHistory();
+      feed.observe(null, "nsPref:changed", "places.history.enabled");
+      assert.notCalled(feed.store.dispatch);
+    });
+    it("is false in permanent private browsing", () => {
+      // Places records no visits there, so the pref alone is not enough.
+      overrider.set({
+        PrivateBrowsingUtils: { enabled: true, permanentPrivateBrowsing: true },
+      });
+      ServicesStub.prefs.getBoolPref = sinon.stub().returns(true);
+      feed.observe(null, "nsPref:changed", "browser.privatebrowsing.autostart");
+      assert.calledWith(
+        feed.store.dispatch,
+        ac.BroadcastToContent({
+          type: at.PREF_CHANGED,
+          data: { name: "recordsHistory", value: false },
+        })
+      );
+    });
   });
   it("should send a PREF_CHANGED action when onPrefChanged is called", () => {
     feed.onPrefChanged("foo", 2);
@@ -273,6 +510,77 @@ describe("PrefsFeed", () => {
       })
     );
   });
+  describe("spaces opt-out mirror", () => {
+    beforeEach(() => {
+      FAKE_PREFS.set("pageLayouts.variant", "spaces-buttons-bottom");
+    });
+
+    it("should opt the space out when its pref is turned off", () => {
+      feed.onPrefChanged("feeds.section.topstories", false);
+
+      assert.calledWith(feed._prefs.set, "spaces.storiesOptOut", true);
+    });
+
+    it("should opt back in when the pref is turned on again", () => {
+      FAKE_PREFS.set("spaces.storiesOptOut", true);
+
+      feed.onPrefChanged("feeds.section.topstories", true);
+
+      assert.calledWith(feed._prefs.set, "spaces.storiesOptOut", false);
+    });
+
+    it("should mirror every space the same way", () => {
+      feed.onPrefChanged("widgets.enabled", false);
+      feed.onPrefChanged("feeds.section.highlights", false);
+
+      assert.calledWith(feed._prefs.set, "spaces.widgetsOptOut", true);
+      assert.calledWith(feed._prefs.set, "spaces.activityOptOut", true);
+    });
+
+    it("should mirror a change made outside the newtab page", () => {
+      // about:preferences writes through the Preferences binding rather than
+      // SET_PREF, so only the branch observer sees it.
+      feed.observe(null, "nsPref:changed", "feeds.section.topstories");
+      feed.onPrefChanged("feeds.section.topstories", false);
+
+      assert.calledWith(feed._prefs.set, "spaces.storiesOptOut", true);
+    });
+
+    it("should not write when the mirror already matches", () => {
+      FAKE_PREFS.set("spaces.storiesOptOut", true);
+
+      feed.onPrefChanged("feeds.section.topstories", false);
+
+      assert.neverCalledWith(
+        feed._prefs.set,
+        "spaces.storiesOptOut",
+        sinon.match.any
+      );
+    });
+
+    it("should not mirror outside the experiment", () => {
+      FAKE_PREFS.set("pageLayouts.variant", "nova-full-width");
+
+      feed.onPrefChanged("feeds.section.topstories", false);
+
+      assert.neverCalledWith(
+        feed._prefs.set,
+        "spaces.storiesOptOut",
+        sinon.match.any
+      );
+    });
+
+    it("should not mirror a pref that is not a space", () => {
+      feed.onPrefChanged("feeds.topsites", false);
+
+      assert.neverCalledWith(
+        feed._prefs.set,
+        sinon.match(/^spaces\./),
+        sinon.match.any
+      );
+    });
+  });
+
   describe("newtabTrainhop", () => {
     it("should send a PREF_CHANGED actions when onTrainhopExperimentUpdated is called", () => {
       const testObject = {
@@ -449,6 +757,440 @@ describe("PrefsFeed", () => {
         })
       );
     });
+    it("should write trainhop widgets.weatherSize to the default branch", () => {
+      const setStringPref = sinon.spy();
+      ServicesStub.prefs.getDefaultBranch = sinon
+        .stub()
+        .returns({ setStringPref, setBoolPref: sinon.spy() });
+      const enrollment = {
+        meta: { isRollout: false },
+        value: {
+          type: "widgets",
+          payload: { weatherSize: "large" },
+        },
+      };
+      sandbox
+        .stub(global.NimbusFeatures.newtabTrainhop, "getAllEnrollments")
+        .returns([enrollment]);
+
+      feed.onTrainhopExperimentUpdated();
+
+      assert.calledWith(setStringPref, "widgets.weather.size", "large");
+    });
+
+    it("should write widgetsSettings default-enabled values to the default branch", () => {
+      const setBoolPref = sinon.spy();
+      ServicesStub.prefs.getDefaultBranch = sinon
+        .stub()
+        .returns({ setBoolPref, setStringPref: sinon.spy() });
+      const enrollment = {
+        meta: { isRollout: false },
+        value: {
+          type: "widgetsSettings",
+          payload: { listsEnabled: false, focusTimerEnabled: true },
+        },
+      };
+      sandbox
+        .stub(global.NimbusFeatures.newtabTrainhop, "getAllEnrollments")
+        .returns([enrollment]);
+
+      feed.onTrainhopExperimentUpdated();
+
+      assert.calledWith(setBoolPref, "widgets.lists.enabled", false);
+      assert.calledWith(setBoolPref, "widgets.focusTimer.enabled", true);
+    });
+
+    it("should write the Recent Activity default for the spaces experiment", () => {
+      // Scoped to the experiment, so an unrelated train-hop config leaves it be.
+      FAKE_PREFS.set("pageLayouts.variant", "spaces-buttons-bottom");
+      const setBoolPref = sinon.spy();
+      ServicesStub.prefs.getDefaultBranch = sinon
+        .stub()
+        .returns({ setBoolPref, setStringPref: sinon.spy() });
+      const enrollment = {
+        meta: { isRollout: false },
+        value: {
+          type: "highlights",
+          payload: { enabled: true },
+        },
+      };
+      sandbox
+        .stub(global.NimbusFeatures.newtabTrainhop, "getAllEnrollments")
+        .returns([enrollment]);
+
+      feed.onTrainhopExperimentUpdated();
+
+      // The default branch, so a user who has switched Recent Activity off
+      // keeps it off: the user branch always wins.
+      assert.calledWith(setBoolPref, "feeds.section.highlights", true);
+    });
+
+    it("should put the Recent Activity default back on unenrollment", () => {
+      FAKE_PREFS.set("pageLayouts.variant", "spaces-buttons-bottom");
+      const setBoolPref = sinon.spy();
+      ServicesStub.prefs.getDefaultBranch = sinon
+        .stub()
+        .returns({ setBoolPref, setStringPref: sinon.spy() });
+      const enrolled = {
+        meta: { isRollout: false },
+        value: { type: "highlights", payload: { enabled: true } },
+      };
+      const getAllEnrollments = sandbox.stub(
+        global.NimbusFeatures.newtabTrainhop,
+        "getAllEnrollments"
+      );
+
+      getAllEnrollments.returns([enrolled]);
+      feed.onTrainhopExperimentUpdated();
+
+      // Unenrolling takes the variant with it, so the revert has to run when
+      // spaces is no longer assigned -- which is the whole point of it.
+      getAllEnrollments.returns([]);
+      FAKE_PREFS.set("pageLayouts.variant", "nova-full-width");
+      feed.onTrainhopExperimentUpdated();
+
+      // Reverted in the same update rather than at the next restart, but only
+      // because this profile was enrolled.
+      assert.calledWith(setBoolPref, "feeds.section.highlights", false);
+    });
+
+    it("should not opt the space out when unenrolling reverts its default", () => {
+      // The revert writes feeds.section.highlights, which fires the branch
+      // observer. Its handler has to see the fresh config, or it reads our own
+      // write as the user turning Recent Activity off.
+      const setBoolPref = sinon.spy((name, value) =>
+        feed.onPrefChanged(name, value)
+      );
+      ServicesStub.prefs.getDefaultBranch = sinon
+        .stub()
+        .returns({ setBoolPref, setStringPref: sinon.spy() });
+      const getAllEnrollments = sandbox.stub(
+        global.NimbusFeatures.newtabTrainhop,
+        "getAllEnrollments"
+      );
+
+      FAKE_PREFS.set("pageLayouts.variant", "spaces-buttons-bottom");
+      getAllEnrollments.returns([
+        {
+          meta: { isRollout: false },
+          value: {
+            type: "multi-payload",
+            payload: [
+              {
+                type: "pageLayouts",
+                payload: { variant: "spaces-buttons-bottom" },
+              },
+              { type: "highlights", payload: { enabled: true } },
+            ],
+          },
+        },
+      ]);
+      feed.onTrainhopExperimentUpdated();
+
+      getAllEnrollments.returns([]);
+      FAKE_PREFS.set("pageLayouts.variant", "nova-full-width");
+      feed.onTrainhopExperimentUpdated();
+
+      assert.neverCalledWith(feed._prefs.set, "spaces.activityOptOut", true);
+    });
+
+    it("should not revert a default this profile was never given", () => {
+      const setBoolPref = sinon.spy();
+      ServicesStub.prefs.getDefaultBranch = sinon
+        .stub()
+        .returns({ setBoolPref, setStringPref: sinon.spy() });
+      sandbox
+        .stub(global.NimbusFeatures.newtabTrainhop, "getAllEnrollments")
+        .returns([]);
+
+      FAKE_PREFS.set("pageLayouts.variant", "nova-full-width");
+      feed.onTrainhopExperimentUpdated();
+
+      assert.neverCalledWith(
+        setBoolPref,
+        "feeds.section.highlights",
+        sinon.match.any
+      );
+    });
+
+    it("should not touch the Recent Activity default for an unrelated config", () => {
+      FAKE_PREFS.set("pageLayouts.variant", "spaces-buttons-bottom");
+      const setBoolPref = sinon.spy();
+      ServicesStub.prefs.getDefaultBranch = sinon
+        .stub()
+        .returns({ setBoolPref, setStringPref: sinon.spy() });
+      const enrollment = {
+        meta: { isRollout: false },
+        value: { type: "highlights", payload: {} },
+      };
+      sandbox
+        .stub(global.NimbusFeatures.newtabTrainhop, "getAllEnrollments")
+        .returns([enrollment]);
+
+      feed.onTrainhopExperimentUpdated();
+
+      assert.neverCalledWith(
+        setBoolPref,
+        "feeds.section.highlights",
+        sinon.match.any
+      );
+    });
+
+    it("should not write a widget default when its widgetsSettings key is absent", () => {
+      const setBoolPref = sinon.spy();
+      ServicesStub.prefs.getDefaultBranch = sinon
+        .stub()
+        .returns({ setBoolPref, setStringPref: sinon.spy() });
+      const enrollment = {
+        meta: { isRollout: false },
+        value: {
+          type: "widgetsSettings",
+          payload: { listsEnabled: false },
+        },
+      };
+      sandbox
+        .stub(global.NimbusFeatures.newtabTrainhop, "getAllEnrollments")
+        .returns([enrollment]);
+
+      feed.onTrainhopExperimentUpdated();
+
+      assert.neverCalledWith(
+        setBoolPref,
+        "widgets.clocks.enabled",
+        sinon.match.any
+      );
+    });
+
+    it("should write widgetPictureOfTheDay.enabled to the user pref default branch, not the system pref", () => {
+      const setBoolPref = sinon.spy();
+      ServicesStub.prefs.getDefaultBranch = sinon
+        .stub()
+        .returns({ setBoolPref, setStringPref: sinon.spy() });
+      const enrollment = {
+        meta: { isRollout: false },
+        value: {
+          type: "widgetPictureOfTheDay",
+          payload: {
+            enabled: true,
+            setAsWallpaperEnabled: true,
+            size: "large",
+          },
+        },
+      };
+      sandbox
+        .stub(global.NimbusFeatures.newtabTrainhop, "getAllEnrollments")
+        .returns([enrollment]);
+
+      feed.onTrainhopExperimentUpdated();
+
+      // `enabled` overrides the user-facing enabled pref's default; `visible`
+      // (not present here) would reveal the widget separately; size and
+      // setAsWallpaperEnabled are read directly from trainhopConfig.
+      assert.calledWith(setBoolPref, "widgets.pictureOfTheDay.enabled", true);
+      assert.neverCalledWith(
+        setBoolPref,
+        "widgets.system.pictureOfTheDay.enabled",
+        sinon.match.any
+      );
+      assert.neverCalledWith(
+        setBoolPref,
+        "widgets.pictureOfTheDay.setAsWallpaper.enabled",
+        sinon.match.any
+      );
+    });
+
+    it("should not write the POTD enabled default when widgetPictureOfTheDay.enabled is absent", () => {
+      const setBoolPref = sinon.spy();
+      ServicesStub.prefs.getDefaultBranch = sinon
+        .stub()
+        .returns({ setBoolPref, setStringPref: sinon.spy() });
+      const enrollment = {
+        meta: { isRollout: false },
+        value: {
+          type: "widgetPictureOfTheDay",
+          payload: { size: "large" },
+        },
+      };
+      sandbox
+        .stub(global.NimbusFeatures.newtabTrainhop, "getAllEnrollments")
+        .returns([enrollment]);
+
+      feed.onTrainhopExperimentUpdated();
+
+      assert.neverCalledWith(
+        setBoolPref,
+        "widgets.pictureOfTheDay.enabled",
+        sinon.match.any
+      );
+    });
+
+    it("should write widgetCrossword.enabled to the user pref default branch, not the system pref", () => {
+      const setBoolPref = sinon.spy();
+      ServicesStub.prefs.getDefaultBranch = sinon
+        .stub()
+        .returns({ setBoolPref, setStringPref: sinon.spy() });
+      const enrollment = {
+        meta: { isRollout: false },
+        value: {
+          type: "widgetCrossword",
+          payload: {
+            enabled: true,
+            endpoint: "https://example.com/crossword/index.html",
+            size: "large",
+          },
+        },
+      };
+      sandbox
+        .stub(global.NimbusFeatures.newtabTrainhop, "getAllEnrollments")
+        .returns([enrollment]);
+
+      feed.onTrainhopExperimentUpdated();
+
+      // `enabled` overrides the user-facing enabled pref's default; `visible`
+      // (not present here) would reveal the widget separately; size and
+      // endpoint are read directly from trainhopConfig.
+      assert.calledWith(setBoolPref, "widgets.crossword.enabled", true);
+      assert.neverCalledWith(
+        setBoolPref,
+        "widgets.system.crossword.enabled",
+        sinon.match.any
+      );
+    });
+
+    it("should write widgetPrivacy.enabled to the user pref default branch, not the system pref", () => {
+      const setBoolPref = sinon.spy();
+      ServicesStub.prefs.getDefaultBranch = sinon
+        .stub()
+        .returns({ setBoolPref, setStringPref: sinon.spy() });
+      const enrollment = {
+        meta: { isRollout: false },
+        value: {
+          type: "widgetPrivacy",
+          payload: {
+            enabled: true,
+            showVpnMessages: true,
+            maxDisplayCount: 50,
+            size: "large",
+          },
+        },
+      };
+      sandbox
+        .stub(global.NimbusFeatures.newtabTrainhop, "getAllEnrollments")
+        .returns([enrollment]);
+
+      feed.onTrainhopExperimentUpdated();
+
+      // `enabled` overrides the user-facing enabled pref's default; `visible`
+      // (not present here) would reveal the widget separately; size and the
+      // message-scheduling keys are read directly from trainhopConfig.
+      assert.calledWith(setBoolPref, "widgets.privacy.enabled", true);
+      assert.neverCalledWith(
+        setBoolPref,
+        "widgets.system.privacy.enabled",
+        sinon.match.any
+      );
+    });
+
+    it("should not write the privacy enabled default when widgetPrivacy.enabled is absent", () => {
+      const setBoolPref = sinon.spy();
+      ServicesStub.prefs.getDefaultBranch = sinon
+        .stub()
+        .returns({ setBoolPref, setStringPref: sinon.spy() });
+      const enrollment = {
+        meta: { isRollout: false },
+        value: {
+          type: "widgetPrivacy",
+          payload: { showVpnMessages: true },
+        },
+      };
+      sandbox
+        .stub(global.NimbusFeatures.newtabTrainhop, "getAllEnrollments")
+        .returns([enrollment]);
+
+      feed.onTrainhopExperimentUpdated();
+
+      assert.neverCalledWith(
+        setBoolPref,
+        "widgets.privacy.enabled",
+        sinon.match.any
+      );
+    });
+
+    it("should not write the crossword enabled default when widgetCrossword.enabled is absent", () => {
+      const setBoolPref = sinon.spy();
+      ServicesStub.prefs.getDefaultBranch = sinon
+        .stub()
+        .returns({ setBoolPref, setStringPref: sinon.spy() });
+      const enrollment = {
+        meta: { isRollout: false },
+        value: {
+          type: "widgetCrossword",
+          payload: { size: "large" },
+        },
+      };
+      sandbox
+        .stub(global.NimbusFeatures.newtabTrainhop, "getAllEnrollments")
+        .returns([enrollment]);
+
+      feed.onTrainhopExperimentUpdated();
+
+      assert.neverCalledWith(
+        setBoolPref,
+        "widgets.crossword.enabled",
+        sinon.match.any
+      );
+    });
+
+    it("should not write widgets.weather.size when weatherSize is missing", () => {
+      const setStringPref = sinon.spy();
+      ServicesStub.prefs.getDefaultBranch = sinon
+        .stub()
+        .returns({ setStringPref, setBoolPref: sinon.spy() });
+      const enrollment = {
+        meta: { isRollout: false },
+        value: {
+          type: "widgets",
+          payload: { enabled: true },
+        },
+      };
+      sandbox
+        .stub(global.NimbusFeatures.newtabTrainhop, "getAllEnrollments")
+        .returns([enrollment]);
+
+      feed.onTrainhopExperimentUpdated();
+
+      assert.neverCalledWith(
+        setStringPref,
+        "widgets.weather.size",
+        sinon.match.any
+      );
+    });
+
+    it("should not write widgets.weather.size when weatherSize is empty string", () => {
+      const setStringPref = sinon.spy();
+      ServicesStub.prefs.getDefaultBranch = sinon
+        .stub()
+        .returns({ setStringPref, setBoolPref: sinon.spy() });
+      const enrollment = {
+        meta: { isRollout: false },
+        value: {
+          type: "widgets",
+          payload: { weatherSize: "" },
+        },
+      };
+      sandbox
+        .stub(global.NimbusFeatures.newtabTrainhop, "getAllEnrollments")
+        .returns([enrollment]);
+
+      feed.onTrainhopExperimentUpdated();
+
+      assert.neverCalledWith(
+        setStringPref,
+        "widgets.weather.size",
+        sinon.match.any
+      );
+    });
+
     it("should dedupe multi-payload format with experiment taking precedence over rollout", () => {
       const rollout = {
         meta: {

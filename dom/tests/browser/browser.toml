@@ -36,6 +36,9 @@ skip-if = [
 ["browser_beforeunload_between_chrome_content.js"]
 https_first_disabled = true
 
+["browser_beforeunload_select_interaction.js"]
+support-files = ["file_beforeunload_select.html"]
+
 ["browser_bug396843.js"]
 
 ["browser_bug1004814.js"]
@@ -137,6 +140,13 @@ support-files = [
 ["browser_persist_cross_origin_iframe.js"]
 support-files = ["image.html"]
 
+["browser_persist_filename.js"]
+support-files = [
+  "file_browserPersist_filename.html",
+  "file_browserPersist_filename.css",
+  "file_browserPersist_a_very_long_filename_used_for_truncation_test.css",
+]
+
 ["browser_persist_image_accept.js"]
 
 ["browser_persist_mixed_content_image.js"]
@@ -189,6 +199,11 @@ support-files = [
 ["browser_scriptCache_redirect.js"]
 support-files = [
   "redirect_server.sjs",
+]
+
+["browser_scriptCache_responseHeaders.js"]
+support-files = [
+  "responseHeaders_server.sjs",
 ]
 
 ["browser_sessionStorage_navigation.js"]

@@ -21,7 +21,6 @@
 #include "nsContentUtils.h"
 #include "nsGkAtoms.h"
 #include "nsIContentInlines.h"
-#include "nsIDragService.h"
 #include "nsIDragSession.h"
 #include "nsIPopupContainer.h"
 #include "nsIScriptContext.h"
@@ -241,18 +240,19 @@ nsXULTooltipListener::HandleEvent(Event* aEvent) {
     return NS_OK;
   }
 
+  if (type.EqualsLiteral("pagehide")) {
+    HideTooltip();
+    return NS_OK;
+  }
+
   // Note that mousemove, mouseover and mouseout might be
   // fired even during dragging due to widget's bug.
-  nsCOMPtr<nsIDragService> dragService =
-      do_GetService("@mozilla.org/widget/dragservice;1");
-  NS_ENSURE_TRUE(dragService, NS_OK);
   auto* widgetGuiEvent = aEvent->WidgetEventPtr()->AsGUIEvent();
   if (!widgetGuiEvent) {
     return NS_OK;
   }
-  nsCOMPtr<nsIDragSession> dragSession =
-      dragService->GetCurrentSession(widgetGuiEvent->mWidget);
-  if (dragSession) {
+  if (nsCOMPtr<nsIDragSession> dragSession =
+          nsContentUtils::GetDragSession(widgetGuiEvent->mWidget)) {
     return NS_OK;
   }
 
@@ -413,6 +413,11 @@ nsresult nsXULTooltipListener::ShowTooltip() {
     doc->AddSystemEventListener(u"keydown"_ns, this, true);
   }
   mSourceNode = nullptr;
+
+  if (Document* sourceDoc = sourceNode->GetComposedDoc()) {
+    mTooltipSourceDoc = do_GetWeakReference(sourceDoc);
+    sourceDoc->AddSystemEventListener(u"pagehide"_ns, this, true);
+  }
 
   return NS_OK;
 }
@@ -639,6 +644,10 @@ nsresult nsXULTooltipListener::DestroyTooltip() {
   // kill any ongoing timers
   KillTooltipTimer();
   mSourceNode = nullptr;
+  if (nsCOMPtr<Document> sourceDoc = do_QueryReferent(mTooltipSourceDoc)) {
+    sourceDoc->RemoveSystemEventListener(u"pagehide"_ns, this, true);
+  }
+  mTooltipSourceDoc = nullptr;
   mLastTreeCol = nullptr;
 
   return NS_OK;

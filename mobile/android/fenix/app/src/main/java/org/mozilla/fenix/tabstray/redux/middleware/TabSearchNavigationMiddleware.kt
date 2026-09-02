@@ -15,10 +15,9 @@ import org.mozilla.fenix.tabstray.redux.state.TabsTrayState
  * [Middleware] that produces navigation side effects in response to [TabSearchAction].
  *
  * @param onSearchResultClicked Invoked with the selected [TabsTrayItem] when a search result is clicked.
- **/
-class TabSearchNavigationMiddleware(
-    private val onSearchResultClicked: (TabsTrayItem) -> Unit,
-) : Middleware<TabsTrayState, TabsTrayAction> {
+ */
+class TabSearchNavigationMiddleware(private val onSearchResultClicked: (TabsTrayItem.Tab) -> Unit) :
+    Middleware<TabsTrayState, TabsTrayAction> {
 
     override fun invoke(
         store: Store<TabsTrayState, TabsTrayAction>,
@@ -29,7 +28,10 @@ class TabSearchNavigationMiddleware(
 
         when (action) {
             is TabSearchAction.SearchResultClicked -> {
-                onSearchResultClicked(action.tab)
+                when (action.searchResult) {
+                    is TabsTrayItem.Tab -> onSearchResultClicked(action.searchResult)
+                    is TabsTrayItem.TabGroup -> {}
+                }
             }
 
             else -> {} // no-op

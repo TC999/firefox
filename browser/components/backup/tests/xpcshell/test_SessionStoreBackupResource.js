@@ -7,7 +7,7 @@ const { SessionStoreBackupResource } = ChromeUtils.importESModule(
   "resource:///modules/backup/SessionStoreBackupResource.sys.mjs"
 );
 const { SessionStore } = ChromeUtils.importESModule(
-  "resource:///modules/sessionstore/SessionStore.sys.mjs"
+  "moz-src:///browser/components/sessionstore/SessionStore.sys.mjs"
 );
 const { NetUtil } = ChromeUtils.importESModule(
   "resource://gre/modules/NetUtil.sys.mjs"
@@ -72,23 +72,7 @@ add_task(async function test_measure() {
     Glean.browserBackup.sessionStoreBackupsDirectorySize.testGetValue();
   let sessionStoreMeasurement =
     Glean.browserBackup.sessionStoreSize.testGetValue();
-  let scalars = TelemetryTestUtils.getProcessScalars("parent", false, false);
 
-  // Compare glean vs telemetry measurements
-  TelemetryTestUtils.assertScalar(
-    scalars,
-    "browser.backup.session_store_backups_directory_size",
-    sessionStoreBackupsDirectoryMeasurement,
-    "Glean and telemetry measurements for session store backups directory should be equal"
-  );
-  TelemetryTestUtils.assertScalar(
-    scalars,
-    "browser.backup.session_store_size",
-    sessionStoreMeasurement,
-    "Glean and telemetry measurements for session store should be equal"
-  );
-
-  // Compare glean measurements vs actual file sizes
   Assert.equal(
     sessionStoreBackupsDirectoryMeasurement,
     EXPECTED_KILOBYTES_FOR_BACKUPS_DIR,

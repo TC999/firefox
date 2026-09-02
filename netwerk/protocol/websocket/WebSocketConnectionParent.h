@@ -5,10 +5,10 @@
 #ifndef mozilla_net_WebSocketConnectionParent_h
 #define mozilla_net_WebSocketConnectionParent_h
 
+#include "WebSocketConnectionBase.h"
 #include "mozilla/net/PWebSocketConnectionParent.h"
 #include "mozilla/net/WebSocketConnectionBase.h"
 #include "nsISupportsImpl.h"
-#include "WebSocketConnectionBase.h"
 
 class nsIHttpUpgradeListener;
 
@@ -55,9 +55,9 @@ class WebSocketConnectionParent final : public PWebSocketConnectionParent,
   nsCOMPtr<nsIHttpUpgradeListener> mUpgradeListener;
   RefPtr<WebSocketConnectionListener> mListener;
   nsCOMPtr<nsISerialEventTarget> mBackgroundThread;
-  nsCOMPtr<nsITransportSecurityInfo> mSecurityInfo;
+  nsCOMPtr<nsITransportSecurityInfo> mSecurityInfo MOZ_GUARDED_BY(mMutex);
   Atomic<bool> mClosed{false};
-  Mutex mMutex MOZ_UNANNOTATED{"WebSocketConnectionParent::mMutex"};
+  Mutex mMutex{"WebSocketConnectionParent::mMutex"};
 };
 
 }  // namespace net

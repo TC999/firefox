@@ -5,13 +5,13 @@
 #ifndef mozilla_net_WebSocketChannelParent_h
 #define mozilla_net_WebSocketChannelParent_h
 
-#include "mozilla/net/PWebSocketParent.h"
 #include "mozilla/net/NeckoParent.h"
-#include "nsIInterfaceRequestor.h"
-#include "nsIWebSocketListener.h"
-#include "nsIWebSocketChannel.h"
-#include "nsILoadContext.h"
+#include "mozilla/net/PWebSocketParent.h"
 #include "nsCOMPtr.h"
+#include "nsIInterfaceRequestor.h"
+#include "nsILoadContext.h"
+#include "nsIWebSocketChannel.h"
+#include "nsIWebSocketListener.h"
 #include "nsString.h"
 
 class nsIAuthPromptProvider;
@@ -37,12 +37,10 @@ class WebSocketChannelParent : public PWebSocketParent,
 
  private:
   mozilla::ipc::IPCResult RecvAsyncOpen(
-      nsIURI* aURI, const nsCString& aOrigin,
-      const OriginAttributes& aOriginAttributes, const uint64_t& aInnerWindowID,
-      const nsCString& aProtocol, const bool& aSecure,
-      const uint32_t& aPingInterval, const bool& aClientSetPingInterval,
-      const uint32_t& aPingTimeout, const bool& aClientSetPingTimeout,
-      const LoadInfoArgs& aLoadInfoArgs,
+      nsIURI* aURI, const uint64_t& aInnerWindowID, const nsCString& aProtocol,
+      const bool& aSecure, const uint32_t& aPingInterval,
+      const bool& aClientSetPingInterval, const uint32_t& aPingTimeout,
+      const bool& aClientSetPingTimeout, const LoadInfoArgs& aLoadInfoArgs,
       const Maybe<PTransportProviderParent*>& aTransportProvider,
       const nsCString& aNegotiatedExtensions);
   mozilla::ipc::IPCResult RecvClose(const uint16_t& code,

@@ -16,34 +16,28 @@ import androidx.core.net.toUri
 import androidx.core.text.HtmlCompat
 import androidx.core.text.getSpans
 import androidx.core.view.isVisible
-import mozilla.components.feature.addons.Addon
-import mozilla.components.feature.addons.ui.translateDescription
-import mozilla.components.feature.addons.ui.updatedAtDate
-import mozilla.components.support.ktx.android.content.getColorFromAttr
-import org.mozilla.fenix.R
-import org.mozilla.fenix.databinding.FragmentAddOnDetailsBinding
-import org.mozilla.fenix.ext.addUnderline
+import com.google.android.material.R as materialR
 import java.text.DateFormat
 import java.text.NumberFormat
 import java.util.Locale
+import mozilla.components.feature.addons.Addon
 import mozilla.components.feature.addons.R as addonsR
+import mozilla.components.feature.addons.ui.translateDescription
+import mozilla.components.feature.addons.ui.updatedAtDate
+import mozilla.components.support.ktx.android.content.getColorFromAttr
+import org.mozilla.fenix.databinding.FragmentAddOnDetailsBinding
+import org.mozilla.fenix.ext.addUnderline
 
 interface AddonDetailsInteractor {
 
-    /**
-     * Open the given URL in the browser.a
-     */
+    /** Open the given URL in the browser. */
     fun openWebsite(url: Uri)
 
-    /**
-     * Display the updater dialog.
-     */
+    /** Display the updater dialog. */
     fun showUpdaterDialog(addon: Addon)
 }
 
-/**
- * Shows the details of an add-on.
- */
+/** Shows the details of an add-on. */
 class AddonDetailsBindingDelegate(
     private val binding: FragmentAddOnDetailsBinding,
     private val interactor: AddonDetailsInteractor,
@@ -75,7 +69,7 @@ class AddonDetailsBindingDelegate(
             binding.reviewCount.text = numberFormatter.format(rating.reviews)
 
             if (addon.ratingUrl.isNotBlank()) {
-                binding.reviewCount.setTextColor(binding.root.context.getColorFromAttr(R.attr.textAccent))
+                binding.reviewCount.setTextColor(binding.root.context.getColorFromAttr(materialR.attr.colorTertiary))
                 binding.reviewCount.addUnderline()
                 binding.reviewCount.setOnClickListener {
                     interactor.openWebsite(addon.ratingUrl.toUri())
@@ -140,7 +134,7 @@ class AddonDetailsBindingDelegate(
         binding.authorText.text = author.name
 
         if (author.url.isNotBlank()) {
-            binding.authorText.setTextColor(binding.root.context.getColorFromAttr(R.attr.textAccent))
+            binding.authorText.setTextColor(binding.root.context.getColorFromAttr(materialR.attr.colorTertiary))
             binding.authorText.addUnderline()
             binding.authorText.setOnClickListener {
                 interactor.openWebsite(author.url.toUri())
@@ -171,13 +165,14 @@ class AddonDetailsBindingDelegate(
         val start = spannableStringBuilder.getSpanStart(link)
         val end = spannableStringBuilder.getSpanEnd(link)
         val flags = spannableStringBuilder.getSpanFlags(link)
-        val clickable: ClickableSpan = object : ClickableSpan() {
-            override fun onClick(view: View) {
-                view.setOnClickListener {
-                    interactor.openWebsite(link.url.toUri())
+        val clickable: ClickableSpan =
+            object : ClickableSpan() {
+                override fun onClick(view: View) {
+                    view.setOnClickListener {
+                        interactor.openWebsite(link.url.toUri())
+                    }
                 }
             }
-        }
         spannableStringBuilder.setSpan(clickable, start, end, flags)
         spannableStringBuilder.removeSpan(link)
     }

@@ -4,20 +4,25 @@
 
 #include "CacheObserver.h"
 
-#include "CacheStorageService.h"
+#include <math.h>
+#include <time.h>
+
+#include <numbers>
+
+#include "CacheCrypto.h"
 #include "CacheFileIOManager.h"
+#include "CacheIndex.h"
+#include "CacheStorageService.h"
 #include "LoadContextInfo.h"
+#include "mozilla/Preferences.h"
+#include "mozilla/Services.h"
+#include "mozilla/TimeStamp.h"
+#include "mozilla/net/NeckoCommon.h"
 #include "nsICacheStorage.h"
 #include "nsIObserverService.h"
-#include "mozilla/Services.h"
-#include "mozilla/Preferences.h"
-#include "mozilla/TimeStamp.h"
-#include "nsServiceManagerUtils.h"
-#include "mozilla/net/NeckoCommon.h"
-#include "prsystem.h"
-#include <time.h>
-#include <math.h>
 #include "nsIUserIdleService.h"
+#include "nsServiceManagerUtils.h"
+#include "prsystem.h"
 
 namespace mozilla::net {
 
@@ -60,6 +65,7 @@ nsresult CacheObserver::Init() {
   obs->AddObserver(sSelf, "xpcom-shutdown", true);
   obs->AddObserver(sSelf, "last-pb-context-exited", true);
   obs->AddObserver(sSelf, "memory-pressure", true);
+  obs->AddObserver(sSelf, "application-background", true);
   obs->AddObserver(sSelf, "browser-delayed-startup-finished", true);
   obs->AddObserver(sSelf, OBSERVER_TOPIC_IDLE_DAILY, true);
 
@@ -71,6 +77,8 @@ nsresult CacheObserver::Shutdown() {
   if (!sSelf) {
     return NS_ERROR_NOT_INITIALIZED;
   }
+
+  CacheCrypto::Shutdown();
 
   sSelf = nullptr;
   return NS_OK;
@@ -112,7 +120,7 @@ uint32_t CacheObserver::MemoryCacheCapacity() {
     }
     uint64_t kbytes = bytes >> 10;
     double kBytesD = double(kbytes);
-    double x = log(kBytesD) / log(2.0) - 14;
+    double x = log(kBytesD) / std::numbers::ln2 - 14;
 
     int32_t capacity = 0;
     if (x > 0) {
@@ -206,6 +214,11 @@ CacheObserver::Observe(nsISupports* aSubject, const char* aTopic,
   if (!strcmp(aTopic, "profile-do-change")) {
     AttachToPreferences();
     CacheFileIOManager::Init();
+    // Start the encryption key load (a no-op while the feature pref is off)
+    // before OnProfile() queues the index read and before any entry can be
+    // opened. The load completes on the cache I/O thread ahead of both,
+    // because it is queued first and at the highest priority level.
+    CacheCrypto::Init();
     CacheFileIOManager::OnProfile();
     return NS_OK;
   }
@@ -241,6 +254,14 @@ CacheObserver::Observe(nsISupports* aSubject, const char* aTopic,
       service->PurgeFromMemory(nsICacheStorageService::PURGE_EVERYTHING);
     }
 
+    return NS_OK;
+  }
+
+  if (!strcmp(aTopic, "application-background")) {
+    // The app is being backgrounded. On Android the process is typically
+    // killed without a clean shutdown, so persist the index now to bound how
+    // much recently-updated frecency is lost.
+    CacheIndex::WriteIndexToDiskNow();
     return NS_OK;
   }
 

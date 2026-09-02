@@ -1,104 +1,31 @@
 From: Michael Froman <mfroman@mozilla.com>
-Date: Tue, 1 Oct 2024 21:05:00 +0000
-Subject: Bug 1921706 - use relative paths on deps in a few places to avoid
- future issues. r=ng,webrtc-reviewers DONTBUILD
+Date: Tue, 29 Oct 2024 18:20:00 +0000
+Subject: Bug 1925119 - add dcsctp to libwebrtc build. r=bwc,webrtc-reviewers
 
-Note: this produces no changes in the generated moz.build files.
-
-Differential Revision: https://phabricator.services.mozilla.com/D224070
-Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/bbec1b95ddb5e00967a0fb002f54f8f24336b904
+Differential Revision: https://phabricator.services.mozilla.com/D225892
+Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/90a33b06e51017d25542a95c2a460bfed41c553b
 ---
- modules/audio_coding/BUILD.gn  |  2 +-
- modules/portal/BUILD.gn        |  8 ++++----
- modules/video_capture/BUILD.gn |  2 +-
- sdk/BUILD.gn                   | 14 ++++++++++++++
- test/BUILD.gn                  |  6 ++++++
- 5 files changed, 26 insertions(+), 6 deletions(-)
+ BUILD.gn | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
 
-diff --git a/modules/audio_coding/BUILD.gn b/modules/audio_coding/BUILD.gn
-index 1dbc3aeed9..6e485a6307 100644
---- a/modules/audio_coding/BUILD.gn
-+++ b/modules/audio_coding/BUILD.gn
-@@ -363,7 +363,7 @@ rtc_library("webrtc_opus_wrapper") {
-     deps += [ rtc_opus_dir ]
-     public_configs = [ "//third_party/opus:opus_config" ]
-   } else if (build_with_mozilla) {
--    public_configs = [ "//third_party/opus:opus_config" ]
-+    public_configs = [ "../../third_party/opus:opus_config" ]
-   }
- }
- 
-diff --git a/modules/portal/BUILD.gn b/modules/portal/BUILD.gn
-index e8367393a3..a693604389 100644
---- a/modules/portal/BUILD.gn
-+++ b/modules/portal/BUILD.gn
-@@ -139,10 +139,10 @@ if (!build_with_mozilla) {
-       deps -= [ ":pipewire_stubs" ]
-       defines -= [ "WEBRTC_DLOPEN_PIPEWIRE" ]
-       public_deps = [
--        "//third_party/pipewire",
--        "//third_party/drm",
--        "//third_party/gbm",
--        "//third_party/libepoxy"
-+        "../../third_party/pipewire",
-+        "../../third_party/drm",
-+        "../../third_party/gbm",
-+        "../../third_party/libepoxy"
-       ]
-     }
-   }
-diff --git a/modules/video_capture/BUILD.gn b/modules/video_capture/BUILD.gn
-index b55f37a39d..d452183e65 100644
---- a/modules/video_capture/BUILD.gn
-+++ b/modules/video_capture/BUILD.gn
-@@ -118,7 +118,7 @@ if (!build_with_chromium || is_linux || is_chromeos) {
-         ]
-         if (build_with_mozilla) {
-           configs -= [ "../portal:pipewire_base" ]
--          public_deps = [ "//third_party/pipewire" ]
-+          public_deps = [ "../../third_party/pipewire" ]
-         }
-       }
-     }
-diff --git a/sdk/BUILD.gn b/sdk/BUILD.gn
-index 581260b1e8..3f548a95c3 100644
---- a/sdk/BUILD.gn
-+++ b/sdk/BUILD.gn
-@@ -618,6 +618,20 @@ if (is_ios || is_mac) {
-         "CoreGraphics.framework",
-         "CoreVideo.framework",
-       ]
-+      if (build_with_mozilla) {
-+        deps -= [
-+          "//api/video:video_frame",
-+          "//api/video:video_rtp_headers",
-+          "//common_video",
-+          "//rtc_base:checks",
-+        ]
-+        deps += [
-+          "../api/video:video_frame",
-+          "../api/video:video_rtp_headers",
-+          "../common_video",
-+          "../rtc_base:checks",
-+        ]
-+      }
-     }
- 
-     if (!build_with_mozilla) {
-diff --git a/test/BUILD.gn b/test/BUILD.gn
-index 829da30b3e..5bb33c8e4d 100644
---- a/test/BUILD.gn
-+++ b/test/BUILD.gn
-@@ -482,6 +482,12 @@ rtc_source_set("test_support") {
-     "//testing/gmock",
-     "//testing/gtest",
-   ]
-+  if (build_with_mozilla) {
-+    all_dependent_configs -= [
-+      "//third_party/googletest:gmock_config",
-+      "//third_party/googletest:gtest_config",
-+    ]
-+  }
- }
- 
- rtc_library("fixed_fps_video_frame_writer_adapter") {
+diff --git a/BUILD.gn b/BUILD.gn
+index 4eb65649cd..4f97d8df91 100644
+--- a/BUILD.gn
++++ b/BUILD.gn
+@@ -579,6 +579,7 @@ if (!build_with_chromium) {
+       "call",
+       "common_audio",
+       "common_video",
++      ":dcsctp",
+       "logging:rtc_event_log_api",
+       "media",
+       "modules",
+@@ -853,7 +854,7 @@ if (rtc_include_tests && !build_with_chromium) {
+ # Build target for standalone dcsctp
+ rtc_static_library("dcsctp") {
+   # Only the root target should depend on this.
+-  visibility = [ "//:default" ]
++  visibility = [ "//:default", "//libwebrtc:webrtc" ]
+   sources = []
+   complete_static_lib = true
+   suppressed_configs += [ "//chromium/build/config/compiler:thin_archive" ]

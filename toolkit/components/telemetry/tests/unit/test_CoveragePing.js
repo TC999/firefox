@@ -1,5 +1,3 @@
-/* -*- Mode: indent-tabs-mode: nil; js-indent-level: 2 -*- */
-/* vim: set sts=2 sw=2 et tw=80: */
 "use strict";
 
 const { NetUtil } = ChromeUtils.importESModule(
@@ -72,6 +70,10 @@ add_task(async function setup() {
 
   // Trigger a proper telemetry init.
   do_get_profile(true);
+  // Make sure TelemetryEnvironment initialization doesn't wait for
+  // browser-delayed-startup-finished indefinitely as part of waiting
+  // for Intl initialization promise to be resolved.
+  fakeIntlReady();
   // Make sure we don't generate unexpected pings due to pref changes.
   await setEmptyPrefWatchlist();
 

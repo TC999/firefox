@@ -1,4 +1,4 @@
-// |jit-test| skip-if: getBuildConfiguration("release_or_beta"); --enable-import-text
+// |jit-test| --enable-import-text
 
 let text = "hello\n";
 
@@ -12,7 +12,7 @@ let importer = parseModule(`
 
 let b = registerModule("importer", importer);
 
-moduleLink(b);
+moduleLoadAndLink(b);
 moduleEvaluate(b);
 
 assertEq(globalThis.importedText, text);

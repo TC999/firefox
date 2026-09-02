@@ -5,6 +5,7 @@
 #include "PerformanceObserver.h"
 
 #include "LargestContentfulPaint.h"
+#include "PerformanceContainerTiming.h"
 #include "PerformanceEntry.h"
 #include "PerformanceObserverEntryList.h"
 #include "mozilla/StaticPrefs_dom.h"
@@ -26,14 +27,14 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(PerformanceObserver)
   tmp->Disconnect();
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mCallback)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mPerformance)
-  NS_IMPL_CYCLE_COLLECTION_UNLINK(mOwner)
+  NS_IMPL_CYCLE_COLLECTION_UNLINK(mGlobal)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mQueuedEntries)
   NS_IMPL_CYCLE_COLLECTION_UNLINK_PRESERVED_WRAPPER
 NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(PerformanceObserver)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mCallback)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mPerformance)
-  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mOwner)
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mGlobal)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mQueuedEntries)
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 
@@ -46,17 +47,17 @@ NS_INTERFACE_MAP_END
 
 PerformanceObserver::PerformanceObserver(nsPIDOMWindowInner* aOwner,
                                          PerformanceObserverCallback& aCb)
-    : mOwner(aOwner->AsGlobal()),
+    : mGlobal(aOwner->AsGlobal()),
       mCallback(&aCb),
       mObserverType(ObserverTypeUndefined),
       mConnected(false) {
-  MOZ_ASSERT(mOwner);
+  MOZ_ASSERT(mGlobal);
   mPerformance = aOwner->GetPerformance();
 }
 
 PerformanceObserver::PerformanceObserver(WorkerPrivate* aWorkerPrivate,
                                          PerformanceObserverCallback& aCb)
-    : mOwner(aWorkerPrivate->GlobalScope()),
+    : mGlobal(aWorkerPrivate->GlobalScope()),
       mCallback(&aCb),
       mObserverType(ObserverTypeUndefined),
       mConnected(false) {
@@ -141,7 +142,7 @@ void PerformanceObserver::Observe(const PerformanceObserverInit& aOptions,
   const Optional<nsString>& maybeType = aOptions.mType;
   const Optional<bool>& maybeBuffered = aOptions.mBuffered;
 
-  if (!mPerformance || !mOwner) {
+  if (!mPerformance || !mGlobal) {
     aRv.Throw(NS_ERROR_FAILURE);
     return;
   }
@@ -209,6 +210,12 @@ void PerformanceObserver::Observe(const PerformanceObserverInit& aOptions,
         validEntryTypes.AppendElement(kLargestContentfulPaintName);
       }
     }
+    if (StaticPrefs::dom_enable_container_timing()) {
+      if (entryTypes.Contains(kContainerTimingName) &&
+          !validEntryTypes.Contains(kContainerTimingName)) {
+        validEntryTypes.AppendElement(kContainerTimingName);
+      }
+    }
     for (const nsLiteralString& name : kValidTypeNames) {
       if (entryTypes.Contains(name) && !validEntryTypes.Contains(name)) {
         validEntryTypes.AppendElement(name);
@@ -228,18 +235,18 @@ void PerformanceObserver::Observe(const PerformanceObserverInit& aOptions,
     }
 
     if (!invalidTypesJoined.IsEmpty()) {
-      AutoTArray<nsString, 1> params = {invalidTypesJoined};
-      mOwner->ReportToConsole(nsIScriptError::warningFlag, "DOM"_ns,
-                              PropertiesFile::DOM_PROPERTIES,
-                              "UnsupportedEntryTypesIgnored"_ns, params);
+      AutoTArray<nsString, 1> params = {std::move(invalidTypesJoined)};
+      mGlobal->ReportToConsole(nsIScriptError::warningFlag, "DOM"_ns,
+                               PropertiesFile::DOM_PROPERTIES,
+                               "UnsupportedEntryTypesIgnored"_ns, params);
       // (we don't return because we're ignoring and we keep going)
     }
 
     /* 3.3.1.5.3 */
     if (validEntryTypes.IsEmpty()) {
-      mOwner->ReportToConsole(nsIScriptError::warningFlag, "DOM"_ns,
-                              PropertiesFile::DOM_PROPERTIES,
-                              "AllEntryTypesIgnored"_ns);
+      mGlobal->ReportToConsole(nsIScriptError::warningFlag, "DOM"_ns,
+                               PropertiesFile::DOM_PROPERTIES,
+                               "AllEntryTypesIgnored"_ns);
       return;
     }
 
@@ -277,11 +284,17 @@ void PerformanceObserver::Observe(const PerformanceObserverInit& aOptions,
       }
     }
 
+    if (StaticPrefs::dom_enable_container_timing()) {
+      if (type == kContainerTimingName) {
+        typeValid = true;
+      }
+    }
+
     if (!typeValid) {
-      AutoTArray<nsString, 1> params = {type};
-      mOwner->ReportToConsole(nsIScriptError::warningFlag, "DOM"_ns,
-                              PropertiesFile::DOM_PROPERTIES,
-                              "UnsupportedEntryTypesIgnored"_ns, params);
+      AutoTArray<nsString, 1> params = {std::move(type)};
+      mGlobal->ReportToConsole(nsIScriptError::warningFlag, "DOM"_ns,
+                               PropertiesFile::DOM_PROPERTIES,
+                               "UnsupportedEntryTypesIgnored"_ns, params);
       return;
     }
 
@@ -327,6 +340,10 @@ void PerformanceObserver::GetSupportedEntryTypes(
   nsTArray<nsString> validTypes;
   JS::Rooted<JS::Value> val(aGlobal.Context());
 
+  if (StaticPrefs::dom_enable_container_timing()) {
+    validTypes.AppendElement(kContainerTimingName);
+  }
+
   if (StaticPrefs::dom_enable_event_timing()) {
     for (const nsLiteralString& name : kValidEventTimingNames) {
       validTypes.AppendElement(name);
@@ -336,6 +353,7 @@ void PerformanceObserver::GetSupportedEntryTypes(
   if (StaticPrefs::dom_enable_largest_contentful_paint()) {
     validTypes.AppendElement(u"largest-contentful-paint"_ns);
   }
+
   for (const nsLiteralString& name : kValidTypeNames) {
     validTypes.AppendElement(name);
   }

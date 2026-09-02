@@ -63,9 +63,9 @@ class RemoteMediaManagerChild final
                            const media::MediaCodecsSupported& aSupported);
 
   // Can be called from any thread.
-  static bool Supports(RemoteMediaIn aLocation,
-                       const SupportDecoderParams& aParams,
-                       DecoderDoctorDiagnostics* aDiagnostics);
+  static media::DecodeSupportSet Supports(
+      RemoteMediaIn aLocation, const SupportDecoderParams& aParams,
+      DecoderDoctorDiagnostics* aDiagnostics);
   static RefPtr<PlatformDecoderModule::CreateDecoderPromise> CreateAudioDecoder(
       const CreateDecoderParams& aParams, RemoteMediaIn aLocation);
   static RefPtr<PlatformDecoderModule::CreateDecoderPromise> CreateVideoDecoder(
@@ -143,20 +143,6 @@ class RemoteMediaManagerChild final
 
  protected:
   void HandleFatalError(const char* aMsg) override;
-
-  PRemoteDecoderChild* AllocPRemoteDecoderChild(
-      const RemoteDecoderInfoIPDL& aRemoteDecoderInfo,
-      const CreateDecoderParams::OptionSet& aOptions,
-      const Maybe<layers::TextureFactoryIdentifier>& aIdentifier,
-      const Maybe<uint64_t>& aMediaEngineId,
-      const Maybe<TrackingId>& aTrackingId, PRemoteCDMChild* aCDM);
-  bool DeallocPRemoteDecoderChild(PRemoteDecoderChild* actor);
-
-  PMFMediaEngineChild* AllocPMFMediaEngineChild();
-  bool DeallocPMFMediaEngineChild(PMFMediaEngineChild* actor);
-
-  PMFCDMChild* AllocPMFCDMChild(const nsAString& aKeySystem);
-  bool DeallocPMFCDMChild(PMFCDMChild* actor);
 
  private:
   explicit RemoteMediaManagerChild(RemoteMediaIn aLocation);

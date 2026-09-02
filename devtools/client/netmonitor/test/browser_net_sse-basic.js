@@ -7,6 +7,10 @@
  * Test basic SSE connection.
  */
 
+// connection closed messages can take more than 5 seconds to show up,
+// increase the waitFor interval (10 -> 50).
+waitFor.overrideIntervalForTestFile = 50;
+
 function setupTestServer() {
   const httpServer = createTestHTTPServer();
   httpServer.registerContentType("html", "text/html");
@@ -174,7 +178,7 @@ add_task(async function testBasicServerSentEvents() {
     "Data column shows correct payload"
   );
 
-  await waitForDOMIfNeeded(
+  await waitForDOM(
     document,
     "#messages-view .msg-connection-closed-message",
     1

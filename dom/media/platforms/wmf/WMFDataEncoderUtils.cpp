@@ -15,9 +15,9 @@ using mozilla::media::EncodeSupportSet;
 
 namespace mozilla {
 
-#define WMF_ENC_LOG(arg, ...)                         \
-  MOZ_LOG(mozilla::sPEMLog, mozilla::LogLevel::Error, \
-          ("WMFDataEncoderUtils::%s: " arg, __func__, ##__VA_ARGS__))
+#define WMF_ENC_LOG(arg, ...)                             \
+  MOZ_LOG_FMT(mozilla::sPEMLog, mozilla::LogLevel::Error, \
+              "WMFDataEncoderUtils::{}: " arg, __func__, ##__VA_ARGS__)
 
 GUID CodecToSubtype(CodecType aCodec) {
   switch (aCodec) {
@@ -32,18 +32,52 @@ GUID CodecToSubtype(CodecType aCodec) {
   }
 }
 
-static bool CanUseWMFHwEncoder(CodecType aCodec) {
-  if (!gfx::gfxVars::IsInitialized()) {
+bool IsFrameSizeSupportedForNV12Input(const gfx::IntSize& aSize) {
+  return aSize.width % 2 == 0;
+}
+
+static bool IsNotRealtimeOrHwRequired(const EncoderConfig& aConfig) {
+  // Some hardware encoders have poor realtime performance, as measured by the
+  // latency between frames. If the config is not realtime, or hardware is
+  // required, hardware is allowed. See bug 2049606.
+  return aConfig.mUsage != Usage::Realtime ||
+         aConfig.mHardwarePreference == HardwarePreference::RequireHardware;
+}
+
+bool CanUseWMFHwEncoder(const GUID& aSubtype) {
+  if (!gfx::gfxVars::IsInitialized() || !XRE_IsGPUProcess()) {
     return false;
   }
 
-  switch (aCodec) {
+  if (IsEqualGUID(aSubtype, MFVideoFormat_H264)) {
+    return gfx::gfxVars::UseH264HwEncode();
+  }
+
+  if (IsEqualGUID(aSubtype, MFVideoFormat_VP90)) {
+    return gfx::gfxVars::UseVP9HwEncode();
+  }
+
+  if (IsEqualGUID(aSubtype, MFVideoFormat_VP80)) {
+    return gfx::gfxVars::UseVP8HwEncode();
+  }
+
+  return false;
+}
+
+bool CanUseWMFHwEncoder(const EncoderConfig& aConfig) {
+  if (!gfx::gfxVars::IsInitialized() || !XRE_IsGPUProcess()) {
+    return false;
+  }
+
+  switch (aConfig.mCodec) {
     case CodecType::H264:
       return gfx::gfxVars::UseH264HwEncode();
     case CodecType::VP8:
-      return gfx::gfxVars::UseVP8HwEncode();
+      return IsNotRealtimeOrHwRequired(aConfig) &&
+             gfx::gfxVars::UseVP8HwEncode();
     case CodecType::VP9:
-      return gfx::gfxVars::UseVP9HwEncode();
+      return IsNotRealtimeOrHwRequired(aConfig) &&
+             gfx::gfxVars::UseVP9HwEncode();
     default:
       return false;
   }
@@ -55,9 +89,10 @@ EncodeSupportSet CanCreateWMFEncoder(const EncoderConfig& aConfig) {
     if (!wmf::MediaFoundationInitializer::HasInitialized()) {
       return;
     }
-    // Try HW encoder if allowed by graphics and not disallowed by the caller.
+    // Try HW encoder if allowed by graphics and not disallowed by
+    // the caller.
     if (aConfig.mHardwarePreference != HardwarePreference::RequireSoftware) {
-      if (CanUseWMFHwEncoder(aConfig.mCodec)) {
+      if (CanUseWMFHwEncoder(aConfig)) {
         auto hwEnc =
             MakeRefPtr<MFTEncoder>(MFTEncoder::HWPreference::HardwareOnly);
         if (SUCCEEDED(hwEnc->Create(CodecToSubtype(aConfig.mCodec),
@@ -65,12 +100,15 @@ EncodeSupportSet CanCreateWMFEncoder(const EncoderConfig& aConfig) {
           supports += EncodeSupport::HardwareEncode;
         }
       } else {
-        WMF_ENC_LOG("HW encoder is disabled for %s",
+        WMF_ENC_LOG("HW encoder is disabled for {}",
                     EnumValueToString(aConfig.mCodec));
       }
     }
-    if (aConfig.mHardwarePreference != HardwarePreference::RequireHardware) {
-      // Try SW encoder if not disallowed by the caller.
+    // Try SW encoder if not disallowed by the caller, only for H264. We
+    // otherwise prefer to use SW encoders from ffvpx. We also want to avoid SW
+    // encoding in the GPU process.
+    if (aConfig.mHardwarePreference != HardwarePreference::RequireHardware &&
+        aConfig.mCodec == CodecType::H264 && !XRE_IsGPUProcess()) {
       auto swEnc =
           MakeRefPtr<MFTEncoder>(MFTEncoder::HWPreference::SoftwareOnly);
       if (SUCCEEDED(swEnc->Create(CodecToSubtype(aConfig.mCodec), aConfig.mSize,
@@ -80,7 +118,7 @@ EncodeSupportSet CanCreateWMFEncoder(const EncoderConfig& aConfig) {
     }
 
     WMF_ENC_LOG(
-        "%s encoder support for %s",
+        "{} encoder support for {}",
         supports.contains(EncodeSupportSet(EncodeSupport::HardwareEncode,
                                            EncodeSupport::SoftwareEncode))
             ? "HW | SW"
@@ -121,41 +159,41 @@ already_AddRefed<IMFMediaType> CreateInputType(EncoderConfig& aConfig) {
   RefPtr<IMFMediaType> type;
   HRESULT hr = wmf::MFCreateMediaType(getter_AddRefs(type));
   if (FAILED(hr)) {
-    WMF_ENC_LOG("MFCreateMediaType (input) error: %lx", hr);
+    WMF_ENC_LOG("MFCreateMediaType (input) error: {:x}", hr);
     return nullptr;
   }
   hr = type->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
   if (FAILED(hr)) {
-    WMF_ENC_LOG("Create input type: SetGUID (major type) error: %lx", hr);
+    WMF_ENC_LOG("Create input type: SetGUID (major type) error: {:x}", hr);
     return nullptr;
   }
   // Always NV12 input
   hr = type->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_NV12);
   if (FAILED(hr)) {
-    WMF_ENC_LOG("Create input type: SetGUID (subtype) error: %lx", hr);
+    WMF_ENC_LOG("Create input type: SetGUID (subtype) error: {:x}", hr);
     return nullptr;
   }
   hr = type->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
   if (FAILED(hr)) {
-    WMF_ENC_LOG("Create input type: interlace mode (input) error: %lx", hr);
+    WMF_ENC_LOG("Create input type: interlace mode (input) error: {:x}", hr);
     return nullptr;
   }
-  // WMF requires a framerate to intialize properly. Provide something
-  // reasonnable if not provided.
+  // WMF requires a framerate to intialize properly. Provide
+  // something reasonnable if not provided.
   if (!aConfig.mFramerate) {
     aConfig.mFramerate = 30;
   }
   if (aConfig.mFramerate) {
     hr = MFSetAttributeRatio(type, MF_MT_FRAME_RATE, aConfig.mFramerate, 1);
     if (FAILED(hr)) {
-      WMF_ENC_LOG("Create input type: frame rate (input) error: %lx", hr);
+      WMF_ENC_LOG("Create input type: frame rate (input) error: {:x}", hr);
       return nullptr;
     }
   }
   hr = MFSetAttributeSize(type, MF_MT_FRAME_SIZE, aConfig.mSize.width,
                           aConfig.mSize.height);
   if (FAILED(hr)) {
-    WMF_ENC_LOG("Create input type: frame size (input) error: %lx", hr);
+    WMF_ENC_LOG("Create input type: frame size (input) error: {:x}", hr);
     return nullptr;
   }
   return type.forget();
@@ -165,21 +203,22 @@ already_AddRefed<IMFMediaType> CreateOutputType(EncoderConfig& aConfig) {
   RefPtr<IMFMediaType> type;
   HRESULT hr = wmf::MFCreateMediaType(getter_AddRefs(type));
   if (FAILED(hr)) {
-    WMF_ENC_LOG("MFCreateMediaType (output) error: %lx", hr);
+    WMF_ENC_LOG("MFCreateMediaType (output) error: {:x}", hr);
     return nullptr;
   }
   hr = type->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
   if (FAILED(hr)) {
-    WMF_ENC_LOG("Create output type: set major type error: %lx", hr);
+    WMF_ENC_LOG("Create output type: set major type error: {:x}", hr);
     return nullptr;
   }
   hr = type->SetGUID(MF_MT_SUBTYPE, CodecToSubtype(aConfig.mCodec));
   if (FAILED(hr)) {
-    WMF_ENC_LOG("Create output type: set subtype error: %lx", hr);
+    WMF_ENC_LOG("Create output type: set subtype error: {:x}", hr);
     return nullptr;
   }
-  // A bitrate need to be set here, attempt to make an educated guess if none
-  // is provided. This could be per codec to have nicer defaults.
+  // A bitrate need to be set here, attempt to make an educated
+  // guess if none is provided. This could be per codec to have
+  // nicer defaults.
   size_t longDimension = std::max(aConfig.mSize.width, aConfig.mSize.height);
   if (!aConfig.mBitrate) {
     if (longDimension < 720) {
@@ -193,20 +232,21 @@ already_AddRefed<IMFMediaType> CreateOutputType(EncoderConfig& aConfig) {
   // No way to set variable / constant here.
   hr = type->SetUINT32(MF_MT_AVG_BITRATE, aConfig.mBitrate);
   if (FAILED(hr)) {
-    WMF_ENC_LOG("Create output type: set bitrate error: %lx", hr);
+    WMF_ENC_LOG("Create output type: set bitrate error: {:x}", hr);
     return nullptr;
   }
   hr = type->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
   if (FAILED(hr)) {
-    WMF_ENC_LOG("Create output type set interlave mode error: %lx", hr);
+    WMF_ENC_LOG("Create output type set interlave mode error: {:x}", hr);
     return nullptr;
   }
-  // A positive rate must always be preset here, see the Input config part.
+  // A positive rate must always be preset here, see the Input
+  // config part.
   MOZ_ASSERT(aConfig.mFramerate);
   if (aConfig.mFramerate) {
     hr = MFSetAttributeRatio(type, MF_MT_FRAME_RATE, aConfig.mFramerate, 1);
     if (FAILED(hr)) {
-      WMF_ENC_LOG("Create output type set frame rate error: %lx", hr);
+      WMF_ENC_LOG("Create output type set frame rate error: {:x}", hr);
       return nullptr;
     }
   }
@@ -214,7 +254,7 @@ already_AddRefed<IMFMediaType> CreateOutputType(EncoderConfig& aConfig) {
   hr = MFSetAttributeSize(type, MF_MT_FRAME_SIZE, aConfig.mSize.width,
                           aConfig.mSize.height);
   if (FAILED(hr)) {
-    WMF_ENC_LOG("Create output type set frame size error: %lx", hr);
+    WMF_ENC_LOG("Create output type set frame size error: {:x}", hr);
     return nullptr;
   }
 
@@ -224,22 +264,23 @@ already_AddRefed<IMFMediaType> CreateOutputType(EncoderConfig& aConfig) {
         MF_MT_MPEG2_PROFILE,
         GetProfile(aConfig.mCodecSpecific.as<H264Specific>().mProfile));
     if (FAILED(hr)) {
-      WMF_ENC_LOG("Create output type set profile error: %lx", hr);
+      WMF_ENC_LOG("Create output type set profile error: {:x}", hr);
       return nullptr;
     }
   }
 
-  // Set keyframe distance through both media type and codec API for better
-  // compatibility. Some encoders may only support one of these methods.
-  // `AVEncVideoMaxKeyframeDistance` is set in `MFTEncoder::SetModes`.
+  // Set keyframe distance through both media type and codec API
+  // for better compatibility. Some encoders may only support one
+  // of these methods. `AVEncVideoMaxKeyframeDistance` is set in
+  // `MFTEncoder::SetModes`.
   uint32_t interval = SaturatingCast<uint32_t>(aConfig.mKeyframeInterval);
   if (interval > 0) {
     hr = type->SetUINT32(MF_MT_MAX_KEYFRAME_SPACING, interval);
     if (FAILED(hr)) {
-      WMF_ENC_LOG("Create output type set keyframe interval error: %lx", hr);
+      WMF_ENC_LOG("Create output type set keyframe interval error: {:x}", hr);
       return nullptr;
     }
-    WMF_ENC_LOG("Set MAX_KEYFRAME_SPACING to %u", interval);
+    WMF_ENC_LOG("Set MAX_KEYFRAME_SPACING to {}", interval);
   }
 
   return type.forget();

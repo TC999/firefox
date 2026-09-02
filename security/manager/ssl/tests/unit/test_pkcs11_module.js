@@ -20,8 +20,10 @@ var gPrompt = {
     equal(text, EXPECTED_PROMPT_TEXT, "expecting alert() to be called");
   },
 
-  promptPassword() {
-    ok(false, "not expecting promptPassword() to be called");
+  promptPassword(_dialogTitle, _text, password, _checkMsg) {
+    // The first token in the test module has a blank password by default.
+    password.value = "";
+    return true;
   },
 };
 
@@ -33,6 +35,15 @@ const gPromptFactory = {
 const gCertDB = Cc["@mozilla.org/security/x509certdb;1"].getService(
   Ci.nsIX509CertDB
 );
+
+function findCertWithSubjectName(subjectName) {
+  for (let cert of gCertDB.getCerts()) {
+    if (cert.subjectName == subjectName) {
+      return cert;
+    }
+  }
+  return null;
+}
 
 add_task(async function test_pkcs11_module() {
   let promptFactoryCID = MockRegistrar.register(
@@ -70,13 +81,19 @@ add_task(async function test_pkcs11_module() {
     "pkcs11testmodule"
   );
 
-  let testClientCertificate = null;
-  for (const cert of gCertDB.getCerts()) {
-    if (cert.subjectName == "CN=client cert rsa") {
-      testClientCertificate = cert;
-    }
-  }
+  let testClientCertificate = findCertWithSubjectName("CN=client cert rsa");
   ok(testClientCertificate, "test module should expose rsa client certificate");
+
+  let testServerCertificate = findCertWithSubjectName(
+    "CN=EE issued by intermediate"
+  );
+  ok(testServerCertificate, "test module should expose server certificate");
+  // If the server certificate verifies as a server certificate without having
+  // explicitly loaded any CAs, the module is correctly exposing the trust
+  // information from the CAs it provides.
+  await asyncTestCertificateUsages(gCertDB, testServerCertificate, [
+    Ci.nsIX509CertDB.verifyUsageTLSServer,
+  ]);
 
   // Check that listing the slots for the test module works.
   let testModuleSlotNames = Array.from(testModule.slots, slot => slot.name);

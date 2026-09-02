@@ -4,13 +4,14 @@
 
 package org.mozilla.focus.components
 
+import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import mozilla.components.browser.engine.gecko.fetch.GeckoViewFetchClient
 import mozilla.components.concept.engine.EngineSession
 import mozilla.components.concept.engine.EngineSession.TrackingProtectionPolicy.CookiePolicy
 import mozilla.components.support.test.robolectric.testContext
 import mozilla.components.support.test.whenever
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -39,7 +40,7 @@ class EngineProviderTest {
     fun `createClient should return a GeckoViewFetchClient`() {
         val client = EngineProvider.createClient(testContext, mock())
         assertNotNull(client)
-        assertTrue(client is GeckoViewFetchClient)
+        assertIs<GeckoViewFetchClient>(client)
     }
 
     @Test
@@ -74,14 +75,18 @@ class EngineProviderTest {
     fun `createTrackingProtectionPolicy should block analytics trackers when setting is true`() {
         whenever(settings.shouldBlockAnalyticTrackers()).thenReturn(true)
         val policy = EngineProvider.createTrackingProtectionPolicy(testContext, settings)
-        assertTrue(policy.trackingCategories.contains(EngineSession.TrackingProtectionPolicy.TrackingCategory.ANALYTICS))
+        assertTrue(
+            policy.trackingCategories.contains(EngineSession.TrackingProtectionPolicy.TrackingCategory.ANALYTICS)
+        )
     }
 
     @Test
     fun `createTrackingProtectionPolicy should not block analytics trackers when setting is false`() {
         whenever(settings.shouldBlockAnalyticTrackers()).thenReturn(false)
         val policy = EngineProvider.createTrackingProtectionPolicy(testContext, settings)
-        assertTrue(!policy.trackingCategories.contains(EngineSession.TrackingProtectionPolicy.TrackingCategory.ANALYTICS))
+        assertTrue(
+            !policy.trackingCategories.contains(EngineSession.TrackingProtectionPolicy.TrackingCategory.ANALYTICS)
+        )
     }
 
     @Test

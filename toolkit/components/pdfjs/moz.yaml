@@ -20,8 +20,8 @@ origin:
 
   # Human-readable identifier for this version/release
   # Generally "version NNN", "tag SSS", "bookmark SSS"
-  release: d6afffe8f6415f986b8505fbbee0a33fe0106e28 (2026-04-07T15:02:07Z).
-  revision: d6afffe8f6415f986b8505fbbee0a33fe0106e28
+  release: c3257df8db58845021faea9642b0237f7c2e5101 (2026-08-28T06:27:15Z).
+  revision: c3257df8db58845021faea9642b0237f7c2e5101
 
   # The package's license, where possible using the mnemonic from
   # https://spdx.org/licenses/
@@ -57,5 +57,5 @@ updatebot:
     tasks:
       - type: vendoring
         enabled: true
-        frequency: "1 week, 3 commits"
+        frequency: every
         blocking: 1626408

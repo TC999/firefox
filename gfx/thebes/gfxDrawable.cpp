@@ -3,9 +3,10 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "gfxDrawable.h"
+
+#include "gfx2DGlue.h"
 #include "gfxContext.h"
 #include "gfxPlatform.h"
-#include "gfx2DGlue.h"
 #ifdef MOZ_X11
 #  include "cairo.h"
 #  include "gfxXlibSurface.h"
@@ -112,9 +113,7 @@ already_AddRefed<gfxSurfaceDrawable> gfxCallbackDrawable::MakeSurfaceDrawable(
 
   RefPtr<SourceSurface> surface = dt->Snapshot();
   if (surface) {
-    RefPtr<gfxSurfaceDrawable> drawable =
-        new gfxSurfaceDrawable(surface, mSize);
-    return drawable.forget();
+    return MakeAndAddRef<gfxSurfaceDrawable>(surface, mSize);
   }
   return nullptr;
 }

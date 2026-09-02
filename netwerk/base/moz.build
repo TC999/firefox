@@ -97,6 +97,7 @@ XPIDL_SOURCES += [
     "nsISocketTransport.idl",
     "nsISocketTransportService.idl",
     "nsISpeculativeConnect.idl",
+    "nsISSLTokensCache.idl",
     "nsIStandardURL.idl",
     "nsIStreamListener.idl",
     "nsIStreamListenerTee.idl",
@@ -123,6 +124,9 @@ XPIDL_SOURCES += [
     "nsPISocketTransportService.idl",
 ]
 
+if CONFIG["ENABLE_TESTS"]:
+    XPIDL_SOURCES += ["nsISSLTokensCacheTest.idl"]
+
 XPIDL_MODULE = "necko"
 
 EXPORTS += [
@@ -133,6 +137,7 @@ EXPORTS += [
     "nsBaseParentChannel.h",
     "nsFileStreams.h",
     "nsInputStreamPump.h",
+    "nsIURIWithSizeOf.h",
     "nsMIMEInputStream.h",
     "nsNetUtil.h",
     "nsReadLine.h",
@@ -145,6 +150,7 @@ EXPORTS += [
     "nsURLHelper.h",
     "nsURLParsers.h",
     "SimpleChannel.h",
+    "URIHasher.h",
 ]
 
 EXPORTS.mozilla += [
@@ -165,6 +171,7 @@ EXPORTS.mozilla.net += [
     "InterceptionInfo.h",
     "IPv4Parser.h",
     "NetworkConnectivityService.h",
+    "NoVarySearchUtils.h",
     "PrivateBrowsingChannel.h",
     "ProtocolHandlerInfo.h",
     "RedirectChannelRegistrar.h",
@@ -192,6 +199,7 @@ UNIFIED_SOURCES += [
     "MockNetworkLayerController.cpp",
     "NetworkConnectivityService.cpp",
     "NetworkDataCountLayer.cpp",
+    "NoVarySearchUtils.cpp",
     "nsAsyncRedirectVerifyHelper.cpp",
     "nsAsyncStreamCopier.cpp",
     "nsAuthInformationHolder.cpp",
@@ -319,6 +327,11 @@ LOCAL_INCLUDES += [
 if CONFIG["MOZ_WIDGET_TOOLKIT"] == "cocoa":
     LOCAL_INCLUDES += [
         "/xpcom/base",
+    ]
+
+if CONFIG["MOZ_WIDGET_TOOLKIT"] == "android":
+    LOCAL_INCLUDES += [
+        "/netwerk/system/android",
     ]
 
 GeneratedFile(

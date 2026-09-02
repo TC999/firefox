@@ -1,7 +1,6 @@
 [DEFAULT]
 prefs = [
   "extensions.formautofill.creditCards.enabled=true",
-  "toolkit.telemetry.ipcBatchTimeout=0", # lower the interval for event telemetry in the content process to update the parent process
   "extensions.formautofill.skipProgrammaticCheckForTests=true"
 ]
 support-files = [
@@ -31,6 +30,8 @@ skip-if = [
 
 ["browser_creditCard_capture_page_navigation.js"]
 
+["browser_creditCard_cvv.js"]
+
 ["browser_creditCard_decryption_failure.js"]
 
 ["browser_creditCard_doorhanger_action.js"]
@@ -50,6 +51,11 @@ skip-if = [
 ]
 
 ["browser_creditCard_doorhanger_iframe.js"]
+skip-if = [
+  "os == 'mac' && os_version == '10.15' && arch == 'x86_64' && opt", # perma-fail see Bug 1655601
+]
+
+["browser_creditCard_doorhanger_keyboard.js"]
 skip-if = [
   "os == 'mac' && os_version == '10.15' && arch == 'x86_64' && opt", # perma-fail see Bug 1655601
 ]
@@ -84,8 +90,11 @@ skip-if = [
 
 ["browser_creditCard_osAuth.js"]
 skip-if = [
+  "os == 'linux' && os_version == '22.04' && arch == 'x86_64'",
   "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && display == 'x11'",
 ]
+
+["browser_creditCard_preview_cleared_on_pointer_leave.js"]
 
 ["browser_creditCard_submission_autodetect_type.js"]
 
@@ -96,11 +105,6 @@ support-files = ["browser_telemetry_utils.js"]
 
 ["browser_creditCard_telemetry_manage.js"]
 support-files = ["browser_telemetry_utils.js"]
-skip-if = [
-  "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && display == 'x11' && asan && swgl", # Bug 1960313
-  "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && display == 'x11' && opt", # Bug 1960313
-  "os == 'mac' && os_version == '10.15' && arch == 'x86_64'", # Bug 1960313
-]
 
 ["browser_creditCard_telemetry_popup.js"]
 support-files = ["browser_telemetry_utils.js"]
@@ -115,6 +119,8 @@ support-files = ["browser_telemetry_utils.js"]
 skip-if = [
   "true", # perma-fail see Bug 1600059
 ]
+
+["browser_editCreditCardDialog_cvv.js"]
 
 ["browser_insecure_form.js"]
 skip-if = [

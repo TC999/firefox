@@ -4,7 +4,6 @@
 
 package org.mozilla.fenix.tabgroups
 
-import androidx.compose.animation.rememberSplineBasedDecay
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26,6 +25,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.ReadOnlyComposable
@@ -36,6 +36,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.CollectionItemInfo
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.collectionItemInfo
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.PreviewLightDark
 import androidx.compose.ui.tooling.preview.PreviewParameter
@@ -46,8 +51,7 @@ import mozilla.components.browser.state.state.createTab
 import mozilla.components.compose.base.annotation.FlexibleWindowLightDarkPreview
 import mozilla.components.compose.base.theme.surfaceDimVariant
 import mozilla.components.support.base.utils.MAX_URI_LENGTH
-import mozilla.components.ui.colors.PhotonColors
-import org.mozilla.fenix.compose.SwipeToDismissState2
+import mozilla.components.ui.colors.NovaColors
 import org.mozilla.fenix.compose.TabThumbnail
 import org.mozilla.fenix.compose.TabThumbnailImageData
 import org.mozilla.fenix.tabstray.TabsTrayTestTag
@@ -57,17 +61,18 @@ import org.mozilla.fenix.tabstray.data.TabGroupTheme
 import org.mozilla.fenix.tabstray.data.TabsTrayItem
 import org.mozilla.fenix.tabstray.ui.tabitems.LOREM_IPSUM
 import org.mozilla.fenix.tabstray.ui.tabitems.MultiSelectTabButton
-import org.mozilla.fenix.tabstray.ui.tabitems.TabContentCardShape
 import org.mozilla.fenix.tabstray.ui.tabitems.TabGridTabItem
 import org.mozilla.fenix.tabstray.ui.tabitems.TabGroupMenuButton
 import org.mozilla.fenix.tabstray.ui.tabitems.TabHeaderIconTouchTargetSize
 import org.mozilla.fenix.tabstray.ui.tabitems.TabsTrayItemClickHandler
 import org.mozilla.fenix.tabstray.ui.tabitems.TabsTrayItemSelectionState
-import org.mozilla.fenix.tabstray.ui.tabitems.ThumbnailShape
 import org.mozilla.fenix.tabstray.ui.tabitems.gridItemAspectRatio
+import org.mozilla.fenix.tabstray.ui.tabitems.tabContentCardShape
+import org.mozilla.fenix.tabstray.ui.tabitems.tabGridItemContainerColor
 import org.mozilla.fenix.tabstray.ui.tabitems.tabItemClickable
 import org.mozilla.fenix.tabstray.ui.tabitems.tabItemConditionalBorder
-import org.mozilla.fenix.tabstray.ui.tabitems.tabItemInteractionAnimation
+import org.mozilla.fenix.tabstray.ui.tabitems.tabItemGridInteractionAnimation
+import org.mozilla.fenix.tabstray.ui.tabitems.thumbnailShape
 import org.mozilla.fenix.theme.FirefoxTheme
 
 const val TOP_START_THUMBNAIL_INDEX = 0
@@ -77,14 +82,21 @@ const val BOTTOM_END_THUMBNAIL_INDEX = 3
 
 /**
  * A Tab Group presented as a clickable item in a grid.
+ *
  * @param group: The data of the [TabsTrayItem.TabGroup].
  * @param selectionState: The tab selection state.
  * @param clickHandler: Handler for all click-handling inputs (long click, click, etc)
  * @param modifier: The Modifier
  * @param interactionState The tab item's interaction state (hover, drag, etc)
- * @param onDeleteTabGroup Invoked when the user clicks on delete tab group.
- * @param editTabGroupClick Invoked when the user clicks to edit the tab group.
+ * @param onEditTabGroupClick Invoked when the user clicks to edit the tab group.
+ * @param onCloseTabGroupClick Invoked when the user clicks to close the tab group.
+ * @param onShareTabGroupClick Invoked when the user clicks to share the tab group.
+ * @param onDeleteTabGroupClick Invoked when the user clicks on delete tab group.
+ * @param onUngroupTabGroupClick Invoked when the user clicks to ungroup the tab group.
+ * @param itemInfo: Optional CollectionItemInfo? for reading this item in a list.
+ * @param accessibilityActions Accessibility actions offered on the item, such as reordering it.
  */
+@Suppress("LongParameterList")
 @Composable
 fun TabGroupCard(
     group: TabsTrayItem.TabGroup,
@@ -92,49 +104,55 @@ fun TabGroupCard(
     clickHandler: TabsTrayItemClickHandler,
     modifier: Modifier = Modifier,
     interactionState: TabItemInteractionState,
-    onDeleteTabGroup: (TabsTrayItem.TabGroup) -> Unit,
-    editTabGroupClick: () -> Unit,
+    onEditTabGroupClick: () -> Unit,
+    onCloseTabGroupClick: () -> Unit,
+    onShareTabGroupClick: (TabsTrayItem.TabGroup) -> Unit,
+    onDeleteTabGroupClick: (TabsTrayItem.TabGroup) -> Unit,
+    onUngroupTabGroupClick: () -> Unit,
+    itemInfo: CollectionItemInfo? = null,
+    accessibilityActions: List<CustomAccessibilityAction> = emptyList(),
 ) {
+    val containerColor = tabGridItemContainerColor(selectionState)
+
     Box(
-        modifier = modifier
-            .wrapContentSize()
-            .tabItemInteractionAnimation(interactionState)
-            .testTag(TabsTrayTestTag.TAB_ITEM_ROOT),
+        modifier =
+            modifier
+                .wrapContentSize()
+                .tabItemGridInteractionAnimation(interactionState = interactionState)
+                .testTag(TabsTrayTestTag.TAB_ITEM_ROOT)
     ) {
         Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(TabContentCardShape)
-                .tabItemClickable(
-                    clickHandler = clickHandler,
-                    clickedItem = group,
-                ),
-            shape = TabContentCardShape,
+            modifier =
+                Modifier.fillMaxWidth()
+                    .clip(tabContentCardShape)
+                    .tabItemClickable(
+                        clickHandler = clickHandler,
+                        clickedItem = group,
+                    )
+                    .semantics {
+                        if (itemInfo != null) {
+                            collectionItemInfo = itemInfo
+                        }
+                        if (accessibilityActions.isNotEmpty()) {
+                            customActions = accessibilityActions
+                        }
+                    },
+            shape = tabContentCardShape,
             border = tabItemConditionalBorder(selectionState),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-            ),
+            colors = CardDefaults.cardColors(containerColor = containerColor),
         ) {
             Column(modifier = Modifier.aspectRatio(gridItemAspectRatio)) {
                 // Title Row
                 Row(
-                    modifier = Modifier
-                        .background(color = group.theme.primary)
-                        .fillMaxWidth()
-                        .wrapContentHeight(),
+                    modifier = Modifier.background(color = group.theme.primary).fillMaxWidth().wrapContentHeight(),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     CompositionLocalProvider(LocalContentColor provides group.theme.onPrimary) {
-                        Spacer(
-                            modifier = Modifier
-                                .width(FirefoxTheme.layout.space.static100),
-                        )
+                        Spacer(modifier = Modifier.width(FirefoxTheme.layout.space.static100))
 
                         Text(
                             text = group.title.take(MAX_URI_LENGTH),
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag(TAB_GROUP_TITLE),
+                            modifier = Modifier.weight(1f).testTag(TAB_GROUP_TITLE),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             style = FirefoxTheme.typography.caption,
@@ -144,29 +162,30 @@ fun TabGroupCard(
 
                         TabGroupOptionButton(
                             selectionState = selectionState,
-                            onDeleteTabGroup = { onDeleteTabGroup(group) },
-                            editTabGroupClick = editTabGroupClick,
+                            onEditTabGroupClick = onEditTabGroupClick,
+                            onCloseTabGroupClick = onCloseTabGroupClick,
+                            onShareTabGroupClick = { onShareTabGroupClick(group) },
+                            onDeleteTabGroupClick = { onDeleteTabGroupClick(group) },
+                            onUngroupTabGroupClick = onUngroupTabGroupClick,
                         )
                     }
                 }
 
-                Spacer(
-                    modifier = Modifier
-                        .height(FirefoxTheme.layout.space.static25),
-                )
+                Spacer(modifier = Modifier.height(FirefoxTheme.layout.space.static25))
 
                 // 4x4 Thumbnail Grid
                 Card(
-                    modifier = Modifier
-                        .padding(
+                    modifier =
+                        Modifier.padding(
                             start = FirefoxTheme.layout.space.static50,
                             end = FirefoxTheme.layout.space.static50,
                             bottom = FirefoxTheme.layout.space.static50,
                         ),
-                    shape = ThumbnailShape,
+                    shape = thumbnailShape,
                 ) {
                     ThumbnailsGridView(
                         thumbnails = group.thumbnails,
+                        containerColor = containerColor,
                     )
                 }
 
@@ -176,14 +195,15 @@ fun TabGroupCard(
     }
 }
 
-/**
- * Renders the button in the top-right corner of the TabGroupCard.
- */
+/** Renders the button in the top-right corner of the TabGroupCard. */
 @Composable
 private fun TabGroupOptionButton(
     selectionState: TabsTrayItemSelectionState,
-    onDeleteTabGroup: () -> Unit,
-    editTabGroupClick: () -> Unit,
+    onEditTabGroupClick: () -> Unit,
+    onCloseTabGroupClick: () -> Unit,
+    onShareTabGroupClick: () -> Unit,
+    onDeleteTabGroupClick: () -> Unit,
+    onUngroupTabGroupClick: () -> Unit,
 ) {
     if (selectionState.multiSelectEnabled) {
         MultiSelectTabButton(
@@ -194,18 +214,20 @@ private fun TabGroupOptionButton(
         TabGroupMenuButton(
             modifier = Modifier.size(TabHeaderIconTouchTargetSize),
             includeCloseOption = true,
-            onDeleteTabGroup = onDeleteTabGroup,
-            editTabGroupClick = editTabGroupClick,
+            includeUngroupOption = true,
+            onDeleteTabGroupClick = onDeleteTabGroupClick,
+            onEditTabGroupClick = onEditTabGroupClick,
+            onCloseTabGroupClick = onCloseTabGroupClick,
+            onShareTabGroupClick = onShareTabGroupClick,
+            onUngroupTabGroupClick = onUngroupTabGroupClick,
         )
     }
 }
 
 /**
- * Determines the dimensions of the group thumbnails, which
- * should each occupy one quarter of a thumbnail's size, by halving
- * each dimension and subtracting the required padding.
- * Returns the results as a Pair with the first element the width in Dp
- * and the second element the height in Dp.
+ * Determines the dimensions of the group thumbnails, which should each occupy one quarter of a thumbnail's size, by
+ * halving each dimension and subtracting the required padding. Returns the results as a Pair with the first element the
+ * width in Dp and the second element the height in Dp.
  */
 private val BoxWithConstraintsScope.groupThumbnailDimens: ThumbnailDimensions
     @ReadOnlyComposable
@@ -227,68 +249,66 @@ private val BoxWithConstraintsScope.groupThumbnailSizePx: Int
     }
 
 /**
- * Renders up to 4 Tab thumbnails in a 2x2 grid.
- * Note that the aspect ratio is not set because these thumbnails
- * size themselves to fit the available space.
- * @param thumbnails: List of thumbnails.  May be empty, or up to size 4.
+ * Renders up to 4 Tab thumbnails in a 2x2 grid. Note that the aspect ratio is not set because these thumbnails size
+ * themselves to fit the available space.
+ *
+ * @param thumbnails: List of thumbnails. May be empty, or up to size 4.
  * @param modifier: Modifier parameter
+ * @param containerColor: Background Color of the thumbnails grid.
  */
 @Composable
 fun ThumbnailsGridView(
     thumbnails: List<TabThumbnailImageData>,
     modifier: Modifier = Modifier,
+    containerColor: Color = MaterialTheme.colorScheme.surfaceContainerHighest,
 ) {
     BoxWithConstraints {
         val groupThumbnailDimens = groupThumbnailDimens
         val thumbnailSizePx = groupThumbnailSizePx
         Column(
-            modifier = modifier
-                .fillMaxWidth()
-                .background(color = MaterialTheme.colorScheme.surfaceContainerHighest),
+            modifier = modifier.fillMaxWidth().background(color = containerColor),
             verticalArrangement = Arrangement.spacedBy(FirefoxTheme.layout.space.static25),
         ) {
             Row(
-                modifier =
-                    Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(FirefoxTheme.layout.space.static25),
             ) {
                 TabGroupThumbnail(
                     tabThumbnailImageData = thumbnails.getOrNull(TOP_START_THUMBNAIL_INDEX),
                     thumbnailSizePx = thumbnailSizePx,
-                    modifier = Modifier
-                        .width(groupThumbnailDimens.width)
-                        .height(groupThumbnailDimens.height)
-                        .testTag(TabsTrayTestTag.TAB_GROUP_THUMBNAIL_FIRST),
+                    modifier =
+                        Modifier.width(groupThumbnailDimens.width)
+                            .height(groupThumbnailDimens.height)
+                            .testTag(TabsTrayTestTag.TAB_GROUP_THUMBNAIL_FIRST),
                 )
                 TabGroupThumbnail(
                     tabThumbnailImageData = thumbnails.getOrNull(TOP_END_THUMBNAIL_INDEX),
                     thumbnailSizePx = thumbnailSizePx,
-                    modifier = Modifier
-                        .width(groupThumbnailDimens.width)
-                        .height(groupThumbnailDimens.height)
-                        .testTag(TabsTrayTestTag.TAB_GROUP_THUMBNAIL_SECOND),
+                    modifier =
+                        Modifier.width(groupThumbnailDimens.width)
+                            .height(groupThumbnailDimens.height)
+                            .testTag(TabsTrayTestTag.TAB_GROUP_THUMBNAIL_SECOND),
                 )
             }
             Row(
-                modifier =
-                    Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(FirefoxTheme.layout.space.static25),
             ) {
                 TabGroupThumbnail(
                     tabThumbnailImageData = thumbnails.getOrNull(BOTTOM_START_THUMBNAIL_INDEX),
                     thumbnailSizePx = thumbnailSizePx,
-                    modifier = Modifier
-                        .width(groupThumbnailDimens.width)
-                        .height(groupThumbnailDimens.height)
-                        .testTag(TabsTrayTestTag.TAB_GROUP_THUMBNAIL_THIRD),
+                    modifier =
+                        Modifier.width(groupThumbnailDimens.width)
+                            .height(groupThumbnailDimens.height)
+                            .testTag(TabsTrayTestTag.TAB_GROUP_THUMBNAIL_THIRD),
                 )
                 TabGroupThumbnail(
                     tabThumbnailImageData = thumbnails.getOrNull(BOTTOM_END_THUMBNAIL_INDEX),
                     thumbnailSizePx = thumbnailSizePx,
-                    modifier = Modifier
-                        .width(groupThumbnailDimens.width)
-                        .height(groupThumbnailDimens.height)
-                        .testTag(TabsTrayTestTag.TAB_GROUP_THUMBNAIL_FOURTH),
+                    modifier =
+                        Modifier.width(groupThumbnailDimens.width)
+                            .height(groupThumbnailDimens.height)
+                            .testTag(TabsTrayTestTag.TAB_GROUP_THUMBNAIL_FOURTH),
                 )
             }
         }
@@ -296,9 +316,8 @@ fun ThumbnailsGridView(
 }
 
 /**
- * A ExpandedTabGroup has anywhere from 0 to 4 thumbnail images.
- * Renders a thumbnail image if thumbnail image data is available,
- * or an empty box if the thumbnail image data is null.
+ * A ExpandedTabGroup has anywhere from 0 to 4 thumbnail images. Renders a thumbnail image if thumbnail image data is
+ * available, or an empty box if the thumbnail image data is null.
  *
  * @param tabThumbnailImageData: thumbnail image data (may be null)
  * @param thumbnailSizePx: the size of each thumbnail in px
@@ -318,16 +337,13 @@ private fun TabGroupThumbnail(
             modifier = modifier,
         )
     } else {
-        Box(
-            modifier = modifier
-                .background(color = MaterialTheme.colorScheme.surfaceDimVariant),
-        )
+        Box(modifier = modifier.background(color = MaterialTheme.colorScheme.surfaceDimVariant))
     }
 }
 
 private data class TabGroupCardPreviewState(
     val title: String = "Group 1",
-    val color: Color = PhotonColors.Pink70,
+    val color: Color = NovaColors.Pink70,
     val selectionState: TabsTrayItemSelectionState =
         TabsTrayItemSelectionState(
             isSelected = false,
@@ -335,102 +351,120 @@ private data class TabGroupCardPreviewState(
             multiSelectEnabled = false,
         ),
     val groupSize: Int,
-    val group: TabsTrayItem.TabGroup = TabsTrayItem.TabGroup(
-        title = "Tab Group Item",
-        theme = TabGroupTheme.default,
-        closed = false,
-        tabs = List(groupSize) { index ->
-            TabsTrayItem.Tab(
-                id = "Tab$index",
-                title = "Tab $index",
-                url = "mozilla.org",
-                inactive = false,
-                private = false,
-                icon = null,
-                lastAccess = 0L,
-            )
-        }.toMutableList(),
-    ),
+    val group: TabsTrayItem.TabGroup =
+        TabsTrayItem.TabGroup(
+            title = "Tab Group Item",
+            theme = TabGroupTheme.default,
+            closed = false,
+            tabs =
+                List(groupSize) { index ->
+                        TabsTrayItem.Tab(
+                            id = "Tab$index",
+                            title = "Tab $index",
+                            url = "mozilla.org",
+                            inactive = false,
+                            private = false,
+                            icon = null,
+                            lastAccess = 0L,
+                            isFocused = false,
+                        )
+                    }
+                    .toMutableList(),
+        ),
     val interactionState: TabItemInteractionState = TabItemInteractionState(),
 )
 
 private class TabGroupCardPreviewProvider : PreviewParameterProvider<TabGroupCardPreviewState> {
-    val data = listOf(
-        Pair("Empty", TabGroupCardPreviewState(groupSize = 0)),
-        Pair("1 Tab", TabGroupCardPreviewState(groupSize = 1)),
-        Pair("2 Tabs", TabGroupCardPreviewState(groupSize = 2)),
-        Pair("3 Tabs", TabGroupCardPreviewState(groupSize = 3)),
-        Pair("4 Tabs", TabGroupCardPreviewState(groupSize = 4)),
-        Pair(
-            "No Title",
-            TabGroupCardPreviewState(title = "", groupSize = 4),
-        ),
-        Pair(
-            "Long Title",
-            TabGroupCardPreviewState(title = LOREM_IPSUM, groupSize = 4),
-        ),
-        Pair(
-            "Active",
-            TabGroupCardPreviewState(
-                selectionState =
-                    TabsTrayItemSelectionState(
-                        isFocused = true,
-                        isSelected = false,
-                        multiSelectEnabled = false,
-                    ),
-                groupSize = 4,
+    val data =
+        listOf(
+            Pair("Empty", TabGroupCardPreviewState(groupSize = 0)),
+            Pair("1 Tab", TabGroupCardPreviewState(groupSize = 1)),
+            Pair("2 Tabs", TabGroupCardPreviewState(groupSize = 2)),
+            Pair("3 Tabs", TabGroupCardPreviewState(groupSize = 3)),
+            Pair("4 Tabs", TabGroupCardPreviewState(groupSize = 4)),
+            Pair(
+                "No Title",
+                TabGroupCardPreviewState(title = "", groupSize = 4),
             ),
-        ),
-        Pair(
-            "Select mode",
-            TabGroupCardPreviewState(
-                selectionState =
-                    TabsTrayItemSelectionState(
-                        isFocused = false,
-                        isSelected = false,
-                        multiSelectEnabled = true,
-                    ),
-                groupSize = 4,
+            Pair(
+                "Long Title",
+                TabGroupCardPreviewState(title = LOREM_IPSUM, groupSize = 4),
             ),
-        ),
-        Pair(
-            "Selected",
-            TabGroupCardPreviewState(
-                selectionState =
-                    TabsTrayItemSelectionState(
-                        isFocused = false,
-                        isSelected = true,
-                        multiSelectEnabled = true,
-                    ),
-                groupSize = 4,
+            Pair(
+                "Active",
+                TabGroupCardPreviewState(
+                    selectionState =
+                        TabsTrayItemSelectionState(
+                            isFocused = true,
+                            isSelected = false,
+                            multiSelectEnabled = false,
+                        ),
+                    groupSize = 4,
+                ),
             ),
-        ),
-        Pair(
-            "Active selected",
-            TabGroupCardPreviewState(
-                selectionState =
-                    TabsTrayItemSelectionState(
-                        isFocused = true,
-                        isSelected = true,
-                        multiSelectEnabled = true,
-                    ),
-                groupSize = 4,
+            Pair(
+                "Select mode",
+                TabGroupCardPreviewState(
+                    selectionState =
+                        TabsTrayItemSelectionState(
+                            isFocused = false,
+                            isSelected = false,
+                            multiSelectEnabled = true,
+                        ),
+                    groupSize = 4,
+                ),
             ),
-        ),
-        Pair(
-            "Dragged",
-            TabGroupCardPreviewState(
-                selectionState =
-                    TabsTrayItemSelectionState(
-                        isFocused = false,
-                        isSelected = false,
-                        multiSelectEnabled = false,
-                    ),
-                groupSize = 4,
-                interactionState = TabItemInteractionState(isDragged = true),
+            Pair(
+                "Selected",
+                TabGroupCardPreviewState(
+                    selectionState =
+                        TabsTrayItemSelectionState(
+                            isFocused = false,
+                            isSelected = true,
+                            multiSelectEnabled = true,
+                        ),
+                    groupSize = 4,
+                ),
             ),
-        ),
-    )
+            Pair(
+                "Active selected",
+                TabGroupCardPreviewState(
+                    selectionState =
+                        TabsTrayItemSelectionState(
+                            isFocused = true,
+                            isSelected = true,
+                            multiSelectEnabled = true,
+                        ),
+                    groupSize = 4,
+                ),
+            ),
+            Pair(
+                "Dragged",
+                TabGroupCardPreviewState(
+                    selectionState =
+                        TabsTrayItemSelectionState(
+                            isFocused = false,
+                            isSelected = false,
+                            multiSelectEnabled = false,
+                        ),
+                    groupSize = 4,
+                    interactionState = TabItemInteractionState(isDragged = true),
+                ),
+            ),
+            Pair(
+                "Hovered by item",
+                TabGroupCardPreviewState(
+                    selectionState =
+                        TabsTrayItemSelectionState(
+                            isFocused = false,
+                            isSelected = false,
+                            multiSelectEnabled = false,
+                        ),
+                    groupSize = 4,
+                    interactionState = TabItemInteractionState(isHoveredByItem = true),
+                ),
+            ),
+        )
 
     override val values: Sequence<TabGroupCardPreviewState>
         get() = data.map { it.second }.asSequence()
@@ -440,15 +474,15 @@ private class TabGroupCardPreviewProvider : PreviewParameterProvider<TabGroupCar
     }
 }
 
-private class ThumbnailsGridViewPreviewProvider :
-    PreviewParameterProvider<List<TabThumbnailImageData>> {
-    val data = listOf(
-        Pair("Empty", emptyList()),
-        Pair("1 Tab", fakeThumbnails(1)),
-        Pair("2 Tabs", fakeThumbnails(2)),
-        Pair("3 Tabs", fakeThumbnails(3)),
-        Pair("4 Tabs", fakeThumbnails(4)),
-    )
+private class ThumbnailsGridViewPreviewProvider : PreviewParameterProvider<List<TabThumbnailImageData>> {
+    val data =
+        listOf(
+            Pair("Empty", emptyList()),
+            Pair("1 Tab", fakeThumbnails(1)),
+            Pair("2 Tabs", fakeThumbnails(2)),
+            Pair("3 Tabs", fakeThumbnails(3)),
+            Pair("4 Tabs", fakeThumbnails(4)),
+        )
     override val values: Sequence<List<TabThumbnailImageData>>
         get() = data.map { it.second }.asSequence()
 
@@ -460,14 +494,11 @@ private class ThumbnailsGridViewPreviewProvider :
 @PreviewLightDark
 @Composable
 private fun ThumbnailsGridViewPreview(
-    @PreviewParameter(ThumbnailsGridViewPreviewProvider::class)
-    thumbnails: List<TabThumbnailImageData>,
+    @PreviewParameter(ThumbnailsGridViewPreviewProvider::class) thumbnails: List<TabThumbnailImageData>
 ) {
     FirefoxTheme {
         Box(modifier = Modifier.size(100.dp)) {
-            ThumbnailsGridView(
-                thumbnails = thumbnails,
-            )
+            ThumbnailsGridView(thumbnails = thumbnails)
         }
     }
 }
@@ -476,49 +507,49 @@ private fun ThumbnailsGridViewPreview(
 @FlexibleWindowLightDarkPreview
 @Composable
 private fun TabGroupCardPreview(
-    @PreviewParameter(TabGroupCardPreviewProvider::class) tabGroupCardState: TabGroupCardPreviewState,
+    @PreviewParameter(TabGroupCardPreviewProvider::class) tabGroupCardState: TabGroupCardPreviewState
 ) {
     FirefoxTheme {
         Row(
-            modifier = Modifier
-                .fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.Top,
         ) {
             TabGridTabItem(
-                tab = TabsTrayItem.Tab(
-                    createTab(
-                        url = "about:home",
-                        title = "Kit's Blog",
+                tab =
+                    TabsTrayItem.Tab(
+                        createTab(
+                            url = "about:home",
+                            title = "Kit's Blog",
+                        )
                     ),
-                ),
-                thumbnailSizePx = 50,
-                selectionState = tabGroupCardState.selectionState,
-                modifier = Modifier.weight(1f),
-                swipeState = SwipeToDismissState2(
-                    density = LocalDensity.current,
-                    isRtl = false,
-                    decayAnimationSpec = rememberSplineBasedDecay(),
-                    enabled = false,
-                ),
+                swipeToDismissBoxState = rememberSwipeToDismissBoxState(),
+                swipingEnabled = true,
+                interactionState = tabGroupCardState.interactionState,
                 onCloseClick = {},
                 onClick = {},
-                interactionState = tabGroupCardState.interactionState,
+                modifier = Modifier.weight(1f),
+                thumbnailSizePx = 50,
+                selectionState = tabGroupCardState.selectionState,
             )
 
             TabGroupCard(
                 group = tabGroupCardState.group,
                 selectionState = tabGroupCardState.selectionState,
-                clickHandler = TabsTrayItemClickHandler(
-                    enabled = true,
-                    onClick = { item: TabsTrayItem -> {} },
-                    onCloseClick = { item: TabsTrayItem -> {} },
-                    onLongClick = { item: TabsTrayItem -> {} },
-                ),
+                clickHandler =
+                    TabsTrayItemClickHandler(
+                        enabled = true,
+                        onClick = { _: TabsTrayItem -> },
+                        onCloseClick = { _: TabsTrayItem -> },
+                        onLongClick = { _: TabsTrayItem -> },
+                    ),
                 modifier = Modifier.weight(1f),
                 interactionState = tabGroupCardState.interactionState,
-                onDeleteTabGroup = {},
-                editTabGroupClick = {},
+                onEditTabGroupClick = {},
+                onCloseTabGroupClick = {},
+                onShareTabGroupClick = {},
+                onDeleteTabGroupClick = {},
+                onUngroupTabGroupClick = {},
             )
         }
     }
@@ -526,42 +557,42 @@ private fun TabGroupCardPreview(
 
 internal fun fakeThumbnails(limit: Int = 4): List<TabThumbnailImageData> {
     return listOf(
-        TabThumbnailImageData(
-            tabId = "1",
-            isPrivate = false,
-            tabUrl = "mozilla.org",
-            tabIcon = null,
-        ),
-        TabThumbnailImageData(
-            tabId = "1",
-            isPrivate = false,
-            tabUrl = "mozilla.org",
-            tabIcon = null,
-        ),
-        TabThumbnailImageData(
-            tabId = "1",
-            isPrivate = false,
-            tabUrl = "mozilla.org",
-            tabIcon = null,
-        ),
-        TabThumbnailImageData(
-            tabId = "1",
-            isPrivate = false,
-            tabUrl = "mozilla.org",
-            tabIcon = null,
-        ),
-    ).subList(0, limit)
+            TabThumbnailImageData(
+                tabId = "1",
+                isPrivate = false,
+                tabUrl = "mozilla.org",
+                tabIcon = null,
+            ),
+            TabThumbnailImageData(
+                tabId = "1",
+                isPrivate = false,
+                tabUrl = "mozilla.org",
+                tabIcon = null,
+            ),
+            TabThumbnailImageData(
+                tabId = "1",
+                isPrivate = false,
+                tabUrl = "mozilla.org",
+                tabIcon = null,
+            ),
+            TabThumbnailImageData(
+                tabId = "1",
+                isPrivate = false,
+                tabUrl = "mozilla.org",
+                tabIcon = null,
+            ),
+        )
+        .subList(0, limit)
 }
 
-@JvmInline
-private value class Width(val width: Dp)
+@JvmInline private value class Width(val width: Dp)
 
-@JvmInline
-private value class Height(val height: Dp)
+@JvmInline private value class Height(val height: Dp)
 
 @JvmInline
 private value class ThumbnailDimensions(private val dimensions: Pair<Width, Height>) {
-    constructor(width: Width, height: Height) : this (width to height)
+    constructor(width: Width, height: Height) : this(width to height)
+
     val width: Dp
         get() = this.dimensions.first.width
 

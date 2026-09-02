@@ -613,6 +613,7 @@ static void init_encode_frame_mb_context(VP8_COMP *cpi) {
 
   x->mvc = cm->fc.mvc;
 
+  xd->above_context = cm->above_context;
   memset(cm->above_context, 0, sizeof(ENTROPY_CONTEXT_PLANES) * cm->mb_cols);
 
   /* Special case treatment when GF and ARF are not sensible options
@@ -827,7 +828,13 @@ void vp8_encode_frame(VP8_COMP *cpi) {
       for (i = 0; i < cpi->encoding_thread_count; ++i) {
         int mode_count;
         int c_idx;
-        totalrate += cpi->mb_row_ei[i].totalrate;
+        /* Saturate like encode_mb_row(); per-thread totalrate is already
+         * clamped to INT_MAX individually, so their sum can overflow. */
+        const int thread_rate = cpi->mb_row_ei[i].totalrate;
+        if (INT_MAX - totalrate > thread_rate)
+          totalrate += thread_rate;
+        else
+          totalrate = INT_MAX;
 
         cpi->mb.skip_true_count += cpi->mb_row_ei[i].mb.skip_true_count;
 

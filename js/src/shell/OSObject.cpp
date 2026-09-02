@@ -16,6 +16,7 @@
 #  include <process.h>
 #  include <string.h>
 #  include <wchar.h>
+
 #  include "util/WindowsWrapper.h"
 #elif __wasi__
 #  include <dirent.h>
@@ -702,16 +703,7 @@ class FileObject : public NativeObject {
 };
 
 static const JSClassOps FileObjectClassOps = {
-    nullptr,               // addProperty
-    nullptr,               // delProperty
-    nullptr,               // enumerate
-    nullptr,               // newEnumerate
-    nullptr,               // resolve
-    nullptr,               // mayResolve
-    FileObject::finalize,  // finalize
-    nullptr,               // call
-    nullptr,               // construct
-    nullptr,               // trace
+    .finalize = FileObject::finalize,
 };
 
 const JSClass FileObject::class_ = {

@@ -18,7 +18,7 @@
 
 #include "jstypes.h"  // JS_PUBLIC_API
 
-#include "js/Object.h"  // JS::GetClass, JS::GetReservedSlot, JS::GetMaybePtrFromReservedSlot
+#include "js/Object.h"  // JS::GetClass, JS::GetNativeObjectReservedSlot, JS::GetMaybePtrFromNativeObjectReservedSlot
 #include "js/RootingAPI.h"  // JS::Handle, JS_DECLARE_IS_HEAP_CONSTRUCTIBLE_TYPE
 #include "js/ScalarType.h"  // JS::Scalar::Type
 #include "js/Wrapper.h"     // js::CheckedUnwrapStatic
@@ -132,13 +132,6 @@ namespace js {
 
 extern JS_PUBLIC_API JSObject* UnwrapArrayBufferView(JSObject* obj);
 
-namespace detail {
-
-constexpr size_t TypedArrayLengthSlot = 1;
-constexpr size_t TypedArrayDataSlot = 3;
-
-}  // namespace detail
-
 // This one isn't inlined because it's rather tricky (by dint of having to deal
 // with a dozen-plus classes and varying slot layouts.
 extern JS_PUBLIC_API void GetArrayBufferViewLengthAndData(JSObject* obj,
@@ -220,28 +213,6 @@ extern JS_PUBLIC_API size_t JS_GetArrayBufferViewByteOffset(JSObject* obj);
  */
 extern JS_PUBLIC_API void* JS_GetArrayBufferViewData(
     JSObject* obj, bool* isSharedMemory, const JS::AutoRequireNoGC&);
-
-/**
- * Return a "fixed" pointer (one that will not move during a GC) to the
- * ArrayBufferView's data. Note that this will not keep the object alive; the
- * holding object should be rooted or traced. If the view is storing the data
- * inline, this will copy the data to the provided buffer, returning nullptr if
- * bufSize is inadequate.
- *
- * Avoid using this unless necessary. JS_GetArrayBufferViewData is simpler and
- * more efficient because it requires the caller to ensure that a GC will not
- * occur and thus does not need to handle movable data.
- */
-extern JS_PUBLIC_API uint8_t* JS_GetArrayBufferViewFixedData(JSObject* obj,
-                                                             uint8_t* buffer,
-                                                             size_t bufSize);
-
-/**
- * If the bufSize passed to JS_GetArrayBufferViewFixedData is at least this
- * many bytes, then any copied data is guaranteed to fit into the provided
- * buffer.
- */
-extern JS_PUBLIC_API size_t JS_MaxMovableTypedArraySize();
 
 /**
  * Return the ArrayBuffer or SharedArrayBuffer underlying an ArrayBufferView.
@@ -451,9 +422,6 @@ class JS_PUBLIC_API ArrayBufferView : public ArrayBufferOrView {
 
   mozilla::Span<uint8_t> getData(bool* isSharedMemory,
                                  const JS::AutoRequireNoGC&);
-
-  // Must only be called if !isDetached().
-  size_t getByteLength(const JS::AutoRequireNoGC&);
 };
 
 class JS_PUBLIC_API DataView : public ArrayBufferView {
@@ -611,11 +579,6 @@ ArrayBufferView ArrayBufferView::fromObject(JSObject* unwrapped) {
  *                       bool* isSharedMemory,
  *                       const JS::AutoRequireNoGC&)
  *
- * js::Get(type)ArrayLengthAndData(JSObject* obj,
- *                                 size_t* length,
- *                                 bool* isSharedMemory,
- *                                 const JS::AutoRequireNoGC&)
- *
  * Return a pointer to the start of the data referenced by a typed array. The
  * data is still owned by the typed array, and should not be modified on
  * another thread. Furthermore, the pointer can become invalid on GC (if the
@@ -636,19 +599,6 @@ ArrayBufferView ArrayBufferView::fromObject(JSObject* unwrapped) {
       const JS::AutoRequireNoGC&);                                         \
                                                                            \
   namespace js {                                                           \
-  inline void Get##Name##ArrayLengthAndData(JSObject* unwrapped,           \
-                                            size_t* length,                \
-                                            bool* isSharedMemory,          \
-                                            ExternalType** data) {         \
-    MOZ_ASSERT(JS::TypedArray<JS::Scalar::Name>::fromObject(unwrapped));   \
-    const JS::Value& lenSlot =                                             \
-        JS::GetReservedSlot(unwrapped, detail::TypedArrayLengthSlot);      \
-    *length = size_t(lenSlot.toPrivate());                                 \
-    *isSharedMemory = JS_GetTypedArraySharedness(unwrapped);               \
-    *data = JS::GetMaybePtrFromReservedSlot<ExternalType>(                 \
-        unwrapped, detail::TypedArrayDataSlot);                            \
-  }                                                                        \
-                                                                           \
   JS_PUBLIC_API JSObject* Unwrap##Name##Array(JSObject* maybeWrapped);     \
   } /* namespace js */
 

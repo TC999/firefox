@@ -35,10 +35,12 @@ class PersistenceScope {
 
   using DataType = Variant<Value, Set, Null>;
 
-  DataType mData;
+  DataType mData{Null{}};
 
  public:
-  PersistenceScope() : mData(Null()) {}
+  PersistenceScope() = default;
+
+  bool operator==(const PersistenceScope& aOther) = delete;
 
   // XXX Consider renaming these static methods to Create
   static PersistenceScope CreateFromValue(PersistenceType aValue) {
@@ -157,8 +159,6 @@ class PersistenceScope {
 
     return mData.match(SetMatcher(aOther));
   }
-
-  bool operator==(const PersistenceScope& aOther) = delete;
 };
 
 bool MatchesPersistentPersistenceScope(

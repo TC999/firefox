@@ -108,14 +108,7 @@ struct JITFrameInfoForBufferRange final {
   uint64_t mRangeEnd;  // mRangeEnd marks the first invalid index.
 
   struct JITFrameKey {
-    bool operator==(const JITFrameKey& aOther) const {
-      return mCanonicalAddress == aOther.mCanonicalAddress &&
-             mDepth == aOther.mDepth && mLine == aOther.mLine &&
-             mColumn == aOther.mColumn;
-    }
-    bool operator!=(const JITFrameKey& aOther) const {
-      return !(*this == aOther);
-    }
+    bool operator==(const JITFrameKey& aOther) const = default;
 
     void* mCanonicalAddress;
     uint32_t mDepth;
@@ -297,8 +290,7 @@ class UniqueStacks final : public mozilla::FailureLatch {
         const FrameKey::NormalFrameData& data =
             aLookup.mData.as<FrameKey::NormalFrameData>();
         if (!data.mLocation.IsEmpty()) {
-          hash = mozilla::AddToHash(hash,
-                                    mozilla::HashString(data.mLocation.get()));
+          hash = mozilla::AddToHash(hash, mozilla::HashString(data.mLocation));
         }
         hash = mozilla::AddToHash(hash, data.mRelevantForJS);
         hash = mozilla::AddToHash(hash, data.mBaselineInterp);

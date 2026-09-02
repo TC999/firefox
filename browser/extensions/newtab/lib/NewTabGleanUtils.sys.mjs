@@ -174,6 +174,7 @@ export const NewTabGleanUtils = {
         pings,
         `"${lifetime}"`,
         disabled,
+        false /* aInSession */,
         extraArgsJson
       );
       gleanSuccessMetric.set(true);

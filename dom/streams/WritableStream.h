@@ -246,27 +246,6 @@ class WritableStream : public nsISupports, public nsWrapperCache {
   HoldDropJSObjectsCaller mHoldDropCaller;
 };
 
-namespace streams_abstract {
-
-inline bool IsWritableStreamLocked(WritableStream* aStream) {
-  return aStream->Locked();
-}
-
-MOZ_CAN_RUN_SCRIPT already_AddRefed<Promise> WritableStreamAbort(
-    JSContext* aCx, WritableStream* aStream, JS::Handle<JS::Value> aReason,
-    ErrorResult& aRv);
-
-MOZ_CAN_RUN_SCRIPT already_AddRefed<Promise> WritableStreamClose(
-    JSContext* aCx, WritableStream* aStream, ErrorResult& aRv);
-
-already_AddRefed<Promise> WritableStreamAddWriteRequest(
-    WritableStream* aStream);
-
-already_AddRefed<WritableStreamDefaultWriter>
-AcquireWritableStreamDefaultWriter(WritableStream* aStream, ErrorResult& aRv);
-
-}  // namespace streams_abstract
-
 }  // namespace mozilla::dom
 
 #endif  // mozilla_dom_WritableStream_h

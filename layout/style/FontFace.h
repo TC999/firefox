@@ -43,7 +43,7 @@ class FontFace final : public GlobalTeardownObserver, public nsWrapperCache {
 
   void DisconnectFromOwner() final;
 
-  nsIGlobalObject* GetParentObject() const { return GetOwnerGlobal(); }
+  nsIGlobalObject* GetParentObject() const { return GetRelevantGlobal(); }
   JSObject* WrapObject(JSContext*, JS::Handle<JSObject*> aGivenProto) override;
 
   static already_AddRefed<FontFace> CreateForRule(
@@ -62,8 +62,8 @@ class FontFace final : public GlobalTeardownObserver, public nsWrapperCache {
   void SetStyle(const nsACString& aValue, ErrorResult& aRv);
   void GetWeight(nsACString& aResult);
   void SetWeight(const nsACString& aValue, ErrorResult& aRv);
-  void GetStretch(nsACString& aResult);
-  void SetStretch(const nsACString& aValue, ErrorResult& aRv);
+  void GetWidth(nsACString& aResult);
+  void SetWidth(const nsACString& aValue, ErrorResult& aRv);
   void GetUnicodeRange(nsACString& aResult);
   void SetUnicodeRange(const nsACString& aValue, ErrorResult& aRv);
   void GetVariant(nsACString& aResult);

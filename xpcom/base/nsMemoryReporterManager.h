@@ -6,11 +6,11 @@
 #define nsMemoryReporterManager_h_
 
 #include "mozilla/Mutex.h"
-#include "nsTHashMap.h"
 #include "nsHashKeys.h"
 #include "nsIMemoryReporter.h"
 #include "nsISupports.h"
 #include "nsServiceManagerUtils.h"
+#include "nsTHashMap.h"
 
 #ifdef XP_WIN
 #  include <windows.h>
@@ -229,9 +229,6 @@ class nsMemoryReporterManager final : public nsIMemoryReporterManager,
                         nsISupports* aHandleReportData, bool aAnonymize);
 
   static void TimeoutCallback(nsITimer* aTimer, void* aData);
-  // Note: this timeout needs to be long enough to allow for the
-  // possibility of DMD reports and/or running on a low-end phone.
-  static const uint32_t kTimeoutLengthMS = 180000;
 
   mozilla::Mutex mMutex;
   bool mIsRegistrationBlocked MOZ_GUARDED_BY(mMutex);

@@ -4,6 +4,7 @@
 
 #include "WebGLShaderValidator.h"
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -29,7 +30,6 @@ uint64_t IdentifierHashFunc(const char* name, size_t len) {
 static ShCompileOptions ChooseValidatorCompileOptions(
     const ShBuiltInResources& resources, const mozilla::gl::GLContext* gl) {
   ShCompileOptions options = {};
-  options.variables = true;
   options.enforcePackingRestrictions = true;
   options.objectCode = true;
   options.initGLPosition = true;
@@ -90,14 +90,6 @@ static ShShaderOutput ShaderOutput(gl::GLContext* gl) {
   }
   uint32_t version = gl->ShadingLanguageVersion();
   switch (version) {
-    case 100:
-      return SH_GLSL_COMPATIBILITY_OUTPUT;
-    case 120:
-      return SH_GLSL_COMPATIBILITY_OUTPUT;
-    case 130:
-      return SH_GLSL_130_OUTPUT;
-    case 140:
-      return SH_GLSL_140_OUTPUT;
     case 150:
       return SH_GLSL_150_CORE_OUTPUT;
     case 330:
@@ -121,7 +113,7 @@ static ShShaderOutput ShaderOutput(gl::GLContext* gl) {
       gfxCriticalNote << "Unexpected GLSL version: " << version;
   }
 
-  return SH_GLSL_COMPATIBILITY_OUTPUT;
+  return SH_GLSL_150_CORE_OUTPUT;
 }
 
 std::unique_ptr<webgl::ShaderValidator> WebGLContext::CreateShaderValidator(
@@ -150,6 +142,8 @@ std::unique_ptr<webgl::ShaderValidator> WebGLContext::CreateShaderValidator(
   if (IsWebGL2()) {
     resources.MinProgramTexelOffset = mGLMinProgramTexelOffset;
     resources.MaxProgramTexelOffset = mGLMaxProgramTexelOffset;
+    resources.MaxVertexUniformBlocks = mGLMaxVertexUniformBlocks;
+    resources.MaxFragmentUniformBlocks = mGLMaxFragmentUniformBlocks;
   }
 
   resources.MaxDrawBuffers = MaxValidDrawBuffers();
@@ -197,6 +191,8 @@ std::unique_ptr<webgl::ShaderValidator> WebGLContext::CreateShaderValidator(
     return resources.MaxVariableSizeInBytes;
   }();
 
+  // NOTE: This is not checked unless
+  // `compileOptions.rejectWebglShadersWithLargeVariables` is `true`!
   resources.MaxPrivateVariableSizeInBytes = [&]() -> size_t {
     const auto bytes = StaticPrefs::webgl_glsl_max_private_var_size_in_bytes();
     if (bytes >= 0) {
@@ -204,16 +200,49 @@ std::unique_ptr<webgl::ShaderValidator> WebGLContext::CreateShaderValidator(
     }
 
     if (kIsMacOS) {
-      return 128 * 1024;  // 8k vec4s
+      // NOTE: We once used 128 KiB for this to avoid bug 1888340. ATOW,
+      // upstream ANGLE has lowered it to 64 KiB. We'll trust them with this
+      // value, but we don't want this to ever get higher if upstream raises it
+      // again.
+      return std::min(
+          // 8k vec4s
+          static_cast<size_t>(128 * 1024),
+          resources.MaxPrivateVariableSizeInBytes);
     }
 
     return resources.MaxPrivateVariableSizeInBytes;
   }();
 
+  // NOTE: This is not checked unless
+  // `compileOptions.rejectWebglShadersWithLargeVariables` is `true`!
+  resources.MaxTotalPrivateVariableSizeInBytes = [&]() -> size_t {
+    const auto bytes = StaticPrefs::webgl_glsl_max_private_var_size_in_bytes();
+    if (bytes >= 0) {
+      return static_cast<size_t>(bytes);
+    }
+
+    if (kIsMacOS) {
+      // NOTE: We set this maximum (ATOW, lower than ANGLE) here to avoid bug
+      // 1888340.
+      return std::min(static_cast<size_t>(128 * 1024),
+                      resources.MaxTotalPrivateVariableSizeInBytes);
+    }
+
+    return resources.MaxTotalPrivateVariableSizeInBytes;
+  }();
+
   // -
 
-  const auto compileOptions =
-      webgl::ChooseValidatorCompileOptions(resources, gl);
+  auto compileOptions = webgl::ChooseValidatorCompileOptions(resources, gl);
+
+  // NOTE: This is needed for `Max{,Total}PrivateVariableSizeInBytes`
+  // enforcement we specify above!
+  compileOptions.rejectWebglShadersWithLargeVariables = true;
+
+  if (IsWebGL2()) {
+    compileOptions.validatePerStageMaxUniformBlocks = true;
+  }
+
   auto ret = webgl::ShaderValidator::Create(shaderType, spec, outputLanguage,
                                             resources, compileOptions);
   if (!ret) return ret;
@@ -320,9 +349,9 @@ ShaderValidator::ValidateAndTranslate(const char* const source) const {
     }
 
     if (header.size()) {
-      auto combined = header;
+      auto combined = std::move(header);
       combined += body;
-      *translatedSource = combined;
+      *translatedSource = std::move(combined);
     }
   }
 
@@ -485,7 +514,7 @@ bool ShaderValidatorResults::CanLinkTo(const ShaderValidatorResults& vert,
 }
 
 size_t ShaderValidatorResults::SizeOfIncludingThis(
-    const MallocSizeOf fnSizeOf) const {
+    const mozilla::MallocSizeOf fnSizeOf) const {
   auto ret = fnSizeOf(this);
 
   // std::string heap allocations are not measured here because:

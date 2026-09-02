@@ -101,16 +101,7 @@ BEGIN_TEST(testNewObject_1) {
 
   // With JSClass.construct.
   static const JSClassOps clsOps = {
-      nullptr,        // addProperty
-      nullptr,        // delProperty
-      nullptr,        // enumerate
-      nullptr,        // newEnumerate
-      nullptr,        // resolve
-      nullptr,        // mayResolve
-      nullptr,        // finalize
-      nullptr,        // call
-      constructHook,  // construct
-      nullptr,        // trace
+      .construct = constructHook,
   };
   static const JSClass cls = {
       "testNewObject_1",
@@ -233,8 +224,7 @@ static const JSClass TestClass = {
 };
 
 BEGIN_TEST(testNewObject_elements) {
-  Rooted<NativeObject*> obj(
-      cx, NewBuiltinClassInstance(cx, &TestClass, GenericObject));
+  Rooted<NativeObject*> obj(cx, NewBuiltinClassInstance(cx, &TestClass));
   CHECK(obj);
   CHECK(!obj->isTenured());
   CHECK(obj->hasEmptyElements());

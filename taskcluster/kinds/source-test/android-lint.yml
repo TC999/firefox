@@ -4,7 +4,6 @@
 ---
 task-defaults:
     description: 'Run lint over all modules'
-    run-on-repo-type: [hg]
     run:
         using: gradlew
         gradlew: ['lint']
@@ -53,6 +52,7 @@ focus:
     when:
         files-changed:
             - "mobile/android/focus-android/**"
+            - "mobile/android/shared-lint.xml"
     run:
         pre-gradlew:
             - ["cd", "mobile/android/focus-android"]
@@ -68,6 +68,7 @@ fenix:
     when:
         files-changed:
             - "mobile/android/fenix/**"
+            - "mobile/android/shared-lint.xml"
     run:
         pre-gradlew:
             - ["cd", "mobile/android/fenix"]

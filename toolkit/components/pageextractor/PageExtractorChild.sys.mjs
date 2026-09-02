@@ -29,13 +29,28 @@ const lazy = XPCOMUtils.declareLazy({
   ReaderMode: "moz-src:///toolkit/components/reader/ReaderMode.sys.mjs",
   extractTextFromDOM:
     "moz-src:///toolkit/components/pageextractor/DOMExtractor.sys.mjs",
+  shouldExtractYouTube:
+    "moz-src:///toolkit/components/pageextractor/YouTubeExtraction.sys.mjs",
+  getYouTubeContent:
+    "moz-src:///toolkit/components/pageextractor/YouTubeExtraction.sys.mjs",
   isProbablyReaderable: "resource://gre/modules/Readerable.sys.mjs",
+  youtubeTimeoutMs: {
+    pref: "browser.pageextractor.youtube.timeoutMs",
+    default: 3000,
+  },
 });
 
 /**
  * Extract a variety of content from pages for use in a smart window.
  */
 export class PageExtractorChild extends JSWindowActorChild {
+  /**
+   * True once this actor has waited for its document to become page-ready.
+   *
+   * @type {boolean}
+   */
+  #isPageReady = false;
+
   /**
    * Route the messages coming from the parent process.
    *
@@ -48,7 +63,9 @@ export class PageExtractorChild extends JSWindowActorChild {
   async receiveMessage({ name, data }) {
     switch (name) {
       case "PageExtractorParent:GetText":
-        await this.waitForPageReady();
+        if (!this.#isPageReady) {
+          await this.waitForPageReady();
+        }
         return this.getText(data);
       case "PageExtractorParent:WaitForPageReady":
         return this.waitForPageReady();
@@ -60,7 +77,13 @@ export class PageExtractorChild extends JSWindowActorChild {
           const language = document?.querySelector(".container")?.lang ?? "";
           const wordCount = this.#getWordCount(language, text);
 
-          return { structuredDataTypes: [], wordCount, language };
+          return {
+            structuredDataTypes: [],
+            wordCount,
+            language,
+            isReaderable: true,
+            isGated: false,
+          };
         }
         return this.getPageMetadata();
     }
@@ -68,25 +91,38 @@ export class PageExtractorChild extends JSWindowActorChild {
   }
 
   /**
-   * This function resolves once the page is ready after a requestIdleCallback.
+   * Resolves after DOMContentLoaded, an idle callback, and a double
+   * requestAnimationFrame so layout and paint are committed before
+   * extraction reads page geometry.
    *
    * @returns {Promise<void>}
    */
   async waitForPageReady() {
-    return new Promise(resolve => {
-      const waitForIdle = () => {
-        this.document.ownerGlobal.requestIdleCallback(() => resolve(), {
-          timeout: MAX_REQUEST_IDLE_CALLBACK_DELAY_MS,
-        });
-      };
+    const doc = this.document;
+    const win = doc.documentGlobal;
 
-      if (this.document.readyState == "loading") {
-        this.document.addEventListener("DOMContentLoaded", waitForIdle);
-      } else {
-        lazy.console.log("The page is already interactive");
-        waitForIdle();
-      }
+    if (doc.readyState == "loading") {
+      await new Promise(resolve => {
+        doc.addEventListener("DOMContentLoaded", resolve, { once: true });
+      });
+    } else {
+      lazy.console.log("The page is already interactive");
+    }
+
+    await new Promise(resolve => {
+      win.requestIdleCallback(resolve, {
+        timeout: MAX_REQUEST_IDLE_CALLBACK_DELAY_MS,
+      });
     });
+
+    if (doc.hidden) {
+      return;
+    }
+
+    await new Promise(resolve => {
+      win.requestAnimationFrame(() => win.requestAnimationFrame(resolve));
+    });
+    this.#isPageReady = true;
   }
 
   /**
@@ -103,11 +139,13 @@ export class PageExtractorChild extends JSWindowActorChild {
       );
     }
 
-    const structuredDataTypes = this.#extractStructuredDataTypes(document);
+    const { types: structuredDataTypes, isGated } =
+      this.#extractStructuredData(document);
     const language = this.#detectLanguage(document);
     const wordCount = this.#getWordCount(language, document.body.innerText);
+    const isReaderable = lazy.isProbablyReaderable(document);
 
-    return { structuredDataTypes, wordCount, language };
+    return { structuredDataTypes, wordCount, language, isReaderable, isGated };
   }
 
   /**
@@ -131,16 +169,52 @@ export class PageExtractorChild extends JSWindowActorChild {
   }
 
   /**
-   * This extracts various `@type` values within the JSON-LD structured data markup of a page.
+   * Normalizes a schema.org Boolean, which may be an actual boolean, the strings
+   * "true"/"false", or a schema.org URL such as "https://schema.org/False".
+   *
+   * @param {unknown} value
+   * @returns {boolean | null} null when the value is absent or unrecognized.
+   */
+  #parseSchemaBoolean(value) {
+    if (typeof value === "boolean") {
+      return value;
+    }
+    if (typeof value !== "string") {
+      return null;
+    }
+    switch (value.toLowerCase()) {
+      case "true":
+      case "http://schema.org/true":
+      case "https://schema.org/true":
+        return true;
+
+      case "false":
+      case "http://schema.org/false":
+      case "https://schema.org/false":
+        return false;
+
+      default:
+        return null;
+    }
+  }
+
+  /**
+   * This extracts various `@type` values within the JSON-LD structured data markup
+   * of a page, along with whether the page declares its content to be gated.
+   *
+   * Publishers mark gated content with schema.org `isAccessibleForFree: false`,
+   * either on the item itself or on the `hasPart` entry describing the gated
+   * region. Pages without the markup are reported as not gated.
    *
    * @param {Document} document
-   * @returns {string[]}
+   * @returns {{ types: string[], isGated: boolean }}
    */
-  #extractStructuredDataTypes(document) {
+  #extractStructuredData(document) {
     const scripts = document.querySelectorAll(
       'script[type="application/ld+json" i]'
     );
     const types = new Set();
+    let isGated = false;
 
     const asArray = value => {
       if (Array.isArray(value)) {
@@ -177,9 +251,19 @@ export class PageExtractorChild extends JSWindowActorChild {
           }
         }
       }
+
+      // Unlike `@type`, the gating marker is also honored on a wrapper object that
+      // carries an `@graph`, since publishers place it at either level.
+      for (const item of [...topLevelItems, ...graphItems]) {
+        for (const part of [item, ...asArray(item?.hasPart)]) {
+          if (this.#parseSchemaBoolean(part?.isAccessibleForFree) === false) {
+            isGated = true;
+          }
+        }
+      }
     }
 
-    return Array.from(types);
+    return { types: Array.from(types), isGated };
   }
 
   /**
@@ -212,6 +296,23 @@ export class PageExtractorChild extends JSWindowActorChild {
     let document = window?.document;
     /** @type {HTMLElement} */
     let rootNode;
+
+    // YouTube extraction is a best-effort enhancement: any failure is logged
+    // and degrades to an empty string so the generic page extraction is used.
+    let youtubeContentPromise = null;
+    const sourceUrl = URL.parse(options.sourceUrl);
+    if (lazy.shouldExtractYouTube(sourceUrl)) {
+      youtubeContentPromise = lazy
+        .getYouTubeContent(document, {
+          timeoutMs: lazy.youtubeTimeoutMs,
+          sufficientLength: options.sufficientLength,
+          currentVideoId: sourceUrl.searchParams.get("v"),
+        })
+        .catch(error => {
+          lazy.console.warn?.("Failed to extract YouTube content", error);
+          return { text: "", replacesContent: false };
+        });
+    }
 
     if (this.isAboutReader()) {
       // If about:reader is loaded, find the proper rootNode so that we just get the
@@ -290,10 +391,22 @@ export class PageExtractorChild extends JSWindowActorChild {
       canvasSnapshots = await this.#captureCanvases(canvases, options);
     }
 
-    lazy.console.log("GetText", options);
-    lazy.console.debug({ text, links, canvasSnapshots });
+    // On YouTube a transcript block replaces the generic walk. Without
+    // a transcript the generic walk is kept (so comments and other page content
+    // survive) and the clean metadata block (header fields + description), which
+    // that walk only captures noisily and truncated, is prepended to it.
+    const youtube = youtubeContentPromise ? await youtubeContentPromise : null;
+    let finalText = text;
+    if (youtube?.text) {
+      finalText = youtube.replacesContent
+        ? youtube.text
+        : [youtube.text, text].filter(Boolean).join("\n\n");
+    }
 
-    return { text, links, canvasSnapshots };
+    lazy.console.log("GetText", options);
+    lazy.console.debug({ text: finalText, links, canvasSnapshots });
+
+    return { text: finalText, links, canvasSnapshots };
   }
 
   /**
@@ -339,7 +452,7 @@ export class PageExtractorChild extends JSWindowActorChild {
    * @returns {Promise<CanvasSnapshot | null>}
    */
   async #captureCanvas(canvas, maxDimension, quality) {
-    const window = canvas.ownerGlobal;
+    const window = canvas.documentGlobal;
     const { width: originalWidth, height: originalHeight } = canvas;
 
     try {

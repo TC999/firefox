@@ -7,6 +7,7 @@ mod compose;
 mod expression;
 mod function;
 mod handles;
+pub(crate) mod immediates;
 mod interface;
 mod r#type;
 
@@ -30,13 +31,14 @@ pub use compose::ComposeError;
 pub use expression::{check_literal_value, LiteralError};
 pub use expression::{ConstExpressionError, ExpressionError};
 pub use function::{CallError, FunctionError, LocalVariableError, SubgroupError};
+pub use immediates::{ImmediateSlots, ImmediateSlotsOverflowError, ImmediateUsage};
 pub use interface::{EntryPointError, GlobalVariableError, VaryingError};
 pub use r#type::{Disalignment, ImmediateError, TypeError, TypeFlags, WidthError};
 
 use self::handles::InvalidHandleError;
 
 /// Maximum size of a type, in bytes.
-pub const MAX_TYPE_SIZE: u32 = 0x4000_0000; // 1GB
+pub const MAX_TYPE_SIZE: u32 = i32::MAX as u32;
 
 bitflags::bitflags! {
     /// Validation flags.
@@ -214,6 +216,8 @@ bitflags::bitflags! {
         const MEMORY_DECORATION_COHERENT = 1 << 41;
         /// Support for the `@volatile` memory decoration on storage buffers.
         const MEMORY_DECORATION_VOLATILE = 1 << 42;
+        /// Support for 16-bit integer types.
+        const SHADER_INT16 = 1 << 43;
     }
 }
 
@@ -229,12 +233,24 @@ impl Capabilities {
             Self::DUAL_SOURCE_BLENDING => Some(Ext::DualSourceBlending),
             // NOTE: `SHADER_FLOAT16_IN_FLOAT32` _does not_ require the `f16` extension
             Self::SHADER_FLOAT16 => Some(Ext::F16),
+            Self::SHADER_INT16 => Some(Ext::WgpuInt16),
             Self::CLIP_DISTANCES => Some(Ext::ClipDistances),
             Self::MESH_SHADER => Some(Ext::WgpuMeshShader),
             Self::RAY_QUERY => Some(Ext::WgpuRayQuery),
             Self::RAY_HIT_VERTEX_POSITION => Some(Ext::WgpuRayQueryVertexReturn),
             Self::COOPERATIVE_MATRIX => Some(Ext::WgpuCooperativeMatrix),
             Self::RAY_TRACING_PIPELINE => Some(Ext::WgpuRayTracingPipeline),
+            Self::PER_VERTEX => Some(Ext::WgpuPerVertex),
+            Self::BUFFER_BINDING_ARRAY
+            | Self::BUFFER_BINDING_ARRAY_NON_UNIFORM_INDEXING
+            | Self::STORAGE_BUFFER_BINDING_ARRAY
+            | Self::STORAGE_BUFFER_BINDING_ARRAY_NON_UNIFORM_INDEXING
+            | Self::STORAGE_TEXTURE_BINDING_ARRAY
+            | Self::STORAGE_TEXTURE_BINDING_ARRAY_NON_UNIFORM_INDEXING
+            | Self::TEXTURE_AND_SAMPLER_BINDING_ARRAY
+            | Self::TEXTURE_AND_SAMPLER_BINDING_ARRAY_NON_UNIFORM_INDEXING => {
+                Some(Ext::WgpuBindingArray)
+            }
             _ => None,
         }
     }
@@ -691,6 +707,8 @@ impl Validator {
         match gctx.types[o.ty].inner {
             crate::TypeInner::Scalar(
                 crate::Scalar::BOOL
+                | crate::Scalar::I16
+                | crate::Scalar::U16
                 | crate::Scalar::I32
                 | crate::Scalar::U32
                 | crate::Scalar::F16
@@ -715,7 +733,7 @@ impl Validator {
     pub fn validate(
         &mut self,
         module: &crate::Module,
-    ) -> Result<ModuleInfo, WithSpan<ValidationError>> {
+    ) -> Result<ModuleInfo, Box<WithSpan<ValidationError>>> {
         self.overrides_resolved = false;
         self.validate_impl(module)
     }
@@ -730,7 +748,7 @@ impl Validator {
     pub fn validate_resolved_overrides(
         &mut self,
         module: &crate::Module,
-    ) -> Result<ModuleInfo, WithSpan<ValidationError>> {
+    ) -> Result<ModuleInfo, Box<WithSpan<ValidationError>>> {
         self.overrides_resolved = true;
         self.validate_impl(module)
     }
@@ -738,11 +756,11 @@ impl Validator {
     fn validate_impl(
         &mut self,
         module: &crate::Module,
-    ) -> Result<ModuleInfo, WithSpan<ValidationError>> {
+    ) -> Result<ModuleInfo, Box<WithSpan<ValidationError>>> {
         self.reset();
         self.reset_types(module.types.len());
 
-        Self::validate_module_handles(module).map_err(|e| e.with_span())?;
+        Self::validate_module_handles(module).map_err(|e| Box::new((*e).with_span()))?;
 
         self.layouter.update(module.to_ctx()).map_err(|e| {
             let handle = e.ty;
@@ -852,14 +870,14 @@ impl Validator {
             match self.validate_function(fun, module, &mod_info, false) {
                 Ok(info) => mod_info.functions.push(info),
                 Err(error) => {
-                    return Err(error.and_then(|source| {
+                    return Err(Box::new(error.and_then(|source| {
                         ValidationError::Function {
                             handle,
                             name: fun.name.clone().unwrap_or_default(),
                             source,
                         }
                         .with_span_handle(handle, &module.functions)
-                    }))
+                    })))
                 }
             }
         }
@@ -867,25 +885,29 @@ impl Validator {
         let mut ep_map = FastHashSet::default();
         for ep in module.entry_points.iter() {
             if !ep_map.insert((ep.stage, &ep.name)) {
-                return Err(ValidationError::EntryPoint {
-                    stage: ep.stage,
-                    name: ep.name.clone(),
-                    source: EntryPointError::Conflict,
-                }
-                .with_span()); // TODO: keep some EP span information?
+                return Err(Box::new(
+                    ValidationError::EntryPoint {
+                        stage: ep.stage,
+                        name: ep.name.clone(),
+                        source: EntryPointError::Conflict,
+                    }
+                    .with_span(),
+                )); // TODO: keep some EP span information?
             }
 
             match self.validate_entry_point(ep, module, &mod_info) {
-                Ok(info) => mod_info.entry_points.push(info),
+                Ok(info) => {
+                    mod_info.entry_points.push(info);
+                }
                 Err(error) => {
-                    return Err(error.and_then(|source| {
+                    return Err(Box::new(error.and_then(|source| {
                         ValidationError::EntryPoint {
                             stage: ep.stage,
                             name: ep.name.clone(),
                             source,
                         }
                         .with_span()
-                    }));
+                    })));
                 }
             }
         }

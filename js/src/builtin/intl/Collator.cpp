@@ -11,6 +11,7 @@
 #include "mozilla/intl/Locale.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/Span.h"
+#include "mozilla/UsingEnum.h"
 
 #include "builtin/Array.h"
 #include "builtin/intl/CommonFunctions.h"
@@ -20,7 +21,6 @@
 #include "builtin/intl/Packed.h"
 #include "builtin/intl/ParameterNegotiation.h"
 #include "builtin/intl/SharedIntlData.h"
-#include "builtin/intl/UsingEnum.h"
 #include "gc/GCContext.h"
 #include "js/PropertySpec.h"
 #include "js/StableStringChars.h"
@@ -38,16 +38,7 @@ using namespace js;
 using namespace js::intl;
 
 const JSClassOps CollatorObject::classOps_ = {
-    nullptr,                   // addProperty
-    nullptr,                   // delProperty
-    nullptr,                   // enumerate
-    nullptr,                   // newEnumerate
-    nullptr,                   // resolve
-    nullptr,                   // mayResolve
-    CollatorObject::finalize,  // finalize
-    nullptr,                   // call
-    nullptr,                   // construct
-    nullptr,                   // trace
+    .finalize = CollatorObject::finalize,
 };
 
 const JSClass CollatorObject::class_ = {
@@ -169,7 +160,7 @@ struct PackedCollatorOptions {
 };
 
 CollatorOptions js::intl::CollatorObject::getOptions() const {
-  const auto& slot = getFixedSlot(OPTIONS_SLOT);
+  const auto& slot = getFixedSlotTyped(OPTIONS_SLOT);
   if (slot.isUndefined()) {
     return {};
   }
@@ -177,15 +168,11 @@ CollatorOptions js::intl::CollatorObject::getOptions() const {
 }
 
 void js::intl::CollatorObject::setOptions(const CollatorOptions& options) {
-  setFixedSlot(OPTIONS_SLOT, PackedCollatorOptions::pack(options));
+  setFixedSlotTyped(OPTIONS_SLOT, PackedCollatorOptions::pack(options));
 }
 
 static constexpr std::string_view UsageToString(CollatorOptions::Usage usage) {
-#ifndef USING_ENUM
-  using enum CollatorOptions::Usage;
-#else
-  USING_ENUM(CollatorOptions::Usage, Sort, Search);
-#endif
+  MOZ_USING_ENUM(CollatorOptions::Usage, Sort, Search);
   switch (usage) {
     case Sort:
       return "sort";
@@ -197,11 +184,7 @@ static constexpr std::string_view UsageToString(CollatorOptions::Usage usage) {
 
 static constexpr std::string_view SensitivityToString(
     CollatorOptions::Sensitivity sensitivity) {
-#ifndef USING_ENUM
-  using enum CollatorOptions::Sensitivity;
-#else
-  USING_ENUM(CollatorOptions::Sensitivity, Base, Accent, Case, Variant);
-#endif
+  MOZ_USING_ENUM(CollatorOptions::Sensitivity, Base, Accent, Case, Variant);
   switch (sensitivity) {
     case Base:
       return "base";
@@ -217,11 +200,7 @@ static constexpr std::string_view SensitivityToString(
 
 static constexpr std::string_view CaseFirstToString(
     CollatorOptions::CaseFirst caseFirst) {
-#ifndef USING_ENUM
-  using enum CollatorOptions::CaseFirst;
-#else
-  USING_ENUM(CollatorOptions::CaseFirst, False, Lower, Upper, Locale);
-#endif
+  MOZ_USING_ENUM(CollatorOptions::CaseFirst, False, Lower, Upper, Locale);
   switch (caseFirst) {
     case False:
       return "false";
@@ -462,11 +441,7 @@ static bool ResolveLocale(JSContext* cx, Handle<CollatorObject*> collator) {
     localeOptions.setUnicodeExtension(UnicodeExtensionKey::Collation, co);
   }
   if (colOptions.caseFirst != CollatorOptions::CaseFirst::Locale) {
-#ifndef USING_ENUM
-    using enum CollatorOptions::CaseFirst;
-#else
-    USING_ENUM(CollatorOptions::CaseFirst, False, Lower, Upper, Locale);
-#endif
+    MOZ_USING_ENUM(CollatorOptions::CaseFirst, False, Lower, Upper, Locale);
 
     JSLinearString* kf;
     switch (colOptions.caseFirst) {
@@ -525,6 +500,9 @@ static bool ResolveLocale(JSContext* cx, Handle<CollatorObject*> collator) {
   if (auto co = resolved.extension(UnicodeExtensionKey::Collation)) {
     collator->setCollation(co);
   } else {
+    // The first element of the collations array must be |null| per ES2026 Intl,
+    // 10.2.3 Internal Slots. The |Intl.Collator| constructor maps |null| to
+    // "default".
     collator->setCollation(cx->names().default_);
   }
 
@@ -580,12 +558,12 @@ static mozilla::intl::Collator* NewIntlCollator(
 
     // Search collations can't select a different collation, so the collation
     // property is guaranteed to be "default".
-    MOZ_ASSERT(StringEqualsLiteral(collator->getCollation(), "default"));
+    MOZ_ASSERT(collator->getCollation() == cx->names().default_);
   } else {
     auto* collation = collator->getCollation();
 
     // Set collation as a Unicode locale extension when it was specified.
-    if (!StringEqualsLiteral(collation, "default")) {
+    if (collation != cx->names().default_) {
       if (!keywords.emplaceBack("co", collation)) {
         return nullptr;
       }

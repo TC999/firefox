@@ -5,12 +5,9 @@
 #ifndef GFX_GRAPHITESHAPER_H
 #define GFX_GRAPHITESHAPER_H
 
-#include "gfxFont.h"
-
-#include "mozilla/gfx/2D.h"
-#include "nsTHashSet.h"
-
 #include "ThebesRLBoxTypes.h"
+#include "gfxFont.h"
+#include "nsTHashSet.h"
 
 struct gr_face;
 struct gr_font;
@@ -21,10 +18,9 @@ class gfxGraphiteShaper : public gfxFontShaper {
   explicit gfxGraphiteShaper(gfxFont* aFont);
   virtual ~gfxGraphiteShaper();
 
-  bool ShapeText(DrawTarget* aDrawTarget, const char16_t* aText,
-                 uint32_t aOffset, uint32_t aLength, Script aScript,
-                 nsAtom* aLanguage, bool aVertical, RoundingFlags aRounding,
-                 gfxShapedText* aShapedText) override;
+  bool ShapeText(const char16_t* aText, uint32_t aOffset, uint32_t aLength,
+                 Script aScript, nsAtom* aLanguage, bool aVertical,
+                 RoundingFlags aRounding, gfxShapedText* aShapedText) override;
 
   static void Shutdown();
 

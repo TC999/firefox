@@ -10,6 +10,8 @@ import {
   classMap,
 } from "chrome://global/content/vendor/lit.all.mjs";
 
+/** @import { TemplateResult } from "chrome://global/content/vendor/lit.all.mjs" */
+
 /**
  * Helper for our replacement of @query. Used with `static queries` property.
  *
@@ -116,7 +118,11 @@ export class MozLitElement extends LitElement {
       if (attrName.startsWith("aria")) {
         domAttrName = domAttrName.replace("aria", "aria-");
       }
-      this.mappedAttributes ??= [];
+      // Give this class its own array so we don't mutate the one we inherit
+      // from an ancestor, which would leak our attributes into every sibling.
+      if (!Object.hasOwn(this, "mappedAttributes")) {
+        this.mappedAttributes = [...(this.mappedAttributes ?? [])];
+      }
       this.mappedAttributes.push([attrName, domAttrPropertyName]);
       options.state = true;
       super.createProperty(domAttrPropertyName, {
@@ -126,7 +132,10 @@ export class MozLitElement extends LitElement {
       });
     }
     if (options.fluent) {
-      this.fluentProperties ??= [];
+      // Same as above: give this class its own array.
+      if (!Object.hasOwn(this, "fluentProperties")) {
+        this.fluentProperties = [...(this.fluentProperties ?? [])];
+      }
       this.fluentProperties.push(options.attribute || attrName.toLowerCase());
     }
     return super.createProperty(attrName, options);
@@ -244,6 +253,7 @@ export class MozLitElement extends LitElement {
  *     element can be disabled.
  * @property {string} ariaLabel - The aria-label text when there is no visible label.
  * @property {string} ariaDescription - The aria-description text when there is no visible description.
+ * @property {string} title - The title attribute, mapped onto the inner focusable control.
  */
 export class MozBaseInputElement extends MozLitElement {
   static formAssociated = true;
@@ -262,6 +272,7 @@ export class MozBaseInputElement extends MozLitElement {
     parentDisabled: { type: Boolean, state: true },
     ariaLabel: { type: String, mapped: true },
     ariaDescription: { type: String, mapped: true },
+    title: { type: String, mapped: true },
     inputLayout: { type: String, reflect: true, attribute: "inputlayout" },
   };
   /** @type {"inline" | "block" | "inline-end"} */
@@ -433,6 +444,16 @@ export class MozBaseInputElement extends MozLitElement {
     return nothing;
   }
 
+  /**
+   * Template for optional required indicator, rendered next to label.
+   * Subclasses that support required state should override this.
+   *
+   * @returns {TemplateResult | string}
+   */
+  requiredIndicatorTemplate() {
+    return "";
+  }
+
   render() {
     return html`
       <link
@@ -465,17 +486,20 @@ export class MozBaseInputElement extends MozLitElement {
       return "";
     }
     let labelEl;
-    if (this.getAttribute("headinglevel") == "2") {
+    let headingLevel = this.getAttribute("headinglevel");
+    if (headingLevel == "3" || headingLevel == "4") {
       // Undocumented hack for AI controls, do not use, it WILL be removed. (bug 2012250)
-      labelEl = html`<h2
+      // Configs set headinglevel: 3; the SettingElement SRD bump can promote
+      // that to 4 in SRD mode, so both values render h3 here.
+      labelEl = html`<h3
         class="text text-box-trim-start"
         .textContent=${this.label}
-      ></h2>`;
+      ></h3>`;
     } else {
       labelEl = html`<span class="text" .textContent=${this.label}></span>`;
     }
     return html`<span class="text-container"
-      >${this.iconTemplate()}${labelEl}</span
+      >${this.iconTemplate()}${labelEl}${this.requiredIndicatorTemplate()}</span
     >`;
   }
 

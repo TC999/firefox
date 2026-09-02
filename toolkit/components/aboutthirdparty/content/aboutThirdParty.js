@@ -607,10 +607,11 @@ async function collectCrashInfo() {
   const crashes = await getCrashManager().getCrashes();
   CrashModuleSet = new Set(
     crashes.map(crash => {
-      const stackInfo = crash.metadata?.StackTraces;
+      let stackInfo = crash.metadata?.StackTraces;
       if (!stackInfo) {
         return null;
       }
+      stackInfo = JSON.parse(stackInfo);
 
       const crashAddr = parseBigInt(stackInfo.crash_address);
       if (typeof crashAddr !== "bigint") {

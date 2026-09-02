@@ -95,14 +95,7 @@ async function testMessages() {
   // a non-numeric innerID in Console.cpp
   const browserConsoleGlobal = Cu.getGlobalForObject(hud);
   const chromeWorker = new browserConsoleGlobal.ChromeWorker(
-    URL.createObjectURL(
-      new browserConsoleGlobal.Blob(
-        [`console.log("message in chrome worker")`],
-        {
-          type: "application/javascript",
-        }
-      )
-    )
+    getRootDirectory(gTestPath) + "test-chrome-worker.js"
   );
 
   const sandbox = new Cu.Sandbox(null, {
@@ -258,12 +251,12 @@ async function testMessages() {
   );
   await checkUniqueMessageExists(
     hud,
-    "Expected color but found ‘rainbow’",
+    "Error in parsing value for ‘background-color: rainbow’.  Declaration dropped.",
     ".warn"
   );
   await checkUniqueMessageExists(
     hud,
-    "Expected color but found ‘bled’",
+    "Error in parsing value for ‘color: bled;’.  Declaration dropped.",
     ".warn"
   );
 

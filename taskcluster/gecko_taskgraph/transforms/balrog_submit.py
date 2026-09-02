@@ -5,24 +5,20 @@
 Transform the per-locale balrog task into an actual task description.
 """
 
-from typing import Optional
-
+from mozilla_taskgraph.util.attributes import copy_attributes_from_dependent_job
 from taskgraph.transforms.base import TransformSequence
 from taskgraph.util.dependencies import get_primary_dependency
-from taskgraph.util.schema import Schema, optionally_keyed_by, resolve_keyed_by
+from taskgraph.util.schema import Schema
 from taskgraph.util.treeherder import replace_group
 
 from gecko_taskgraph.transforms.task import TaskDescriptionSchema
-from gecko_taskgraph.util.attributes import copy_attributes_from_dependent_job
 
 
 class BalrogDescriptionSchema(Schema, kw_only=True):
     # unique label to describe this balrog task, defaults to balrog-{dep.label}
     label: str
     # Whether the parallel `-No-WNP` blob should be updated as well.
-    update_no_wnp: Optional[
-        optionally_keyed_by("release-type", bool, use_msgspec=True)
-    ] = None  # type: ignore
+    update_no_wnp: bool
     # treeherder is allowed here to override any defaults we use for beetmover.  See
     # taskcluster/gecko_taskgraph/transforms/task.py for the schema details, and the
     # below transforms for defaults of various values.
@@ -51,26 +47,6 @@ transforms.add_validate(BalrogDescriptionSchema)
 
 
 @transforms.add
-def handle_keyed_by(config, jobs):
-    """Resolve fields that can be keyed by platform, etc."""
-    fields = [
-        "update-no-wnp",
-    ]
-    for job in jobs:
-        for field in fields:
-            resolve_keyed_by(
-                item=job,
-                field=field,
-                item_name=job["label"],
-                **{
-                    "project": config.params["project"],
-                    "release-type": config.params["release_type"],
-                },
-            )
-        yield job
-
-
-@transforms.add
 def make_task_description(config, jobs):
     for job in jobs:
         dep_job = get_primary_dependency(config, job)
@@ -81,7 +57,8 @@ def make_task_description(config, jobs):
         treeherder = job.get("treeherder", {})
         treeherder.setdefault("symbol", "c-Up(N)")
         dep_th_platform = (
-            dep_job.task.get("extra", {})
+            dep_job.task
+            .get("extra", {})
             .get("treeherder", {})
             .get("machine", {})
             .get("platform", "")

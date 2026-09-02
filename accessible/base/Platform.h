@@ -6,8 +6,9 @@
 #define mozilla_a11y_Platform_h
 
 #include <stdint.h>
-#include "nsStringFwd.h"
+
 #include "Units.h"
+#include "nsStringFwd.h"
 
 #if defined(ANDROID)
 #  include "nsTArray.h"
@@ -35,6 +36,18 @@ enum EPlatformDisabledState {
  */
 EPlatformDisabledState PlatformDisabledState();
 
+/**
+ * If accessibility.force_disabled is force enabled, start the accessibility
+ * service if it isn't already running. This also ensures the pref is being
+ * watched, so that a later change to force enabled also starts the service.
+ * This is a no-op in content processes; accessibility there is driven by the
+ * parent process.
+ * @param aAsync True to start the service asynchronously using a runnable.
+ *        This should be used when called from a pref change callback, to
+ *        avoid starting the service reentrantly.
+ */
+void MaybeStartForceEnabled(bool aAsync = false);
+
 #ifdef MOZ_ACCESSIBILITY_ATK
 /**
  * Perform initialization that should be done as soon as possible, in order
@@ -59,6 +72,12 @@ bool ShouldA11yBeEnabled();
 void SetInstantiator(const uint32_t aInstantiatorPid);
 bool GetInstantiator(nsIFile** aOutInstantiator);
 #endif
+
+/**
+ * Return a string describing the platform a11y instantiators.
+ * Exposed through nsIXULRuntime.accessibilityInstantiator.
+ */
+void GetHumanReadableInstantiatorStr(nsAString& aResult);
 
 /**
  * Called to initialize platform specific accessibility support.
@@ -123,6 +142,10 @@ void PlatformTextSelectionChangeEvent(Accessible* aTarget,
 
 void PlatformRoleChangedEvent(Accessible* aTarget, const a11y::role& aRole,
                               uint8_t aRoleMapEntryIndex);
+
+void PlatformFocusedAccLocationChanged(Accessible* aFocusedAcc);
+
+bool PlatformShouldTrackFocusedAccLocation();
 #endif
 
 // Get the cache domains needed by any known clients interacting with Gecko. If

@@ -16,9 +16,10 @@ subject:<subject distinguished name specification>
 [validity:<YYYYMMDD-YYYYMMDD|duration in days>]
 [issuerKey:<key specification>]
 [subjectKey:<key specification>]
+[tamperSpki:]
 [signature:{sha256WithRSAEncryption,sha1WithRSAEncryption,
             md5WithRSAEncryption,ecdsaWithSHA256,ecdsaWithSHA384,
-            ecdsaWithSHA512}]
+            ecdsaWithSHA512,mldsa44,mldsa65,mldsa87}]
 [serialNumber:<integer in the interval [1, 127]>]
 [extension:<extension name:<extension-specific data>>]
 [...]
@@ -336,6 +337,12 @@ def stringToAlgorithmIdentifiers(string):
     elif string == "ecdsaWithSHA512":
         algorithmType = pykey.HASH_SHA512
         algorithm = univ.ObjectIdentifier("1.2.840.10045.4.3.4")
+    elif string == "mldsa44":
+        algorithm = pykey.mlDsa44
+    elif string == "mldsa65":
+        algorithm = pykey.mlDsa65
+    elif string == "mldsa87":
+        algorithm = pykey.mlDsa87
     else:
         raise UnknownAlgorithmTypeError(string)
     algorithmIdentifier["algorithm"] = algorithm
@@ -391,6 +398,7 @@ class Certificate:
         self.savedEmbeddedSCTListData = None
         self.subjectKey = pykey.keyFromSpecification("default")
         self.issuerKey = pykey.keyFromSpecification("default")
+        self.tamperSpki = False
         self.serialNumber = None
         self.decodeParams(paramStream)
         # If a serial number wasn't specified, generate one based on
@@ -456,6 +464,8 @@ class Certificate:
             self.setupKey("issuer", value)
         elif param == "subjectKey":
             self.setupKey("subject", value)
+        elif param == "tamperSpki":
+            self.tamperSpki = True
         elif param == "signature":
             self.signature = value
         elif param == "serialNumber":
@@ -798,9 +808,20 @@ class Certificate:
         tbsCertificate["issuer"] = self.getIssuer()
         tbsCertificate["validity"] = self.getValidity()
         tbsCertificate["subject"] = self.getSubject()
-        tbsCertificate["subjectPublicKeyInfo"] = (
-            self.subjectKey.asSubjectPublicKeyInfo()
-        )
+        if self.tamperSpki:
+            algorithmIdentifier = rfc5280.AlgorithmIdentifier()
+            algorithmIdentifier["algorithm"] = univ.ObjectIdentifier(
+                "1.3.6.1.4.1.13769.666.666.666.1.500.9.1"
+            )
+            algorithmIdentifier["parameters"] = univ.Null()
+            spki = rfc5280.SubjectPublicKeyInfo()
+            spki["algorithm"] = algorithmIdentifier
+            spki["subjectPublicKey"] = univ.BitString("'0500'H")
+            tbsCertificate["subjectPublicKeyInfo"] = spki
+        else:
+            tbsCertificate["subjectPublicKeyInfo"] = (
+                self.subjectKey.asSubjectPublicKeyInfo()
+            )
         if self.extensions:
             extensions = rfc5280.Extensions().subtype(
                 explicitTag=tag.Tag(tag.tagClassContext, tag.tagFormatSimple, 3)

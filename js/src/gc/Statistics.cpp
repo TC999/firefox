@@ -5,6 +5,7 @@
 #include "gc/Statistics.h"
 
 #include "mozilla/DebugOnly.h"
+#include "mozilla/glue/Debug.h"
 #include "mozilla/Sprintf.h"
 #include "mozilla/TimeStamp.h"
 
@@ -642,7 +643,7 @@ UniqueChars Statistics::renderJsonMessage() const {
   /*
    * The format of the JSON message is specified by the GCMajorMarkerPayload
    * type in profiler.firefox.com
-   * https://github.com/firefox-devtools/profiler/blob/master/src/types/markers.js#L62
+   * https://github.com/firefox-devtools/profiler/blob/8f4935823ec06507c3125d4c6c1e78eef31361f3/src/types/markers.ts#L396
    *
    * All the properties listed here are created within the timings property
    * of the GCMajor marker.
@@ -682,6 +683,7 @@ void Statistics::formatJsonDescription(JSONPrinter& json) const {
   // We might be able to omit reason if profiler.firefox.com was able to retrive
   // it from the first slice.  But it doesn't do this yet.
   json.property("reason", ExplainGCReason(slices_[0].reason));
+  json.property("options", ExplainGCOptions(gcOptions));
   json.property("zones_collected", zoneStats.collectedZoneCount);
   json.property("total_zones", zoneStats.zoneCount);
   json.property("total_compartments", zoneStats.compartmentCount);
@@ -825,6 +827,9 @@ Statistics::Statistics(GCRuntime* gc)
 Statistics::~Statistics() {
   if (gcTimerFile && gcTimerFile != stdout && gcTimerFile != stderr) {
     fclose(gcTimerFile);
+  }
+  if (gcProfileFile && gcProfileFile != stdout && gcProfileFile != stderr) {
+    fclose(gcProfileFile);
   }
 }
 
@@ -1038,6 +1043,8 @@ void Statistics::sendGCTelemetry() {
   runtime->metrics().GC_IS_COMPARTMENTAL(!gc->fullGCRequested);
   runtime->metrics().GC_ZONE_COUNT(zoneStats.zoneCount);
   runtime->metrics().GC_ZONES_COLLECTED(zoneStats.collectedZoneCount);
+  runtime->metrics().GC_MARK_STACK_MAX_CAPACITY(
+      getStat(STAT_MARK_STACK_MAX_CAPACITY) * sizeof(uintptr_t));
 
   TimeDuration prepareTotal = phaseTimes[Phase::PREPARE];
   TimeDuration markTotal = SumPhase(PhaseKind::MARK, phaseTimes);
@@ -1127,6 +1134,22 @@ void Statistics::sendGCTelemetry() {
       double effectiveness =
           (double(bytesFreed) / BYTES_PER_MB) / clampedTotal.ToSeconds();
       runtime->metrics().GC_EFFECTIVENESS(uint32_t(effectiveness));
+    }
+  }
+
+  {
+    size_t usedBytes, freeBytes, adminBytes;
+    gc->bufferRuntime().getRetainedStats(&usedBytes, &freeBytes, &adminBytes);
+
+    // Buffer allocator heap size.
+    size_t totalBytes = usedBytes + freeBytes + adminBytes;
+    runtime->metrics().GC_BUFFER_ALLOC_HEAP_BYTES(totalBytes);
+
+    // Buffer allocator heap density. Skipped for small heaps.
+    if (totalBytes >= 2 * ChunkSize) {
+      double density = 100.0 * double(usedBytes) / double(totalBytes);
+      runtime->metrics().GC_BUFFER_ALLOC_HEAP_DENSITY(
+          std::clamp(density, 0.0, 100.0));
     }
   }
 
@@ -1228,7 +1251,7 @@ void Statistics::beginSlice(const ZoneGCStats& zoneStats, JS::GCOptions options,
   }
 }
 
-void Statistics::endSlice() {
+void Statistics::endSlice(const SliceBudget& budget) {
   MOZ_ASSERT(phaseStack.empty() ||
              (phaseStack.length() == 1 && phaseStack[0] == Phase::MUTATOR));
 
@@ -1237,6 +1260,9 @@ void Statistics::endSlice() {
     slice.end = TimeStamp::Now();
     slice.endFaults = GetPageFaultCount();
     slice.finalState = gc->state();
+
+    // Update the budget to record whether the slice was interrupted.
+    slice.budget.interrupted = budget.interrupted;
 
     sendSliceTelemetry(slice);
 
@@ -1309,7 +1335,7 @@ void Statistics::sendSliceTelemetry(const SliceData& slice) {
   runtime->metrics().GC_SLICE_MS(sliceTime);
 
   if (slice.budget.isTimeBudget()) {
-    TimeDuration budgetDuration = slice.budget.timeBudgetDuration();
+    TimeDuration budgetDuration = slice.budget.timeBudget();
     runtime->metrics().GC_BUDGET_MS_2(budgetDuration);
 
     if (IsCurrentlyAnimating(runtime->gc.lastAnimationTime(), slice.end)) {
@@ -1478,12 +1504,11 @@ void Statistics::recordPhaseEnd(Phase phase) {
       continue;
     }
     if (phaseEndTimes[kid] > now) {
-      fprintf(stderr,
-              "Parent %s ended at %.3fms, before child %s ended at %.3fms?\n",
-              phases[phase].name,
-              t(TimeBetween(TimeStamp::FirstTimeStamp(), now)),
-              phases[kid].name,
-              t(TimeBetween(TimeStamp::FirstTimeStamp(), phaseEndTimes[kid])));
+      printf_stderr(
+          "Parent %s ended at %.3fms, before child %s ended at %.3fms?\n",
+          phases[phase].name, t(TimeBetween(TimeStamp::FirstTimeStamp(), now)),
+          phases[kid].name,
+          t(TimeBetween(TimeStamp::FirstTimeStamp(), phaseEndTimes[kid])));
     }
     MOZ_ASSERT(phaseEndTimes[kid] <= now,
                "Inconsistent time data; see bug 1400153");
@@ -1792,8 +1817,8 @@ const char* Statistics::formatBudget(const SliceData& slice) {
     return formatBuffer_;
   }
 
-  DebugOnly<int> r =
-      SprintfLiteral(formatBuffer_, "%6" PRIi64, slice.budget.timeBudget());
+  double millis = slice.budget.timeBudget().ToMilliseconds();
+  DebugOnly<int> r = SprintfLiteral(formatBuffer_, "%3.1f", millis);
   MOZ_ASSERT(r > 0 && r < FormatBufferLength);
   return formatBuffer_;
 }

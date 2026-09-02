@@ -8,6 +8,7 @@ import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
 const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
+  AboutNewTabParent: "resource:///actors/AboutNewTabParent.sys.mjs",
   AboutNewTabResourceMapping:
     "resource:///modules/AboutNewTabResourceMapping.sys.mjs",
   ActivityStream: "resource://newtab/lib/ActivityStream.sys.mjs",
@@ -39,6 +40,8 @@ export const AboutNewTab = {
   _activityStreamEnabled: false,
   activityStream: null,
   activityStreamDebug: false,
+  activityStreamPromise: null,
+  _activityStreamResolver: null,
 
   _cachedTopSites: null,
 
@@ -52,6 +55,9 @@ export const AboutNewTab = {
     if (this.initialized) {
       return;
     }
+    let { promise, resolve } = Promise.withResolvers();
+    this.activityStreamPromise = promise;
+    this._activityStreamResolver = resolve;
 
     Services.obs.addObserver(this, TOPIC_APP_QUIT);
     if (!AppConstants.RELEASE_OR_BETA) {
@@ -79,6 +85,22 @@ export const AboutNewTab = {
     // Make sure to register newtab resource mapping as early as possible
     // on startup.
     lazy.AboutNewTabResourceMapping.init();
+
+    // ActivityStream.init() also sets this default,
+    // but it is gated behind TOU acceptance, which is too late for
+    // about:welcome's first-screen impression.
+    // Setting it here lets AboutWelcomeTelemetry and ASRouter
+    // telemetry submit pings before TOU is accepted while Glean gates the
+    // upload on datareporting.healthreport.uploadEnabled.
+    const AStelemetryPref = "browser.newtabpage.activity-stream.telemetry";
+    if (
+      Services.prefs.getPrefType(AStelemetryPref) ===
+      Services.prefs.PREF_INVALID
+    ) {
+      Services.prefs
+        .getDefaultBranch("")
+        .setBoolPref(AStelemetryPref, AppConstants.MOZILLA_OFFICIAL);
+    }
 
     // More initialization happens here
     this.toggleActivityStream(true);
@@ -207,7 +229,7 @@ export const AboutNewTab = {
     try {
       this.activityStream = new lazy.ActivityStream(createdInstant);
       Glean.newtab.activityStreamCtorSuccess.set(true);
-      redirector.resumeNewTabLoads();
+      this._activityStreamResolver();
     } catch (error) {
       // Send Activity Stream loading failure telemetry
       // This probe will help to monitor if ActivityStream failure has crossed
@@ -279,6 +301,25 @@ export const AboutNewTab = {
     return this.activityStream
       ? this.activityStream.store.getState().TopSites.rows
       : [];
+  },
+
+  /**
+   * The id of the newtab visit a browser is showing, which the `newtab` ping
+   * reports as `newtab_visit_id`.
+   *
+   * @param {MozBrowser} browser
+   *   The browser to look up.
+   * @returns {?string}
+   *   The visit id, or null if the browser isn't showing a newtab page or the
+   *   visit isn't being measured.
+   */
+  getVisitId(browser) {
+    let portID = lazy.AboutNewTabParent.loadedTabs.get(browser)?.portID;
+    if (!portID) {
+      return null;
+    }
+    let telemetryFeed = this.activityStream?.store.feeds.get("feeds.telemetry");
+    return telemetryFeed?.sessions.get(portID)?.session_id ?? null;
   },
 
   _alreadyRecordedTopsitesPainted: false,

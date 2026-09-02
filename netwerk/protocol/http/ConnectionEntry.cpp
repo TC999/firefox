@@ -13,11 +13,11 @@
 
 #include "ConnectionEntry.h"
 #include "HttpConnectionUDP.h"
-#include "nsQueryObject.h"
-#include "nsHttpConnectionMgr.h"
 #include "mozilla/StaticPrefs_network.h"
-#include "nsHttpHandler.h"
 #include "mozilla/net/neqo_glue_ffi_generated.h"
+#include "nsHttpConnectionMgr.h"
+#include "nsHttpHandler.h"
+#include "nsQueryObject.h"
 
 namespace mozilla {
 namespace net {
@@ -40,6 +40,7 @@ ConnectionEntry::ConnectionEntry(nsHttpConnectionInfo* ci,
       mPreferIPv4(false),
       mPreferIPv6(false),
       mUsedForConnection(false),
+      mPendingQProcessingScheduled(false),
       mPendingQSet(aPendingQSet) {
   LOG(("ConnectionEntry::ConnectionEntry this=%p key=%s", this,
        ci->HashKey().get()));
@@ -48,7 +49,14 @@ ConnectionEntry::ConnectionEntry(nsHttpConnectionInfo* ci,
 
 bool ConnectionEntry::HasActiveH3Connection() const {
   for (const auto& conn : mActiveConns) {
-    if (conn->UsingHttp3()) {
+    // An unusable h3 connection lingering in mActiveConns must not hold the
+    // single-H3-per-entry slot: GetH2orH3ActiveConn won't dispatch onto it, so
+    // counting it here would make AtActiveConnectionLimit block a replacement
+    // forever and wedge any pending transaction (bug 2050384). A
+    // still-handshaking connection is not yet connected, so it is still
+    // counted.
+    RefPtr<HttpConnectionUDP> connUDP = do_QueryObject(conn);
+    if (connUDP && !connUDP->IsConnectedAndUnusable()) {
       return true;
     }
   }
@@ -230,6 +238,12 @@ bool ConnectionEntry::RestrictConnections() {
   // If the restriction is based on a tcp handshake in progress
   // let that connect and then see if it was SPDY or not
   if (mConnectionAttemptPool->UnconnectedConnectionAttempts()) {
+    LOG(
+        ("ConnectionEntry::RestrictConnections %p %s restricted: "
+         "%u unconnected HCA(s) still negotiating (pool length=%zu)\n",
+         this, mConnInfo->HashKey().get(),
+         mConnectionAttemptPool->UnconnectedConnectionAttempts(),
+         mConnectionAttemptPool->Length()));
     return true;
   }
 
@@ -244,7 +258,14 @@ bool ConnectionEntry::RestrictConnections() {
     for (uint32_t index = 0; index < mActiveConns.Length(); ++index) {
       HttpConnectionBase* conn = mActiveConns[index];
       RefPtr<nsHttpConnection> connTCP = do_QueryObject(conn);
-      if ((connTCP && !connTCP->ReportedNPN()) || conn->CanDirectlyActivate()) {
+      bool npnPending = connTCP && !connTCP->ReportedNPN();
+      bool canActivate = conn->CanDirectlyActivate();
+      LOG(
+          ("ConnectionEntry::RestrictConnections %p %s active conn[%u]=%p "
+           "npnPending=%d canActivate=%d dontReuse=%d\n",
+           this, mConnInfo->HashKey().get(), index, conn, npnPending,
+           canActivate, !conn->CanReuse()));
+      if (npnPending || canActivate) {
         confirmedRestrict = true;
         break;
       }
@@ -486,6 +507,34 @@ void ConnectionEntry::MakeConnectionPendingAndDontReuse(
   LOG(("Move active connection to pending list [conn=%p]\n", conn));
 }
 
+void ConnectionEntry::MoveUnusableH3ConnsToPending() {
+  // A WebTransport connection reports CanReuse()==false for its whole lifetime
+  // (pooling is disabled while it carries a WebTransport session), so it must
+  // not be treated as unusable and torn down here.
+  if (mConnInfo->GetWebTransport()) {
+    return;
+  }
+
+  // Walk backwards so removals don't shift the indices we haven't visited.
+  for (int32_t i = mActiveConns.Length() - 1; i >= 0; --i) {
+    // An HttpConnectionUDP is always an HTTP/3 connection. Only move it once it
+    // has connected and become unusable; a still-handshaking connection reports
+    // CanReuse()==false too but must not be torn down here.
+    RefPtr<HttpConnectionUDP> connUDP = do_QueryObject(mActiveConns[i]);
+    if (!connUDP || !connUDP->IsConnectedAndUnusable()) {
+      continue;
+    }
+    RefPtr<HttpConnectionBase> conn = mActiveConns[i];
+    LOG(
+        ("ConnectionEntry::MoveUnusableH3ConnsToPending [ci=%s conn=%p] "
+         "moving unusable HTTP/3 connection to pending list\n",
+         mConnInfo->HashKey().get(), conn.get()));
+    mActiveConns.RemoveElementAt(i);
+    conn->SetOwner(nullptr);
+    MakeConnectionPendingAndDontReuse(conn);
+  }
+}
+
 template <typename ConnType>
 static void CheckForTrafficForConns(nsTArray<RefPtr<ConnType>>& aConns,
                                     bool aCheck) {
@@ -587,10 +636,9 @@ void ConnectionEntry::MakeAllDontReuseExcept(HttpConnectionBase* conn) {
   }
 
   // Cancel any other pending connections - their associated transactions
-  // are in the pending queue and will be dispatched onto this new connection
-  // Skip this for fallback entries: their DnsAndConnectSockets are for
-  // FallbackTransactions whose real transactions are in the H3 entry, not
-  // here. Abandoning them would strand those transactions with no recovery.
+  // are in the pending queue and will be dispatched onto this new connection.
+  // Skip for fallback entries: their DnsAndConnectSockets are for
+  // FallbackTransactions whose real transactions are in the H3 entry.
   if (!mConnInfo->GetFallbackConnection()) {
     CloseAllConnectionAttempts();
   }
@@ -843,6 +891,7 @@ HttpRetParams ConnectionEntry::GetConnectionData() {
   HttpRetParams data;
   data.host = mConnInfo->Origin();
   data.port = mConnInfo->OriginPort();
+  mConnInfo->GetOriginAttributes().CreateSuffix(data.originAttributesSuffix);
   for (uint32_t i = 0; i < mActiveConns.Length(); i++) {
     HttpConnInfo info;
     RefPtr<nsHttpConnection> connTCP = do_QueryObject(mActiveConns[i]);
@@ -908,7 +957,13 @@ Http3ConnectionStatsParams ConnectionEntry::GetHttp3ConnectionStatsData() {
 void ConnectionEntry::LogConnections() {
   LOG(("active conns ["));
   for (HttpConnectionBase* conn : mActiveConns) {
-    LOG(("  %p", conn));
+    if (conn->CanDirectlyActivate()) {
+      LOG(("  %p (ready=1)", conn));
+    } else {
+      RefPtr<nsHttpConnection> connTCP = do_QueryObject(conn);
+      LOG(("  %p (ready=0 reason=%s)", conn,
+           connTCP ? connTCP->CanDirectlyActivateReason() : "not-tcp-conn"));
+    }
   }
 
   LOG(("] idle conns ["));
@@ -930,6 +985,9 @@ bool ConnectionEntry::RemoveTransFromPendingQ(nsHttpTransaction* aTrans) {
   if (transIndex >= 0) {
     pendingTransInfo = (*infoArray)[transIndex];
     infoArray->RemoveElementAt(transIndex);
+    if (!(aTrans->Caps() & NS_HTTP_URGENT_START)) {
+      mPendingQ.OnPendingTransactionRemovedFromTable();
+    }
   }
 
   if (!pendingTransInfo) {
@@ -970,15 +1028,29 @@ void ConnectionEntry::MaybeUpdateEchConfig(nsHttpConnectionInfo* aConnInfo) {
 
 bool ConnectionEntry::MaybeProcessCoalescingKeys(nsIDNSAddrRecord* dnsRecord,
                                                  bool aIsHttp3) {
-  if (!mConnInfo || !mConnInfo->EndToEndSSL() || (!aIsHttp3 && !AllowHttp2()) ||
-      mConnInfo->UsingProxy() || !mCoalescingKeys.IsEmpty() || !dnsRecord) {
+  if (!dnsRecord) {
     return false;
   }
 
-  nsresult rv = dnsRecord->GetAddresses(mAddresses);
-  if (NS_FAILED(rv) || mAddresses.IsEmpty()) {
+  nsTArray<NetAddr> addresses;
+  if (NS_FAILED(dnsRecord->GetAddresses(addresses))) {
     return false;
   }
+
+  return MaybeProcessCoalescingKeys(addresses, aIsHttp3);
+}
+
+bool ConnectionEntry::MaybeProcessCoalescingKeys(
+    const nsTArray<NetAddr>& aAddresses, bool aIsHttp3) {
+  if (!mConnInfo || !mConnInfo->EndToEndSSL() || (!aIsHttp3 && !AllowHttp2()) ||
+      mConnInfo->UsingProxy() || !mCoalescingKeys.IsEmpty()) {
+    return false;
+  }
+
+  if (aAddresses.IsEmpty()) {
+    return false;
+  }
+  mAddresses = aAddresses.Clone();
 
   nsAutoCString suffix;
   mConnInfo->GetOriginAttributes().CreateSuffix(suffix);
@@ -1016,17 +1088,18 @@ bool ConnectionEntry::MaybeProcessCoalescingKeys(nsIDNSAddrRecord* dnsRecord,
          "Established New Coalescing Key # %d for host "
          "%s [%s] hash:%" PRIu32,
          i, mConnInfo->Origin(), newKey.get(), hash));
-    mCoalescingKeys.AppendElement(hash);
+    mCoalescingKeys.AppendElement(CoalescingKey{hash, newKey});
   }
   return true;
 }
 
 nsresult ConnectionEntry::CreateDnsAndConnectSocket(
     nsAHttpTransaction* trans, uint32_t caps, bool speculative,
-    bool urgentStart, bool allow1918,
-    PendingTransactionInfo* pendingTransInfo) {
+    bool urgentStart, bool allow1918, PendingTransactionInfo* pendingTransInfo,
+    bool retryWithoutTRR) {
   return mConnectionAttemptPool->StartConnectionEstablishment(
-      this, trans, caps, speculative, urgentStart, allow1918, pendingTransInfo);
+      this, trans, caps, speculative, urgentStart, allow1918, pendingTransInfo,
+      retryWithoutTRR);
 }
 
 bool ConnectionEntry::AllowToRetryDifferentIPFamilyForHttp3(nsresult aError) {
@@ -1093,7 +1166,7 @@ ConnectionEntry::GetServerCertHashes() {
   return mServerCertHashes;
 }
 
-const HashNumber& ConnectionEntry::OriginFrameHashKey() {
+const CoalescingKey& ConnectionEntry::OriginFrameHashKey() {
   MOZ_ASSERT(OnSocketThread(), "not on socket thread");
   if (mOriginFrameHashKey.isNothing()) {
     mOriginFrameHashKey.emplace(nsHttpConnectionInfo::BuildOriginFrameHashKey(

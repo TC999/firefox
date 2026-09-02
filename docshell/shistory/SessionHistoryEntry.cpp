@@ -43,6 +43,14 @@ extern mozilla::LazyLogModule gSHLog;
 namespace mozilla {
 namespace dom {
 
+// Only store policy container for loads that can't carry it themselves
+// (about:blank, about:srcdoc, blob:, data:, ...)
+// bug 1867137, bug 2011236
+static nsIPolicyContainer* PolicyContainerToStore(
+    nsIURI* aURI, nsIPolicyContainer* aPolicyContainer) {
+  return CSP_ShouldURIInheritCSP(aURI) ? aPolicyContainer : nullptr;
+}
+
 SessionHistoryInfo::SessionHistoryInfo(nsDocShellLoadState* aLoadState,
                                        nsIChannel* aChannel)
     : mURI(aLoadState->URI()),
@@ -61,9 +69,18 @@ SessionHistoryInfo::SessionHistoryInfo(nsDocShellLoadState* aLoadState,
       mSharedState(SharedState::Create(
           aLoadState->TriggeringPrincipal(), aLoadState->PrincipalToInherit(),
           aLoadState->PartitionedPrincipalToInherit(),
-          aLoadState->PolicyContainer(),
+          PolicyContainerToStore(aLoadState->URI(),
+                                 aLoadState->PolicyContainer()),
           /* FIXME Is this correct? */
           aLoadState->TypeHint())) {
+  MOZ_DIAGNOSTIC_ASSERT(!mURI->SchemeIs("javascript"));
+
+  // Verify the documented purpose of mBaseURI.
+  MOZ_DIAGNOSTIC_ASSERT(
+      !mBaseURI || mSrcdocData ||
+      (aLoadState->TriggeringPrincipal() &&
+       aLoadState->TriggeringPrincipal()->IsSystemPrincipal()));
+
   // Pull the upload stream off of the channel instead of the load state, as
   // ownership has already been transferred from the load state to the channel.
   if (nsCOMPtr<nsIUploadChannel2> postChannel = do_QueryInterface(aChannel)) {
@@ -83,6 +100,7 @@ SessionHistoryInfo::SessionHistoryInfo(nsDocShellLoadState* aLoadState,
 SessionHistoryInfo::SessionHistoryInfo(
     const SessionHistoryInfo& aSharedStateFrom, nsIURI* aURI)
     : mURI(aURI), mSharedState(aSharedStateFrom.mSharedState) {
+  MOZ_DIAGNOSTIC_ASSERT(!mURI || !mURI->SchemeIs("javascript"));
   MaybeUpdateTitleFromURI();
   mHasUserInteraction = aSharedStateFrom.mHasUserInteraction;
 }
@@ -96,6 +114,7 @@ SessionHistoryInfo::SessionHistoryInfo(
       mSharedState(SharedState::Create(
           aTriggeringPrincipal, aPrincipalToInherit,
           aPartitionedPrincipalToInherit, aPolicyContainer, aContentType)) {
+  MOZ_DIAGNOSTIC_ASSERT(!mURI || !mURI->SchemeIs("javascript"));
   MaybeUpdateTitleFromURI();
 }
 
@@ -107,6 +126,7 @@ SessionHistoryInfo::SessionHistoryInfo(
     NS_WARNING("NS_GetFinalChannelURI somehow failed in SessionHistoryInfo?");
     aChannel->GetURI(getter_AddRefs(mURI));
   }
+  MOZ_DIAGNOSTIC_ASSERT(!mURI->SchemeIs("javascript"));
   mLoadType = aLoadType;
 
   nsCOMPtr<nsILoadInfo> loadInfo;
@@ -121,7 +141,8 @@ SessionHistoryInfo::SessionHistoryInfo(
 
   mSharedState.Get()->mPartitionedPrincipalToInherit =
       aPartitionedPrincipalToInherit;
-  mSharedState.Get()->mPolicyContainer = aPolicyContainer;
+  mSharedState.Get()->mPolicyContainer =
+      PolicyContainerToStore(mURI, aPolicyContainer);
   aChannel->GetContentType(mSharedState.Get()->mContentType);
   aChannel->GetOriginalURI(getter_AddRefs(mOriginalURI));
 
@@ -134,47 +155,6 @@ SessionHistoryInfo::SessionHistoryInfo(
   if (nsCOMPtr<nsIHttpChannel> httpChannel = do_QueryInterface(aChannel)) {
     mReferrerInfo = httpChannel->GetReferrerInfo();
   }
-}
-
-void SessionHistoryInfo::Reset(nsIURI* aURI, const nsID& aDocShellID,
-                               bool aDynamicCreation,
-                               nsIPrincipal* aTriggeringPrincipal,
-                               nsIPrincipal* aPrincipalToInherit,
-                               nsIPrincipal* aPartitionedPrincipalToInherit,
-                               nsIPolicyContainer* aPolicyContainer,
-                               const nsACString& aContentType) {
-  mURI = aURI;
-  mOriginalURI = nullptr;
-  mResultPrincipalURI = nullptr;
-  mUnstrippedURI = nullptr;
-  mReferrerInfo = nullptr;
-  // Default title is the URL.
-  nsAutoCString spec;
-  if (NS_SUCCEEDED(mURI->GetSpec(spec))) {
-    CopyUTF8toUTF16(spec, mTitle);
-  }
-  mPostData = nullptr;
-  mLoadType = 0;
-  mScrollPositionX = 0;
-  mScrollPositionY = 0;
-  mStateData = nullptr;
-  mSrcdocData = Nothing();
-  mBaseURI = nullptr;
-  mLoadReplace = false;
-  mURIWasModified = false;
-  mScrollRestorationIsManual = false;
-  mTransient = false;
-  mHasUserInteraction = false;
-  mHasUserActivation = false;
-  mNavigationAPIState = nullptr;
-
-  mSharedState.Get()->mTriggeringPrincipal = aTriggeringPrincipal;
-  mSharedState.Get()->mPrincipalToInherit = aPrincipalToInherit;
-  mSharedState.Get()->mPartitionedPrincipalToInherit =
-      aPartitionedPrincipalToInherit;
-  mSharedState.Get()->mPolicyContainer = aPolicyContainer;
-  mSharedState.Get()->mContentType = aContentType;
-  mSharedState.Get()->mLayoutHistoryState = nullptr;
 }
 
 void SessionHistoryInfo::MaybeUpdateTitleFromURI() {
@@ -273,6 +253,7 @@ void SessionHistoryInfo::FillLoadInfo(nsDocShellLoadState& aLoadState) const {
   aLoadState.SetOriginalURI(mOriginalURI);
   aLoadState.SetMaybeResultPrincipalURI(Some(mResultPrincipalURI));
   aLoadState.SetUnstrippedURI(mUnstrippedURI);
+  aLoadState.SetBaseURI(mBaseURI);
   aLoadState.SetLoadReplace(mLoadReplace);
   nsCOMPtr<nsIInputStream> postData = GetPostData();
   aLoadState.SetPostDataStream(postData);
@@ -293,16 +274,13 @@ void SessionHistoryInfo::FillLoadInfo(nsDocShellLoadState& aLoadState) const {
   // the source browsing context that was used when the history entry was
   // first created. bug 947716 has been created to address this issue.
   nsAutoString srcdoc;
-  nsCOMPtr<nsIURI> baseURI;
   if (mSrcdocData) {
     srcdoc = mSrcdocData.value();
-    baseURI = mBaseURI;
     flags |= nsDocShell::InternalLoad::INTERNAL_LOAD_FLAGS_IS_SRCDOC;
   } else {
     srcdoc = VoidString();
   }
   aLoadState.SetSrcdocData(srcdoc);
-  aLoadState.SetBaseURI(baseURI);
   aLoadState.SetInternalLoadFlags(flags);
 
   aLoadState.SetFirstParty(true);
@@ -434,8 +412,7 @@ LoadingSessionHistoryInfo::LoadingSessionHistoryInfo(
 
 already_AddRefed<nsDocShellLoadState>
 LoadingSessionHistoryInfo::CreateLoadInfo() const {
-  RefPtr<nsDocShellLoadState> loadState(
-      new nsDocShellLoadState(mInfo.GetURI()));
+  RefPtr loadState = MakeRefPtr<nsDocShellLoadState>(mInfo.GetURI());
 
   mInfo.FillLoadInfo(*loadState);
 
@@ -485,11 +462,12 @@ void SessionHistoryEntry::RemoveLoadId(uint64_t aLoadId) {
 }
 
 SessionHistoryEntry::SessionHistoryEntry()
-    : mInfo(new SessionHistoryInfo()), mID(++gEntryID) {}
+    : mInfo(MakeUnique<SessionHistoryInfo>()), mID(++gEntryID) {}
 
 SessionHistoryEntry::SessionHistoryEntry(nsDocShellLoadState* aLoadState,
                                          nsIChannel* aChannel)
-    : mInfo(new SessionHistoryInfo(aLoadState, aChannel)), mID(++gEntryID) {}
+    : mInfo(MakeUnique<SessionHistoryInfo>(aLoadState, aChannel)),
+      mID(++gEntryID) {}
 
 SessionHistoryEntry::SessionHistoryEntry(SessionHistoryInfo* aInfo)
     : mInfo(MakeUnique<SessionHistoryInfo>(*aInfo)), mID(++gEntryID) {}
@@ -530,6 +508,7 @@ SessionHistoryEntry::GetURI(nsIURI** aURI) {
 
 NS_IMETHODIMP
 SessionHistoryEntry::SetURI(nsIURI* aURI) {
+  MOZ_DIAGNOSTIC_ASSERT(!aURI->SchemeIs("javascript"));
   mInfo->mURI = aURI;
   return NS_OK;
 }
@@ -600,7 +579,7 @@ SessionHistoryEntry::SetTitle(const nsAString& aTitle) {
   mInfo->SetTitle(aTitle);
   if (nsCOMPtr<nsISHistory> sHistory =
           do_QueryReferent(SharedInfo()->mSHistory)) {
-    sHistory->NotifyOnEntryTitleUpdated(this);
+    sHistory->NotifyOnEntryUpdated(this);
   }
   return NS_OK;
 }
@@ -614,6 +593,10 @@ SessionHistoryEntry::GetName(nsAString& aName) {
 NS_IMETHODIMP
 SessionHistoryEntry::SetName(const nsAString& aName) {
   mInfo->mName = aName;
+  if (nsCOMPtr<nsISHistory> sHistory =
+          do_QueryReferent(SharedInfo()->mSHistory)) {
+    sHistory->NotifyOnEntryUpdated(this);
+  }
   return NS_OK;
 }
 
@@ -1091,7 +1074,7 @@ SessionHistoryEntry::Create(
 
 NS_IMETHODIMP
 SessionHistoryEntry::Clone(nsISHEntry** aEntry) {
-  RefPtr<SessionHistoryEntry> entry = new SessionHistoryEntry(*this);
+  RefPtr entry = MakeRefPtr<SessionHistoryEntry>(*this);
 
   // These are not copied for some reason, we're not sure why.
   entry->mInfo->mLoadType = 0;
@@ -1410,7 +1393,7 @@ NS_IMETHODIMP
 SessionHistoryEntry::GetWireframe(JSContext* aCx,
                                   JS::MutableHandle<JS::Value> aOut) {
   if (mWireframe.isNothing()) {
-    aOut.set(JS::NullValue());
+    aOut.setNull();
   } else if (NS_WARN_IF(!mWireframe->ToObjectInternal(aCx, aOut))) {
     return NS_ERROR_FAILURE;
   }
@@ -1643,6 +1626,11 @@ bool ParamTraits<mozilla::dom::SessionHistoryInfo>::Read(
     return false;
   }
 
+  if (aResult->mURI && aResult->mURI->SchemeIs("javascript")) {
+    aReader->FatalError("javascript: URIs should not enter session history");
+    return false;
+  }
+
   nsCOMPtr<nsIPrincipal> triggeringPrincipal;
   nsCOMPtr<nsIPrincipal> principalToInherit;
   nsCOMPtr<nsIPrincipal> partitionedPrincipalToInherit;
@@ -1726,55 +1714,15 @@ bool ParamTraits<mozilla::dom::SessionHistoryInfo>::Read(
   return true;
 }
 
-void ParamTraits<mozilla::dom::PreviousSessionHistoryInfo>::Write(
-    IPC::MessageWriter* aWriter,
-    const mozilla::dom::PreviousSessionHistoryInfo& aParam) {
-  WriteParam(aWriter, aParam.mSameOriginSessionHistoryInfo);
-}
+IMPLEMENT_IPC_SERIALIZER_WITH_FIELDS(mozilla::dom::PreviousSessionHistoryInfo,
+                                     mSameOriginSessionHistoryInfo);
 
-bool ParamTraits<mozilla::dom::PreviousSessionHistoryInfo>::Read(
-    IPC::MessageReader* aReader,
-    mozilla::dom::PreviousSessionHistoryInfo* aResult) {
-  if (!ReadParam(aReader, &aResult->mSameOriginSessionHistoryInfo)) {
-    aReader->FatalError("Error reading fields for PreviousSessionHistoryInfo");
-    return false;
-  }
-
-  return true;
-}
-
-void ParamTraits<mozilla::dom::LoadingSessionHistoryInfo>::Write(
-    IPC::MessageWriter* aWriter,
-    const mozilla::dom::LoadingSessionHistoryInfo& aParam) {
-  WriteParam(aWriter, aParam.mInfo);
-  WriteParam(aWriter, aParam.mContiguousEntries);
-  WriteParam(aWriter, aParam.mPreviousEntry);
-  WriteParam(aWriter, aParam.mTriggeringNavigationType);
-  WriteParam(aWriter, aParam.mLoadId);
-  WriteParam(aWriter, aParam.mLoadIsFromSessionHistory);
-  WriteParam(aWriter, aParam.mOffset);
-  WriteParam(aWriter, aParam.mLoadingCurrentEntry);
-  WriteParam(aWriter, aParam.mForceMaybeResetName);
-}
-
-bool ParamTraits<mozilla::dom::LoadingSessionHistoryInfo>::Read(
-    IPC::MessageReader* aReader,
-    mozilla::dom::LoadingSessionHistoryInfo* aResult) {
-  if (!ReadParam(aReader, &aResult->mInfo) ||
-      !ReadParam(aReader, &aResult->mContiguousEntries) ||
-      !ReadParam(aReader, &aResult->mPreviousEntry) ||
-      !ReadParam(aReader, &aResult->mTriggeringNavigationType) ||
-      !ReadParam(aReader, &aResult->mLoadId) ||
-      !ReadParam(aReader, &aResult->mLoadIsFromSessionHistory) ||
-      !ReadParam(aReader, &aResult->mOffset) ||
-      !ReadParam(aReader, &aResult->mLoadingCurrentEntry) ||
-      !ReadParam(aReader, &aResult->mForceMaybeResetName)) {
-    aReader->FatalError("Error reading fields for LoadingSessionHistoryInfo");
-    return false;
-  }
-
-  return true;
-}
+IMPLEMENT_IPC_SERIALIZER_WITH_FIELDS(mozilla::dom::LoadingSessionHistoryInfo,
+                                     mInfo, mContiguousEntries, mPreviousEntry,
+                                     mTriggeringNavigationType, mLoadId,
+                                     mLoadIsFromSessionHistory, mOffset,
+                                     mLoadingCurrentEntry,
+                                     mForceMaybeResetName);
 
 void ParamTraits<nsILayoutHistoryState*>::Write(IPC::MessageWriter* aWriter,
                                                 nsILayoutHistoryState* aParam) {
@@ -1825,17 +1773,8 @@ bool ParamTraits<nsILayoutHistoryState*>::Read(
   return true;
 }
 
-void ParamTraits<mozilla::dom::Wireframe>::Write(
-    IPC::MessageWriter* aWriter, const mozilla::dom::Wireframe& aParam) {
-  WriteParam(aWriter, aParam.mCanvasBackground);
-  WriteParam(aWriter, aParam.mRects);
-}
-
-bool ParamTraits<mozilla::dom::Wireframe>::Read(
-    IPC::MessageReader* aReader, mozilla::dom::Wireframe* aResult) {
-  return ReadParam(aReader, &aResult->mCanvasBackground) &&
-         ReadParam(aReader, &aResult->mRects);
-}
+IMPLEMENT_IPC_SERIALIZER_WITH_FIELDS(mozilla::dom::Wireframe, mCanvasBackground,
+                                     mRects);
 
 // Allow sending mozilla::dom::WireframeRectType enums over IPC.
 template <>
@@ -1843,30 +1782,7 @@ struct ParamTraits<mozilla::dom::WireframeRectType>
     : public mozilla::dom::WebIDLEnumSerializer<
           mozilla::dom::WireframeRectType> {};
 
-template <>
-struct ParamTraits<mozilla::dom::WireframeTaggedRect> {
-  static void Write(MessageWriter* aWriter,
-                    const mozilla::dom::WireframeTaggedRect& aParam);
-  static bool Read(MessageReader* aReader,
-                   mozilla::dom::WireframeTaggedRect* aResult);
-};
+DEFINE_IPC_SERIALIZER_WITH_FIELDS(mozilla::dom::WireframeTaggedRect, mColor,
+                                  mType, mX, mY, mWidth, mHeight);
 
-void ParamTraits<mozilla::dom::WireframeTaggedRect>::Write(
-    MessageWriter* aWriter, const mozilla::dom::WireframeTaggedRect& aParam) {
-  WriteParam(aWriter, aParam.mColor);
-  WriteParam(aWriter, aParam.mType);
-  WriteParam(aWriter, aParam.mX);
-  WriteParam(aWriter, aParam.mY);
-  WriteParam(aWriter, aParam.mWidth);
-  WriteParam(aWriter, aParam.mHeight);
-}
-
-bool ParamTraits<mozilla::dom::WireframeTaggedRect>::Read(
-    IPC::MessageReader* aReader, mozilla::dom::WireframeTaggedRect* aResult) {
-  return ReadParam(aReader, &aResult->mColor) &&
-         ReadParam(aReader, &aResult->mType) &&
-         ReadParam(aReader, &aResult->mX) && ReadParam(aReader, &aResult->mY) &&
-         ReadParam(aReader, &aResult->mWidth) &&
-         ReadParam(aReader, &aResult->mHeight);
-}
 }  // namespace IPC

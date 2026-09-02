@@ -11,6 +11,9 @@
 let testEngine;
 
 add_setup(async () => {
+  // Force settings redesign to false, so that `hideOneOffButton` will correctly
+  // work for the time being.
+  Services.prefs.setBoolPref("browser.settings-redesign.enabled", false);
   // Disable search suggestions for a less verbose test.
   Services.prefs.setBoolPref("browser.search.suggest.enabled", false);
   // Disable ScotchBonnet that provides its own tab to search implementation.
@@ -59,7 +62,7 @@ add_task(async function basic() {
       }),
       makeSearchResult(context, {
         engineName: testEngine.name,
-        engineIconUri: UrlbarUtils.ICON.SEARCH_GLASS,
+        engineIconUri: UrlbarShared.ICON.SEARCH_GLASS,
         searchUrlDomainWithoutSuffix: UrlbarUtils.stripPublicSuffixFromHost(
           testEngine.searchUrlDomain
         ),
@@ -154,7 +157,7 @@ add_task(async function noAutofill() {
       }),
       makeSearchResult(context, {
         engineName: testEngine.name,
-        engineIconUri: UrlbarUtils.ICON.SEARCH_GLASS,
+        engineIconUri: UrlbarShared.ICON.SEARCH_GLASS,
         searchUrlDomainWithoutSuffix: UrlbarUtils.stripPublicSuffixFromHost(
           testEngine.searchUrlDomain
         ),
@@ -217,7 +220,7 @@ add_task(async function ignoreWww() {
       }),
       makeSearchResult(context, {
         engineName: testEngine.name,
-        engineIconUri: UrlbarUtils.ICON.SEARCH_GLASS,
+        engineIconUri: UrlbarShared.ICON.SEARCH_GLASS,
         searchUrlDomainWithoutSuffix: UrlbarUtils.stripPublicSuffixFromHost(
           testEngine.searchUrlDomain
         ),
@@ -258,7 +261,7 @@ add_task(async function ignoreWww() {
       }),
       makeSearchResult(context, {
         engineName: wwwTestEngine.name,
-        engineIconUri: UrlbarUtils.ICON.SEARCH_GLASS,
+        engineIconUri: UrlbarShared.ICON.SEARCH_GLASS,
         searchUrlDomainWithoutSuffix: UrlbarUtils.stripPublicSuffixFromHost(
           wwwTestEngine.searchUrlDomain
         ),
@@ -291,7 +294,7 @@ add_task(async function ignoreWww() {
       }),
       makeSearchResult(context, {
         engineName: wwwTestEngine.name,
-        engineIconUri: UrlbarUtils.ICON.SEARCH_GLASS,
+        engineIconUri: UrlbarShared.ICON.SEARCH_GLASS,
         searchUrlDomainWithoutSuffix: UrlbarUtils.stripPublicSuffixFromHost(
           wwwTestEngine.searchUrlDomain
         ),
@@ -356,7 +359,7 @@ add_task(async function conflictingEngines() {
       }),
       makeSearchResult(context, {
         engineName: fooTestEngine.name,
-        engineIconUri: UrlbarUtils.ICON.SEARCH_GLASS,
+        engineIconUri: UrlbarShared.ICON.SEARCH_GLASS,
         searchUrlDomainWithoutSuffix: UrlbarUtils.stripPublicSuffixFromHost(
           fooTestEngine.searchUrlDomain
         ),
@@ -388,7 +391,7 @@ add_task(async function conflictingEngines() {
       }),
       makeSearchResult(context, {
         engineName: fooBarTestEngine.name,
-        engineIconUri: UrlbarUtils.ICON.SEARCH_GLASS,
+        engineIconUri: UrlbarShared.ICON.SEARCH_GLASS,
         searchUrlDomainWithoutSuffix: UrlbarUtils.stripPublicSuffixFromHost(
           fooBarTestEngine.searchUrlDomain
         ),
@@ -454,7 +457,7 @@ add_task(async function multipleEnginesForHostname() {
       }),
       makeSearchResult(context, {
         engineName: testEngine.name,
-        engineIconUri: UrlbarUtils.ICON.SEARCH_GLASS,
+        engineIconUri: UrlbarShared.ICON.SEARCH_GLASS,
         searchUrlDomainWithoutSuffix: UrlbarUtils.stripPublicSuffixFromHost(
           testEngine.searchUrlDomain
         ),
@@ -496,7 +499,7 @@ add_task(async function test_casing() {
       }),
       makeSearchResult(context, {
         engineName: testEngine.name,
-        engineIconUri: UrlbarUtils.ICON.SEARCH_GLASS,
+        engineIconUri: UrlbarShared.ICON.SEARCH_GLASS,
         searchUrlDomainWithoutSuffix: UrlbarUtils.stripPublicSuffixFromHost(
           testEngine.searchUrlDomain
         ),
@@ -537,7 +540,7 @@ add_task(async function test_publicSuffix() {
       }),
       makeSearchResult(context, {
         engineName: engine.name,
-        engineIconUri: UrlbarUtils.ICON.SEARCH_GLASS,
+        engineIconUri: UrlbarShared.ICON.SEARCH_GLASS,
         searchUrlDomainWithoutSuffix: UrlbarUtils.stripPublicSuffixFromHost(
           engine.searchUrlDomain
         ),
@@ -624,7 +627,7 @@ add_task(async function test_disabledEngine() {
       }),
       makeSearchResult(context, {
         engineName: engine.name,
-        engineIconUri: UrlbarUtils.ICON.SEARCH_GLASS,
+        engineIconUri: UrlbarShared.ICON.SEARCH_GLASS,
         searchUrlDomainWithoutSuffix: UrlbarUtils.stripPublicSuffixFromHost(
           engine.searchUrlDomain
         ),

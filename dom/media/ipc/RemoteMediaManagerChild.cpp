@@ -46,9 +46,9 @@
 namespace mozilla {
 
 #define LOG(msg, ...) \
-  MOZ_LOG(gRemoteDecodeLog, LogLevel::Debug, (msg, ##__VA_ARGS__))
+  MOZ_LOG_FMT(gRemoteDecodeLog, LogLevel::Debug, msg, ##__VA_ARGS__)
 #define LOGE(msg, ...) \
-  MOZ_LOG(gRemoteDecodeLog, LogLevel::Error, (msg, ##__VA_ARGS__))
+  MOZ_LOG_FMT(gRemoteDecodeLog, LogLevel::Error, msg, ##__VA_ARGS__)
 
 using namespace layers;
 using namespace gfx;
@@ -238,9 +238,9 @@ nsCOMPtr<nsISerialEventTarget> RemoteMediaManagerChild::GetManagerThread() {
 }
 
 /* static */
-bool RemoteMediaManagerChild::Supports(RemoteMediaIn aLocation,
-                                       const SupportDecoderParams& aParams,
-                                       DecoderDoctorDiagnostics* aDiagnostics) {
+media::DecodeSupportSet RemoteMediaManagerChild::Supports(
+    RemoteMediaIn aLocation, const SupportDecoderParams& aParams,
+    DecoderDoctorDiagnostics* aDiagnostics) {
   Maybe<media::MediaCodecsSupported> supported;
   switch (aLocation) {
     case RemoteMediaIn::GpuProcess:
@@ -254,7 +254,7 @@ bool RemoteMediaManagerChild::Supports(RemoteMediaIn aLocation,
       break;
     }
     default:
-      return false;
+      return {};
   }
   if (!supported) {
     // We haven't received the correct information yet from either the GPU or
@@ -272,7 +272,8 @@ bool RemoteMediaManagerChild::Supports(RemoteMediaIn aLocation,
     }
 
     // Assume the format is supported to prevent false negative, if the remote
-    // process supports that specific track type.
+    // process supports that specific track type. HW support is unknown until
+    // the process reports in, so conservatively report SW-only.
     const bool isVideo = aParams.mConfig.IsVideo();
     const bool isAudio = aParams.mConfig.IsAudio();
     const auto trackSupport = GetTrackSupport(aLocation);
@@ -282,29 +283,39 @@ bool RemoteMediaManagerChild::Supports(RemoteMediaIn aLocation,
       // to report support for it arbitrarily.
       if (MP4Decoder::IsHEVC(aParams.mConfig.mMimeType)) {
         if (!StaticPrefs::media_hevc_enabled()) {
-          return false;
+          return {};
         }
 #if defined(XP_WIN)
-        return aLocation == RemoteMediaIn::UtilityProcess_MFMediaEngineCDM ||
-               aLocation == RemoteMediaIn::GpuProcess;
+        if (aLocation == RemoteMediaIn::UtilityProcess_MFMediaEngineCDM ||
+            aLocation == RemoteMediaIn::GpuProcess) {
+          // No software support in most cases for HEVC so guess hardware.
+          return {media::DecodeSupport::HardwareDecode};
+        }
+        return {};
 #else
-        return trackSupport.contains(TrackSupport::DecodeVideo);
+        return trackSupport.contains(TrackSupport::DecodeVideo)
+                   ? media::
+                         DecodeSupportSet{media::DecodeSupport::SoftwareDecode}
+                   : media::DecodeSupportSet{};
 #endif
       }
-      return trackSupport.contains(TrackSupport::DecodeVideo);
+      return trackSupport.contains(TrackSupport::DecodeVideo)
+                 ? media::DecodeSupportSet{media::DecodeSupport::SoftwareDecode}
+                 : media::DecodeSupportSet{};
     }
     if (isAudio) {
-      return trackSupport.contains(TrackSupport::DecodeAudio);
+      return trackSupport.contains(TrackSupport::DecodeAudio)
+                 ? media::DecodeSupportSet{media::DecodeSupport::SoftwareDecode}
+                 : media::DecodeSupportSet{};
     }
     MOZ_ASSERT_UNREACHABLE("Not audio and video?!");
-    return false;
+    return {};
   }
 
   // We can ignore the SupportDecoderParams argument for now as creation of the
   // decoder will actually fail later and fallback PDMs will be tested on later.
-  return !PDMFactory::SupportsMimeType(aParams.MimeType(), *supported,
-                                       aLocation)
-              .isEmpty();
+  return PDMFactory::SupportsMimeType(aParams.MimeType(), *supported,
+                                      aLocation);
 }
 
 /* static */
@@ -356,7 +367,7 @@ RemoteMediaManagerChild::CreateAudioDecoder(const CreateDecoderParams& aParams,
                 .get()),
         __func__);
   }
-  LOG("Create audio decoder in %s", RemoteMediaInToStr(aLocation));
+  LOG("Create audio decoder in {}", RemoteMediaInToStr(aLocation));
 
   return launchPromise->Then(
       managerThread, __func__,
@@ -430,7 +441,7 @@ RemoteMediaManagerChild::CreateVideoDecoder(const CreateDecoderParams& aParams,
   } else {
     p = LaunchRDDProcessIfNeeded();
   }
-  LOG("Create video decoder in %s", RemoteMediaInToStr(aLocation));
+  LOG("Create video decoder in {}", RemoteMediaInToStr(aLocation));
 
   return p->Then(
       managerThread, __func__,
@@ -480,7 +491,7 @@ RefPtr<RemoteCDMProxy> RemoteMediaManagerChild::CreateCDM(
   }
 
   RefPtr<GenericNonExclusivePromise> p = LaunchRDDProcessIfNeeded();
-  LOG("Create CDM in %s", RemoteMediaInToStr(aLocation));
+  LOG("Create CDM in {}", RemoteMediaInToStr(aLocation));
 
   return MakeRefPtr<RemoteCDMProxy>(
       std::move(managerThread), std::move(p), aLocation, aKeys, aKeySystem,
@@ -660,7 +671,7 @@ RemoteMediaManagerChild::InitializeEncoder(
     p = GenericNonExclusivePromise::CreateAndReject(
         NS_ERROR_DOM_MEDIA_DENIED_IN_NON_UTILITY, __func__);
   }
-  LOG("Creating %s encoder type %d in %s",
+  LOG("Creating {} encoder type {} in {}",
       aConfig.IsAudio() ? "audio" : "video", static_cast<int>(aConfig.mCodec),
       RemoteMediaInToStr(location));
 
@@ -669,7 +680,7 @@ RemoteMediaManagerChild::InitializeEncoder(
       [encoder = std::move(aEncoder), aConfig](bool) {
         auto* manager = GetSingleton(encoder->GetLocation());
         if (!manager) {
-          LOG("Create encoder in %s failed, shutdown",
+          LOG("Create encoder in {} failed, shutdown",
               RemoteMediaInToStr(encoder->GetLocation()));
           // We got shutdown.
           return PlatformEncoderModule::CreateEncoderPromise::CreateAndReject(
@@ -679,7 +690,7 @@ RemoteMediaManagerChild::InitializeEncoder(
         }
         if (!manager->SendPRemoteEncoderConstructor(encoder->GetChild(),
                                                     aConfig)) {
-          LOG("Create encoder in %s failed, send failed",
+          LOG("Create encoder in {} failed, send failed",
               RemoteMediaInToStr(encoder->GetLocation()));
           return PlatformEncoderModule::CreateEncoderPromise::CreateAndReject(
               MediaResult(NS_ERROR_NOT_AVAILABLE,
@@ -689,7 +700,7 @@ RemoteMediaManagerChild::InitializeEncoder(
         return encoder->Construct();
       },
       [location](nsresult aResult) {
-        LOG("Create encoder in %s failed, cannot start process",
+        LOG("Create encoder in {} failed, cannot start process",
             RemoteMediaInToStr(location));
         return PlatformEncoderModule::CreateEncoderPromise::CreateAndReject(
             MediaResult(aResult, "Couldn't start encode process"), __func__);
@@ -890,13 +901,14 @@ TrackSupportSet RemoteMediaManagerChild::GetTrackSupport(
   switch (aLocation) {
     case RemoteMediaIn::GpuProcess:
       s = TrackSupport::DecodeVideo;
-      if (StaticPrefs::media_use_remote_encoder_video()) {
+      if (StaticPrefs::media_use_remote_encoder_video_platform()) {
         s += TrackSupport::EncodeVideo;
       }
       break;
     case RemoteMediaIn::RddProcess:
       s = TrackSupport::DecodeVideo;
-      if (StaticPrefs::media_use_remote_encoder_video()) {
+      if (StaticPrefs::media_use_remote_encoder_video_software() ||
+          StaticPrefs::media_use_remote_encoder_video_platform()) {
         s += TrackSupport::EncodeVideo;
       }
 #ifndef ANDROID
@@ -908,7 +920,7 @@ TrackSupportSet RemoteMediaManagerChild::GetTrackSupport(
 #endif
       {
         s += TrackSupport::DecodeAudio;
-        if (StaticPrefs::media_use_remote_encoder_audio()) {
+        if (StaticPrefs::media_use_remote_encoder_audio_software()) {
           s += TrackSupport::EncodeAudio;
         }
       }
@@ -918,7 +930,7 @@ TrackSupportSet RemoteMediaManagerChild::GetTrackSupport(
     case RemoteMediaIn::UtilityProcess_WMF:
       if (StaticPrefs::media_utility_process_enabled()) {
         s = TrackSupport::DecodeAudio;
-        if (StaticPrefs::media_use_remote_encoder_audio()) {
+        if (StaticPrefs::media_use_remote_encoder_audio_software()) {
           s += TrackSupport::EncodeAudio;
         }
       }
@@ -938,56 +950,6 @@ TrackSupportSet RemoteMediaManagerChild::GetTrackSupport(
       break;
   }
   return s;
-}
-
-PRemoteDecoderChild* RemoteMediaManagerChild::AllocPRemoteDecoderChild(
-    const RemoteDecoderInfoIPDL& /* not used */,
-    const CreateDecoderParams::OptionSet& aOptions,
-    const Maybe<layers::TextureFactoryIdentifier>& aIdentifier,
-    const Maybe<uint64_t>& aMediaEngineId, const Maybe<TrackingId>& aTrackingId,
-    PRemoteCDMChild* aCDM) {
-  // RemoteDecoderModule is responsible for creating RemoteDecoderChild
-  // classes.
-  MOZ_ASSERT(false,
-             "RemoteMediaManagerChild cannot create "
-             "RemoteDecoderChild classes");
-  return nullptr;
-}
-
-bool RemoteMediaManagerChild::DeallocPRemoteDecoderChild(
-    PRemoteDecoderChild* actor) {
-  RemoteDecoderChild* child = static_cast<RemoteDecoderChild*>(actor);
-  child->IPDLActorDestroyed();
-  return true;
-}
-
-PMFMediaEngineChild* RemoteMediaManagerChild::AllocPMFMediaEngineChild() {
-  MOZ_ASSERT_UNREACHABLE(
-      "RemoteMediaManagerChild cannot create MFMediaEngineChild classes");
-  return nullptr;
-}
-
-bool RemoteMediaManagerChild::DeallocPMFMediaEngineChild(
-    PMFMediaEngineChild* actor) {
-#ifdef MOZ_WMF_MEDIA_ENGINE
-  MFMediaEngineChild* child = static_cast<MFMediaEngineChild*>(actor);
-  child->IPDLActorDestroyed();
-#endif
-  return true;
-}
-
-PMFCDMChild* RemoteMediaManagerChild::AllocPMFCDMChild(const nsAString&) {
-  MOZ_ASSERT_UNREACHABLE(
-      "RemoteMediaManagerChild cannot create PMFContentDecryptionModuleChild "
-      "classes");
-  return nullptr;
-}
-
-bool RemoteMediaManagerChild::DeallocPMFCDMChild(PMFCDMChild* actor) {
-#ifdef MOZ_WMF_CDM
-  static_cast<MFCDMChild*>(actor)->IPDLActorDestroyed();
-#endif
-  return true;
 }
 
 RemoteMediaManagerChild::RemoteMediaManagerChild(RemoteMediaIn aLocation)

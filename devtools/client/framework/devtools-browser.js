@@ -80,10 +80,10 @@ var gDevToolsBrowser = (exports.gDevToolsBrowser = {
 
   /**
    * This function is for the benefit of Tools:DevToolbox in
-   * browser/base/content/browser-sets.inc and should not be used outside
+   * browser/base/content/browser-sets.inc.xhtml and should not be used outside
    * of there
    */
-  // used by browser-sets.inc, command
+  // used by browser-sets.inc.xhtml, command
   toggleToolboxCommand(gBrowser, startTime) {
     const toolbox = gDevTools.getToolboxForTab(gBrowser.selectedTab);
 
@@ -308,7 +308,7 @@ var gDevToolsBrowser = (exports.gDevToolsBrowser = {
   /**
    * Open a tab on "about:debugging", optionally pre-select a given tab.
    */
-  // Used by browser-sets.inc, command
+  // Used by browser-sets.inc.xhtml, command
   openAboutDebugging(gBrowser, hash) {
     const url = "about:debugging" + (hash ? "#" + hash : "");
     gBrowser.selectedTab = gBrowser.addTrustedTab(url);

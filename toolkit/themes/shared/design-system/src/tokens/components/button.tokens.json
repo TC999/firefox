@@ -8,8 +8,10 @@
           "brand": {
             "default": "color-mix(in srgb, currentColor 7%, transparent)"
           },
+          "nativeTheme": "color-mix(in srgb, currentColor 13%, transparent)",
           "platform": {
-            "default": "color-mix(in srgb, currentColor 13%, transparent)"
+            "light": "rgba(207, 207, 216, 0.33)",
+            "dark": "rgba(0, 0, 0, 0.33)"
           }
         }
       },
@@ -19,8 +21,10 @@
           "brand": {
             "default": "color-mix(in srgb, currentColor 14%, transparent)"
           },
+          "nativeTheme": "color-mix(in srgb, currentColor 17%, transparent)",
           "platform": {
-            "default": "color-mix(in srgb, currentColor 17%, transparent)"
+            "light": "rgba(207, 207, 216, 0.66)",
+            "dark": "rgba(207, 207, 216, 0.2)"
           }
         }
       },
@@ -30,8 +34,10 @@
           "brand": {
             "default": "color-mix(in srgb, currentColor 21%, transparent)"
           },
+          "nativeTheme": "color-mix(in srgb, currentColor 30%, transparent)",
           "platform": {
-            "default": "color-mix(in srgb, currentColor 30%, transparent)"
+            "light": "rgb(207, 207, 216)",
+            "dark": "rgba(207, 207, 216, 0.4)"
           }
         }
       },
@@ -43,13 +49,22 @@
       },
       "primary": {
         "@base": {
-          "value": "{color.accent.primary.@base}"
+          "value": {
+            "default": "{color.accent.primary.@base}",
+            "forcedColors": "ButtonText"
+          }
         },
         "hover": {
-          "value": "{color.accent.primary.hover}"
+          "value": {
+            "default": "{color.accent.primary.hover}",
+            "forcedColors": "SelectedItem"
+          }
         },
         "active": {
-          "value": "{color.accent.primary.active}"
+          "value": {
+            "default": "{color.accent.primary.active}",
+            "forcedColors": "{button.background.color.primary.hover}"
+          }
         },
         "disabled": {
           "value": {
@@ -97,9 +112,11 @@
         "@base": {
           "value": {
             "default": "transparent",
+            "forcedColors": "ButtonFace",
             "brand": {
-              "forcedColors": "{button.background.color.@base}"
-            }
+              "forcedColors": "ButtonFace"
+            },
+            "nativeTheme": "transparent"
           }
         },
         "active": {
@@ -120,6 +137,23 @@
           "value": "{button.background.color.ghost.active}"
         }
       },
+      "muted": {
+        "@base": {
+          "value": "{button.background.color.@base}"
+        },
+        "active": {
+          "value": "{button.background.color.active}"
+        },
+        "hover": {
+          "value": "{button.background.color.hover}"
+        },
+        "disabled": {
+          "value": "{button.background.color.disabled}"
+        },
+        "selected": {
+          "value": "{button.background.color.muted.active}"
+        }
+      },
       "menu": {
         "@base": {
           "value": "{button.background.color.ghost.@base}"
@@ -127,7 +161,13 @@
         "active": {
           "value": {
             "default": "{button.background.color.ghost.active}",
-            "forcedColors": "{button.background.color.primary.@base}"
+            "forcedColors": "{button.background.color.primary.@base}",
+            "nova": {
+              "comment": "The HCM value in Figma needs to be updated",
+              "value": {
+                "forcedColors": "ButtonText"
+              }
+            }
           }
         },
         "disabled": {
@@ -136,13 +176,62 @@
         "hover": {
           "value": {
             "default": "{button.background.color.ghost.hover}",
-            "forcedColors": "{button.background.color.primary.@base}"
+            "forcedColors": "{button.background.color.primary.@base}",
+            "nova": {
+              "comment": "The HCM value in Figma needs to be updated",
+              "value": {
+                "forcedColors": "ButtonText"
+              }
+            }
+          }
+        },
+        "selected": {
+          "value": {
+            "default": "{button.background.color.ghost.selected}",
+            "forcedColors": "{button.background.color.primary.selected}"
           }
         }
       },
       "selected": {
         "value": "{button.background.color.active}"
+      },
+      "toolbar": {
+        "@base": {
+          "value": {
+            "default": "transparent",
+            "brand": {
+              "forcedColors": "{button.background.color.@base}"
+            }
+          }
+        },
+        "active": {
+          "value": "{toolbarbutton.background.color.active}"
+        },
+        "disabled": {
+          "value": {
+            "default": "{button.background.color.ghost.@base}",
+            "brand": {
+              "forcedColors": "{button.background.color.disabled}"
+            }
+          }
+        },
+        "hover": {
+          "value": "{toolbarbutton.background.color.hover}"
+        },
+        "selected": {
+          "value": "{button.background.color.ghost.active}"
+        }
       }
+    }
+  },
+  "badge": {
+    "background": {
+      "color": {
+        "value": "{color.accent.attention}"
+      }
+    },
+    "size": {
+      "value": "6px"
     }
   },
   "border": {
@@ -201,7 +290,8 @@
       "ghost": {
         "@base": {
           "value": {
-            "default": "{button.border.color.@base}"
+            "default": "{button.border.color.@base}",
+            "prefersContrast": "{button.border.color.@base}"
           }
         },
         "active": {
@@ -221,6 +311,48 @@
         },
         "selected": {
           "value": "{button.border.color.ghost.active}"
+        }
+      },
+      "menu": {
+        "@base": {
+          "value": {
+            "default": "{button.border.color.ghost.@base}"
+          }
+        },
+        "active": {
+          "value": {
+            "default": "{button.border.color.ghost.active}"
+          }
+        },
+        "disabled": {
+          "value": {
+            "default": "{button.border.color.ghost.disabled}"
+          }
+        },
+        "hover": {
+          "value": {
+            "default": "{button.border.color.ghost.hover}"
+          }
+        },
+        "selected": {
+          "value": "{button.border.color.menu.active}"
+        }
+      },
+      "muted": {
+        "@base": {
+          "value": "{button.border.color.@base}"
+        },
+        "active": {
+          "value": "{button.border.color.active}"
+        },
+        "hover": {
+          "value": "{button.border.color.hover}"
+        },
+        "disabled": {
+          "value": "{button.border.color.disabled}"
+        },
+        "selected": {
+          "value": "{button.border.color.muted.active}"
         }
       },
       "hover": {
@@ -257,10 +389,45 @@
       },
       "selected": {
         "value": "{button.border.color.active}"
+      },
+      "toolbar": {
+        "@base": {
+          "value": {
+            "default": "{button.border.color.@base}"
+          }
+        },
+        "active": {
+          "value": {
+            "default": "{button.border.color.active}"
+          }
+        },
+        "disabled": {
+          "value": {
+            "default": "{button.border.color.disabled}"
+          }
+        },
+        "hover": {
+          "value": {
+            "default": "{button.border.color.hover}"
+          }
+        },
+        "selected": {
+          "value": "{button.border.color.ghost.active}"
+        }
       }
     },
     "radius": {
       "value": "{border.radius.medium}"
+    },
+    "width": {
+      "split": {
+        "value": "{border.width}"
+      }
+    }
+  },
+  "content": {
+    "alignment": {
+      "value": "center"
     }
   },
   "font": {
@@ -276,6 +443,11 @@
       "value": "{font.weight.semibold}"
     }
   },
+  "gap": {
+    "split": {
+      "value": "{space.xxsmall}"
+    }
+  },
   "icon": {
     "fill": {
       "value": "currentColor"
@@ -284,27 +456,50 @@
       "value": "{button.icon.fill}"
     }
   },
-  "min": {
-    "height": {
-      "@base": {
-        "value": "{size.item.large}"
-      },
-      "small": {
-        "value": "{size.item.medium}"
-      }
+  "min-height": {
+    "@base": {
+      "value": "{size.item.large}"
+    },
+    "small": {
+      "value": "{size.item.medium}"
+    },
+    "large": {
+      "value": "40px"
     }
   },
   "opacity": {
     "disabled": {
       "value": {
-        "default": 0.5,
-        "forcedColors": 1
+        "default": "0.5",
+        "forcedColors": "1"
       }
     }
   },
   "padding": {
     "@base": {
-      "value": "{space.xsmall} {space.large}"
+      "value": "{button.padding.block.@base} {button.padding.inline.@base}"
+    },
+    "block": {
+      "@base": {
+        "value": "{space.xsmall}"
+      },
+      "large": {
+        "value": "{space.small}"
+      },
+      "small": {
+        "value": "{space.xxsmall}"
+      }
+    },
+    "inline": {
+      "@base": {
+        "value": "{space.large}"
+      },
+      "large": {
+        "value": "{space.xlarge}"
+      },
+      "small": {
+        "value": "{button.padding.inline.@base}"
+      }
     },
     "icon": {
       "value": 0
@@ -313,10 +508,22 @@
   "size": {
     "icon": {
       "@base": {
-        "value": "{button.min.height.@base}"
+        "value": "{button.min-height.@base}"
       },
       "small": {
-        "value": "{button.min.height.small}"
+        "value": "{button.min-height.small}"
+      },
+      "large": {
+        "value": "{button.min-height.large}"
+      }
+    }
+  },
+  "split": {
+    "separator": {
+      "background": {
+        "color": {
+          "value": "transparent"
+        }
       }
     }
   },
@@ -327,10 +534,12 @@
           "forcedColors": "ButtonText",
           "brand": {
             "light": "{color.gray.100}",
-            "dark": "{color.gray.05}"
+            "dark": "{color.gray.0}"
           },
+          "nativeTheme": "currentColor",
           "platform": {
-            "default": "currentColor"
+            "light": "rgb(21, 20, 26)",
+            "dark": "rgb(251, 251, 254)"
           }
         }
       },
@@ -413,6 +622,23 @@
           "value": "{button.text.color.ghost.active}"
         }
       },
+      "muted": {
+        "@base": {
+          "value": "{button.text.color.@base}"
+        },
+        "active": {
+          "value": "{button.text.color.active}"
+        },
+        "hover": {
+          "value": "{button.text.color.hover}"
+        },
+        "disabled": {
+          "value": "{button.text.color.disabled}"
+        },
+        "selected": {
+          "value": "{button.text.color.muted.active}"
+        }
+      },
       "hover": {
         "value": {
           "default": "{button.text.color.@base}",
@@ -426,7 +652,15 @@
         "active": {
           "value": {
             "default": "{button.text.color.ghost.active}",
-            "forcedColors": "{button.text.color.primary.@base}"
+            "forcedColors": "{button.text.color.primary.@base}",
+            "nova": {
+              "comment": "The HCM value in Figma needs to be updated",
+              "value": {
+                "light": "{button.text.color.ghost.active}",
+                "dark": "{button.text.color.active}",
+                "forcedColors": "ButtonFace"
+              }
+            }
           }
         },
         "disabled": {
@@ -435,7 +669,22 @@
         "hover": {
           "value": {
             "default": "{button.text.color.ghost.hover}",
-            "forcedColors": "{button.text.color.primary.@base}"
+            "forcedColors": "{button.text.color.primary.@base}",
+            "nova": {
+              "comment": "The HCM value in Figma needs to be updated",
+              "value": {
+                "light": "{button.text.color.ghost.hover}",
+                "dark": "{button.text.color.hover}",
+                "forcedColors": "ButtonFace"
+              }
+            }
+          }
+        },
+        "selected": {
+          "value": {
+            "default": "{button.text.color.ghost.selected}",
+            "forcedColors": "{button.text.color.primary.selected}",
+            "nativeTheme": "currentColor"
           }
         }
       },
@@ -447,8 +696,10 @@
               "light": "{color.white.@base}",
               "dark": "{color.gray.100}"
             },
+            "nativeTheme": "AccentColorText",
             "platform": {
-              "default": "AccentColorText"
+              "light": "rgb(251, 251, 254)",
+              "dark": "rgb(43, 42, 51)"
             }
           }
         },
@@ -470,6 +721,43 @@
       },
       "selected": {
         "value": "{button.text.color.active}"
+      },
+      "toolbar": {
+        "@base": {
+          "value": {
+            "default": "inherit",
+            "brand": {
+              "prefersContrast": "{button.text.color.@base}",
+              "forcedColors": "{button.text.color.@base}"
+            }
+          }
+        },
+        "active": {
+          "value": {
+            "default": "inherit",
+            "prefersContrast": "{button.text.color.active}",
+            "forcedColors": "{button.text.color.active}"
+          }
+        },
+        "disabled": {
+          "value": {
+            "default": "inherit",
+            "brand": {
+              "prefersContrast": "{button.text.color.disabled}",
+              "forcedColors": "{button.text.color.disabled}"
+            }
+          }
+        },
+        "hover": {
+          "value": {
+            "default": "inherit",
+            "prefersContrast": "{button.text.color.hover}",
+            "forcedColors": "{button.text.color.hover}"
+          }
+        },
+        "selected": {
+          "value": "{button.text.color.ghost.active}"
+        }
       }
     }
   },

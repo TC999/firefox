@@ -740,7 +740,7 @@ describe("<FocusTimer>", () => {
       assert.equal(action.type, at.SET_PREF);
     });
 
-    it("should hide Focus Timer when 'Hide timer' option is clicked", () => {
+    it("should hide Focus Timer when 'Hide widget' option is clicked", () => {
       const menuItem = wrapper.find(
         "panel-item[data-l10n-id='newtab-widget-menu-hide']"
       );
@@ -759,6 +759,8 @@ describe("<FocusTimer>", () => {
       assert.equal(telemetryEvent.data.widget_source, "context_menu");
       assert.equal(telemetryEvent.data.enabled, false);
       assert.equal(telemetryEvent.data.widget_size, "medium");
+
+      assert.ok(handleUserInteraction.notCalled);
     });
 
     it("should dispatch OPEN_LINK when the Learn More option is clicked", () => {
@@ -862,7 +864,7 @@ describe("<FocusTimer>", () => {
           <FocusTimer
             dispatch={dispatch}
             handleUserInteraction={handleUserInteraction}
-            widgetsMayBeMaximized={false}
+            widgetsMayBeMaximized={true}
           />
         </WrapWithProvider>
       );
@@ -880,7 +882,6 @@ describe("<FocusTimer>", () => {
       );
       const largeItem = items.filterWhere(n => n.prop("data-size") === "large");
       assert.isTrue(smallItem.exists(), "small item should exist");
-      assert.ok(smallItem.prop("disabled"), "small item should be disabled");
       assert.isTrue(mediumItem.exists(), "medium item should exist");
       assert.isTrue(largeItem.exists(), "large item should exist");
       novaWrapper.unmount();
@@ -892,7 +893,7 @@ describe("<FocusTimer>", () => {
           <FocusTimer
             dispatch={dispatch}
             handleUserInteraction={handleUserInteraction}
-            widgetsMayBeMaximized={false}
+            widgetsMayBeMaximized={true}
           />
         </WrapWithProvider>
       );
@@ -924,7 +925,7 @@ describe("<FocusTimer>", () => {
           <FocusTimer
             dispatch={dispatch}
             handleUserInteraction={handleUserInteraction}
-            widgetsMayBeMaximized={false}
+            widgetsMayBeMaximized={true}
           />
         </WrapWithProvider>
       );
@@ -951,6 +952,37 @@ describe("<FocusTimer>", () => {
       assert.equal(telemetryAction.data.widget_name, "focus_timer");
       assert.equal(telemetryAction.data.user_action, "change_size");
       assert.equal(telemetryAction.data.action_value, "large");
+      novaWrapper.unmount();
+    });
+
+    it("dispatches the small size when the small item is clicked", () => {
+      const novaWrapper = mount(
+        <WrapWithProvider state={novaState}>
+          <FocusTimer
+            dispatch={dispatch}
+            handleUserInteraction={handleUserInteraction}
+            widgetsMayBeMaximized={true}
+          />
+        </WrapWithProvider>
+      );
+      const submenuNode = novaWrapper
+        .find("panel-list[id='focus-timer-size-submenu']")
+        .getDOMNode();
+      const mockItem = document.createElement("div");
+      mockItem.dataset.size = "small";
+      const event = new MouseEvent("click", { bubbles: true });
+      Object.defineProperty(event, "composedPath", {
+        value: () => [mockItem],
+      });
+      submenuNode.dispatchEvent(event);
+
+      const [setPrefAction] = dispatch.getCall(0).args;
+      assert.equal(setPrefAction.data.name, "widgets.focusTimer.size");
+      assert.equal(setPrefAction.data.value, "small");
+
+      const [telemetryAction] = dispatch.getCall(1).args;
+      assert.equal(telemetryAction.data.user_action, "change_size");
+      assert.equal(telemetryAction.data.action_value, "small");
       novaWrapper.unmount();
     });
   });

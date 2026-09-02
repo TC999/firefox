@@ -4,16 +4,16 @@
 
 #include "NativeKeyBindings.h"
 
-#include "nsTArray.h"
-#include "nsCocoaUtils.h"
 #include "mozilla/Logging.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/NativeKeyBindingsType.h"
 #include "mozilla/TextEvents.h"
 #include "mozilla/WritingModes.h"
+#include "nsCocoaUtils.h"
+#include "nsTArray.h"
 
-#import <Cocoa/Cocoa.h>
 #import <Carbon/Carbon.h>
+#import <Cocoa/Cocoa.h>
 
 namespace mozilla {
 namespace widget {
@@ -73,7 +73,6 @@ void NativeKeyBindings::Init(NativeKeyBindingsType aType) {
   // from NSText's "Action Methods for Editing" section
 
   // TODO: Improves correctness of left / right meaning
-  // TODO: Add real paragraph motions
 
   // SEL_TO_COMMAND(cancelOperation:, );
   // SEL_TO_COMMAND(capitalizeWord:, );
@@ -123,34 +122,33 @@ void NativeKeyBindings::Init(NativeKeyBindingsType aType) {
   SEL_TO_COMMAND(moveForwardAndModifySelection:, Command::SelectCharNext);
   SEL_TO_COMMAND(moveLeft:, Command::CharPrevious);
   SEL_TO_COMMAND(moveLeftAndModifySelection:, Command::SelectCharPrevious);
-  SEL_TO_COMMAND(moveParagraphBackwardAndModifySelection:,
-                 Command::SelectBeginLine);
-  SEL_TO_COMMAND(moveParagraphForwardAndModifySelection:,
-                 Command::SelectEndLine);
+  // moveParagraphBackwardAndModifySelection: and
+  // moveParagraphForwardAndModifySelection: are expanded into two commands in
+  // AppendEditCommandsForSelector so that the selection can cross a paragraph
+  // boundary, so they are intentionally not mapped here.
   SEL_TO_COMMAND(moveRight:, Command::CharNext);
   SEL_TO_COMMAND(moveRightAndModifySelection:, Command::SelectCharNext);
   SEL_TO_COMMAND(moveToBeginningOfDocument:, Command::MoveTop);
   SEL_TO_COMMAND(moveToBeginningOfDocumentAndModifySelection:,
                  Command::SelectTop);
-  SEL_TO_COMMAND(moveToBeginningOfLine:, Command::BeginLine);
+  SEL_TO_COMMAND(moveToBeginningOfLine:, Command::MoveLeft3);
   SEL_TO_COMMAND(moveToBeginningOfLineAndModifySelection:,
-                 Command::SelectBeginLine);
-  SEL_TO_COMMAND(moveToBeginningOfParagraph:, Command::BeginLine);
+                 Command::SelectLeft3);
+  SEL_TO_COMMAND(moveToBeginningOfParagraph:, Command::BeginParagraph);
   SEL_TO_COMMAND(moveToBeginningOfParagraphAndModifySelection:,
-                 Command::SelectBeginLine);
+                 Command::SelectBeginParagraph);
   SEL_TO_COMMAND(moveToEndOfDocument:, Command::MoveBottom);
   SEL_TO_COMMAND(moveToEndOfDocumentAndModifySelection:, Command::SelectBottom);
-  SEL_TO_COMMAND(moveToEndOfLine:, Command::EndLine);
-  SEL_TO_COMMAND(moveToEndOfLineAndModifySelection:, Command::SelectEndLine);
-  SEL_TO_COMMAND(moveToEndOfParagraph:, Command::EndLine);
+  SEL_TO_COMMAND(moveToEndOfLine:, Command::MoveRight3);
+  SEL_TO_COMMAND(moveToEndOfLineAndModifySelection:, Command::SelectRight3);
+  SEL_TO_COMMAND(moveToEndOfParagraph:, Command::EndParagraph);
   SEL_TO_COMMAND(moveToEndOfParagraphAndModifySelection:,
-                 Command::SelectEndLine);
-  SEL_TO_COMMAND(moveToLeftEndOfLine:, Command::BeginLine);
-  SEL_TO_COMMAND(moveToLeftEndOfLineAndModifySelection:,
-                 Command::SelectBeginLine);
-  SEL_TO_COMMAND(moveToRightEndOfLine:, Command::EndLine);
+                 Command::SelectEndParagraph);
+  SEL_TO_COMMAND(moveToLeftEndOfLine:, Command::MoveLeft3);
+  SEL_TO_COMMAND(moveToLeftEndOfLineAndModifySelection:, Command::SelectLeft3);
+  SEL_TO_COMMAND(moveToRightEndOfLine:, Command::MoveRight3);
   SEL_TO_COMMAND(moveToRightEndOfLineAndModifySelection:,
-                 Command::SelectEndLine);
+                 Command::SelectRight3);
   if (aType == NativeKeyBindingsType::SingleLineEditor) {
     SEL_TO_COMMAND(moveUp:, Command::BeginLine);
   } else {
@@ -309,6 +307,23 @@ void NativeKeyBindings::AppendEditCommandsForSelector(
     // is taken. See bug 282097, comment 79 for more details.
     aCommands.AppendElement(static_cast<CommandInt>(Command::WordPrevious));
     aCommands.AppendElement(static_cast<CommandInt>(Command::SelectWordNext));
+  } else if (aSelector == ToObjcSelectorPtr(@selector(
+                              moveParagraphBackwardAndModifySelection:))) {
+    // Paragraph selection on its own cannot cross a paragraph boundary, so
+    // extend the selection by one character first. This lets repeated
+    // Shift+Option+ArrowUp keep extending the selection upward, matching the
+    // non-selecting Option+ArrowUp binding and native macOS text views.
+    aCommands.AppendElement(
+        static_cast<CommandInt>(Command::SelectCharPrevious));
+    aCommands.AppendElement(
+        static_cast<CommandInt>(Command::SelectBeginParagraph));
+  } else if (aSelector == ToObjcSelectorPtr(@selector(
+                              moveParagraphForwardAndModifySelection:))) {
+    // See the comment above; this is the downward counterpart used by
+    // Shift+Option+ArrowDown.
+    aCommands.AppendElement(static_cast<CommandInt>(Command::SelectCharNext));
+    aCommands.AppendElement(
+        static_cast<CommandInt>(Command::SelectEndParagraph));
   }
 }
 

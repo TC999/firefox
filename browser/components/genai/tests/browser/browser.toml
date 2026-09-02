@@ -1,4 +1,5 @@
 [DEFAULT]
+support-files = ["head.js"]
 prefs = [
   "browser.ml.chat.enabled=true",
   "browser.ml.chat.openSidebarOnProviderChange=false",
@@ -30,6 +31,8 @@ skip-if = [
   "verify-standalone",
 ]
 
+["browser_chat_promo.js"]
+
 ["browser_chat_prompt.js"]
 
 ["browser_chat_request.js"]
@@ -46,6 +49,7 @@ skip-if = [
 
 ["browser_chat_sidebar_permissions.js"]
 skip-if = [
+  "os == 'mac' && os_version == '15.30' && arch == 'aarch64'", # Bug 2023967
   "os == 'win' && os_version == '11.26200' && asan", # Bug 2019745
 ]
 support-files = [

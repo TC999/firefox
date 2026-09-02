@@ -16,6 +16,7 @@ DIRS += [
     "ffmpeg60",
     "ffmpeg61",
     "ffmpeg62",
+    "ffmpeg63",
 ]
 
 UNIFIED_SOURCES += ["FFmpegRuntimeLinker.cpp"]
@@ -23,6 +24,8 @@ UNIFIED_SOURCES += ["FFmpegRuntimeLinker.cpp"]
 if CONFIG["MOZ_WIDGET_TOOLKIT"] == "gtk":
     include("/ipc/chromium/chromium-config.mozbuild")
     UNIFIED_SOURCES += ["VALibWrapper.cpp"]
+    if CONFIG["MOZ_ENABLE_VULKAN_VIDEO"]:
+        UNIFIED_SOURCES += ["VulkanDeviceHolder.cpp"]
 
 LOCAL_INCLUDES += [
     "/media/ffvpx/",

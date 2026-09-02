@@ -23,20 +23,20 @@ struct ModuleErrorInfo {
   ModuleErrorInfo(uint32_t lineNumber_, JS::ColumnNumberOneOrigin columnNumber_)
       : lineNumber(lineNumber_), columnNumber(columnNumber_) {}
 
-  void setImportedModule(JSContext* cx, ModuleObject* importedModule);
-  void setCircularImport(JSContext* cx, ModuleObject* importedModule);
-  void setForAmbiguousImport(JSContext* cx, ModuleObject* importedModule,
+  void setImportedModule(ModuleObject* importedModule);
+  void setCircularImport(ModuleObject* importedModule);
+  void setForAmbiguousImport(ModuleObject* importedModule,
                              ModuleObject* module1, ModuleObject* module2);
 
   uint32_t lineNumber;
   JS::ColumnNumberOneOrigin columnNumber;
 
   // The filename of the imported module.
-  const char* imported;
+  const char* imported = nullptr;
 
   // The filenames of the ambiguous entries.
-  const char* entry1;
-  const char* entry2;
+  const char* entry1 = nullptr;
+  const char* entry2 = nullptr;
 
   // A bool to indicate the error is a circular import when it's true.
   bool isCircular = false;

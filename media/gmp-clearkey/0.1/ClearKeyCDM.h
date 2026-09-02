@@ -8,9 +8,8 @@
 // This include is required in order for content_decryption_module to work
 // on Unix systems.
 
-#include "content_decryption_module.h"
-
 #include "ClearKeySessionManager.h"
+#include "content_decryption_module.h"
 
 #ifdef ENABLE_WMF
 #  include "VideoDecoder.h"
@@ -19,7 +18,7 @@
 
 class ClearKeyCDM final : public cdm::ContentDecryptionModule_11 {
  private:
-  RefPtr<ClearKeySessionManager> mSessionManager;
+  const RefPtr<ClearKeySessionManager> mSessionManager;
 #ifdef ENABLE_WMF
   RefPtr<VideoDecoder> mVideoDecoder;
 #endif

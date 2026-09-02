@@ -23,6 +23,7 @@ EXPORTS += [
 
 classes_with_WrapForJNI = [
     "AndroidGamepadManager",
+    "AndroidVsync",
     "Base64Utils",
     "ClientAuthCertificateManager",
     "Clipboard",
@@ -48,6 +49,7 @@ classes_with_WrapForJNI = [
     "GeckoProcessType",
     "GeckoResult",
     "GeckoRuntime",
+    "GeckoSensor",
     "GeckoServiceChildProcess",
     "GeckoServiceGpuProcess",
     "GeckoSession",
@@ -138,6 +140,7 @@ UNIFIED_SOURCES += [
     "EventDispatcher.cpp",
     "GeckoEditableSupport.cpp",
     "GeckoProcessManager.cpp",
+    "GeckoSensorSupport.cpp",
     "GfxInfo.cpp",
     "ImageDecoderSupport.cpp",
     "InProcessAndroidCompositorWidget.cpp",

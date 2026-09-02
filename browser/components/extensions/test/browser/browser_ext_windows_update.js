@@ -1,5 +1,3 @@
-/* -*- Mode: indent-tabs-mode: nil; js-indent-level: 2 -*- */
-/* vim: set sts=2 sw=2 et tw=80: */
 "use strict";
 
 add_task(async function () {
@@ -116,6 +114,15 @@ add_task(async function testWindowUpdate() {
 
         let window = await browser.windows.getCurrent();
         currentWindowId = window.id;
+
+        // The browser window does not necessarily start out in the "normal"
+        // state: browser-init.js maximizes it on new profiles whenever 90% of
+        // the available screen size is smaller than 1280x1040. Make sure we are
+        // in the "normal" state before recording the size, otherwise we would
+        // be recording the maximized size and then expect the window to be
+        // restored to it.
+        await browser.windows.update(windowId, { state: "normal" });
+        window = await browser.windows.getCurrent();
 
         // Store current, "normal" width and height to compare against
         // window width and height after updating to "normal" state.

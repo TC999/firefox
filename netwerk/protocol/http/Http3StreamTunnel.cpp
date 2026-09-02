@@ -3,12 +3,12 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 // HttpLog.h should generally be included first
-#include "HttpLog.h"
+#include "Http3StreamTunnel.h"
 
+#include "Http3Session.h"
+#include "HttpLog.h"
 #include "nsHttpConnectionMgr.h"
 #include "nsHttpHandler.h"
-#include "Http3StreamTunnel.h"
-#include "Http3Session.h"
 #include "nsQueryObject.h"
 
 namespace mozilla::net {
@@ -133,13 +133,13 @@ Http3TransportLayer::InputStreamTunnel::AsyncWait(
        "callback=%p]\n",
        this, callback));
   // The following parameters are not used:
-  MOZ_ASSERT(!flags);
-  MOZ_ASSERT(!amount);
+  (void)flags;
+  (void)amount;
   (void)target;
 
   RefPtr<InputStreamTunnel> self(this);
   if (NS_FAILED(mCondition)) {
-    (void)NS_DispatchToCurrentThread(NS_NewRunnableFunction(
+    (void)DispatchToCurrent(NS_NewRunnableFunction(
         "InputStreamTunnel::CallOnSocketReady",
         [self{std::move(self)}]() { self->OnSocketReady(self->mCondition); }));
   } else if (callback) {
@@ -278,13 +278,13 @@ Http3TransportLayer::OutputStreamTunnel::AsyncWait(
   LOG(("OutputStreamTunnel::AsyncWait [this=%p]\n", this));
 
   // The following parameters are not used:
-  MOZ_ASSERT(!flags);
-  MOZ_ASSERT(!amount);
+  (void)flags;
+  (void)amount;
   (void)target;
 
   RefPtr<OutputStreamTunnel> self(this);
   if (NS_FAILED(mCondition)) {
-    (void)NS_DispatchToCurrentThread(NS_NewRunnableFunction(
+    (void)DispatchToCurrent(NS_NewRunnableFunction(
         "OutputStreamTunnel::CallOnSocketReady",
         [self{std::move(self)}]() { self->OnSocketReady(self->mCondition); }));
   } else if (callback) {
@@ -319,6 +319,10 @@ Http3TransportLayer::~Http3TransportLayer() {
 
 already_AddRefed<Http3StreamTunnel> Http3TransportLayer::GetStream() {
   RefPtr<Http3StreamTunnel> stream = mStream;
+  if (!stream || stream->Closed()) {
+    return nullptr;
+  }
+
   return stream.forget();
 }
 
@@ -471,7 +475,6 @@ FWD_H3ST_ADDREF(GetScriptablePeerAddr, nsINetAddr);
 FWD_H3ST_ADDREF(GetScriptableSelfAddr, nsINetAddr);
 FWD_H3ST_PTR(GetConnectionFlags, uint32_t);
 FWD_H3ST(SetConnectionFlags, uint32_t);
-FWD_H3ST(SetIsPrivate, bool);
 FWD_H3ST(SetIsTRRConnection, bool);
 FWD_H3ST_PTR(GetIsTRRConnection, bool);
 FWD_H3ST_PTR(GetTlsFlags, uint32_t);

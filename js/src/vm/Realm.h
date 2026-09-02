@@ -59,8 +59,8 @@ struct NativeIterator;
  * is erroneously included in the measurement; see bug 562553.
  */
 class DtoaCache {
-  double dbl;
-  int base;
+  double dbl = 0.0;
+  int base = 0;
   JSLinearString* str;  // if str==nullptr, dbl and base are not valid
 
  public:
@@ -144,18 +144,18 @@ class NewPlainObjectWithPropsCache {
   }
 };
 
-// Cache for Object.assign's fast path for two plain objects. It's used to
-// optimize:
+// Cache used to optimize the following operations for plain objects:
 //
 //   Object.assign(to, from)
+//   to = {...from}
 //
 // If the |to| object has shape |emptyToShape_| (shape with no properties) and
 // the |from| object has shape |fromShape_|, we can use |newToShape_| for |to|
-// and copy all (data)) properties from the |from| object.
+// and copy all (data) properties from the |from| object.
 //
-// This is a one-entry cache for now. It has a hit rate of > 90% on both
-// Speedometer 2 and Speedometer 3.
-class MOZ_NON_TEMPORARY_CLASS PlainObjectAssignCache {
+// This is a one-entry cache for now. The Object.assign cache has a hit rate of
+// > 90% on both Speedometer 2 and Speedometer 3.
+class MOZ_NON_TEMPORARY_CLASS PlainObjectCopyPropsCache {
   SharedShape* emptyToShape_ = nullptr;
   SharedShape* fromShape_ = nullptr;
   SharedShape* newToShape_ = nullptr;
@@ -167,9 +167,9 @@ class MOZ_NON_TEMPORARY_CLASS PlainObjectAssignCache {
 #endif
 
  public:
-  PlainObjectAssignCache() = default;
-  PlainObjectAssignCache(const PlainObjectAssignCache&) = delete;
-  void operator=(const PlainObjectAssignCache&) = delete;
+  PlainObjectCopyPropsCache() = default;
+  PlainObjectCopyPropsCache(const PlainObjectCopyPropsCache&) = delete;
+  void operator=(const PlainObjectCopyPropsCache&) = delete;
 
   SharedShape* lookup(Shape* emptyToShape, Shape* fromShape) const {
     if (emptyToShape_ == emptyToShape && fromShape_ == fromShape) {
@@ -234,6 +234,7 @@ struct IteratorHashPolicy {
 
 class DebugEnvironments;
 class NonSyntacticVariablesObject;
+class ScriptSourceObject;
 class WithEnvironmentObject;
 
 // ObjectRealm stores various tables and other state associated with particular
@@ -248,12 +249,15 @@ class ObjectRealm {
   js::UniquePtr<NonSyntacticLexialEnvironmentsMap>
       nonSyntacticLexicalEnvironments_;
 
-  ObjectRealm(const ObjectRealm&) = delete;
-  void operator=(const ObjectRealm&) = delete;
-
  public:
   // Map from array buffers to views sharing that storage.
   JS::WeakCache<js::InnerViewTable> innerViews;
+
+  using ModuleScriptSourceSet =
+      JS::GCHashSet<js::WeakHeapPtr<ScriptSourceObject*>,
+                    js::DefaultHasher<js::WeakHeapPtr<ScriptSourceObject*>>,
+                    js::ZoneAllocPolicy>;
+  JS::WeakCache<ModuleScriptSourceSet> moduleScriptSources;
 
   // Keep track of the metadata objects which can be associated with each JS
   // object. Both keys and values are in this realm.
@@ -268,6 +272,9 @@ class ObjectRealm {
   static inline ObjectRealm& get(const JSObject* obj);
 
   explicit ObjectRealm(JS::Zone* zone);
+
+  ObjectRealm(const ObjectRealm&) = delete;
+  void operator=(const ObjectRealm&) = delete;
 
   void finishRoots();
   void trace(JSTracer* trc);
@@ -403,10 +410,9 @@ class JS::Realm : public JS::shadow::Realm {
   enum {
     IsDebuggee = 1 << 0,
     DebuggerObservesAllExecution = 1 << 1,
-    DebuggerObservesAsmJS = 1 << 2,
-    DebuggerObservesCoverage = 1 << 3,
-    DebuggerObservesWasm = 1 << 4,
-    DebuggerObservesNativeCall = 1 << 5,
+    DebuggerObservesCoverage = 1 << 2,
+    DebuggerObservesWasm = 1 << 3,
+    DebuggerObservesNativeCall = 1 << 4,
   };
   uint32_t debugModeBits_ = 0;
   friend class js::AutoRestoreRealmDebugMode;
@@ -430,7 +436,12 @@ class JS::Realm : public JS::shadow::Realm {
   js::DtoaCache dtoaCache;
   js::NewProxyCache newProxyCache;
   js::NewPlainObjectWithPropsCache newPlainObjectWithPropsCache;
-  js::PlainObjectAssignCache plainObjectAssignCache;
+  js::PlainObjectCopyPropsCache plainObjectAssignCache;
+
+  // Same, for object spread. Separate because spread defines own properties
+  // while Object.assign uses [[Set]], so Object.assign must not reuse a shape
+  // derived from a |from| with an own __proto__ property.
+  js::PlainObjectCopyPropsCache plainObjectSpreadCache;
 
   // Last time at which an animation was played for this realm.
   js::MainThreadData<mozilla::TimeStamp> lastAnimationTime;
@@ -482,12 +493,12 @@ class JS::Realm : public JS::shadow::Realm {
   void updateDebuggerObservesFlag(unsigned flag);
   void restoreDebugModeBitsOnOOM(uint32_t bits);
 
-  Realm(const Realm&) = delete;
-  void operator=(const Realm&) = delete;
-
  public:
   Realm(JS::Compartment* comp, const JS::RealmOptions& options);
   ~Realm();
+
+  Realm(const Realm&) = delete;
+  void operator=(const Realm&) = delete;
 
   void init(JSContext* cx, JSPrincipals* principals);
   void destroy(JS::GCContext* gcx);
@@ -690,7 +701,7 @@ class JS::Realm : public JS::shadow::Realm {
   //    parsing are disabled.
   //
   //    Whether AOT wasm is disabled is togglable by the Debugger API. By
-  //    default it is disabled. See debuggerObservesAsmJS below.
+  //    default it is disabled. See debuggerObservesWasm below.
   //
   // 2. When a realm's debuggerObservesAllExecution() == true, all of
   //    the realm's scripts are considered debuggee scripts.
@@ -761,16 +772,6 @@ class JS::Realm : public JS::shadow::Realm {
   }
   void updateDebuggerObservesAllExecution() {
     updateDebuggerObservesFlag(DebuggerObservesAllExecution);
-  }
-
-  // True if this realm's global is a debuggee of some Debugger object
-  // whose allowUnobservedAsmJS flag is false.
-  bool debuggerObservesAsmJS() const {
-    static const unsigned Mask = IsDebuggee | DebuggerObservesAsmJS;
-    return (debugModeBits_ & Mask) == Mask;
-  }
-  void updateDebuggerObservesAsmJS() {
-    updateDebuggerObservesFlag(DebuggerObservesAsmJS);
   }
 
   // True if this realm's global is a debuggee of some Debugger object
@@ -937,26 +938,25 @@ class AutoRealm {
   inline AutoRealm(JSContext* cx, const T& target);
   inline ~AutoRealm();
 
+  AutoRealm(const AutoRealm&) = delete;
+  AutoRealm& operator=(const AutoRealm&) = delete;
+
   JSContext* context() const { return cx_; }
   JS::Realm* origin() const { return origin_; }
 
  protected:
   inline AutoRealm(JSContext* cx, JS::Realm* target);
-
- private:
-  AutoRealm(const AutoRealm&) = delete;
-  AutoRealm& operator=(const AutoRealm&) = delete;
 };
 
 class MOZ_RAII AutoAllocInAtomsZone {
   JSContext* const cx_;
   JS::Realm* const origin_;
-  AutoAllocInAtomsZone(const AutoAllocInAtomsZone&) = delete;
-  AutoAllocInAtomsZone& operator=(const AutoAllocInAtomsZone&) = delete;
 
  public:
   inline explicit AutoAllocInAtomsZone(JSContext* cx);
   inline ~AutoAllocInAtomsZone();
+  AutoAllocInAtomsZone(const AutoAllocInAtomsZone&) = delete;
+  AutoAllocInAtomsZone& operator=(const AutoAllocInAtomsZone&) = delete;
 };
 
 // During GC we sometimes need to enter a realm when we may have been allocating
@@ -964,12 +964,12 @@ class MOZ_RAII AutoAllocInAtomsZone {
 class MOZ_RAII AutoMaybeLeaveAtomsZone {
   JSContext* const cx_;
   bool wasInAtomsZone_;
-  AutoMaybeLeaveAtomsZone(const AutoMaybeLeaveAtomsZone&) = delete;
-  AutoMaybeLeaveAtomsZone& operator=(const AutoMaybeLeaveAtomsZone&) = delete;
 
  public:
   inline explicit AutoMaybeLeaveAtomsZone(JSContext* cx);
   inline ~AutoMaybeLeaveAtomsZone();
+  AutoMaybeLeaveAtomsZone(const AutoMaybeLeaveAtomsZone&) = delete;
+  AutoMaybeLeaveAtomsZone& operator=(const AutoMaybeLeaveAtomsZone&) = delete;
 };
 
 // Enter a realm directly. Only use this where there's no target GC thing
@@ -993,7 +993,6 @@ class AutoFunctionOrCurrentRealm {
   inline AutoFunctionOrCurrentRealm(JSContext* cx, js::HandleObject fun);
   ~AutoFunctionOrCurrentRealm() = default;
 
- private:
   AutoFunctionOrCurrentRealm(const AutoFunctionOrCurrentRealm&) = delete;
   AutoFunctionOrCurrentRealm& operator=(const AutoFunctionOrCurrentRealm&) =
       delete;
@@ -1016,9 +1015,6 @@ class ErrorCopier {
 class MOZ_RAII AutoSetNewObjectMetadata {
   JSContext* cx_;
 
-  AutoSetNewObjectMetadata(const AutoSetNewObjectMetadata& aOther) = delete;
-  void operator=(const AutoSetNewObjectMetadata& aOther) = delete;
-
   void setPendingMetadata();
 
  public:
@@ -1036,6 +1032,9 @@ class MOZ_RAII AutoSetNewObjectMetadata {
       setPendingMetadata();
     }
   }
+
+  AutoSetNewObjectMetadata(const AutoSetNewObjectMetadata& aOther) = delete;
+  void operator=(const AutoSetNewObjectMetadata& aOther) = delete;
 };
 
 } /* namespace js */

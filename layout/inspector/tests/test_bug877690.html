@@ -16,6 +16,9 @@ const InspectorUtils = SpecialPowers.InspectorUtils;
 
 // Returns true if values contains all and only the expected values. False otherwise.
 function testValues(values, expected) {
+  values = [...new Set(values)];
+  expected = [...new Set(expected)];
+
   values.sort();
   expected.sort();
 
@@ -56,7 +59,10 @@ function do_test() {
     "oklch"
   ];
 
-  var allGradients = [
+  var allImages = [
+    "image-set", "url",
+    "-moz-element", "image",
+    "light-dark",
     "linear-gradient",
     "-webkit-linear-gradient",
     "-moz-linear-gradient",
@@ -74,6 +80,10 @@ function do_test() {
     "repeating-conic-gradient",
   ];
 
+  if(SpecialPowers.getBoolPref("layout.css.cross-fade.enabled")) {
+    allImages.push("cross-fade");
+  }
+
   // test a property with keywords and colors
   var prop = "color";
   var values = InspectorUtils.getCSSValuesForProperty(prop);
@@ -86,11 +96,8 @@ function do_test() {
   var expected = [ "auto", ...CSS_WIDE_KEYWORDS, ...allColors, "no-repeat", "repeat",
       "repeat-x", "repeat-y", "space", "round", "fixed", "scroll", "local", "center", "top", "bottom", "left", "right",
       "border-box", "padding-box", "content-box", "text", "contain",
-      "cover", "none", "-moz-element", "url", ...allGradients, "image-set" ];
+      "cover", "none", ...allImages ];
 
-  if(SpecialPowers.getBoolPref("layout.css.cross-fade.enabled")) {
-    expected.push("cross-fade");
-  }
 
   ok(testValues(values, expected), "property background values.");
 
@@ -135,28 +142,19 @@ function do_test() {
   // Test property with "auto"
   var prop = "margin";
   var values = InspectorUtils.getCSSValuesForProperty(prop);
-  var expected = [...CSS_WIDE_KEYWORDS, "auto"];
-
-  if(SpecialPowers.getBoolPref("layout.css.anchor-positioning.enabled")) {
-    expected.push("anchor-size");
-  }
-
+  var expected = [...CSS_WIDE_KEYWORDS, "auto", "anchor-size"];
   ok(testValues(values, expected), "property margin's values.");
 
   var prop = "inset";
   var values = InspectorUtils.getCSSValuesForProperty(prop);
-  var expected = [...CSS_WIDE_KEYWORDS, "auto"];
-
-  if(SpecialPowers.getBoolPref("layout.css.anchor-positioning.enabled")) {
-    expected.push("anchor", "anchor-size");
-  }
-
+  var expected = [...CSS_WIDE_KEYWORDS, "auto", "anchor", "anchor-size"];
   ok(testValues(values, expected), "property inset's values.");
 
   var prop = "width";
   var values = InspectorUtils.getCSSValuesForProperty(prop);
   var expected = [
     "-moz-available",
+    "anchor-size",
     "auto",
     "fit-content",
     "max-content",
@@ -170,9 +168,6 @@ function do_test() {
   if(SpecialPowers.getBoolPref("layout.css.webkit-fill-available.enabled")) {
     expected.push("-webkit-fill-available");
   }
-  if(SpecialPowers.getBoolPref("layout.css.anchor-positioning.enabled")) {
-    expected.push("anchor-size");
-  }
 
   ok(testValues(values, expected), "property width's values.");
 
@@ -180,6 +175,7 @@ function do_test() {
   var values = InspectorUtils.getCSSValuesForProperty(prop);
   var expected = [
     "-moz-available",
+    "anchor-size",
     "none",
     "fit-content",
     "max-content",
@@ -192,9 +188,6 @@ function do_test() {
   }
   if(SpecialPowers.getBoolPref("layout.css.webkit-fill-available.enabled")) {
     expected.push("-webkit-fill-available");
-  }
-  if(SpecialPowers.getBoolPref("layout.css.anchor-positioning.enabled")) {
-    expected.push("anchor-size");
   }
 
   ok(testValues(values, expected), "property max-width's values.");
@@ -228,8 +221,7 @@ function do_test() {
   var prop = "border-image";
   var values = InspectorUtils.getCSSValuesForProperty(prop);
   var expected = [ ...CSS_WIDE_KEYWORDS, "auto", "repeat", "stretch",
-                   "-moz-element", "url", ...allGradients,
-                   "fill", "none", "round", "space", "image-set" ];
+                   ...allImages, "fill", "none", "round", "space", ];
 
   if(SpecialPowers.getBoolPref("layout.css.cross-fade.enabled")) {
     expected.push("cross-fade");
@@ -300,10 +292,10 @@ function do_test() {
 
   // Regression test for bug 1255380.
   var expected = [ "normal", "none", "counter", "counters",
-                   "attr", "open-quote", "close-quote", "no-open-quote",
+                   "open-quote", "close-quote", "no-open-quote",
                    ...CSS_WIDE_KEYWORDS, "no-close-quote",
-                   "-moz-alt-content", "-moz-label-content", "image-set", "url", "-moz-element" ]
-    .concat(allGradients);
+                   "-moz-alt-content", "-moz-label-content", ]
+    .concat(allImages);
   var values = InspectorUtils.getCSSValuesForProperty("content");
   ok(testValues(values, expected), "property content's values");
 
@@ -333,6 +325,7 @@ function do_test() {
   // Test for bug 1935181.
   var values = InspectorUtils.getCSSValuesForProperty("align-items");
   var expected = [
+    "anchor-center",
     "baseline",
     "center",
     "end",
@@ -349,10 +342,6 @@ function do_test() {
     "unsafe",
     ...CSS_WIDE_KEYWORDS,
   ];
-
-  if(SpecialPowers.getBoolPref("layout.css.anchor-positioning.enabled")) {
-    expected.push("anchor-center");
-  }
 
   ok(testValues(values, expected), "property align-items values.");
 

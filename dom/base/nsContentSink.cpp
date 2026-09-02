@@ -27,9 +27,11 @@
 #include "mozilla/StaticPrefs_network.h"
 #include "mozilla/StoragePrincipalHelper.h"
 #include "mozilla/css/Loader.h"
+#include "mozilla/dom/ContentChild.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/HTMLDNSPrefetch.h"
 #include "mozilla/dom/LinkStyle.h"
+#include "mozilla/dom/ModuleLoader.h"
 #include "mozilla/dom/MutationObservers.h"
 #include "mozilla/dom/ReferrerInfo.h"
 #include "mozilla/dom/SRILogHelper.h"
@@ -218,7 +220,8 @@ nsContentSink::StyleSheetLoaded(StyleSheet* aSheet, bool aWasDeferred,
 
     if (loadedAllSheets &&
         mDocument->GetReadyStateEnum() >= Document::READYSTATE_INTERACTIVE) {
-      mScriptLoader->DeferCheckpointReached();
+      const RefPtr<ScriptLoader> scriptLoader = mScriptLoader;
+      scriptLoader->DeferCheckpointReached();
     }
   }
 
@@ -846,10 +849,10 @@ void nsContentSink::DidBuildModelImpl(bool aTerminated) {
              "Bad readyState");
   mDocument->SetReadyStateInternal(Document::READYSTATE_INTERACTIVE);
 
-  if (mScriptLoader) {
-    mScriptLoader->ParsingComplete(aTerminated);
+  if (const RefPtr<ScriptLoader> scriptLoader = mScriptLoader) {
+    scriptLoader->ParsingComplete(aTerminated);
     if (!mPendingSheetCount) {
-      mScriptLoader->DeferCheckpointReached();
+      scriptLoader->DeferCheckpointReached();
     }
   }
 
@@ -961,6 +964,18 @@ void nsContentSink::WillBuildModelImpl() {
 /* static */
 void nsContentSink::NotifyDocElementCreated(Document* aDoc) {
   MOZ_ASSERT(nsContentUtils::IsSafeToRunScript());
+
+  // This process just created a document. Ensure it's been marked as untrusted.
+  mozilla::dom::ContentChild::MaybeBecomeUntrusted();
+
+  // Data documents with a content principal (DOMParser, XHR responseXML,
+  // createDocument) are never displayed, cannot run scripts and have no
+  // window. None of the observers of these notifications act on them, so
+  // skip the notification overhead. Only CustomElementListener with
+  // SystemPrincipals actually make use of this.
+  if (aDoc->IsLoadedAsData() && !aDoc->NodePrincipal()->IsSystemPrincipal()) {
+    return;
+  }
 
   nsCOMPtr<nsIObserverService> observerService =
       mozilla::services::GetObserverService();

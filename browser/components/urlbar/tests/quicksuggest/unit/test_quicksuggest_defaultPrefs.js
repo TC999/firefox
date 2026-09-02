@@ -8,7 +8,6 @@
 "use strict";
 
 ChromeUtils.defineESModuleGetters(this, {
-  AppConstants: "resource://gre/modules/AppConstants.sys.mjs",
   Preferences: "resource://gre/modules/Preferences.sys.mjs",
   TelemetryReportingPolicy:
     "resource://gre/modules/TelemetryReportingPolicy.sys.mjs",
@@ -35,30 +34,11 @@ const EXPECTED_PREFS_SUGGEST_DISABLED = {
   "yelp.featureGate": false,
 };
 
-// Expected prefs for native locales in EU countries (e.g., `de` locale in
-// Germany).
-const EXPECTED_PREFS_EU_NATIVE = {
-  ...EXPECTED_PREFS_SUGGEST_DISABLED,
-  "quicksuggest.enabled": true,
-  "quicksuggest.settingsUi": QuickSuggest.SETTINGS_UI.OFFLINE_ONLY,
-  "suggest.quicksuggest.all": true,
-  "suggest.quicksuggest.sponsored": true,
-  "importantDates.featureGate": true,
-  "weather.featureGate": true,
-};
-
-// Expected prefs for `en` locales in EU countries (e.g., `en-US` locale in
-// Germany).
-const EXPECTED_PREFS_EU_EN = {
-  ...EXPECTED_PREFS_SUGGEST_DISABLED,
-  "quicksuggest.enabled": true,
-  "importantDates.featureGate": true,
-};
-
-// Base set of expected prefs for countries where an `en` locale is native
-// (e.g., US, UK). These countries will have slightly different actual expected
-// prefs, which is why this is a base set.
-const EXPECTED_PREFS_BASE_EN_NATIVE = {
+// Base set of expected prefs for native locales in regions where Suggest is
+// enabled, e.g., the `en-US` locale in the U.S., the `de` locale in Germany.
+// Countries may have slightly different actual expected prefs, which is why
+// this is a base set.
+const EXPECTED_PREFS_BASE_NATIVE = {
   ...EXPECTED_PREFS_SUGGEST_DISABLED,
   "quicksuggest.enabled": true,
   "quicksuggest.settingsUi": QuickSuggest.SETTINGS_UI.OFFLINE_ONLY,
@@ -70,25 +50,33 @@ const EXPECTED_PREFS_BASE_EN_NATIVE = {
   "wikipedia.featureGate": true,
 };
 
+// Expected prefs for `en` locales in EU countries (e.g., `en-US` locale in
+// Germany).
+const EXPECTED_PREFS_EU_EN = {
+  ...EXPECTED_PREFS_SUGGEST_DISABLED,
+  "quicksuggest.enabled": true,
+  "importantDates.featureGate": true,
+};
+
 // Region -> locale -> expected prefs when Suggest is enabled
 const EXPECTED_PREFS_BY_LOCALE_BY_REGION = {
   DE: {
-    de: EXPECTED_PREFS_EU_NATIVE,
+    de: EXPECTED_PREFS_BASE_NATIVE,
     ...Object.fromEntries(
       EN_LOCALES.map(locale => [locale, EXPECTED_PREFS_EU_EN])
     ),
   },
   FR: {
-    fr: EXPECTED_PREFS_EU_NATIVE,
+    fr: EXPECTED_PREFS_BASE_NATIVE,
     ...Object.fromEntries(
       EN_LOCALES.map(locale => [locale, EXPECTED_PREFS_EU_EN])
     ),
   },
   GB: Object.fromEntries(
-    EN_LOCALES.map(locale => [locale, EXPECTED_PREFS_BASE_EN_NATIVE])
+    EN_LOCALES.map(locale => [locale, EXPECTED_PREFS_BASE_NATIVE])
   ),
   IT: {
-    it: EXPECTED_PREFS_EU_NATIVE,
+    it: EXPECTED_PREFS_BASE_NATIVE,
     ...Object.fromEntries(
       EN_LOCALES.map(locale => [locale, EXPECTED_PREFS_EU_EN])
     ),
@@ -97,7 +85,7 @@ const EXPECTED_PREFS_BY_LOCALE_BY_REGION = {
     EN_LOCALES.map(locale => [
       locale,
       {
-        ...EXPECTED_PREFS_BASE_EN_NATIVE,
+        ...EXPECTED_PREFS_BASE_NATIVE,
         "addons.featureGate": true,
         "mdn.featureGate": true,
         "yelp.featureGate": true,
@@ -224,25 +212,12 @@ async function doPrimaryTest({ locale, region }) {
 }
 
 // Online Suggest should be available at the time Suggest is initialized if: the
-// build is a Nightly, the user has accepted ToU, and Suggest overall is
-// enabled. Online Suggest should not be available otherwise.
+// the user has accepted ToU, and Suggest overall is enabled. Online Suggest
+// should not be available otherwise.
 add_task(async function onlineAvailable_init() {
-  // Sanity check that `QuickSuggest._isNightlyBuild` is defined properly.
-  Assert.equal(
-    typeof QuickSuggest._isNightlyBuild,
-    "boolean",
-    "Sanity check: QuickSuggest._isNightlyBuild should be a boolean"
-  );
-  Assert.equal(
-    QuickSuggest._isNightlyBuild,
-    AppConstants.NIGHTLY_BUILD,
-    "Sanity check: QuickSuggest._isNightlyBuild should match AppConstants"
-  );
-
   let tests = [
-    // Not Nightly builds: online should be unavailable
+    // Online should be available iff ToU are accepted
     {
-      isNightlyBuild: false,
       touAcceptedDate: 0,
       expected: {
         "quicksuggest.online.available": false,
@@ -253,7 +228,6 @@ add_task(async function onlineAvailable_init() {
       },
     },
     {
-      isNightlyBuild: false,
       touAcceptedDate: SUGGEST_TOU_TIMESTAMP - 1,
       expected: {
         "quicksuggest.online.available": false,
@@ -264,42 +238,6 @@ add_task(async function onlineAvailable_init() {
       },
     },
     {
-      isNightlyBuild: false,
-      touAcceptedDate: SUGGEST_TOU_TIMESTAMP,
-      expected: {
-        "quicksuggest.online.available": false,
-        "quicksuggest.settingsUi": QuickSuggest.SETTINGS_UI.OFFLINE_ONLY,
-        "flightStatus.featureGate": false,
-        "market.featureGate": false,
-        "sports.featureGate": false,
-      },
-    },
-
-    // Nightly builds: online should be available iff ToU are accepted
-    {
-      isNightlyBuild: true,
-      touAcceptedDate: 0,
-      expected: {
-        "quicksuggest.online.available": false,
-        "quicksuggest.settingsUi": QuickSuggest.SETTINGS_UI.OFFLINE_ONLY,
-        "flightStatus.featureGate": false,
-        "market.featureGate": false,
-        "sports.featureGate": false,
-      },
-    },
-    {
-      isNightlyBuild: true,
-      touAcceptedDate: SUGGEST_TOU_TIMESTAMP - 1,
-      expected: {
-        "quicksuggest.online.available": false,
-        "quicksuggest.settingsUi": QuickSuggest.SETTINGS_UI.OFFLINE_ONLY,
-        "flightStatus.featureGate": false,
-        "market.featureGate": false,
-        "sports.featureGate": false,
-      },
-    },
-    {
-      isNightlyBuild: true,
       touAcceptedDate: SUGGEST_TOU_TIMESTAMP,
       expected: {
         "quicksuggest.online.available": true,
@@ -310,12 +248,11 @@ add_task(async function onlineAvailable_init() {
       },
     },
 
-    // Nightly build and ToU accepted but region/locale where Suggest is not
-    // enabled: online should be unavailable
+    // ToU accepted but region/locale where Suggest is not enabled: online
+    // should be unavailable
     {
       region: "JP",
       locale: "ja",
-      isNightlyBuild: true,
       touAcceptedDate: SUGGEST_TOU_TIMESTAMP,
       expected: {
         "quicksuggest.online.available": false,
@@ -327,26 +264,19 @@ add_task(async function onlineAvailable_init() {
     },
   ];
 
-  for (let {
-    region,
-    locale,
-    isNightlyBuild,
-    touAcceptedDate,
-    expected,
-  } of tests) {
+  for (let { region, locale, touAcceptedDate, expected } of tests) {
     await doOnlineAvailableTest({
       region,
       locale,
-      isNightlyBuild,
       touAcceptedDate,
       expected,
     });
   }
 });
 
-// Online Suggest should become available at the time the user accepts ToU if:
-// the build is a Nightly and Suggest overall is enabled. Online Suggest should
-// remain unavailable otherwise.
+// Online Suggest should become available at the time the user accepts ToU if
+// Suggest overall is enabled. Online Suggest should remain unavailable
+// otherwise.
 add_task(async function onlineAvailable_onToUAccepted() {
   // `QuickSuggest.init` must be called so it adds itself as a `UrlbarPrefs`
   // observer.
@@ -397,7 +327,6 @@ add_task(async function onlineAvailable_onToUAccepted() {
     await doOnlineAvailableTest({
       region,
       locale,
-      isNightlyBuild: true,
       touAcceptedDate: 0,
       expected: expectedBefore,
       callback: async () => {
@@ -419,7 +348,6 @@ add_task(async function onlineAvailable_onToUAccepted() {
 });
 
 async function doOnlineAvailableTest({
-  isNightlyBuild,
   touAcceptedDate,
   expected,
   region = "US",
@@ -431,15 +359,10 @@ async function doOnlineAvailableTest({
       JSON.stringify({
         region,
         locale,
-        isNightlyBuild,
         touAcceptedDate,
         expected,
       })
   );
-
-  // Stub `QuickSuggest._isNightlyBuild`.
-  let sandbox = sinon.createSandbox();
-  sandbox.stub(QuickSuggest, "_isNightlyBuild").value(isNightlyBuild);
 
   // Set the ToU acceptance date.
   Services.prefs.setCharPref(
@@ -462,6 +385,5 @@ async function doOnlineAvailableTest({
     },
   });
 
-  sandbox.restore();
   Services.prefs.clearUserPref(TelemetryReportingPolicy.TOU_ACCEPTED_DATE_PREF);
 }

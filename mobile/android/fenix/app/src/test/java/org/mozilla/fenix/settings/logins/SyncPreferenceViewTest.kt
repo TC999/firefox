@@ -8,9 +8,12 @@ import android.content.Context
 import androidx.lifecycle.LifecycleOwner
 import androidx.navigation.NavController
 import androidx.preference.Preference
+import io.mockk.Awaits
 import io.mockk.CapturingSlot
 import io.mockk.MockKAnnotations
 import io.mockk.Runs
+import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import io.mockk.impl.annotations.RelaxedMockK
@@ -20,8 +23,11 @@ import io.mockk.mockkConstructor
 import io.mockk.slot
 import io.mockk.unmockkConstructor
 import io.mockk.verify
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import mozilla.components.concept.sync.AccountObserver
-import mozilla.components.service.fxa.SyncEngine
+import mozilla.components.concept.sync.SyncEngine
 import mozilla.components.service.fxa.manager.FxaAccountManager
 import mozilla.components.service.fxa.manager.SyncEnginesStorage
 import org.junit.After
@@ -35,7 +41,10 @@ import org.mozilla.fenix.settings.SyncPreference
 import org.mozilla.fenix.settings.SyncPreferenceView
 import org.mozilla.fenix.settings.logins.fragment.SavedLoginsAuthFragmentDirections
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class SyncPreferenceViewTest {
+
+    private val testScope = TestScope(UnconfinedTestDispatcher())
 
     @MockK private lateinit var syncPreference: SyncPreference
 
@@ -43,8 +52,7 @@ class SyncPreferenceViewTest {
 
     @MockK private lateinit var accountManager: FxaAccountManager
 
-    @RelaxedMockK
-    private lateinit var navController: NavController
+    @RelaxedMockK private lateinit var navController: NavController
     private lateinit var accountObserver: CapturingSlot<AccountObserver>
     private lateinit var preferenceChangeListener: CapturingSlot<Preference.OnPreferenceChangeListener>
     private lateinit var widgetVisibilitySlot: CapturingSlot<Boolean>
@@ -58,15 +66,19 @@ class SyncPreferenceViewTest {
         preferenceChangeListener = slot()
         widgetVisibilitySlot = slot()
 
-        val context = mockk<Context> {
-            every { getString(R.string.pref_key_credit_cards_sync_cards_across_devices) } returns "pref_key_credit_cards_sync_cards_across_devices"
-            every { getString(R.string.preferences_credit_cards_sync_cards_across_devices) } returns "Sync cards across devices"
-            every { getString(R.string.preferences_credit_cards_sync_cards) } returns "Sync cards"
+        val context =
+            mockk<Context> {
+                every { getString(R.string.pref_key_credit_cards_sync_cards_across_devices) } returns
+                    "pref_key_credit_cards_sync_cards_across_devices"
+                every { getString(R.string.preferences_credit_cards_sync_cards_across_devices) } returns
+                    "Sync cards across devices"
+                every { getString(R.string.preferences_credit_cards_sync_cards) } returns "Sync cards"
 
-            every { getString(R.string.pref_key_sync_logins) } returns "pref_key_sync_logins"
-            every { getString(R.string.preferences_passwords_sync_logins_2) } returns "Sync passwords"
-            every { getString(R.string.preferences_passwords_sync_logins_across_devices_2) } returns "Sync passwords across devices"
-        }
+                every { getString(R.string.pref_key_sync_logins) } returns "pref_key_sync_logins"
+                every { getString(R.string.preferences_passwords_sync_logins_2) } returns "Sync passwords"
+                every { getString(R.string.preferences_passwords_sync_logins_across_devices_2) } returns
+                    "Sync passwords across devices"
+            }
 
         syncPreference = mockk {
             every { isSwitchWidgetVisible = any() } just Runs
@@ -101,7 +113,9 @@ class SyncPreferenceViewTest {
 
         verify {
             navController.navigate(
-                SavedLoginsAuthFragmentDirections.actionGlobalAccountProblemFragment(entrypoint = FenixFxAEntryPoint.SavedLogins),
+                SavedLoginsAuthFragmentDirections.actionGlobalAccountProblemFragment(
+                    entrypoint = FenixFxAEntryPoint.SavedLogins
+                )
             )
         }
     }
@@ -121,8 +135,8 @@ class SyncPreferenceViewTest {
         verify {
             navController.navigate(
                 SavedLoginsAuthFragmentDirections.actionGlobalAccountProblemFragment(
-                    entrypoint = FenixFxAEntryPoint.SavedLogins,
-                ),
+                    entrypoint = FenixFxAEntryPoint.SavedLogins
+                )
             )
         }
     }
@@ -142,20 +156,18 @@ class SyncPreferenceViewTest {
         verify {
             navController.navigate(
                 SavedLoginsAuthFragmentDirections.actionSavedLoginsAuthFragmentToTurnOnSyncFragment(
-                    entrypoint = FenixFxAEntryPoint.SavedLogins,
-                ),
+                    entrypoint = FenixFxAEntryPoint.SavedLogins
+                )
             )
         }
     }
 
     @Test
-    fun `GIVEN LoginScreen and syncLogins true WHEN updateSyncPreferenceStatus THEN setStatus false`() {
+    fun `GIVEN LoginScreen and syncLogins true WHEN updateSyncPreferenceStatus THEN setEngineEnabled false`() {
         every { accountManager.authenticatedAccount() } returns mockk()
         every { accountManager.accountNeedsReauth() } returns false
-        every { anyConstructed<SyncEnginesStorage>().getStatus() } returns mapOf(
-            SyncEngine.Passwords to true,
-        )
-        every { anyConstructed<SyncEnginesStorage>().setStatus(any(), any()) } just Runs
+        every { anyConstructed<SyncEnginesStorage>().getStatus() } returns mapOf(SyncEngine.Passwords to true)
+        coEvery { accountManager.setEngineEnabled(any(), any()) } just Awaits
         every { syncPreference.setSwitchCheckedState(any()) } just Runs
 
         createView()
@@ -164,17 +176,15 @@ class SyncPreferenceViewTest {
         verify { syncPreference.isChecked = true }
         verify { syncPreference.title = LOGGED_IN_TITLE }
         assertTrue(preferenceChangeListener.captured.onPreferenceChange(syncPreference, false))
-        verify { anyConstructed<SyncEnginesStorage>().setStatus(any(), false) }
+        coVerify { accountManager.setEngineEnabled(SyncEngine.Passwords, false) }
     }
 
     @Test
-    fun `GIVEN LoginScreen and syncLogins false WHEN updateSyncPreferenceStatus THEN setStatus true`() {
+    fun `GIVEN LoginScreen and syncLogins false WHEN updateSyncPreferenceStatus THEN setEngineEnabled true`() {
         every { accountManager.authenticatedAccount() } returns mockk()
         every { accountManager.accountNeedsReauth() } returns false
-        every { anyConstructed<SyncEnginesStorage>().getStatus() } returns mapOf(
-            SyncEngine.Passwords to false,
-        )
-        every { anyConstructed<SyncEnginesStorage>().setStatus(any(), any()) } just Runs
+        every { anyConstructed<SyncEnginesStorage>().getStatus() } returns mapOf(SyncEngine.Passwords to false)
+        coEvery { accountManager.setEngineEnabled(any(), any()) } just Awaits
         every { syncPreference.setSwitchCheckedState(any()) } just Runs
 
         createView()
@@ -183,31 +193,33 @@ class SyncPreferenceViewTest {
         verify { syncPreference.isChecked = false }
         verify { syncPreference.title = LOGGED_IN_TITLE }
         assertTrue(preferenceChangeListener.captured.onPreferenceChange(syncPreference, true))
-        verify { anyConstructed<SyncEnginesStorage>().setStatus(any(), true) }
+        coVerify { accountManager.setEngineEnabled(SyncEngine.Passwords, true) }
     }
 
-    private fun createView() = SyncPreferenceView(
-        syncPreference = syncPreference,
-        lifecycleOwner = lifecycleOwner,
-        accountManager = accountManager,
-        syncEngine = SyncEngine.Passwords,
-        loggedOffTitle = NOT_LOGGED_IN_TITLE,
-        loggedInTitle = LOGGED_IN_TITLE,
-        onSyncSignInClicked = {
-            val directions =
-                SavedLoginsAuthFragmentDirections.actionSavedLoginsAuthFragmentToTurnOnSyncFragment(
-                    entrypoint = FenixFxAEntryPoint.SavedLogins,
-                )
-            navController.navigate(directions)
-        },
-        onReconnectClicked = {
-            val directions =
-                SavedLoginsAuthFragmentDirections.actionGlobalAccountProblemFragment(
-                    entrypoint = FenixFxAEntryPoint.SavedLogins,
-                )
-            navController.navigate(directions)
-        },
-    )
+    private fun createView() =
+        SyncPreferenceView(
+            syncPreference = syncPreference,
+            lifecycleOwner = lifecycleOwner,
+            coroutineScope = testScope,
+            accountManager = accountManager,
+            syncEngine = SyncEngine.Passwords,
+            loggedOffTitle = NOT_LOGGED_IN_TITLE,
+            loggedInTitle = LOGGED_IN_TITLE,
+            onSyncSignInClicked = {
+                val directions =
+                    SavedLoginsAuthFragmentDirections.actionSavedLoginsAuthFragmentToTurnOnSyncFragment(
+                        entrypoint = FenixFxAEntryPoint.SavedLogins
+                    )
+                navController.navigate(directions)
+            },
+            onReconnectClicked = {
+                val directions =
+                    SavedLoginsAuthFragmentDirections.actionGlobalAccountProblemFragment(
+                        entrypoint = FenixFxAEntryPoint.SavedLogins
+                    )
+                navController.navigate(directions)
+            },
+        )
 
     companion object {
         const val NOT_LOGGED_IN_TITLE: String = "Sync passwords across devices"

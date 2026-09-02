@@ -65,6 +65,7 @@
   "BrowserOffline",
   "CanCloseWindow",
   "WindowIsClosing",
+  "gLastWindowCloseTriggerHandled",
   "warnAboutClosingWindow",
   "MailIntegration",
   "gRemoteControl",
@@ -143,6 +144,7 @@
   "URILoadingHelper",
   "UrlbarPrefs",
   "UrlbarProviderSearchTips",
+  "UrlbarShared",
   "UrlbarTokenizer",
   "UrlbarUtils",
   "Weave",
@@ -226,7 +228,6 @@
   "gAddonAbuseReportEnabled",
   "gMiddleClickNewTabUsesPasteboard",
   "gPrintEnabled",
-  "gUseFeltPrivacyUI",
   "gReduceMotion",
   "gFindBar",
   "gFindBarInitialized",
@@ -235,5 +236,7 @@
   "ActionsProviderContextualSearch",
   "ToolbarDropHandler",
   "ProfilesDatastoreService",
-  "gTrustPanelHandler"
+  "gTrustPanelHandler",
+  "ContentSharingUtils",
+  "Referrals"
 ]

@@ -10,19 +10,12 @@
 
 #include "mozilla/MemoryReporting.h"
 #include "mozilla/SharedSubResourceCache.h"
+#include "mozilla/StyleSheet.h"
 #include "mozilla/css/Loader.h"
 #include "nsIMemoryReporter.h"
 #include "nsIObserver.h"
 
 namespace mozilla {
-
-class StyleSheet;
-class SheetLoadDataHashKey;
-
-namespace css {
-class SheetLoadData;
-class Loader;
-}  // namespace css
 
 struct SharedStyleSheetCacheTraits {
   using Loader = css::Loader;
@@ -81,36 +74,40 @@ class SharedStyleSheetCache final
 
   size_t SizeOfIncludingThis(MallocSizeOf) const;
 
-  auto LookupInline(nsIPrincipal* aPrincipal, const nsAString& aBuffer) {
-    auto& principalMap = mInlineSheets.LookupOrInsert(aPrincipal);
-    return principalMap.Lookup(aBuffer);
-  }
-
   struct InlineSheetEntry {
     RefPtr<StyleSheet> mSheet;
     bool mWasLoadedAsImage = false;
   };
   using InlineSheetCandidates = nsTArray<InlineSheetEntry>;
 
-  void InsertInline(nsIPrincipal* aPrincipal, const nsAString& aBuffer,
-                    InlineSheetEntry&& aEntry) {
-    // TODO(emilio): Maybe a better eviction policy for inline sheets, or an
-    // expiration tracker or so?
+  template <class F>
+  void WithInlineEntryHandle(nsIPrincipal* aPrincipal,
+                             const nsACString& aBuffer, F&& aFunc) {
     auto& principalMap = mInlineSheets.LookupOrInsert(aPrincipal);
-    principalMap
-        .LookupOrInsertWith(aBuffer, [] { return InlineSheetCandidates(); })
-        .AppendElement(std::move(aEntry));
+    return principalMap.WithEntryHandle(aBuffer, std::forward<F>(aFunc));
   }
 
  protected:
   void InsertIfNeeded(css::SheetLoadData&);
-  nsTHashMap<PrincipalHashKey,
-             nsTHashMap<nsStringHashKey, InlineSheetCandidates>>
-      mInlineSheets;
-
   bool ShouldIgnoreMemoryPressure() override { return false; }
+  void DoScheduleGC();
+  void GC();
+
+  nsTHashMap<PrincipalHashKey,
+             nsTHashMap<nsCStringHashKey, InlineSheetCandidates>>
+      mInlineSheets;
+  nsCOMPtr<nsITimer> mGCTimer;
+  bool mGCScheduled : 1 = false;
 
   ~SharedStyleSheetCache();
+
+ public:
+  static void ScheduleGC() {
+    if (!sSingleton || sSingleton->mGCScheduled) {
+      return;
+    }
+    sSingleton->DoScheduleGC();
+  }
 };
 
 }  // namespace mozilla

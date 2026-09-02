@@ -35,8 +35,8 @@ namespace mozilla::dom {
 
 // static
 already_AddRefed<ServiceWorker> ServiceWorker::Create(
-    nsIGlobalObject* aOwner, const ServiceWorkerDescriptor& aDescriptor) {
-  RefPtr<ServiceWorker> ref = new ServiceWorker(aOwner, aDescriptor);
+    nsIGlobalObject* aGlobal, const ServiceWorkerDescriptor& aDescriptor) {
+  RefPtr<ServiceWorker> ref = new ServiceWorker(aGlobal, aDescriptor);
   return ref.forget();
 }
 
@@ -47,6 +47,12 @@ ServiceWorker::ServiceWorker(nsIGlobalObject* aGlobal,
       mShutdown(false),
       mLastNotifiedState(ServiceWorkerState::Installing) {
   MOZ_DIAGNOSTIC_ASSERT(aGlobal);
+
+  if (NS_WARN_IF(!BackgroundChild::ValidatePrincipalInfo(
+          aDescriptor.PrincipalInfo(), {}))) {
+    Shutdown();
+    return;
+  }
 
   PBackgroundChild* parentActor =
       BackgroundChild::GetOrCreateForCurrentThread();
@@ -170,7 +176,7 @@ void ServiceWorker::PostMessage(JSContext* aCx, JS::Handle<JS::Value> aMessage,
     return;
   }
 
-  nsIGlobalObject* global = GetOwnerGlobal();
+  nsIGlobalObject* global = GetRelevantGlobal();
   if (NS_WARN_IF(!global)) {
     aRv.Throw(NS_ERROR_DOM_INVALID_STATE_ERR);
     return;

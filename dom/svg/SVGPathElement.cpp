@@ -44,7 +44,7 @@ class MOZ_RAII AutoChangePathSegListNotifier : public mozAutoDocUpdate {
 
   ~AutoChangePathSegListNotifier() {
     mSVGElement->DidChangePathSegList(*this);
-    if (mSVGElement->GetAnimPathSegList()->IsAnimating()) {
+    if (mSVGElement->GetAnimatedPathSegList()->IsAnimating()) {
       mSVGElement->AnimationNeedsResample();
     }
   }
@@ -62,7 +62,7 @@ JSObject* SVGPathElement::WrapNode(JSContext* aCx,
 // Implementation
 
 SVGPathElement::SVGPathElement(
-    already_AddRefed<mozilla::dom::NodeInfo>&& aNodeInfo)
+    already_AddRefed<mozilla::dom::NodeInfo> aNodeInfo)
     : SVGPathElementBase(std::move(aNodeInfo)) {}
 
 //----------------------------------------------------------------------
@@ -251,13 +251,10 @@ void SVGPathElement::GetAsSimplePath(SimplePath* aSimplePath) {
   auto callback = [&](const ComputedStyle* s) {
     const nsStyleSVGReset* styleSVGReset = s->StyleSVGReset();
     if (styleSVGReset->mD.IsPath()) {
-      auto pathData = styleSVGReset->mD.AsPath()._0.AsSpan();
-      auto maybeRect = SVGPathToAxisAlignedRect(pathData);
-      if (maybeRect.isSome()) {
-        const Rect& r = *maybeRect;
-        float zoom = s->EffectiveZoom().ToFloat();
-        aSimplePath->SetRect(r.x * zoom, r.y * zoom, r.width * zoom,
-                             r.height * zoom);
+      if (auto maybeRect = SVGPathSegUtils::SVGPathToAxisAlignedRect(
+              styleSVGReset->mD.AsPath()._0.AsSpan())) {
+        maybeRect->Scale(s->EffectiveZoom().ToFloat());
+        aSimplePath->SetRect(*maybeRect);
       }
     }
   };

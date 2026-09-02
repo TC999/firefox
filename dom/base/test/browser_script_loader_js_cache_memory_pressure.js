@@ -7,6 +7,7 @@ add_task(async function testMemoryCache_MemoryPressure() {
       ["dom.script_loader.bytecode_cache.enabled", true],
       ["dom.script_loader.bytecode_cache.strategy", 0],
       ["dom.script_loader.experimental.navigation_cache", true],
+      ["dom.script_loader.disk_cache_delay_ms", 0],
       [
         "dom.script_loader.experimental.navigation_cache.check_memory_pressure",
         true,

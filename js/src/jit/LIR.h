@@ -176,13 +176,7 @@ class LAllocation {
                                               ~(KIND_MASK << KIND_SHIFT));
   }
 
-  bool operator==(const LAllocation& other) const {
-    return bits_ == other.bits_;
-  }
-
-  bool operator!=(const LAllocation& other) const {
-    return bits_ != other.bits_;
-  }
+  bool operator==(const LAllocation& other) const = default;
 
   HashNumber hash() const { return bits_; }
 
@@ -432,6 +426,9 @@ class LStackSlot : public LAllocation {
     uint32_t slot() const { return data_ & SLOT_MASK; }
     Width width() const { return Width(data_ & WIDTH_MASK); }
   };
+
+  static constexpr uint32_t MAX_SLOT =
+      (uint64_t(1) << LAllocation::DATA_BITS) - 1;
 
   explicit LStackSlot(SlotAndWidth slotAndWidth)
       : LAllocation(STACK_SLOT, slotAndWidth.data()) {}
@@ -1711,6 +1708,13 @@ class LSafepoint : public TempObject {
   // Wasm only: with what kind of instruction is this LSafepoint associated?
   WasmSafepointKind wasmSafepointKind_;
 
+#ifdef DEBUG
+  // Set once this safepoint has been recorded in the codegen safepoint index.
+  // Used by CodeGeneratorShared::markSafepointAt to detect the "many-to-one"
+  // case (a single LSafepoint recorded at more than one offset) in O(1).
+  bool recordedInSafepointIndices_ = false;
+#endif
+
   // Wasm only: what is the value of masm.framePushed() that corresponds to
   // the lowest-addressed word covered by the StackMap that we will generate
   // from this LSafepoint?  This depends on the instruction:
@@ -1761,6 +1765,13 @@ class LSafepoint : public TempObject {
     assertInvariants();
   }
   const LiveRegisterSet& liveRegs() const { return liveRegs_; }
+#ifdef DEBUG
+  bool recordedInSafepointIndices() const {
+    return recordedInSafepointIndices_;
+  }
+  // A safepoint can be recorded at more than one index.
+  void setRecordedInSafepointIndices() { recordedInSafepointIndices_ = true; }
+#endif
 #ifdef CHECK_OSIPOINT_REGISTERS
   void addClobberedRegister(AnyRegister reg) {
     clobberedRegs_.addUnchecked(reg);
@@ -2310,11 +2321,11 @@ namespace jit {
 
 #define LIROP(name)                           \
   L##name* LNode::to##name() {                \
-    MOZ_ASSERT(is##name());                   \
+    MOZ_RELEASE_ASSERT(is##name());           \
     return static_cast<L##name*>(this);       \
   }                                           \
   const L##name* LNode::to##name() const {    \
-    MOZ_ASSERT(is##name());                   \
+    MOZ_RELEASE_ASSERT(is##name());           \
     return static_cast<const L##name*>(this); \
   }
 LIR_OPCODE_LIST(LIROP)
@@ -2322,12 +2333,12 @@ LIR_OPCODE_LIST(LIROP)
 
 #define LALLOC_CAST(type)               \
   L##type* LAllocation::to##type() {    \
-    MOZ_ASSERT(is##type());             \
+    MOZ_RELEASE_ASSERT(is##type());     \
     return static_cast<L##type*>(this); \
   }
 #define LALLOC_CONST_CAST(type)                  \
   const L##type* LAllocation::to##type() const { \
-    MOZ_ASSERT(is##type());                      \
+    MOZ_RELEASE_ASSERT(is##type());              \
     return static_cast<const L##type*>(this);    \
   }
 

@@ -6,7 +6,6 @@
 
 #include "mozilla/Atomics.h"
 #include "mozilla/ChaosMode.h"
-#include "mozilla/glean/NetwerkMetrics.h"
 #include "mozilla/IntegerPrintfMacros.h"
 #include "mozilla/MaybeLeakRefPtr.h"
 #include "mozilla/PodOperations.h"
@@ -17,8 +16,9 @@
 #include "mozilla/ReverseIterator.h"
 #include "mozilla/Services.h"
 #include "mozilla/StaticPrefs_network.h"
-#include "mozilla/Tokenizer.h"
 #include "mozilla/Telemetry.h"
+#include "mozilla/Tokenizer.h"
+#include "mozilla/glean/NetwerkMetrics.h"
 #include "nsASocketHandler.h"
 #include "nsError.h"
 #include "nsIEventTarget.h"
@@ -70,6 +70,22 @@ PRCallOnceType nsSocketTransportService::gMaxCountInitOnce;
 
 // Utility functions
 bool OnSocketThread() { return PR_GetCurrentThread() == gSocketThread; }
+
+nsresult DispatchToCurrent(already_AddRefed<nsIRunnable> aEvent) {
+  nsCOMPtr<nsIRunnable> event(aEvent);
+  nsISerialEventTarget* thread = GetCurrentSerialEventTarget();
+  if (!thread) {
+    // If there's no serial event target, fallback to current thread.
+    thread = NS_GetCurrentThread();
+  }
+  if (!thread) {
+    return NS_ERROR_UNEXPECTED;
+  }
+  return thread->Dispatch(event.forget(), NS_DISPATCH_FALLIBLE);
+}
+nsresult DispatchToCurrent(nsIRunnable* aEvent) {
+  return DispatchToCurrent(do_AddRef(aEvent));
+}
 
 //-----------------------------------------------------------------------------
 
@@ -753,7 +769,7 @@ NS_IMPL_ISUPPORTS(nsSocketTransportService, nsISocketTransportService,
                   nsPISocketTransportService, nsIObserver, nsINamed,
                   nsIDirectTaskDispatcher)
 
-static const char* gCallbackPrefs[] = {
+static const char* gCallbackUpdatePrefs[] = {
     SEND_BUFFER_PREF,
     KEEPALIVE_ENABLED_PREF,
     KEEPALIVE_IDLE_TIME_PREF,
@@ -838,7 +854,7 @@ nsSocketTransportService::Init() {
         "Underlying thread must support direct task dispatching");
   }
 
-  Preferences::RegisterCallbacks(UpdatePrefs, gCallbackPrefs, this);
+  Preferences::RegisterCallbacks(UpdatePrefs, gCallbackUpdatePrefs, this);
   UpdatePrefs();
 
   nsCOMPtr<nsIObserverService> obsSvc = services::GetObserverService();
@@ -922,7 +938,7 @@ nsresult nsSocketTransportService::ShutdownThread() {
     mDirectTaskDispatcher = nullptr;
   }
 
-  Preferences::UnregisterCallbacks(UpdatePrefs, gCallbackPrefs, this);
+  Preferences::UnregisterCallbacks(UpdatePrefs, gCallbackUpdatePrefs, this);
 
   nsCOMPtr<nsIObserverService> obsSvc = services::GetObserverService();
   if (obsSvc) {
@@ -1704,12 +1720,12 @@ void nsSocketTransportService::ClosePrivateConnections() {
   MOZ_ASSERT(IsOnCurrentThread(), "Must be called on the socket thread");
 
   for (int32_t i = mActiveList.Length() - 1; i >= 0; --i) {
-    if (mActiveList[i].mHandler->mIsPrivate) {
+    if (mActiveList[i].mHandler->mOriginAttributes.IsPrivateBrowsing()) {
       DetachSocket(mActiveList, &mActiveList[i]);
     }
   }
   for (int32_t i = mIdleList.Length() - 1; i >= 0; --i) {
-    if (mIdleList[i].mHandler->mIsPrivate) {
+    if (mIdleList[i].mHandler->mOriginAttributes.IsPrivateBrowsing()) {
       DetachSocket(mIdleList, &mIdleList[i]);
     }
   }
@@ -1781,9 +1797,6 @@ PRStatus nsSocketTransportService::DiscoverMaxCount() {
 void nsSocketTransportService::AnalyzeConnection(nsTArray<SocketInfo>* data,
                                                  SocketContext* context,
                                                  bool aActive) {
-  if (context->mHandler->mIsPrivate) {
-    return;
-  }
   PRFileDesc* aFD = context->mFD;
 
   PRFileDesc* idLayer = PR_GetIdentitiesLayer(aFD, PR_NSPR_IO_LAYER);
@@ -1836,8 +1849,15 @@ void nsSocketTransportService::AnalyzeConnection(nsTArray<SocketInfo>* data,
 
   uint64_t sent = context->mHandler->ByteCountSent();
   uint64_t received = context->mHandler->ByteCountReceived();
-  SocketInfo info = {nsCString(host),     sent, received, port, aActive,
-                     nsCString(type_desc)};
+  nsCString originAttributesSuffix;
+  context->mHandler->mOriginAttributes.CreateSuffix(originAttributesSuffix);
+  SocketInfo info = {nsCString(host),
+                     sent,
+                     received,
+                     port,
+                     aActive,
+                     nsCString(type_desc),
+                     originAttributesSuffix};
 
   data->AppendElement(info);
 }

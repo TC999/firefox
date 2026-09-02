@@ -14,6 +14,7 @@
 #include "nsIURI.h"
 #include "nsITimer.h"
 #include "nsTHashMap.h"
+#include "nsTHashSet.h"
 #include "nsTHashtable.h"
 #include "nsTArray.h"
 #include "nsString.h"
@@ -45,6 +46,7 @@ class OriginAttributesPattern;
 
 namespace dom {
 class ContentChild;
+class ContentParent;
 class WindowContext;
 }  // namespace dom
 
@@ -86,12 +88,12 @@ class PermissionManager final : public nsIPermissionManager,
    */
   class PermissionKey {
    public:
-    static PermissionKey* CreateFromPrincipal(nsIPrincipal* aPrincipal,
-                                              bool aForceStripOA,
-                                              bool aScopeToSite,
-                                              nsresult& aResult);
-    static PermissionKey* CreateFromURI(nsIURI* aURI, nsresult& aResult);
-    static PermissionKey* CreateFromURIAndOriginAttributes(
+    static already_AddRefed<PermissionKey> CreateFromPrincipal(
+        nsIPrincipal* aPrincipal, bool aForceStripOA, bool aScopeToSite,
+        nsresult& aResult);
+    static already_AddRefed<PermissionKey> CreateFromURI(nsIURI* aURI,
+                                                         nsresult& aResult);
+    static already_AddRefed<PermissionKey> CreateFromURIAndOriginAttributes(
         nsIURI* aURI, const OriginAttributes* aOriginAttributes,
         bool aForceStripOA, nsresult& aResult);
 
@@ -114,7 +116,7 @@ class PermissionManager final : public nsIPermissionManager,
     PermissionKey() = delete;
 
     // Dtor shouldn't be used outside of the class.
-    ~PermissionKey() {};
+    ~PermissionKey() = default;
   };
 
   class PermissionHashKey : public nsRefPtrHashKey<PermissionKey> {
@@ -346,25 +348,6 @@ class PermissionManager final : public nsIPermissionManager,
    */
   void SetPermissionsWithKey(const nsACString& aPermissionKey,
                              nsTArray<IPC::Permission>& aPerms);
-
-  /**
-   * Add a callback which should be run when all permissions are available for
-   * the given nsIPrincipal. This method invokes the callback runnable
-   * synchronously when the permissions are already available. Otherwise the
-   * callback will be run asynchronously in SystemGroup when all permissions
-   * are available in the future.
-   *
-   * NOTE: This method will not request the permissions be sent by the parent
-   * process. This should only be used to wait for permissions which may not
-   * have arrived yet in order to ensure they are present.
-   *
-   * @param aPrincipal The principal to wait for permissions to be available
-   * for.
-   * @param aRunnable  The runnable to run when permissions are available for
-   * the given principal.
-   */
-  void WhenPermissionsAvailable(nsIPrincipal* aPrincipal,
-                                nsIRunnable* aRunnable);
 
   /**
    * Strip origin attributes for permissions, depending on permission isolation
@@ -607,8 +590,8 @@ class PermissionManager final : public nsIPermissionManager,
 
   void FinishAsyncShutdown();
 
-  nsRefPtrHashtable<nsCStringHashKey, GenericNonExclusivePromise::Private>
-      mPermissionKeyPromiseMap MOZ_GUARDED_BY(mMonitor);
+  // Set of permission keys loaded within this content process.
+  nsTHashSet<nsCString> mPermissionKeys MOZ_GUARDED_BY(mMonitor);
 
   nsCOMPtr<nsIFile> mPermissionsFile MOZ_GUARDED_BY(mMonitor);
 
@@ -767,6 +750,9 @@ class PermissionManager final : public nsIPermissionManager,
                                              uint32_t aActionFilter);
 
  public:
+  void TransmitBrowserPermissionsForPrincipal(
+      dom::ContentParent* aContentParent, nsIPrincipal* aPrincipal,
+      uint64_t aBrowserId);
   // Called from ContentChild IPC handlers. These are thin wrappers around
   // the internal methods, asserting we are in the content process.
   void SetBrowserPermissionFromIPC(nsIPrincipal* aPrincipal,

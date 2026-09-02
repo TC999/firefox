@@ -56,6 +56,14 @@ enum NewObjectKind {
   TenuredObject
 };
 
+// Combined options struct for functions that create objects.
+struct NewObjectOptions {
+  NewObjectKind newKind = GenericObject;
+  ObjectFlags flags = {};
+  gc::AllocKind allocKind = gc::AllocKind::INVALID;
+  gc::AllocSite* site = nullptr;
+};
+
 // Forward declarations, required for later friend declarations.
 bool PreventExtensions(JSContext* cx, JS::HandleObject obj,
                        JS::ObjectOpResult& result);
@@ -83,7 +91,7 @@ bool SetImmutablePrototype(JSContext* cx, JS::HandleObject obj,
  * NOTE: Some operations can change the contents of an object (including class)
  *       in-place so avoid assuming an object with same pointer has same class
  *       as before.
- *       - JSObject::swap()
+ *       - ProxyObject::swap()
  */
 class JSObject
     : public js::gc::CellWithTenuredGCPointer<js::gc::Cell, js::Shape> {
@@ -155,6 +163,15 @@ class JSObject
     setHeaderPtr(shape);
   }
 
+  // Like setShape but for use by ProxyObject::swap. It can change the realm of
+  // an object but not its compartment.
+  void setShapeForProxySwap(js::Shape* newShape) {
+    MOZ_ASSERT(shape()->isProxy());
+    MOZ_ASSERT(newShape->isProxy());
+    MOZ_RELEASE_ASSERT(compartment() == newShape->compartment());
+    setHeaderPtr(newShape);
+  }
+
   static bool setFlags(JSContext* cx, JS::HandleObject obj,
                        js::ObjectFlags flags);
 
@@ -220,6 +237,10 @@ class JSObject
   }
   static bool setHasNonFunctionAccessor(JSContext* cx, JS::HandleObject obj) {
     return setFlag(cx, obj, js::ObjectFlag::HasNonFunctionAccessor);
+  }
+
+  static bool setLegacyFeaturesDisabled(JSContext* cx, JS::HandleObject obj) {
+    return setFlag(cx, obj, js::ObjectFlag::LegacyFeaturesDisabled);
   }
 
   bool hasObjectFuse() const { return hasFlag(js::ObjectFlag::HasObjectFuse); }
@@ -313,9 +334,11 @@ class JSObject
     return JS::shadow::Zone::from(zone());
   }
   MOZ_ALWAYS_INLINE JS::Zone* zoneFromAnyThread() const {
-    MOZ_ASSERT_IF(!isTenured(),
-                  nurseryZoneFromAnyThread() == shape()->zoneFromAnyThread());
-    return shape()->zoneFromAnyThread();
+    MOZ_ASSERT_IF(!isTenured(), nurseryZoneFromAnyThread() ==
+                                    shapeMaybeForwarded()->zoneFromAnyThread());
+    // Use shapeMaybeForwarded() (atomic read) as parallel GC compacting workers
+    // may concurrently update this header via setAtomic().
+    return shapeMaybeForwarded()->zoneFromAnyThread();
   }
   MOZ_ALWAYS_INLINE JS::shadow::Zone* shadowZoneFromAnyThread() const {
     return JS::shadow::Zone::from(zoneFromAnyThread());
@@ -479,9 +502,6 @@ class JSObject
                                   js::HandleValue receiver,
                                   JS::ObjectOpResult& result);
 
-  static void swap(JSContext* cx, JS::HandleObject a, JS::HandleObject b,
-                   js::AutoEnterOOMUnsafeRegion& oomUnsafe);
-
   /*
    * In addition to the generic object interface provided by JSObject,
    * specific types of objects may provide additional operations. To access,
@@ -585,6 +605,9 @@ class JSObject
       4 * sizeof(void*) + 16 * sizeof(JS::Value);
 #endif
 
+  JSObject(const JSObject& other) = delete;
+  void operator=(const JSObject& other) = delete;
+
  protected:
   // JIT Accessors.
   //
@@ -593,10 +616,6 @@ class JSObject
   friend class js::jit::MacroAssembler;
 
   static constexpr size_t offsetOfShape() { return offsetOfHeaderPtr(); }
-
- private:
-  JSObject(const JSObject& other) = delete;
-  void operator=(const JSObject& other) = delete;
 
  protected:
   // For the allocator only, to be used with placement new.
@@ -771,8 +790,8 @@ constexpr size_t JSObject::thingSize(js::gc::AllocKind kind) {
 
 namespace js {
 
-// Returns true if object may possibly use JSObject::swap. The JITs may better
-// optimize objects that can never swap (and thus change their type).
+// Returns true if object may possibly use ProxyObject::swap. The JITs may
+// better optimize objects that can never swap (and thus change their type).
 //
 // If ObjectMayBeSwapped is false, it is safe to guard on pointer identity to
 // test immutable features of the object. For example, the target of a
@@ -1088,8 +1107,12 @@ extern bool TestIntegrityLevel(JSContext* cx, HandleObject obj,
     JSContext* cx, HandleObject obj, JSProtoKey ctorKey,
     bool (*isDefaultSpecies)(JSContext*, JSFunction*));
 
-extern bool GetObjectFromHostDefinedData(JSContext* cx,
-                                         MutableHandleObject obj);
+extern bool GetObjectFromHostDefinedData(
+    JSContext* cx, MutableHandleObject incumbentGlobal,
+    MutableHandleObject optionalHostDefinedData);
+
+extern bool GetIncumbentGlobalRepresentative(
+    JSContext* cx, MutableHandleObject incumbentGlobalRepresentative);
 
 #ifdef DEBUG
 inline bool IsObjectValueInCompartment(const Value& v, JS::Compartment* comp) {

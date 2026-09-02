@@ -2,16 +2,16 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include "gtest/gtest.h"
 #include "mozilla/LazyIdleThread.h"
 #include "mozilla/SharedThreadPool.h"
 #include "mozilla/ThrottledEventQueue.h"
-#include "nsComponentManagerUtils.h"
 #include "nsCOMPtr.h"
+#include "nsComponentManagerUtils.h"
 #include "nsThreadPool.h"
 #include "nsThreadUtils.h"
 #include "nsXPCOM.h"
 #include "nsXPCOMCIDInternal.h"
-#include "gtest/gtest.h"
 
 using namespace mozilla;
 
@@ -27,7 +27,7 @@ bool TestQITo(SourcePtr& aPtr1) {
 
 TEST(TestEventTargetQI, ThreadPool)
 {
-  nsCOMPtr<nsIThreadPool> thing = new nsThreadPool();
+  RefPtr thing = MakeRefPtr<nsThreadPool>();
 
   EXPECT_FALSE(TestQITo<nsISerialEventTarget>(thing));
 
@@ -70,7 +70,7 @@ TEST(TestEventTargetQI, ThrottledEventQueue)
 
 TEST(TestEventTargetQI, LazyIdleThread)
 {
-  RefPtr<LazyIdleThread> thing = new LazyIdleThread(0, "TestThread");
+  RefPtr thing = MakeRefPtr<LazyIdleThread>(0, "TestThread");
   EXPECT_TRUE(thing);
 
   EXPECT_TRUE(TestQITo<nsISerialEventTarget>(thing));

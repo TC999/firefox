@@ -21,6 +21,7 @@ if not CONFIG["MOZ_SYSTEM_FFI"]:
         "!libffi/include",
         "libffi/src/%s" % CONFIG["FFI_TARGET_DIR"],
     ]
+    DEFINES["FFI_STATIC_BUILD"] = True
 
 if CONFIG["MOZ_SYSTEM_FFI"]:
     CXXFLAGS += CONFIG["MOZ_FFI_CFLAGS"]

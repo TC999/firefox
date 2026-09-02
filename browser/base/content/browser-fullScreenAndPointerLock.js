@@ -1,5 +1,4 @@
-/* -*- indent-tabs-mode: nil; js-indent-level: 2 -*-
- * This Source Code Form is subject to the terms of the Mozilla Public
+/* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
@@ -42,24 +41,39 @@ var PointerlockFsWarning = {
       let timeout = Services.prefs.getIntPref(
         "pointer-lock-api.warning.timeout"
       );
-      this.show(aOrigin, "pointerlock-warning", timeout, 0);
+      this.show(aOrigin, "pointerlock-warning", timeout, 0, false);
     }
+  },
+
+  _getTimeout(keyboardLockEnabled) {
+    if (keyboardLockEnabled) {
+      return Services.prefs.getIntPref(
+        "full-screen-api.keyboardlock-warning.timeout"
+      );
+    }
+    return Services.prefs.getIntPref("full-screen-api.warning.timeout");
   },
 
   // Show info that top level has entered fullscreen. Ultimately, it is always
   // ancestors who are in control of what is displayed on screen.
   // By always displaying the top level, we try to make that clear to the user.
-  showFullScreen(browsingContext) {
+  showFullScreen(browsingContext, keyboardLockEnabled) {
     const origin =
       browsingContext.top.currentWindowGlobal.documentPrincipal.originNoSuffix;
-    let timeout = Services.prefs.getIntPref("full-screen-api.warning.timeout");
+    const timeout = this._getTimeout(keyboardLockEnabled);
     let delay = Services.prefs.getIntPref("full-screen-api.warning.delay");
-    this.show(origin, "fullscreen-warning", timeout, delay);
+    this.show(
+      origin,
+      "fullscreen-warning",
+      timeout,
+      delay,
+      keyboardLockEnabled
+    );
   },
 
   // Shows a warning that the site has entered fullscreen or
   // pointer lock for a short duration.
-  show(aOrigin, elementId, timeout, delay) {
+  show(aOrigin, elementId, timeout, delay, keyboardLockEnabled) {
     if (!this._element) {
       this._element = document.getElementById(elementId);
       // Setup event listeners
@@ -117,6 +131,25 @@ var PointerlockFsWarning = {
       });
     }
 
+    let buttonElement = this._element.querySelector("#fullscreen-exit-button");
+    if (buttonElement) {
+      if (AppConstants.platform == "macosx") {
+        document.l10n.setAttributes(
+          buttonElement,
+          keyboardLockEnabled
+            ? "fullscreen-keyboardlock-exit-mac-button"
+            : "fullscreen-exit-mac-button"
+        );
+      } else {
+        document.l10n.setAttributes(
+          buttonElement,
+          keyboardLockEnabled
+            ? "fullscreen-keyboardlock-exit-button"
+            : "fullscreen-exit-button"
+        );
+      }
+    }
+
     this._element.dataset.identity =
       gIdentityHandler.pointerlockFsWarningClassName;
 
@@ -156,6 +189,10 @@ var PointerlockFsWarning = {
     this._element
       .querySelector(".pointerlockfswarning-domain-text")
       .removeAttribute("data-l10n-id");
+    let buttonElement = this._element.querySelector("#fullscreen-exit-button");
+    if (buttonElement) {
+      buttonElement.removeAttribute("data-l10n-id");
+    }
     // Remove all event listeners
     this._element.removeEventListener("transitionend", this);
     this._element.removeEventListener("transitioncancel", this);
@@ -464,14 +501,12 @@ var FullScreen = {
     // don't need that kind of precision in our CSS.
     shiftSize = shiftSize.toFixed(2);
     let translate = shiftSize > 0 ? `0 ${shiftSize}px` : "";
-    document.body.style.translate = translate;
-    gURLBar.style.translate = gURLBar.hasAttribute("breakout") ? translate : "";
-    let searchbar = document.getElementById("searchbar-new");
-    if (searchbar) {
-      searchbar.style.translate = searchbar.hasAttribute("breakout")
-        ? translate
-        : "";
-    }
+    gNavToolbox.classList.toggle("fullscreen-floating-toolbox", shiftSize > 0);
+    gNavToolbox.style.translate = translate;
+    gURLBar.style.setProperty("--toolbar-shift-translate", translate);
+    document
+      .getElementById("searchbar-new")
+      ?.style.setProperty("--toolbar-shift-translate", translate);
     if (shiftSize > 0) {
       // If the mouse tracking missed our fullScreenToggler, then the toolbox
       // might not have been shown before the menubar is animated down. Make
@@ -602,12 +637,20 @@ var FullScreen = {
       let notifications = PopupNotifications.getNotification(
         this._permissionNotificationIDs
       ).filter(n => !n.dismissed);
-      PopupNotifications.remove(notifications, true);
+      PopupNotifications.remove(
+        notifications,
+        /* withoutUserResponse = */ true
+      );
       if (notifications.length) {
         this._logWarningPermissionPromptFS("promptCanceled");
       }
     }
     document.documentElement.setAttribute("inDOMFullscreen", true);
+    // DOM fullscreen hides the nav toolbox, so the sidebar should hide too.
+    document.documentElement.toggleAttribute(
+      "fullscreenNavToolboxHidden",
+      true
+    );
 
     XULBrowserWindow.onEnterDOMFullscreen();
 
@@ -635,6 +678,8 @@ var FullScreen = {
 
   cleanup() {
     if (!window.fullScreen) {
+      this._mouseTargetRectObserver?.disconnect();
+      this._collapsedToolboxObserver?.disconnect();
       MousePosTracker.removeListener(this);
       document.removeEventListener("keypress", this._keyToggleCallback);
       document.removeEventListener("popupshown", this._setPopupOpen);
@@ -707,6 +752,12 @@ var FullScreen = {
     );
 
     document.documentElement.removeAttribute("inDOMFullscreen");
+    // Leaving DOM fullscreen may return to F11 fullscreen with the nav toolbox
+    // still collapsed, so only clear the attribute if the chrome is showing.
+    document.documentElement.toggleAttribute(
+      "fullscreenNavToolboxHidden",
+      this._isChromeCollapsed
+    );
 
     return needToWaitForChildExit;
   },
@@ -815,6 +866,39 @@ var FullScreen = {
     return this._mouseTargetRect;
   },
 
+  // The region that hides the nav toolbox when the pointer enters it: the given
+  // tabpanels bounds, minus a 50px band at the top so the toolbox stays up while
+  // the pointer is near it.
+  _mouseTargetRectFromBounds(rect) {
+    return {
+      top: rect.top + 50,
+      bottom: rect.bottom,
+      left: rect.left,
+      right: rect.right,
+    };
+  },
+
+  // Recompute the mouse-target region against the current layout. The sidebar
+  // stays visible in fullscreen and reveals with an animation, so tabpanels
+  // (which excludes the sidebar) resizes as it settles. A ResizeObserver drives
+  // this update rather than recomputing in getMouseTargetRect, which would flush
+  // layout on every mouse move. We wait for promiseDocumentFlushed and read
+  // geometry with getBoundsWithoutFlushing so measuring never forces a
+  // synchronous flush.
+  _updateMouseTargetRect() {
+    return window
+      .promiseDocumentFlushed(() =>
+        window.windowUtils.getBoundsWithoutFlushing(gBrowser.tabpanels)
+      )
+      .then(rect => {
+        if (!window.fullScreen) {
+          return;
+        }
+        this._mouseTargetRect = this._mouseTargetRectFromBounds(rect);
+      })
+      .catch(() => {});
+  },
+
   // Event callbacks
   _expandCallback() {
     FullScreen.showNavToolbox();
@@ -861,14 +945,14 @@ var FullScreen = {
     }
   },
 
-  // UrlbarController listener method
+  // UrlbarChildController listener method
   onViewOpen() {
     if (!this._isChromeCollapsed) {
       this._isPopupOpen = true;
     }
   },
 
-  // UrlbarController listener method
+  // UrlbarChildController listener method
   onViewClose() {
     this._isPopupOpen = false;
     this.hideNavToolbox(true);
@@ -894,31 +978,73 @@ var FullScreen = {
     FullScreen.hideNavToolbox(true);
   },
 
+  // Pull the toolbox up by exactly its own height so it sits fully offscreen.
+  // Skipping the write when the margin already matches keeps the
+  // ResizeObserver below from scheduling another pass for our own mutation.
+  _setCollapsedToolboxMargin(height) {
+    let marginTop = `${-height}px`;
+    if (gNavToolbox.style.marginTop != marginTop) {
+      gNavToolbox.style.marginTop = marginTop;
+    }
+  },
+
+  // Re-measure the collapsed toolbox once layout has settled. This is driven by
+  // a ResizeObserver, so we go through promiseDocumentFlushed to debounce bursts
+  // of resizes, and read the height with getBoundsWithoutFlushing so measuring
+  // never forces a synchronous flush.
+  _updateCollapsedToolboxMargin() {
+    return window
+      .promiseDocumentFlushed(
+        () => window.windowUtils.getBoundsWithoutFlushing(gNavToolbox).height
+      )
+      .then(height => {
+        if (this._isChromeCollapsed) {
+          this._setCollapsedToolboxMargin(height);
+        }
+      })
+      .catch(() => {});
+  },
+
   showNavToolbox(trackMouse = true) {
     if (BrowserHandler.kiosk) {
       return;
     }
     this.fullScreenToggler.hidden = true;
     gNavToolbox.removeAttribute("fullscreenShouldAnimate");
+    this._collapsedToolboxObserver?.disconnect();
     gNavToolbox.style.marginTop = "";
 
     if (!this._isChromeCollapsed) {
       return;
     }
 
-    // Track whether mouse is near the toolbox
+    // Track whether the mouse moves into the content area. Observe tabpanels so
+    // the target rect follows the sidebar reveal (and any later layout changes)
+    // without flushing layout on every mouse move.
     if (trackMouse) {
-      let rect = gBrowser.tabpanels.getBoundingClientRect();
-      this._mouseTargetRect = {
-        top: rect.top + 50,
-        bottom: rect.bottom,
-        left: rect.left,
-        right: rect.right,
-      };
+      // Seed a synchronous initial value so MousePosTracker.addListener, which
+      // reads getMouseTargetRect() immediately, always has a rect. It may be
+      // stale (the sidebar hasn't settled yet); _updateMouseTargetRect corrects
+      // it on the next tick. getBoundsWithoutFlushing never forces a flush.
+      this._mouseTargetRect = this._mouseTargetRectFromBounds(
+        window.windowUtils.getBoundsWithoutFlushing(gBrowser.tabpanels)
+      );
+      this._updateMouseTargetRect();
+      if (!this._mouseTargetRectObserver) {
+        this._mouseTargetRectObserver = new ResizeObserver(() =>
+          this._updateMouseTargetRect()
+        );
+      }
+      this._mouseTargetRectObserver.observe(gBrowser.tabpanels);
+      // addListener calls back synchronously, so onMouseEnter can run here if
+      // the pointer already sits in the target rect. Keep _isChromeCollapsed
+      // set until after it so hideNavToolbox bails out instead of undoing the
+      // toolbox we're showing.
       MousePosTracker.addListener(this);
     }
 
     this._isChromeCollapsed = false;
+    document.documentElement.removeAttribute("fullscreenNavToolboxHidden");
     Services.obs.notifyObservers(
       gNavToolbox,
       "fullscreen-nav-toolbox",
@@ -984,16 +1110,40 @@ var FullScreen = {
       gNavToolbox.setAttribute("fullscreenShouldAnimate", true);
     }
 
-    gNavToolbox.style.marginTop =
-      -gNavToolbox.getBoundingClientRect().height + "px";
+    // Seed the margin synchronously so the collapse starts on this tick.
+    // getBoundsWithoutFlushing never forces a flush, so this height can be
+    // stale; the ResizeObserver set up below always delivers an initial
+    // observation, which corrects it against settled layout.
+    this._setCollapsedToolboxMargin(
+      window.windowUtils.getBoundsWithoutFlushing(gNavToolbox).height
+    );
     this._isChromeCollapsed = true;
+    document.documentElement.toggleAttribute(
+      "fullscreenNavToolboxHidden",
+      true
+    );
     Services.obs.notifyObservers(
       gNavToolbox,
       "fullscreen-nav-toolbox",
       "hidden"
     );
 
+    this._mouseTargetRectObserver?.disconnect();
     MousePosTracker.removeListener(this);
+
+    // The toolbox can still change height after it has been collapsed, which
+    // would leave the bottom of the toolbars peeking into view. On Windows the
+    // "fullscreen" event that brings us here runs before the resize event that
+    // makes automatic density re-evaluate, so entering fullscreen from compact
+    // mode grows the toolbox right after we measured it (bug 2058900). Keep the
+    // negative margin in sync with the measured height instead of relying on
+    // that ordering.
+    if (!this._collapsedToolboxObserver) {
+      this._collapsedToolboxObserver = new ResizeObserver(() =>
+        this._updateCollapsedToolboxMargin()
+      );
+    }
+    this._collapsedToolboxObserver.observe(gNavToolbox);
   },
 };
 

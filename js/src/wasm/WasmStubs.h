@@ -257,7 +257,7 @@ extern bool GenerateEntryStubs(jit::MacroAssembler& masm,
                                size_t funcExportIndex, const FuncExport& fe,
                                const FuncType& funcType,
                                const mozilla::Maybe<jit::ImmPtr>& callee,
-                               bool isAsmJS, CodeRangeVector* codeRanges);
+                               CodeRangeVector* codeRanges);
 
 extern void GenerateTrapExitRegisterOffsets(jit::RegisterOffsets* offsets,
                                             size_t* numWords);
@@ -358,10 +358,33 @@ extern void GenerateDirectCallFromJit(jit::MacroAssembler& masm,
                                       jit::Register scratch,
                                       uint32_t* callOffset);
 
+#ifdef ENABLE_WASM_JSPI
+// Generates a stub that is the frame at the base of a continuation stack.
+//
+// A continuation is always entered through the `resume` instruction. `resume`
+// will need to pass all arguments via the stack (not the call ABI that uses
+// registers), because the arguments to a continuation can be partially applied
+// using `cont.bind`. So this stub translates from the `resume` ABI to perform
+// a `call_ref` to the `funcref` that was passed to `cont.new`.
+//
+// When the callee returns, the results are converted again to the `resume`
+// stack arguments ABI and the stub performs a stack switch to the enclosing
+// handler.
+extern bool GenerateContBaseFrameStub(jit::MacroAssembler& masm,
+                                      const FuncType& funcType,
+                                      Offsets* offsets);
+#endif
+
+// Clobber all wasm registers before doing a long jmp. This leaves InstanceReg,
+// and jumpReg.
+extern void ClobberWasmRegsForLongJmp(jit::MacroAssembler& masm,
+                                      jit::Register jumpReg);
+
 extern void GenerateJumpToCatchHandler(jit::MacroAssembler& masm,
                                        jit::Register rfe,
                                        jit::Register scratch1,
-                                       jit::Register scratch2);
+                                       jit::Register scratch2,
+                                       jit::Register scratch3);
 
 }  // namespace wasm
 }  // namespace js

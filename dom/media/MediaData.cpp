@@ -119,11 +119,13 @@ bool AudioData::SetTrimWindow(const media::TimeInterval& aTrim) {
   }
 
   size_t frameOffset = trimBefore.ToTicksAtRate(mRate);
-  mTrimWindow = Some(aTrim);
-  mDataOffset = frameOffset * mChannels;
-  MOZ_DIAGNOSTIC_ASSERT(mDataOffset <= mAudioData.Length(),
-                        "Data offset outside original buffer");
+  size_t dataOffset = frameOffset * mChannels;
   int64_t frameCountAfterTrim = (trimAfter - trimBefore).ToTicksAtRate(mRate);
+  if (dataOffset > mAudioData.Length() || frameCountAfterTrim < 0) {
+    return false;
+  }
+  mTrimWindow = Some(aTrim);
+  mDataOffset = dataOffset;
   const size_t availFrames = (mAudioData.Length() - mDataOffset) / mChannels;
   if (frameCountAfterTrim > AssertedCast<int64_t>(availFrames)) {
     // Accept rounding error caused by an imprecise time_base in the container,
@@ -176,7 +178,7 @@ size_t AudioData::SizeOfIncludingThis(MallocSizeOf aMallocSizeOf) const {
 AlignedAudioBuffer AudioData::MoveableData() {
   // Trim buffer according to trimming mask.
   mAudioData.PopFront(mDataOffset);
-  mAudioData.SetLength(mFrames * mChannels);
+  (void)mAudioData.SetLength(mFrames * mChannels);
   mDataOffset = 0;
   mFrames = 0;
   mTrimWindow.reset();
@@ -227,9 +229,10 @@ static MediaResult ValidateBufferAndPicture(
   }
   // Ensure the picture size specified in the headers can be extracted out of
   // the frame we've been supplied without indexing out of bounds.
+  // The picture extent and the plane width are both measured in samples.
   CheckedUint32 xLimit = aPicture.x + CheckedUint32(aPicture.width);
   CheckedUint32 yLimit = aPicture.y + CheckedUint32(aPicture.height);
-  if (!xLimit.isValid() || xLimit.value() > aBuffer.mPlanes[0].mStride ||
+  if (!xLimit.isValid() || xLimit.value() > aBuffer.mPlanes[0].mWidth ||
       !yLimit.isValid() || yLimit.value() > aBuffer.mPlanes[0].mHeight) {
     // The specified picture dimensions can't be contained inside the video
     // frame, we'll stomp memory if we try to copy it. Fail.
@@ -326,6 +329,7 @@ PlanarYCbCrData ConstructPlanarYCbCrData(const VideoInfo& aInfo,
   if (aInfo.mTransferFunction) {
     data.mTransferFunction = *aInfo.mTransferFunction;
   }
+  data.mHDRMetadata = aInfo.mHDRMetadata;
   data.mColorRange = aBuffer.mColorRange;
   data.mChromaSubsampling = aBuffer.mChromaSubsampling;
   return data;
@@ -338,6 +342,11 @@ MediaResult VideoData::SetVideoDataToImage(PlanarYCbCrImage* aVideoImage,
                                            const IntRect& aPicture,
                                            bool aCopyData) {
   MOZ_ASSERT(aVideoImage);
+
+  if (MediaResult r = ValidateBufferAndPicture(aBuffer, aPicture);
+      NS_FAILED(r)) {
+    return r;
+  }
 
   PlanarYCbCrData data = ConstructPlanarYCbCrData(aInfo, aBuffer, aPicture);
 

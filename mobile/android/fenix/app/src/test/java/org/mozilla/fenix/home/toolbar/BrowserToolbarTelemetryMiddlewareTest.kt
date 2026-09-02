@@ -5,11 +5,12 @@
 package org.mozilla.fenix.home.toolbar
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import mozilla.components.compose.browser.toolbar.store.BrowserToolbarInteraction.BrowserToolbarEvent.Source
 import mozilla.components.compose.browser.toolbar.store.BrowserToolbarStore
 import mozilla.components.support.test.robolectric.testContext
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -23,11 +24,11 @@ import org.mozilla.fenix.home.toolbar.TabCounterInteractions.TabCounterClicked
 import org.mozilla.fenix.home.toolbar.TabCounterInteractions.TabCounterLongClicked
 import org.mozilla.fenix.telemetry.SOURCE_ADDRESS_BAR
 import org.mozilla.fenix.telemetry.SOURCE_NAVIGATION_BAR
+import org.mozilla.fenix.telemetry.SURFACE_HOME
 
 @RunWith(AndroidJUnit4::class)
 class BrowserToolbarTelemetryMiddlewareTest {
-    @get:Rule
-    val gleanRule = FenixGleanTestRule(testContext)
+    @get:Rule val gleanRule = FenixGleanTestRule(testContext)
 
     @Test
     fun `WHEN menu button is clicked THEN record telemetry based on browser end or navbar source`() {
@@ -80,19 +81,22 @@ class BrowserToolbarTelemetryMiddlewareTest {
     ) {
         val values = Toolbar.buttonTapped.testGetValue()
         assertNotNull(values)
-        val last = values!!.last()
-        val expectedSource = when (source) {
-            is Source.AddressBar, Source.Unknown -> SOURCE_ADDRESS_BAR
-            Source.NavigationBar -> SOURCE_NAVIGATION_BAR
-        }
+        val last = values.last()
+        val expectedSource =
+            when (source) {
+                is Source.AddressBar,
+                Source.Unknown -> SOURCE_ADDRESS_BAR
+                Source.NavigationBar -> SOURCE_NAVIGATION_BAR
+            }
         assertEquals(item, last.extra?.get("item"))
         assertEquals(expectedSource, last.extra?.get("source"))
+        assertEquals(SURFACE_HOME, last.extra?.get("surface"))
         if (source is Source.AddressBar) {
             assertEquals(source.telemetryName(), last.extra?.get("extra"))
+        } else {
+            assertNull(last.extra?.get("extra"))
         }
     }
 
-    private val buildStore = BrowserToolbarStore(
-        middleware = listOf(BrowserToolbarTelemetryMiddleware()),
-    )
+    private val buildStore = BrowserToolbarStore(middleware = listOf(BrowserToolbarTelemetryMiddleware()))
 }

@@ -90,6 +90,14 @@ void MacroAssembler::andPtr(Imm32 imm, Register src, Register dest) {
   ma_and(dest, src, imm);
 }
 
+void MacroAssembler::andPtr(Imm32 imm, const Address& dest) {
+  UseScratchRegisterScope temps(*this);
+  Register scratch2 = temps.Acquire();
+  loadPtr(dest, scratch2);
+  ma_and(scratch2, imm);
+  storePtr(scratch2, dest);
+}
+
 void MacroAssembler::and64(Imm64 imm, Register64 dest) {
   UseScratchRegisterScope temps(*this);
   Register scratch = temps.Acquire();
@@ -359,6 +367,11 @@ void MacroAssembler::lshift64(Imm32 imm, Register64 dest) {
   ma_dsll(dest.reg, dest.reg, imm);
 }
 
+void MacroAssembler::lshift64(Imm32 imm, Register64 src, Register64 dest) {
+  MOZ_ASSERT(0 <= imm.value && imm.value < 64);
+  ma_dsll(dest.reg, src.reg, imm);
+}
+
 void MacroAssembler::lshift64(Register shift, Register64 dest) {
   ma_dsll(dest.reg, dest.reg, shift);
 }
@@ -379,6 +392,11 @@ void MacroAssembler::rshiftPtr(Register shift, Register dest) {
 void MacroAssembler::rshift64(Imm32 imm, Register64 dest) {
   MOZ_ASSERT(0 <= imm.value && imm.value < 64);
   ma_dsrl(dest.reg, dest.reg, imm);
+}
+
+void MacroAssembler::rshift64(Imm32 imm, Register64 src, Register64 dest) {
+  MOZ_ASSERT(0 <= imm.value && imm.value < 64);
+  ma_dsrl(dest.reg, src.reg, imm);
 }
 
 void MacroAssembler::rshift64(Register shift, Register64 dest) {
@@ -402,6 +420,12 @@ void MacroAssembler::rshiftPtrArithmetic(Register shift, Register dest) {
 void MacroAssembler::rshift64Arithmetic(Imm32 imm, Register64 dest) {
   MOZ_ASSERT(0 <= imm.value && imm.value < 64);
   ma_dsra(dest.reg, dest.reg, imm);
+}
+
+void MacroAssembler::rshift64Arithmetic(Imm32 imm, Register64 src,
+                                        Register64 dest) {
+  MOZ_ASSERT(0 <= imm.value && imm.value < 64);
+  ma_dsra(dest.reg, src.reg, imm);
 }
 
 void MacroAssembler::rshift64Arithmetic(Register shift, Register64 dest) {
@@ -773,6 +797,15 @@ void MacroAssembler::branchTestMagic(Condition cond, const ValueOperand& value,
 }
 
 void MacroAssembler::branchTestMagic(Condition cond, const Address& valaddr,
+                                     JSWhyMagic why, Label* label) {
+  uint64_t magic = MagicValue(why).asRawBits();
+  UseScratchRegisterScope temps(*this);
+  Register scratch = temps.Acquire();
+  loadPtr(valaddr, scratch);
+  ma_b(scratch, ImmWord(magic), label, cond);
+}
+
+void MacroAssembler::branchTestMagic(Condition cond, const BaseIndex& valaddr,
                                      JSWhyMagic why, Label* label) {
   uint64_t magic = MagicValue(why).asRawBits();
   UseScratchRegisterScope temps(*this);

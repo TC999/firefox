@@ -331,7 +331,7 @@ fn unquoted_url_escaping() {
 
 #[test]
 fn test_expect_url() {
-    fn parse<'a>(s: &mut ParserInput<'a>) -> Result<CowRcStr<'a>, BasicParseError<'a>> {
+    fn parse<'a>(s: &mut ParserInput<'a>) -> Result<CowRcStr<'a>, BasicParseError> {
         Parser::new(s).expect_url()
     }
     let mut input = ParserInput::new("url()");
@@ -372,11 +372,8 @@ fn parse_comma_separated_ignoring_errors() {
     let mut input = ParserInput::new(input);
     let mut input = Parser::new(&mut input);
     let result = input.parse_comma_separated_ignoring_errors(|input| {
-        let loc = input.current_source_location();
         let ident = input.expect_ident()?;
-        crate::color::parse_named_color(ident).map_err(|()| {
-            loc.new_unexpected_token_error::<ParseError<()>>(Token::Ident(ident.clone()))
-        })
+        crate::color::parse_named_color(ident).map_err(|()| ParseError::<()>::unexpected_token())
     });
     assert_eq!(result.len(), 3);
     assert_eq!(result[0], (255, 0, 0));
@@ -848,16 +845,61 @@ fn no_stack_overflow_multiple_nested_blocks() {
     while input.next().is_ok() {}
 }
 
+#[cfg_attr(all(miri, feature = "skip_long_tests"), ignore)]
+#[test]
+fn nested_block_limit() {
+    // Recursively descends into `calc(calc(calc(…1…)))`, which is the shape of expression that
+    // would blow the stack without a nesting limit.
+    fn parse_calc(input: &mut Parser) -> Result<(), ParseError<()>> {
+        if input.try_parse(|input| input.expect_number()).is_ok() {
+            return Ok(());
+        }
+        input.expect_function_matching("calc")?;
+        input.parse_nested_block(parse_calc)
+    }
+
+    // Returns `Err(())` if (and only if) parsing bailed out due to the nesting limit.
+    fn parse(depth: usize, limit: Option<u8>) -> Result<(), ()> {
+        let css = format!("{}1{}", "calc(".repeat(depth), ")".repeat(depth));
+        let mut input = ParserInput::new(&css);
+        if let Some(limit) = limit {
+            input.set_nested_block_limit(limit);
+        }
+        Parser::new(&mut input)
+            .parse_entirely(parse_calc)
+            .map_err(|e| match e.kind {
+                ParseErrorKind::Basic(BasicParseErrorKind::TooManyNestedBlocks) => (),
+                other => panic!(
+                    "Unexpected error parsing {} nested blocks: {:?}",
+                    depth, other
+                ),
+            })
+    }
+
+    // The default limit is 75 nested blocks.
+    assert_eq!(parse(75, None), Ok(()));
+    assert_eq!(parse(76, None), Err(()));
+    assert_eq!(parse(10_000, None), Err(()));
+
+    // The limit is configurable...
+    assert_eq!(parse(3, Some(3)), Ok(()));
+    assert_eq!(parse(4, Some(3)), Err(()));
+    assert_eq!(parse(100, Some(255)), Ok(()));
+
+    // ...and a limit of zero means no limit at all.
+    assert_eq!(parse(1000, Some(0)), Ok(()));
+}
+
 impl<'i> DeclarationParser<'i> for JsonParser {
     type Declaration = Value;
     type Error = ();
 
-    fn parse_value<'t>(
+    fn parse_value(
         &mut self,
         name: CowRcStr<'i>,
-        input: &mut Parser<'i, 't>,
+        input: &mut Parser,
         _declaration_start: &ParserState,
-    ) -> Result<Value, ParseError<'i, ()>> {
+    ) -> Result<Value, ParseError<()>> {
         let mut value = vec![];
         let mut important = false;
         loop {
@@ -890,11 +932,11 @@ impl<'i> AtRuleParser<'i> for JsonParser {
     type AtRule = Value;
     type Error = ();
 
-    fn parse_prelude<'t>(
+    fn parse_prelude(
         &mut self,
         name: CowRcStr<'i>,
-        input: &mut Parser<'i, 't>,
-    ) -> Result<Vec<Value>, ParseError<'i, ()>> {
+        input: &mut Parser,
+    ) -> Result<Vec<Value>, ParseError<()>> {
         let prelude = vec![
             "at-rule".to_json(),
             name.to_json(),
@@ -902,7 +944,7 @@ impl<'i> AtRuleParser<'i> for JsonParser {
         ];
         match_ignore_ascii_case! { &*name,
             "charset" => {
-                Err(input.new_error(BasicParseErrorKind::AtRuleInvalid(name.clone())))
+                Err(ParseError::from_basic_kind(BasicParseErrorKind::AtRuleInvalid))
             },
             _ => Ok(prelude),
         }
@@ -917,12 +959,12 @@ impl<'i> AtRuleParser<'i> for JsonParser {
         Ok(Value::Array(prelude))
     }
 
-    fn parse_block<'t>(
+    fn parse_block(
         &mut self,
         mut prelude: Vec<Value>,
         _: &ParserState,
-        input: &mut Parser<'i, 't>,
-    ) -> Result<Value, ParseError<'i, ()>> {
+        input: &mut Parser,
+    ) -> Result<Value, ParseError<()>> {
         prelude.push(Value::Array(component_values_to_json(input)));
         Ok(Value::Array(prelude))
     }
@@ -933,19 +975,16 @@ impl<'i> QualifiedRuleParser<'i> for JsonParser {
     type QualifiedRule = Value;
     type Error = ();
 
-    fn parse_prelude<'t>(
-        &mut self,
-        input: &mut Parser<'i, 't>,
-    ) -> Result<Vec<Value>, ParseError<'i, ()>> {
+    fn parse_prelude(&mut self, input: &mut Parser) -> Result<Vec<Value>, ParseError<()>> {
         Ok(component_values_to_json(input))
     }
 
-    fn parse_block<'t>(
+    fn parse_block(
         &mut self,
         prelude: Vec<Value>,
         _: &ParserState,
-        input: &mut Parser<'i, 't>,
-    ) -> Result<Value, ParseError<'i, ()>> {
+        input: &mut Parser,
+    ) -> Result<Value, ParseError<()>> {
         Ok(JArray![
             "qualified rule",
             prelude,
@@ -1107,6 +1146,17 @@ fn procedural_masquerade_whitespace() {
 }
 
 #[test]
+fn test_match_ignore_ascii_case_with_temporary_borrow() {
+    fn generate_string() -> String {
+        "test".to_owned()
+    }
+    assert!(match_ignore_ascii_case! { &generate_string(),
+        "test" => true,
+        _ => false,
+    });
+}
+
+#[test]
 fn parse_until_before_stops_at_delimiter_or_end_of_input() {
     // For all j and k, inputs[i].1[j] should parse the same as inputs[i].1[k]
     // when we use delimiters inputs[i].0.
@@ -1175,7 +1225,6 @@ fn cdc_regression_test() {
         parser.next(),
         Err(BasicParseError {
             kind: BasicParseErrorKind::EndOfInput,
-            location: SourceLocation { line: 0, column: 5 }
         })
     );
 }
@@ -1188,12 +1237,11 @@ fn parse_entirely_reports_first_error() {
     }
     let mut input = ParserInput::new("ident");
     let mut parser = Parser::new(&mut input);
-    let result: Result<(), _> = parser.parse_entirely(|p| Err(p.new_custom_error(E::Foo)));
+    let result: Result<(), _> = parser.parse_entirely(|_| Err(ParseError::custom(E::Foo)));
     assert_eq!(
         result,
         Err(ParseError {
             kind: ParseErrorKind::Custom(E::Foo),
-            location: SourceLocation { line: 0, column: 1 },
         })
     );
 }

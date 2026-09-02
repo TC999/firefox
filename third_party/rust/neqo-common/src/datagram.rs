@@ -11,7 +11,7 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use crate::{Bytes, Tos, hex_with_len};
+use crate::{Bytes, Tos, hex::HexWithLen};
 
 /// A UDP datagram.
 ///
@@ -62,14 +62,10 @@ impl<D> Datagram<D> {
 }
 
 impl<D: AsRef<[u8]>> Datagram<D> {
+    #[expect(clippy::len_without_is_empty, reason = "is_empty() is always false")]
     #[must_use]
     pub fn len(&self) -> usize {
         self.d.as_ref().len()
-    }
-
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
     }
 
     #[must_use]
@@ -122,7 +118,7 @@ impl<D: AsRef<[u8]>> Debug for Datagram<D> {
             self.tos,
             self.src,
             self.dst,
-            hex_with_len(&self.d)
+            HexWithLen::new(&self.d)
         )
     }
 }
@@ -177,7 +173,7 @@ impl Debug for Batch {
             self.src,
             self.dst,
             self.datagram_size,
-            hex_with_len(&self.d)
+            HexWithLen::new(&self.d)
         )
     }
 }

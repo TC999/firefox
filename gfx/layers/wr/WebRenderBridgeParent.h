@@ -9,16 +9,16 @@
 
 #include "CompositableHost.h"  // for CompositableHost, ImageCompositeNotificationInfo
 #include "GLContextProvider.h"
+#include "WindowRenderer.h"
 #include "mozilla/DataMutex.h"
+#include "mozilla/Maybe.h"
+#include "mozilla/UniquePtr.h"
 #include "mozilla/layers/CompositableTransactionParent.h"
 #include "mozilla/layers/CompositorVsyncSchedulerOwner.h"
 #include "mozilla/layers/PWebRenderBridgeParent.h"
-#include "mozilla/Maybe.h"
-#include "mozilla/UniquePtr.h"
-#include "mozilla/webrender/WebRenderTypes.h"
 #include "mozilla/webrender/WebRenderAPI.h"
+#include "mozilla/webrender/WebRenderTypes.h"
 #include "nsTArrayForwardDeclare.h"
-#include "WindowRenderer.h"
 
 namespace mozilla {
 
@@ -64,6 +64,8 @@ class WebRenderBridgeParent final : public PWebRenderBridgeParent,
                                     public CompositableParentManager,
                                     public FrameRecorder {
  public:
+  NS_INLINE_DECL_THREADSAFE_REFCOUNTING(WebRenderBridgeParent, final);
+
   // Constructor for root WebRenderBridgeParents.
   WebRenderBridgeParent(CompositorBridgeParent* aCompositorBridge,
                         const wr::PipelineId& aPipelineId,
@@ -78,7 +80,9 @@ class WebRenderBridgeParent final : public PWebRenderBridgeParent,
                         RefPtr<AsyncImagePipelineManager>&& aImageMgr,
                         TimeDuration aVsyncRate);
 
-  static WebRenderBridgeParent* CreateDestroyed(
+  WebRenderBridgeParent(const wr::PipelineId& aPipelineId, nsCString&& aError);
+
+  static already_AddRefed<WebRenderBridgeParent> CreateDestroyed(
       const wr::PipelineId& aPipelineId, nsCString&& aError);
 
   // Ensures the WebRenderBridgeParent has completed initialization, returning
@@ -260,6 +264,20 @@ class WebRenderBridgeParent final : public PWebRenderBridgeParent,
     return aFontKey.mNamespace == mLateInit->mIdNamespace;
   }
 
+  bool OwnsExternalImageId(const wr::ExternalImageId& aId) const {
+    return static_cast<uint32_t>(wr::AsUint64(aId) >> 32) ==
+           mLateInit->mIdNamespace.mHandle;
+  }
+
+  /**
+   * AnimationHelper::GetNextCompositorAnimationsId() encodes the child
+   * process PID in the upper 32 bits of the id, verify that this is as
+   * expected.
+   */
+  bool OwnsCompositorAnimationsId(uint64_t aId) const {
+    return (aId >> 32) == (uint64_t)OtherPid();
+  }
+
   void FlushRendering(wr::RenderReasons aReasons, bool aBlocking);
 
   /**
@@ -307,13 +325,13 @@ class WebRenderBridgeParent final : public PWebRenderBridgeParent,
   void BeginRecording(const TimeStamp& aRecordingStart);
 
 #if defined(MOZ_WIDGET_ANDROID)
-  using ScreenPixelsPromise =
-      MozPromise<RefPtr<layers::AndroidHardwareBuffer>, nsresult, true>;
+  using ScreenPixelsPromise = MozPromise<Ok, nsresult, true>;
   /**
    * Request a screengrab for android
    */
-  RefPtr<ScreenPixelsPromise> RequestScreenPixels(gfx::IntRect aSourceRect,
-                                                  gfx::IntSize aDestSize);
+  RefPtr<ScreenPixelsPromise> RequestScreenPixels(
+      gfx::IntRect aSourceRect,
+      RefPtr<layers::AndroidHardwareBuffer> aHardwareBuffer);
 #endif
 
   /**
@@ -321,7 +339,6 @@ class WebRenderBridgeParent final : public PWebRenderBridgeParent,
    */
   RefPtr<wr::WebRenderAPI::EndRecordingPromise> EndRecording();
 
-  void DisableNativeCompositor();
   void AddPendingScrollPayload(CompositionPayload& aPayload,
                                const VsyncId& aCompositeStartId);
 
@@ -335,7 +352,6 @@ class WebRenderBridgeParent final : public PWebRenderBridgeParent,
  private:
   class ScheduleSharedSurfaceRelease;
 
-  WebRenderBridgeParent(const wr::PipelineId& aPipelineId, nsCString&& aError);
   virtual ~WebRenderBridgeParent();
 
   bool ProcessEmptyTransactionUpdates(TransactionData& aData,
@@ -523,21 +539,27 @@ class WebRenderBridgeParent final : public PWebRenderBridgeParent,
 #if defined(MOZ_WIDGET_ANDROID)
   struct ScreenPixelsRequest {
     gfx::IntRect mSourceRect;
-    gfx::IntSize mDestSize;
+    RefPtr<layers::AndroidHardwareBuffer> mHardwareBuffer;
     RefPtr<ScreenPixelsPromise::Private> mPromise;
   };
   Maybe<ScreenPixelsRequest> mScreenPixelsRequest;
 #endif
 
-  uint32_t mBoolParameterBits;
+  uint32_t mBoolParameterBits = 0;
   uint16_t mBlobTileSize = 256;
   wr::RenderReasons mSkippedCompositeReasons = wr::RenderReasons::NONE;
-  bool mDestroyed;
-  bool mIsFirstPaint;
+  bool mDestroyed = false;
+  bool mIsFirstPaint = false;
   bool mLastNotifiedHasLayers = false;
   bool mReceivedDisplayList = false;
   bool mSkippedComposite = false;
-  bool mDisablingNativeCompositor = false;
+  // Whether this is a root (widget) WebRenderBridgeParent. Determined at
+  // construction and stable for the object's lifetime. This must not be
+  // derived from mWidget, because mWidget is cleared on a WebRender
+  // initialization failure (see FinishInitializationError), which would
+  // otherwise make a failed root bridge masquerade as a content bridge during
+  // teardown.
+  const bool mIsRootWebRenderBridgeParent;
   // These payloads are being used for SCROLL_PRESENT_LATENCY telemetry
   DataMutex<nsClassHashtable<nsUint64HashKey, nsTArray<CompositionPayload>>>
       mPendingScrollPayloads{"WebRenderBridgeParent::mPendingScrollPayloads"};

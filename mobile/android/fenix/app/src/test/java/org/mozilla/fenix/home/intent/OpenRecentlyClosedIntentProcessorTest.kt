@@ -7,7 +7,6 @@ package org.mozilla.fenix.home.intent
 import android.content.Intent
 import androidx.navigation.NavController
 import io.mockk.Called
-import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import org.junit.Assert.assertFalse
@@ -26,9 +25,7 @@ class OpenRecentlyClosedIntentProcessorTest {
     private lateinit var navController: NavController
     private lateinit var out: Intent
     private lateinit var processor: OpenRecentlyClosedIntentProcessor
-    private val settings: Settings = mockk {
-        every { shouldUseComposableToolbar } returns false
-    }
+    private val settings: Settings = mockk()
 
     @Before
     fun setup() {
@@ -49,9 +46,10 @@ class OpenRecentlyClosedIntentProcessorTest {
 
     @Test
     fun `GIVEN an intent with wrong action WHEN it is processed THEN nothing should happen`() {
-        val intent = Intent().apply {
-            action = TEST_WRONG_ACTION
-        }
+        val intent =
+            Intent().apply {
+                action = TEST_WRONG_ACTION
+            }
 
         assertFalse(processor.process(intent, navController, out, settings))
 
@@ -62,9 +60,10 @@ class OpenRecentlyClosedIntentProcessorTest {
 
     @Test
     fun `GIVEN an intent with correct action WHEN it is processed THEN navigate to the recently closed fragment`() {
-        val intent = Intent().apply {
-            action = OpenRecentlyClosedIntentProcessor.ACTION_OPEN_RECENTLY_CLOSED
-        }
+        val intent =
+            Intent().apply {
+                action = OpenRecentlyClosedIntentProcessor.ACTION_OPEN_RECENTLY_CLOSED
+            }
 
         assertTrue(processor.process(intent, navController, out, settings))
 

@@ -10,6 +10,7 @@ task-defaults:
     worker:
         max-run-time: 1800
     run:
+        clone-with: hg
         script: build-rust-based-toolchain.sh
         toolchain-artifact: public/build/dump_syms.tar.zst
     fetches:
@@ -26,6 +27,17 @@ linux64-dump_syms:
             - linux64-clang-toolchain
             - linux64-rust-toolchain
             - sysroot-x86_64-linux-gnu
+
+linux64-aarch64-dump_syms:
+    treeherder:
+        symbol: TLA64(dump_syms)
+    run:
+        arguments: ['aarch64-unknown-linux-gnu']
+    fetches:
+        toolchain:
+            - linux64-clang-toolchain
+            - linux64-rust-toolchain
+            - sysroot-aarch64-linux-gnu
 
 macosx64-dump_syms:
     treeherder:
@@ -55,6 +67,17 @@ win64-dump_syms:
         symbol: TW64(dump_syms)
     run:
         arguments: ['x86_64-pc-windows-msvc']
+    fetches:
+        toolchain:
+            - linux64-clang-toolchain
+            - linux64-rust-windows-toolchain
+            - vs-toolchain
+
+win64-aarch64-dump_syms:
+    treeherder:
+        symbol: TWA64(dump_syms)
+    run:
+        arguments: ['aarch64-pc-windows-msvc']
     fetches:
         toolchain:
             - linux64-clang-toolchain

@@ -3,8 +3,16 @@
     "@base": {
       "value": {
         "light": "{color.gray.70}",
-        "dark": "{color.gray.05}",
+        "dark": "{color.gray.0}",
         "prefersContrast": "{text.color.@base}"
+      }
+    },
+    "accent": {
+      "primary": {
+        "desaturated": {
+          "override": true,
+          "value": "unset"
+        }
       }
     },
     "information": {
@@ -41,19 +49,22 @@
       "value": "{icon.size.small}"
     },
     "xsmall": {
-      "value": "{dimension.12}"
+      "value": "12px"
     },
     "small": {
-      "value": "{dimension.16}"
+      "value": "16px"
     },
     "medium": {
-      "value": "{dimension.20}"
+      "value": "20px"
     },
     "large": {
-      "value": "{dimension.24}"
+      "value": "24px"
     },
     "xlarge": {
-      "value": "{dimension.32}"
+      "value": "32px"
+    },
+    "xxlarge": {
+      "value": "{size.item.xlarge}"
     }
   }
 }

@@ -9,8 +9,10 @@ const lazy = {};
 ChromeUtils.defineESModuleGetters(lazy, {
   PlacesUIUtils: "moz-src:///browser/components/places/PlacesUIUtils.sys.mjs",
   PrivateBrowsingUtils: "resource://gre/modules/PrivateBrowsingUtils.sys.mjs",
-  SessionStore: "resource:///modules/sessionstore/SessionStore.sys.mjs",
-  SessionWindowUI: "resource:///modules/sessionstore/SessionWindowUI.sys.mjs",
+  SessionStore:
+    "moz-src:///browser/components/sessionstore/SessionStore.sys.mjs",
+  SessionWindowUI:
+    "moz-src:///browser/components/sessionstore/SessionWindowUI.sys.mjs",
 });
 
 ChromeUtils.defineLazyGetter(lazy, "l10n", () => {
@@ -206,7 +208,7 @@ export var RecentlyClosedTabsAndWindowsMenuUtils = {
    *        The command event when the user clicks the restore all menu item
    */
   onRestoreAllTabsCommand(aEvent) {
-    const currentWindow = aEvent.target.ownerGlobal;
+    const currentWindow = aEvent.target.documentGlobal;
     const browserWindows = lazy.closedTabsFromAllWindowsEnabled
       ? lazy.SessionStore.getWindows(currentWindow)
       : [currentWindow];
@@ -321,15 +323,19 @@ export var RecentlyClosedTabsAndWindowsMenuUtils = {
 function setTabGroupColorProperties(element, tabGroup) {
   element.style.setProperty(
     "--tab-group-color",
-    `var(--tab-group-color-${tabGroup.color})`
+    `var(--tab-group-${tabGroup.color})`
   );
   element.style.setProperty(
     "--tab-group-color-invert",
-    `var(--tab-group-color-${tabGroup.color}-invert)`
+    `var(--tab-group-${tabGroup.color}-invert)`
   );
   element.style.setProperty(
     "--tab-group-color-pale",
-    `var(--tab-group-color-${tabGroup.color}-pale)`
+    `var(--tab-group-${tabGroup.color}-pale)`
+  );
+  element.style.setProperty(
+    "--tab-group-background-color",
+    `var(--tab-group-${tabGroup.color})`
   );
 }
 
@@ -481,7 +487,7 @@ function createTabGroupSubpanel(
   panelview.appendChild(reopenTabGroupItem);
 
   element.addEventListener("command", () => {
-    aDocument.ownerGlobal.PanelUI.showSubView(panelview.id, element);
+    aDocument.documentGlobal.PanelUI.showSubView(panelview.id, element);
   });
 
   aFragment.appendChild(panelview);
@@ -556,7 +562,7 @@ function createEntry(
     element.setAttribute("source-window-id", sourceWindowId);
     element.addEventListener("command", event =>
       lazy.SessionWindowUI.undoCloseTab(
-        event.target.ownerGlobal,
+        event.target.documentGlobal,
         aIndex,
         sourceWindowId
       )
@@ -576,10 +582,9 @@ function createEntry(
   }
 
   // Set the targetURI attribute so it will be shown in tooltip.
-  // SessionStore uses one-based indexes, so we need to normalize them.
   let tabData;
   tabData = aIsWindowsFragment ? aClosedTab : aClosedTab.state;
-  let activeIndex = (tabData.index || tabData.entries.length) - 1;
+  let activeIndex = lazy.SessionStore.historyIndex(tabData);
   if (activeIndex >= 0 && tabData.entries[activeIndex]) {
     element.setAttribute("targetURI", tabData.entries[activeIndex].url);
   }

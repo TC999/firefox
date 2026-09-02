@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 package org.mozilla.fenix.ui
 
-import androidx.compose.ui.test.junit4.AndroidComposeTestRule
+import androidx.compose.ui.test.junit4.v2.AndroidComposeTestRule as AndroidComposeTestRuleV2
 import org.junit.Ignore
 import org.junit.Rule
 import org.junit.Test
@@ -19,22 +19,23 @@ import org.mozilla.fenix.ui.robots.navigationToolbar
 import org.mozilla.fenix.ui.robots.surveyScreen
 
 class MicrosurveyTest {
-    @get:Rule(order = 0)
-    val fenixTestRule: FenixTestRule = FenixTestRule()
+    @get:Rule(order = 0) val fenixTestRule: FenixTestRule = FenixTestRule()
 
-    private val mockWebServer get() = fenixTestRule.mockWebServer
+    private val mockWebServer
+        get() = fenixTestRule.mockWebServer
 
-    @get:Rule
+    @get:Rule(order = 1)
     val composeTestRule =
-        AndroidComposeTestRule(
+        AndroidComposeTestRuleV2(
             HomeActivityIntentTestRule(
                 skipOnboarding = true,
                 isMicrosurveyEnabled = true,
-            ),
-        ) { it.activity }
+            )
+        ) {
+            it.activity
+        }
 
-    @get:Rule
-    val memoryLeaksRule = DetectMemoryLeaksRule()
+    @get:Rule(order = 2) val memoryLeaksRule = DetectMemoryLeaksRule(composeTestRule = { composeTestRule })
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/2809354
     @SmokeTest
@@ -42,14 +43,14 @@ class MicrosurveyTest {
     fun activationOfThePrintMicrosurveyTest() {
         val testPage = mockWebServer.getGenericAsset(1)
 
-        navigationToolbar(composeTestRule) {
-        }.enterURLAndEnterToBrowser(testPage.url) {
-        }.openThreeDotMenu {
-        }.clickShareButton {
-        }.clickPrintButton(composeTestRule) {
-            mDevice.waitForIdle()
-            mDevice.pressBack()
-        }
+        navigationToolbar(composeTestRule) {}
+            .enterURLAndEnterToBrowser(testPage.url) {}
+            .openThreeDotMenu {}
+            .clickShareButton {}
+            .clickPrintButton(composeTestRule) {
+                mDevice.waitForIdle()
+                mDevice.pressBack()
+            }
         surveyScreen(composeTestRule) {
             verifyThePrintSurveyPrompt(composeTestRule = composeTestRule, exists = true)
         }
@@ -62,44 +63,50 @@ class MicrosurveyTest {
         val testPage1 = mockWebServer.getGenericAsset(1)
         val testPage2 = mockWebServer.getGenericAsset(2)
 
-        navigationToolbar(composeTestRule) {
-        }.enterURLAndEnterToBrowser(testPage1.url) {
-        }.openThreeDotMenu {
-        }.clickShareButton {
-        }.clickPrintButton(composeTestRule) {
-            mDevice.waitForIdle()
-            mDevice.pressBack()
-        }
-        surveyScreen(composeTestRule) {
-            clickContinueSurveyButton(composeTestRule)
-            verifyPleaseCompleteTheSurveyHeader(composeTestRule)
-            selectAnswer("Very satisfied", composeTestRule)
-        }.collapseSurveyByTappingBackButton {
-        }
-        navigationToolbar(composeTestRule) {
-        }.enterURLAndEnterToBrowser(testPage2.url) {
-            mDevice.waitForIdle()
-            surveyScreen(composeTestRule) {
-                verifyTheSurveyTitle(getStringResource(R.string.microsurvey_prompt_printing_title), composeTestRule, true)
+        navigationToolbar(composeTestRule) {}
+            .enterURLAndEnterToBrowser(testPage1.url) {}
+            .openThreeDotMenu {}
+            .clickShareButton {}
+            .clickPrintButton(composeTestRule) {
+                mDevice.waitForIdle()
+                mDevice.pressBack()
             }
-        }
+        surveyScreen(composeTestRule) {
+                clickContinueSurveyButton(composeTestRule)
+                verifyPleaseCompleteTheSurveyHeader(composeTestRule)
+                selectAnswer("Very satisfied", composeTestRule)
+            }
+            .collapseSurveyByTappingBackButton {}
+        navigationToolbar(composeTestRule) {}
+            .enterURLAndEnterToBrowser(testPage2.url) {
+                mDevice.waitForIdle()
+                surveyScreen(composeTestRule) {
+                    verifyTheSurveyTitle(
+                        getStringResource(R.string.microsurvey_prompt_printing_title),
+                        composeTestRule,
+                        true,
+                    )
+                }
+            }
     }
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/2809361
-    @Ignore("Disabled after enabling the composable toolbar and main menu: https://bugzilla.mozilla.org/show_bug.cgi?id=2006295")
+    @Ignore(
+        "Disabled after enabling the composable toolbar and main menu: https://bugzilla.mozilla.org/show_bug.cgi?id=2006295"
+    )
     @SmokeTest
     @Test
     fun verifyTheSurveyConfirmationSheetTest() {
         val testPage = mockWebServer.getGenericAsset(1)
 
-        navigationToolbar(composeTestRule) {
-        }.enterURLAndEnterToBrowser(testPage.url) {
-        }.openThreeDotMenu {
-        }.clickShareButton {
-        }.clickPrintButton(composeTestRule) {
-            mDevice.waitForIdle()
-            mDevice.pressBack()
-        }
+        navigationToolbar(composeTestRule) {}
+            .enterURLAndEnterToBrowser(testPage.url) {}
+            .openThreeDotMenu {}
+            .clickShareButton {}
+            .clickPrintButton(composeTestRule) {
+                mDevice.waitForIdle()
+                mDevice.pressBack()
+            }
         surveyScreen(composeTestRule) {
             clickContinueSurveyButton(composeTestRule)
             expandSurveySheet(composeTestRule)
@@ -110,25 +117,27 @@ class MicrosurveyTest {
     }
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/2809344
-    @Ignore("Disabled after enabling the composable toolbar and main menu: https://bugzilla.mozilla.org/show_bug.cgi?id=2006295")
+    @Ignore(
+        "Disabled after enabling the composable toolbar and main menu: https://bugzilla.mozilla.org/show_bug.cgi?id=2006295"
+    )
     @Test
     fun dismissTheSurveyPromptTest() {
         val testPage = mockWebServer.getGenericAsset(1)
 
-        navigationToolbar(composeTestRule) {
-        }.enterURLAndEnterToBrowser(testPage.url) {
-        }.openThreeDotMenu {
-        }.clickShareButton {
-        }.clickPrintButton(composeTestRule) {
-            mDevice.waitForIdle()
-            mDevice.pressBack()
-        }
+        navigationToolbar(composeTestRule) {}
+            .enterURLAndEnterToBrowser(testPage.url) {}
+            .openThreeDotMenu {}
+            .clickShareButton {}
+            .clickPrintButton(composeTestRule) {
+                mDevice.waitForIdle()
+                mDevice.pressBack()
+            }
         surveyScreen(composeTestRule) {
-            verifyThePrintSurveyPrompt(composeTestRule = composeTestRule, exists = true)
-            clickOutsideTheSurveyPrompt()
-            verifyThePrintSurveyPrompt(composeTestRule = composeTestRule, exists = true)
-        }.clickHomeScreenSurveyCloseButton {
-        }
+                verifyThePrintSurveyPrompt(composeTestRule = composeTestRule, exists = true)
+                clickOutsideTheSurveyPrompt()
+                verifyThePrintSurveyPrompt(composeTestRule = composeTestRule, exists = true)
+            }
+            .clickHomeScreenSurveyCloseButton {}
         surveyScreen(composeTestRule) {
             verifyThePrintSurveyPrompt(composeTestRule = composeTestRule, exists = false)
         }

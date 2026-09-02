@@ -3,35 +3,37 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "ImageBridgeParent.h"
-#include <stdint.h>            // for uint64_t, uint32_t
+
+#include <stdint.h>  // for uint64_t, uint32_t
+
 #include "CompositableHost.h"  // for CompositableParent, Create
 #include "base/process.h"      // for ProcessId
 #include "base/task.h"         // for CancelableTask, DeleteTask, etc
 #include "mozilla/ClearOnShutdown.h"
-#include "mozilla/gfx/Point.h"  // for IntSize
-#include "mozilla/Hal.h"        // for hal::SetCurrentThreadPriority()
-#include "mozilla/HalTypes.h"   // for hal::THREAD_PRIORITY_COMPOSITOR
-#include "mozilla/ipc/Endpoint.h"
-#include "mozilla/ipc/MessageChannel.h"  // for MessageChannel, etc
-#include "mozilla/media/MediaSystemResourceManagerParent.h"  // for MediaSystemResourceManagerParent
-#include "mozilla/layers/BufferTexture.h"
-#include "mozilla/layers/CompositableTransactionParent.h"
-#include "mozilla/layers/LayersMessages.h"  // for EditReply
-#include "mozilla/layers/PImageBridgeParent.h"
-#include "mozilla/layers/TextureHostOGL.h"  // for TextureHostOGL
-#include "mozilla/layers/Compositor.h"
-#include "mozilla/layers/RemoteTextureMap.h"
+#include "mozilla/Hal.h"       // for hal::SetCurrentThreadPriority()
+#include "mozilla/HalTypes.h"  // for hal::THREAD_PRIORITY_COMPOSITOR
 #include "mozilla/Monitor.h"
-#include "mozilla/mozalloc.h"  // for operator new, etc
 #include "mozilla/ProfilerLabels.h"
 #include "mozilla/ProfilerMarkers.h"
+#include "mozilla/gfx/Point.h"  // for IntSize
+#include "mozilla/ipc/Endpoint.h"
+#include "mozilla/ipc/MessageChannel.h"  // for MessageChannel, etc
+#include "mozilla/layers/BufferTexture.h"
+#include "mozilla/layers/CompositableTransactionParent.h"
+#include "mozilla/layers/Compositor.h"
+#include "mozilla/layers/LayersMessages.h"  // for EditReply
+#include "mozilla/layers/PImageBridgeParent.h"
+#include "mozilla/layers/RemoteTextureMap.h"
+#include "mozilla/layers/TextureHost.h"
+#include "mozilla/layers/TextureHostOGL.h"  // for TextureHostOGL
+#include "mozilla/media/MediaSystemResourceManagerParent.h"  // for MediaSystemResourceManagerParent
+#include "mozilla/mozalloc.h"        // for operator new, etc
 #include "nsDebug.h"                 // for NS_ASSERTION, etc
 #include "nsISupportsImpl.h"         // for ImageBridgeParent::Release, etc
 #include "nsTArray.h"                // for nsTArray, nsTArray_Impl
 #include "nsTArrayForwardDeclare.h"  // for nsTArray
-#include "nsXULAppAPI.h"             // for XRE_GetAsyncIOEventTarget
-#include "mozilla/layers/TextureHost.h"
 #include "nsThreadUtils.h"
+#include "nsXULAppAPI.h"  // for XRE_GetAsyncIOEventTarget
 
 #if defined(XP_WIN)
 #  include "mozilla/layers/TextureD3D11.h"
@@ -61,9 +63,11 @@ void ImageBridgeParent::Setup() {
 
 ImageBridgeParent::ImageBridgeParent(nsISerialEventTarget* aThread,
                                      EndpointProcInfo aChildProcessInfo,
-                                     dom::ContentParentId aContentId)
+                                     dom::ContentParentId aContentId,
+                                     uint32_t aNamespace)
     : mThread(aThread),
       mContentId(aContentId),
+      mNamespace(aNamespace),
       mClosed(false),
       mCompositorThreadHolder(CompositorThreadHolder::GetSingleton()) {
   MOZ_ASSERT(NS_IsMainThread());
@@ -74,10 +78,10 @@ ImageBridgeParent::ImageBridgeParent(nsISerialEventTarget* aThread,
 ImageBridgeParent::~ImageBridgeParent() = default;
 
 /* static */
-ImageBridgeParent* ImageBridgeParent::CreateSameProcess() {
+ImageBridgeParent* ImageBridgeParent::CreateSameProcess(uint32_t aNamespace) {
   EndpointProcInfo procInfo = EndpointProcInfo::Current();
   RefPtr<ImageBridgeParent> parent = new ImageBridgeParent(
-      CompositorThread(), procInfo, dom::ContentParentId());
+      CompositorThread(), procInfo, dom::ContentParentId(), aNamespace);
 
   {
     MonitorAutoLock lock(*sImageBridgesLock);
@@ -91,7 +95,7 @@ ImageBridgeParent* ImageBridgeParent::CreateSameProcess() {
 
 /* static */
 bool ImageBridgeParent::CreateForGPUProcess(
-    Endpoint<PImageBridgeParent>&& aEndpoint) {
+    Endpoint<PImageBridgeParent>&& aEndpoint, uint32_t aNamespace) {
   MOZ_ASSERT(XRE_GetProcessType() == GeckoProcessType_GPU);
 
   nsCOMPtr<nsISerialEventTarget> compositorThread = CompositorThread();
@@ -101,7 +105,7 @@ bool ImageBridgeParent::CreateForGPUProcess(
 
   RefPtr<ImageBridgeParent> parent =
       new ImageBridgeParent(compositorThread, aEndpoint.OtherEndpointProcInfo(),
-                            dom::ContentParentId());
+                            dom::ContentParentId(), aNamespace);
 
   compositorThread->Dispatch(NewRunnableMethod<Endpoint<PImageBridgeParent>&&>(
       "layers::ImageBridgeParent::Bind", parent, &ImageBridgeParent::Bind,
@@ -225,14 +229,16 @@ mozilla::ipc::IPCResult ImageBridgeParent::RecvUpdate(
 
 /* static */
 bool ImageBridgeParent::CreateForContent(
-    Endpoint<PImageBridgeParent>&& aEndpoint, dom::ContentParentId aContentId) {
+    Endpoint<PImageBridgeParent>&& aEndpoint, dom::ContentParentId aContentId,
+    uint32_t aNamespace) {
   nsCOMPtr<nsISerialEventTarget> compositorThread = CompositorThread();
   if (!compositorThread) {
     return false;
   }
 
-  RefPtr<ImageBridgeParent> bridge = new ImageBridgeParent(
-      compositorThread, aEndpoint.OtherEndpointProcInfo(), aContentId);
+  RefPtr<ImageBridgeParent> bridge =
+      new ImageBridgeParent(compositorThread, aEndpoint.OtherEndpointProcInfo(),
+                            aContentId, aNamespace);
   compositorThread->Dispatch(NewRunnableMethod<Endpoint<PImageBridgeParent>&&>(
       "layers::ImageBridgeParent::Bind", bridge, &ImageBridgeParent::Bind,
       std::move(aEndpoint)));
@@ -297,23 +303,18 @@ mozilla::ipc::IPCResult ImageBridgeParent::RecvReleaseCompositable(
   return IPC_OK();
 }
 
-PTextureParent* ImageBridgeParent::AllocPTextureParent(
+already_AddRefed<PTextureParent> ImageBridgeParent::AllocPTextureParent(
     const SurfaceDescriptor& aSharedData, ReadLockDescriptor& aReadLock,
     const LayersBackend& aLayersBackend, const TextureFlags& aFlags,
     const uint64_t& aSerial, const wr::MaybeExternalImageId& aExternalImageId) {
-  if (aExternalImageId.isSome()) {
-    uint32_t ns = static_cast<uint32_t>(wr::AsUint64(*aExternalImageId) >> 32);
-    if (ns == 0) {
-      return nullptr;
-    }
+  if (aExternalImageId.isSome() &&
+      !OwnsExternalImageId(aExternalImageId.ref())) {
+    NS_ERROR("We do not own this external image id.");
+    return nullptr;
   }
   return TextureHost::CreateIPDLActor(this, aSharedData, std::move(aReadLock),
                                       aLayersBackend, aFlags, mContentId,
                                       aSerial, aExternalImageId);
-}
-
-bool ImageBridgeParent::DeallocPTextureParent(PTextureParent* actor) {
-  return TextureHost::DestroyIPDLActor(actor);
 }
 
 PMediaSystemResourceManagerParent*
@@ -391,6 +392,11 @@ already_AddRefed<ImageBridgeParent> ImageBridgeParent::GetInstance(
   }
   RefPtr<ImageBridgeParent> bridge = i->second;
   return bridge.forget();
+}
+
+bool ImageBridgeParent::OwnsExternalImageId(
+    const wr::ExternalImageId& aId) const {
+  return (mNamespace == static_cast<uint32_t>(wr::AsUint64(aId) >> 32));
 }
 
 bool ImageBridgeParent::AllocShmem(size_t aSize, ipc::Shmem* aShmem) {

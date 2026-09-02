@@ -3,6 +3,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "BufferMediaResource.h"
+#include "DecoderData.h"
+#include "H265.h"
 #include "MP4Demuxer.h"
 #include "MediaDataDemuxer.h"
 #include "MockMediaResource.h"
@@ -11,6 +13,8 @@
 #include "mozilla/MozPromise.h"
 #include "mozilla/SharedThreadPool.h"
 #include "mozilla/TaskQueue.h"
+#include "mozilla/gtest/MozAssertions.h"
+#include "mp4parse.h"
 
 using namespace mozilla;
 using media::TimeUnit;
@@ -585,6 +589,58 @@ TEST(MP4Demuxer, GetNextKeyframe)
   });
 }
 
+// Generated with open GOP so non-first keyframes are CRA_NUT, not IDR:
+//   ffmpeg -f lavfi -i testsrc=duration=4:size=128x96:rate=30
+//     -c:v libx265 -x265-params keyint=30:min-keyint=30:open-gop=1:info=0
+//     -an test_hevc_open_gop.mp4
+// Sample 1 is IDR_N_LP; samples 28, 60, 88 are CRA_NUT.
+// H265::IsKeyFrame() returns true only for IDR_W_RADL/IDR_N_LP, not CRA.
+TEST(MP4Demuxer, SeekHEVC)
+{
+  RefPtr<MP4DemuxerBinding> binding =
+      new MP4DemuxerBinding("test_hevc_open_gop.mp4");
+
+  // Seek past the first GOP. The nearest stss sync sample is a CRA_NUT.
+  // VideoToolbox can return a bad data error when a CRA is the first sample
+  // fed to a fresh decode session, analogous to non-IDR I-frames for H.264.
+  // The demuxer must only mark IDR frames as keyframes on macOS.
+  const TimeUnit seekTime = TimeUnit::FromSeconds(2.0);
+
+  binding->RunTestAndWait([binding, seekTime]() {
+    binding->mVideoTrack =
+        binding->mDemuxer->GetTrackDemuxer(TrackInfo::kVideoTrack, 0);
+    binding->mVideoTrack->Seek(seekTime)->Then(
+        binding->mTaskQueue, __func__,
+        [binding, seekTime](TimeUnit aActualTime) {
+          EXPECT_LE(aActualTime, seekTime);
+          binding->mVideoTrack->GetSamples()->Then(
+              binding->mTaskQueue, __func__,
+              [binding,
+               aActualTime](RefPtr<MediaTrackDemuxer::SamplesHolder> aSamples) {
+                EXPECT_GT(aSamples->GetSamples().Length(), 0u);
+                RefPtr<MediaRawData> first = aSamples->GetSamples()[0];
+                EXPECT_TRUE(first->mKeyframe);
+                EXPECT_EQ(first->mTime, aActualTime);
+#ifdef MOZ_APPLEMEDIA
+                // CRA keyframe flags are stripped on Apple platforms, so the
+                // seek falls back to the preceding IDR.
+                auto isIDR = H265::IsKeyFrame(first);
+                EXPECT_TRUE(isIDR.isOk() && isIDR.unwrap());
+#endif
+                binding->mTaskQueue->BeginShutdown();
+              },
+              [binding](const MediaResult&) {
+                EXPECT_TRUE(false) << "GetSamples failed after seek";
+                binding->mTaskQueue->BeginShutdown();
+              });
+        },
+        [binding](const MediaResult&) {
+          EXPECT_TRUE(false) << "Seek failed";
+          binding->mTaskQueue->BeginShutdown();
+        });
+  });
+}
+
 TEST(MP4Demuxer, ZeroInLastMoov)
 {
   RefPtr<MP4DemuxerBinding> binding =
@@ -729,4 +785,337 @@ TEST(MP4Demuxer, DuplicateTimestampsWithLargeTimescaleFragmented)
   });
 }
 
+// Helpers for synthetic MP4VideoInfo::Update() tests.
+static Mp4parseTrackInfo MakeTrackInfo() {
+  Mp4parseTrackInfo track{};
+  track.track_id = 1;
+  track.duration = 1000;
+  track.time_scale = 1000;
+  track.media_time = 0;
+  return track;
+}
+
+static Mp4parseTrackVideoInfo MakeVideoInfo(
+    Mp4parseTrackVideoSampleInfo* aSampleInfo) {
+  Mp4parseTrackVideoInfo video{};
+  video.display_width = 1920;
+  video.display_height = 1080;
+  video.rotation = 0;
+  video.sample_info_count = 1;
+  video.sample_info = aSampleInfo;
+  return video;
+}
+
+TEST(MP4Demuxer, VideoInfoDisplaySizeBound)
+{
+  Mp4parseTrackVideoSampleInfo si{};
+  si.codec_type = MP4PARSE_CODEC_VP9;
+  si.image_width = 1920;
+  si.image_height = 1080;
+
+  Mp4parseTrackInfo track = MakeTrackInfo();
+
+  // A display size with both dimensions within the maximum image dimension and
+  // a total area at the maximum video area is accepted (16384 * 2304 ==
+  // MAX_VIDEO_WIDTH * MAX_VIDEO_HEIGHT).
+  {
+    Mp4parseTrackVideoInfo video = MakeVideoInfo(&si);
+    video.display_width = 16384;
+    video.display_height = 2304;
+    MP4VideoInfo info;
+    EXPECT_TRUE(NS_SUCCEEDED(info.Update(&track, &video).Code()));
+  }
+
+  // A display area one past the maximum video area is rejected by the area
+  // bound alone: both dimensions stay within the maximum image dimension, so
+  // only the width * height limit can reject it, unlike the per-axis cases
+  // below.
+  {
+    Mp4parseTrackVideoInfo video = MakeVideoInfo(&si);
+    video.display_width = 16384;
+    video.display_height = 2305;
+    MP4VideoInfo info;
+    EXPECT_EQ(NS_ERROR_DOM_MEDIA_METADATA_ERR,
+              info.Update(&track, &video).Code());
+  }
+
+  // A width one past the maximum image dimension is rejected on its own, even
+  // when the total area is within bounds.
+  {
+    Mp4parseTrackVideoInfo video = MakeVideoInfo(&si);
+    video.display_width = 16385;
+    video.display_height = 1;
+    MP4VideoInfo info;
+    EXPECT_EQ(NS_ERROR_DOM_MEDIA_METADATA_ERR,
+              info.Update(&track, &video).Code());
+  }
+
+  // A height one past the maximum image dimension is rejected on its own, even
+  // when the total area is within bounds.
+  {
+    Mp4parseTrackVideoInfo video = MakeVideoInfo(&si);
+    video.display_width = 1;
+    video.display_height = 16385;
+    MP4VideoInfo info;
+    EXPECT_EQ(NS_ERROR_DOM_MEDIA_METADATA_ERR,
+              info.Update(&track, &video).Code());
+  }
+
+  // A zero display dimension is rejected.
+  {
+    Mp4parseTrackVideoInfo video = MakeVideoInfo(&si);
+    video.display_width = 0;
+    video.display_height = 1080;
+    MP4VideoInfo info;
+    EXPECT_EQ(NS_ERROR_DOM_MEDIA_METADATA_ERR,
+              info.Update(&track, &video).Code());
+  }
+
+  // A display size far beyond the maximum image dimension is rejected.
+  {
+    Mp4parseTrackVideoInfo video = MakeVideoInfo(&si);
+    video.display_width = 65535;
+    video.display_height = 65535;
+    MP4VideoInfo info;
+    EXPECT_EQ(NS_ERROR_DOM_MEDIA_METADATA_ERR,
+              info.Update(&track, &video).Code());
+  }
+}
+
+TEST(MP4Demuxer, VideoInfoMdcvClli)
+{
+  Mp4parseTrackVideoSampleInfo si{};
+  si.codec_type = MP4PARSE_CODEC_VP9;
+  si.image_width = 1920;
+  si.image_height = 1080;
+
+  // mdcv: R(34000/50000, 16000/50000) G(13250/50000, 34500/50000)
+  //       B(7500/50000, 3000/50000) WP(15635/50000, 16450/50000)
+  //       maxLum=10000000/10000 minLum=50/10000
+  si.has_mastering_display = true;
+  si.mastering_display.display_primaries_x[0] = 34000;  // R
+  si.mastering_display.display_primaries_y[0] = 16000;
+  si.mastering_display.display_primaries_x[1] = 13250;  // G
+  si.mastering_display.display_primaries_y[1] = 34500;
+  si.mastering_display.display_primaries_x[2] = 7500;  // B
+  si.mastering_display.display_primaries_y[2] = 3000;
+  si.mastering_display.white_point_x = 15635;
+  si.mastering_display.white_point_y = 16450;
+  si.mastering_display.max_display_mastering_luminance = 10000000;
+  si.mastering_display.min_display_mastering_luminance = 50;
+
+  // clli: MaxCLL=1000, MaxFALL=400
+  si.has_content_light_level = true;
+  si.content_light_level.max_content_light_level = 1000;
+  si.content_light_level.max_pic_average_light_level = 400;
+
+  Mp4parseTrackInfo track = MakeTrackInfo();
+  Mp4parseTrackVideoInfo video = MakeVideoInfo(&si);
+
+  MP4VideoInfo info;
+  ASSERT_NS_SUCCEEDED(info.Update(&track, &video));
+
+  ASSERT_TRUE(info.mHDRMetadata.isSome());
+
+  ASSERT_TRUE(info.mHDRMetadata->mSmpte2086.isSome());
+  const auto& smpte = info.mHDRMetadata->mSmpte2086.value();
+  EXPECT_FLOAT_EQ(smpte.displayPrimaryRed.x, 34000.0f / 50000.0f);
+  EXPECT_FLOAT_EQ(smpte.displayPrimaryRed.y, 16000.0f / 50000.0f);
+  EXPECT_FLOAT_EQ(smpte.displayPrimaryGreen.x, 13250.0f / 50000.0f);
+  EXPECT_FLOAT_EQ(smpte.displayPrimaryGreen.y, 34500.0f / 50000.0f);
+  EXPECT_FLOAT_EQ(smpte.displayPrimaryBlue.x, 7500.0f / 50000.0f);
+  EXPECT_FLOAT_EQ(smpte.displayPrimaryBlue.y, 3000.0f / 50000.0f);
+  EXPECT_FLOAT_EQ(smpte.whitePoint.x, 15635.0f / 50000.0f);
+  EXPECT_FLOAT_EQ(smpte.whitePoint.y, 16450.0f / 50000.0f);
+  EXPECT_FLOAT_EQ(smpte.maxLuminance, 10000000.0f / 10000.0f);
+  EXPECT_FLOAT_EQ(smpte.minLuminance, 50.0f / 10000.0f);
+
+  ASSERT_TRUE(info.mHDRMetadata->mContentLightLevel.isSome());
+  const auto& cll = info.mHDRMetadata->mContentLightLevel.value();
+  EXPECT_EQ(cll.maxContentLightLevel, 1000u);
+  EXPECT_EQ(cll.maxFrameAverageLightLevel, 400u);
+}
+
+TEST(MP4Demuxer, VideoInfoMdcvOnly)
+{
+  Mp4parseTrackVideoSampleInfo si{};
+  si.codec_type = MP4PARSE_CODEC_HEVC;
+  si.image_width = 3840;
+  si.image_height = 2160;
+  si.has_mastering_display = true;
+  si.mastering_display.display_primaries_x[0] = 17000;
+  si.mastering_display.display_primaries_y[0] = 8000;
+  si.mastering_display.display_primaries_x[1] = 13250;
+  si.mastering_display.display_primaries_y[1] = 34500;
+  si.mastering_display.display_primaries_x[2] = 7500;
+  si.mastering_display.display_primaries_y[2] = 3000;
+  si.mastering_display.white_point_x = 15635;
+  si.mastering_display.white_point_y = 16450;
+  si.mastering_display.max_display_mastering_luminance = 10000000;
+  si.mastering_display.min_display_mastering_luminance = 1;
+
+  Mp4parseTrackInfo track = MakeTrackInfo();
+  Mp4parseTrackVideoInfo video = MakeVideoInfo(&si);
+
+  MP4VideoInfo info;
+  ASSERT_NS_SUCCEEDED(info.Update(&track, &video));
+
+  ASSERT_TRUE(info.mHDRMetadata.isSome());
+  EXPECT_TRUE(info.mHDRMetadata->mSmpte2086.isSome());
+  EXPECT_TRUE(info.mHDRMetadata->mContentLightLevel.isSome());
+}
+
+TEST(MP4Demuxer, VideoInfoClliOnly)
+{
+  Mp4parseTrackVideoSampleInfo si{};
+  si.codec_type = MP4PARSE_CODEC_VP9;
+  si.image_width = 1920;
+  si.image_height = 1080;
+  si.has_content_light_level = true;
+  si.content_light_level.max_content_light_level = 500;
+  si.content_light_level.max_pic_average_light_level = 200;
+
+  Mp4parseTrackInfo track = MakeTrackInfo();
+  Mp4parseTrackVideoInfo video = MakeVideoInfo(&si);
+
+  MP4VideoInfo info;
+  ASSERT_NS_SUCCEEDED(info.Update(&track, &video));
+
+  ASSERT_TRUE(info.mHDRMetadata.isSome());
+  EXPECT_TRUE(info.mHDRMetadata->mSmpte2086.isSome());
+  ASSERT_TRUE(info.mHDRMetadata->mContentLightLevel.isSome());
+  const auto& cll = info.mHDRMetadata->mContentLightLevel.value();
+  EXPECT_EQ(cll.maxContentLightLevel, 500u);
+  EXPECT_EQ(cll.maxFrameAverageLightLevel, 200u);
+}
+
+TEST(MP4Demuxer, VideoInfoNoHDR)
+{
+  Mp4parseTrackVideoSampleInfo si{};
+  si.codec_type = MP4PARSE_CODEC_AVC;
+  si.image_width = 1920;
+  si.image_height = 1080;
+
+  Mp4parseTrackInfo track = MakeTrackInfo();
+  Mp4parseTrackVideoInfo video = MakeVideoInfo(&si);
+
+  MP4VideoInfo info;
+  ASSERT_NS_SUCCEEDED(info.Update(&track, &video));
+  EXPECT_TRUE(info.mHDRMetadata.isNothing());
+}
+
 #undef DO_FAIL
+
+static Mp4parseTrackVideoSampleInfo MakeSampleInfo(bool aHasColourInfo,
+                                                   uint8_t aCp, uint8_t aTc,
+                                                   uint8_t aMc,
+                                                   bool aFullRange) {
+  Mp4parseTrackVideoSampleInfo si{};
+  si.codec_type = MP4PARSE_CODEC_AV1;
+  si.image_width = 1920;
+  si.image_height = 1080;
+  si.has_colour_info = aHasColourInfo;
+  si.colour_primaries = aCp;
+  si.transfer_characteristics = aTc;
+  si.matrix_coefficients = aMc;
+  si.full_range_flag = aFullRange;
+  return si;
+}
+
+// HDR10: cp=9 (BT.2020), tc=16 (PQ), mc=9, limited range
+TEST(MP4Demuxer, VideoInfoNclxHDR10)
+{
+  auto si = MakeSampleInfo(true, 9, 16, 9, false);
+  auto vi = MakeVideoInfo(&si);
+  auto ti = MakeTrackInfo();
+  MP4VideoInfo info;
+  EXPECT_TRUE(NS_SUCCEEDED(info.Update(&ti, &vi)));
+  EXPECT_EQ(info.mTransferFunction, Some(gfx::TransferFunction::PQ));
+  EXPECT_EQ(info.mColorPrimaries, Some(gfx::ColorSpace2::BT2020));
+  EXPECT_EQ(info.mColorSpace, Some(gfx::YUVColorSpace::BT2020));
+  EXPECT_EQ(info.mColorRange, gfx::ColorRange::LIMITED);
+}
+
+// HDR10 full-range: cp=9, tc=16, mc=9, full range
+TEST(MP4Demuxer, VideoInfoNclxHDR10FullRange)
+{
+  auto si = MakeSampleInfo(true, 9, 16, 9, true);
+  auto vi = MakeVideoInfo(&si);
+  auto ti = MakeTrackInfo();
+  MP4VideoInfo info;
+  EXPECT_TRUE(NS_SUCCEEDED(info.Update(&ti, &vi)));
+  EXPECT_EQ(info.mTransferFunction, Some(gfx::TransferFunction::PQ));
+  EXPECT_EQ(info.mColorPrimaries, Some(gfx::ColorSpace2::BT2020));
+  EXPECT_EQ(info.mColorSpace, Some(gfx::YUVColorSpace::BT2020));
+  EXPECT_EQ(info.mColorRange, gfx::ColorRange::FULL);
+}
+
+// HLG: cp=9, tc=18, mc=9, limited range
+TEST(MP4Demuxer, VideoInfoNclxHLG)
+{
+  auto si = MakeSampleInfo(true, 9, 18, 9, false);
+  auto vi = MakeVideoInfo(&si);
+  auto ti = MakeTrackInfo();
+  MP4VideoInfo info;
+  EXPECT_TRUE(NS_SUCCEEDED(info.Update(&ti, &vi)));
+  EXPECT_EQ(info.mTransferFunction, Some(gfx::TransferFunction::HLG));
+  EXPECT_EQ(info.mColorPrimaries, Some(gfx::ColorSpace2::BT2020));
+  EXPECT_EQ(info.mColorSpace, Some(gfx::YUVColorSpace::BT2020));
+  EXPECT_EQ(info.mColorRange, gfx::ColorRange::LIMITED);
+}
+
+// HLG full-range: cp=9, tc=18, mc=9, full range
+TEST(MP4Demuxer, VideoInfoNclxHLGFullRange)
+{
+  auto si = MakeSampleInfo(true, 9, 18, 9, true);
+  auto vi = MakeVideoInfo(&si);
+  auto ti = MakeTrackInfo();
+  MP4VideoInfo info;
+  EXPECT_TRUE(NS_SUCCEEDED(info.Update(&ti, &vi)));
+  EXPECT_EQ(info.mTransferFunction, Some(gfx::TransferFunction::HLG));
+  EXPECT_EQ(info.mColorPrimaries, Some(gfx::ColorSpace2::BT2020));
+  EXPECT_EQ(info.mColorSpace, Some(gfx::YUVColorSpace::BT2020));
+  EXPECT_EQ(info.mColorRange, gfx::ColorRange::FULL);
+}
+
+// RGB/Identity: cp=1 (BT.709), tc=1, mc=0 (Identity), limited range
+TEST(MP4Demuxer, VideoInfoNclxRGBIdentity)
+{
+  auto si = MakeSampleInfo(true, 1, 1, 0, false);
+  auto vi = MakeVideoInfo(&si);
+  auto ti = MakeTrackInfo();
+  MP4VideoInfo info;
+  EXPECT_TRUE(NS_SUCCEEDED(info.Update(&ti, &vi)));
+  EXPECT_EQ(info.mTransferFunction, Some(gfx::TransferFunction::BT709));
+  EXPECT_EQ(info.mColorPrimaries, Some(gfx::ColorSpace2::BT709));
+  EXPECT_EQ(info.mColorSpace, Some(gfx::YUVColorSpace::Identity));
+  EXPECT_EQ(info.mColorRange, gfx::ColorRange::LIMITED);
+}
+
+// No colr box: has_colour_info=false, colour fields must stay Nothing()
+TEST(MP4Demuxer, VideoInfoNclxAbsent)
+{
+  auto si = MakeSampleInfo(false, 0, 0, 0, false);
+  auto vi = MakeVideoInfo(&si);
+  auto ti = MakeTrackInfo();
+  MP4VideoInfo info;
+  EXPECT_TRUE(NS_SUCCEEDED(info.Update(&ti, &vi)));
+  EXPECT_EQ(info.mTransferFunction, Nothing());
+  EXPECT_EQ(info.mColorPrimaries, Nothing());
+  EXPECT_EQ(info.mColorSpace, Nothing());
+  EXPECT_EQ(info.mColorRange, gfx::ColorRange::LIMITED);
+}
+
+// Unrecognised CICP values: colour fields with no gecko mapping stay Nothing()
+TEST(MP4Demuxer, VideoInfoNclxUnrecognisedCICP)
+{
+  auto si = MakeSampleInfo(true, 22, 22, 22, false);
+  auto vi = MakeVideoInfo(&si);
+  auto ti = MakeTrackInfo();
+  MP4VideoInfo info;
+  EXPECT_TRUE(NS_SUCCEEDED(info.Update(&ti, &vi)));
+  EXPECT_EQ(info.mTransferFunction, Nothing());
+  EXPECT_EQ(info.mColorPrimaries, Nothing());
+  EXPECT_EQ(info.mColorSpace, Nothing());
+  EXPECT_EQ(info.mColorRange, gfx::ColorRange::LIMITED);
+}

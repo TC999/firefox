@@ -89,7 +89,7 @@ const ISSUE_CLIP = {
   type: COMPATIBILITY_ISSUE_TYPE.CSS_PROPERTY,
   property: "clip",
   url: "https://developer.mozilla.org/docs/Web/CSS/Reference/Properties/clip",
-  specUrl: "https://drafts.csswg.org/css-masking/#clip-property",
+  specUrl: "https://drafts.csswg.org/css-masking/#propdef-clip",
   deprecated: true,
   experimental: false,
   unsupportedBrowsers: [],
@@ -110,6 +110,8 @@ async function testNodeCssIssues(selector, walker, compatibility, expected) {
 }
 
 add_task(async function () {
+  await setMockCompatibilityDataset();
+
   const { inspector, walker, target } = await initInspectorFront(URL);
   const compatibility = await inspector.getCompatibilityFront();
 

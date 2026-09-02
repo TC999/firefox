@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -42,6 +41,10 @@ import androidx.compose.ui.tooling.preview.PreviewParameter
 import androidx.compose.ui.unit.dp
 import mozilla.components.compose.base.annotation.FlexibleWindowPreview
 import mozilla.components.compose.base.button.FilledButton
+import mozilla.components.compose.base.theme.PreviewThemeProvider
+import mozilla.components.compose.base.theme.Theme
+import mozilla.components.compose.base.theme.ThemedValue
+import mozilla.components.compose.base.theme.ThemedValueProvider
 import mozilla.components.compose.base.theme.surfaceDimVariant
 import org.mozilla.fenix.R
 import org.mozilla.fenix.reviewprompt.CustomReviewPromptAction
@@ -51,10 +54,6 @@ import org.mozilla.fenix.reviewprompt.CustomReviewPromptState.PrePrompt
 import org.mozilla.fenix.reviewprompt.CustomReviewPromptState.Rate
 import org.mozilla.fenix.reviewprompt.CustomReviewPromptStore
 import org.mozilla.fenix.theme.FirefoxTheme
-import org.mozilla.fenix.theme.PreviewThemeProvider
-import org.mozilla.fenix.theme.Theme
-import org.mozilla.fenix.theme.ThemedValue
-import org.mozilla.fenix.theme.ThemedValueProvider
 
 /**
  * Prompt that can show either:
@@ -118,16 +117,13 @@ private fun BottomSheet(
         containerColor = MaterialTheme.colorScheme.surface,
         dragHandle = { BottomSheetDefaults.DragHandle(color = MaterialTheme.colorScheme.outline) },
     ) {
-        Box(
-            modifier = Modifier
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 16.dp),
-        ) {
+        Box(modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 16.dp)) {
             when (customReviewPromptState) {
-                PrePrompt -> PrePrompt(
-                    onNegativeButtonClick = onNegativePrePromptButtonClick,
-                    onPositiveButtonClick = onPositivePrePromptButtonClick,
-                )
+                PrePrompt ->
+                    PrePrompt(
+                        onNegativeButtonClick = onNegativePrePromptButtonClick,
+                        onPositiveButtonClick = onPositivePrePromptButtonClick,
+                    )
 
                 Rate -> RateStep(onRateButtonClick = onRateButtonClick)
                 Feedback -> FeedbackStep(onLeaveFeedbackButtonClick = onLeaveFeedbackButtonClick)
@@ -144,10 +140,11 @@ private fun PrePrompt(
 ) {
     Column(modifier) {
         Text(
-            text = stringResource(
-                R.string.review_prompt_pre_prompt_header,
-                stringResource(R.string.firefox),
-            ),
+            text =
+                stringResource(
+                    R.string.review_prompt_pre_prompt_header,
+                    stringResource(R.string.firefox),
+                ),
             style = FirefoxTheme.typography.headline7,
         )
 
@@ -183,8 +180,8 @@ private fun FoxEmojiButton(
     Column(
         modifier
             .height(100.dp)
-            .clip(RoundedCornerShape(size = 18.dp))
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(size = 18.dp))
+            .clip(MaterialTheme.shapes.large)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.large)
             .background(MaterialTheme.colorScheme.surfaceDimVariant)
             .clickable(onClick = onClick),
         Arrangement.Center,
@@ -215,10 +212,11 @@ private fun RateStep(onRateButtonClick: () -> Unit, modifier: Modifier = Modifie
             Spacer(Modifier.width(10.dp))
 
             Text(
-                text = stringResource(
-                    R.string.review_prompt_rate_header,
-                    stringResource(R.string.firefox),
-                ),
+                text =
+                    stringResource(
+                        R.string.review_prompt_rate_header,
+                        stringResource(R.string.firefox),
+                    ),
                 style = FirefoxTheme.typography.headline7,
             )
         }
@@ -226,10 +224,11 @@ private fun RateStep(onRateButtonClick: () -> Unit, modifier: Modifier = Modifie
         Spacer(Modifier.height(20.dp))
 
         FilledButton(
-            text = stringResource(
-                R.string.review_prompt_rate_button,
-                stringResource(R.string.firefox),
-            ),
+            text =
+                stringResource(
+                    R.string.review_prompt_rate_button,
+                    stringResource(R.string.firefox),
+                ),
             modifier = Modifier.fillMaxWidth(),
             onClick = onRateButtonClick,
         )
@@ -248,10 +247,11 @@ private fun FeedbackStep(onLeaveFeedbackButtonClick: () -> Unit, modifier: Modif
             Spacer(Modifier.width(10.dp))
 
             Text(
-                text = stringResource(
-                    R.string.review_prompt_feedback_header,
-                    stringResource(R.string.firefox),
-                ),
+                text =
+                    stringResource(
+                        R.string.review_prompt_feedback_header,
+                        stringResource(R.string.firefox),
+                    ),
                 style = FirefoxTheme.typography.headline7,
             )
         }
@@ -271,9 +271,7 @@ private fun FeedbackStep(onLeaveFeedbackButtonClick: () -> Unit, modifier: Modif
 @OptIn(ExperimentalMaterial3Api::class)
 @FlexibleWindowPreview
 @Composable
-private fun BottomSheetPreview(
-    @PreviewParameter(PreviewThemeProvider::class) theme: Theme,
-) {
+private fun BottomSheetPreview(@PreviewParameter(PreviewThemeProvider::class) theme: Theme) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     FirefoxTheme(theme) {
@@ -292,9 +290,7 @@ private fun BottomSheetPreview(
 @OptIn(ExperimentalMaterial3Api::class)
 @Preview
 @Composable
-private fun PrePromptPreview(
-    @PreviewParameter(PreviewThemeProvider::class) theme: Theme,
-) {
+private fun PrePromptPreview(@PreviewParameter(PreviewThemeProvider::class) theme: Theme) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     FirefoxTheme(theme) {
@@ -313,9 +309,7 @@ private fun PrePromptPreview(
 @OptIn(ExperimentalMaterial3Api::class)
 @Preview
 @Composable
-private fun RatePromptPreview(
-    @PreviewParameter(PreviewThemeProvider::class) theme: Theme,
-) {
+private fun RatePromptPreview(@PreviewParameter(PreviewThemeProvider::class) theme: Theme) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     FirefoxTheme(theme) {
@@ -334,9 +328,7 @@ private fun RatePromptPreview(
 @OptIn(ExperimentalMaterial3Api::class)
 @Preview
 @Composable
-private fun FeedbackPromptPreview(
-    @PreviewParameter(PreviewThemeProvider::class) theme: Theme,
-) {
+private fun FeedbackPromptPreview(@PreviewParameter(PreviewThemeProvider::class) theme: Theme) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     FirefoxTheme(theme) {
@@ -354,18 +346,14 @@ private fun FeedbackPromptPreview(
 
 @Preview
 @Composable
-private fun FoxEmojiButtonPreview(
-    @PreviewParameter(FoxEmojiButtonLabelProvider::class) params: ThemedValue<String>,
-) {
+private fun FoxEmojiButtonPreview(@PreviewParameter(FoxEmojiButtonLabelProvider::class) params: ThemedValue<String>) {
     FirefoxTheme(params.theme) {
         Surface {
             FoxEmojiButton(
                 emoji = painterResource(R.drawable.review_prompt_positive_button),
                 label = params.value,
                 onClick = {},
-                modifier = Modifier
-                    .padding(16.dp)
-                    .width(176.dp),
+                modifier = Modifier.padding(16.dp).width(176.dp),
             )
         }
     }
@@ -380,9 +368,7 @@ private class FoxEmojiButtonLabelProvider :
 @OptIn(ExperimentalMaterial3Api::class)
 @Preview
 @Composable
-private fun InteractiveBottomSheetPreview(
-    @PreviewParameter(PreviewThemeProvider::class) theme: Theme,
-) {
+private fun InteractiveBottomSheetPreview(@PreviewParameter(PreviewThemeProvider::class) theme: Theme) {
     val store = CustomReviewPromptStore(PrePrompt)
     val promptState by store.stateFlow.collectAsState()
 

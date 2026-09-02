@@ -5,17 +5,16 @@
 #ifndef nsThreadSyncDispatch_h_
 #define nsThreadSyncDispatch_h_
 
+#include "MaybeLeakRefPtr.h"
 #include "mozilla/Atomics.h"
 #include "mozilla/DebugOnly.h"
 #include "mozilla/SpinEventLoopUntil.h"
-
 #include "nsThreadUtils.h"
-#include "MaybeLeakRefPtr.h"
 
 class nsThreadSyncDispatch : public mozilla::Runnable {
  public:
   nsThreadSyncDispatch(already_AddRefed<nsIEventTarget> aOrigin,
-                       already_AddRefed<nsIRunnable>&& aTask)
+                       already_AddRefed<nsIRunnable> aTask)
       : Runnable("nsThreadSyncDispatch"),
         mOrigin(aOrigin),
         mSyncTask(std::move(aTask), /* aAutoRelease */ false),

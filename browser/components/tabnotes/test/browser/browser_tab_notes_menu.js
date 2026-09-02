@@ -29,7 +29,7 @@ let activateTabContextMenuItem = async (
   let submenuItem;
   let submenuItemHiddenPromise;
 
-  const win = selectedTab.ownerGlobal;
+  const win = selectedTab.documentGlobal;
   const tabContextMenu = win.document.getElementById("tabContextMenu");
   const contextMenuShown = BrowserTestUtils.waitForEvent(
     tabContextMenu,
@@ -92,7 +92,7 @@ async function openTabNoteMenuByAddNote(tab) {
 async function openTabNoteMenuByEditNote(tab) {
   let tabNotePanel = document.getElementById("tabNotePanel");
   let panelShown = BrowserTestUtils.waitForPopupEvent(tabNotePanel, "shown");
-  activateTabContextMenuItem(tab, "#context_editNote", "#context_updateNote");
+  activateTabContextMenuItem(tab, "#context_editNote");
   await panelShown;
   return tabNotePanel;
 }
@@ -105,15 +105,15 @@ add_task(async function test_tabContextMenu_prefDisabled() {
   let tab = BrowserTestUtils.addTab(gBrowser, "https://www.example.com");
   await BrowserTestUtils.browserLoaded(tab.linkedBrowser);
   let addNoteElement = document.getElementById("context_addNote");
-  let updateNoteElement = document.getElementById("context_updateNote");
+  let editNoteElement = document.getElementById("context_editNote");
   let tabContextMenu = await getContextMenu(tab, "tabContextMenu");
   Assert.ok(
     addNoteElement.hidden,
     "'Add Note' is hidden from context menu when pref disabled"
   );
   Assert.ok(
-    updateNoteElement.hidden,
-    "'Update Note' is hidden from context menu when pref disabled"
+    editNoteElement.hidden,
+    "'Edit Note' is hidden from context menu when pref disabled"
   );
   await closeContextMenu(tabContextMenu);
   BrowserTestUtils.removeTab(tab);
@@ -211,7 +211,7 @@ add_task(async function test_saveTabNote() {
   EventUtils.sendString("Lorem ipsum dolor", window);
 
   let saveButton = tabNoteMenu.querySelector("#tab-note-editor-button-save");
-  await BrowserTestUtils.waitForCondition(() => {
+  await TestUtils.waitForCondition(() => {
     return !saveButton.disabled;
   });
 
@@ -260,7 +260,7 @@ add_task(async function test_editTabNote() {
   EventUtils.sendString(updatedNoteValue, window);
 
   let saveButton = tabNoteMenu.querySelector("#tab-note-editor-button-save");
-  await BrowserTestUtils.waitForCondition(() => {
+  await TestUtils.waitForCondition(() => {
     return !saveButton.disabled;
   });
 
@@ -269,7 +269,7 @@ add_task(async function test_editTabNote() {
   tabNoteMenu.querySelector("#tab-note-editor-button-save").click();
   await Promise.all([menuHidden, tabNoteEdited]);
 
-  await BrowserTestUtils.waitForCondition(
+  await TestUtils.waitForCondition(
     () => Glean.tabNotes.edited.testGetValue()?.length,
     "wait for event to be recorded"
   );
@@ -321,11 +321,21 @@ add_task(async function test_deleteTabNote() {
     }
   );
 
+  let tabNoteMenu = await openTabNoteMenuByEditNote(tab);
+  let deleteButton = tabNoteMenu.querySelector(
+    "#tab-note-editor-button-delete"
+  );
+  Assert.ok(deleteButton, "Delete button should be present in edit note menu");
+  Assert.ok(
+    !deleteButton.hidden,
+    "Delete button should be visible in edit note menu"
+  );
+
   let tabNoteRemoved = BrowserTestUtils.waitForEvent(tab, "TabNote:Removed");
-  activateTabContextMenuItem(tab, "#context_deleteNote", "#context_updateNote");
+  deleteButton.click();
   await tabNoteRemoved;
 
-  await BrowserTestUtils.waitForCondition(
+  await TestUtils.waitForCondition(
     () => Glean.tabNotes.deleted.testGetValue()?.length,
     "wait for event to be recorded"
   );
@@ -473,7 +483,7 @@ add_task(async function test_ineligibleTabsDisableMenus() {
 
   let tabContextMenu = document.getElementById("tabContextMenu");
   let addNoteEntry = document.querySelector("#context_addNote");
-  let updateNoteEntry = document.querySelector("#context_updateNote");
+  let editNoteEntry = document.querySelector("#context_editNote");
 
   let eligibleTab = BrowserTestUtils.addTab(
     gBrowser,
@@ -481,7 +491,7 @@ add_task(async function test_ineligibleTabsDisableMenus() {
   );
   await BrowserTestUtils.browserLoaded(eligibleTab.linkedBrowser);
 
-  let ineligibleTab = BrowserTestUtils.addTab(gBrowser, "about:logo");
+  let ineligibleTab = BrowserTestUtils.addTab(gBrowser, "about:mozilla");
   await BrowserTestUtils.browserLoaded(ineligibleTab.linkedBrowser);
 
   info(
@@ -549,31 +559,77 @@ add_task(async function test_ineligibleTabsDisableMenus() {
   await closeContextMenu(tabContextMenu);
 
   info(
-    "Test that an eligible tab with a note has an enabled 'Update Note' entry"
+    "Test that an eligible tab with a note has an enabled 'Edit Note' entry"
   );
   gBrowser.selectedTabs = [eligibleTab];
   await TabNotes.set(eligibleTab, "Some tab note");
   await getContextMenu(eligibleTab, "tabContextMenu");
   Assert.ok(
-    !updateNoteEntry.hasAttribute("disabled"),
-    "Eligible tab has enabled 'Update Note' entry"
+    !editNoteEntry.hasAttribute("disabled"),
+    "Eligible tab has enabled 'Edit Note' entry"
   );
   await closeContextMenu(tabContextMenu);
 
   info(
-    "Test that a multiselection with a tab with a note and an ineligible tab has a disabled 'Update Note' entry"
+    "Test that a multiselection with a tab with a note and an ineligible tab has a disabled 'Edit Note' entry"
   );
   gBrowser.selectedTabs = [eligibleTab, ineligibleTab];
   await getContextMenu(eligibleTab, "tabContextMenu");
   Assert.ok(
-    updateNoteEntry.hasAttribute("disabled"),
-    "Multiselection with a tab with note and ineligible tab has disabled 'Update Note' entry"
+    editNoteEntry.hasAttribute("disabled"),
+    "Multiselection with a tab with note and ineligible tab has disabled 'Edit Note' entry"
   );
   await closeContextMenu(tabContextMenu);
 
+  await TabNotes.delete(eligibleTab);
   BrowserTestUtils.removeTab(eligibleTab);
   BrowserTestUtils.removeTab(ineligibleTab);
   BrowserTestUtils.removeTab(eligibleSameCanonicalUrl);
   BrowserTestUtils.removeTab(eligibleDifferentCanonicalUrl);
+  await SpecialPowers.popPrefEnv();
+});
+
+add_task(async function test_keyboardNavigationSaveCancel() {
+  await SpecialPowers.pushPrefEnv({
+    set: [["browser.tabs.notes.enabled", true]],
+  });
+
+  let tab = BrowserTestUtils.addTab(gBrowser, "https://www.example.com");
+  await BrowserTestUtils.browserLoaded(tab.linkedBrowser);
+
+  info(
+    "Test that pressing Enter while focused on Cancel button does not save the note"
+  );
+  let tabNoteMenu = await openTabNoteMenuByAddNote(tab);
+  let tabNoteInput = tabNoteMenu.querySelector("textarea");
+  tabNoteInput.focus();
+  EventUtils.sendString("Test note", window);
+  let cancelButton = document.getElementById("tab-note-editor-button-cancel");
+  cancelButton.focus();
+  let menuHidden = BrowserTestUtils.waitForPopupEvent(tabNoteMenu, "hidden");
+  EventUtils.synthesizeKey("KEY_Enter");
+  await menuHidden;
+  let tabNote = await TabNotes.get(tab);
+  Assert.ok(
+    !tabNote,
+    "Note is not saved when Enter is pressed on Cancel button"
+  );
+
+  info(
+    "Test that pressing Enter while focused inside the textarea saves the note"
+  );
+  tabNoteMenu = await openTabNoteMenuByAddNote(tab);
+  tabNoteInput = tabNoteMenu.querySelector("textarea");
+  tabNoteInput.focus();
+  EventUtils.sendString("Test note", window);
+  menuHidden = BrowserTestUtils.waitForPopupEvent(tabNoteMenu, "hidden");
+  let tabNoteCreated = BrowserTestUtils.waitForEvent(tab, "TabNote:Created");
+  EventUtils.synthesizeKey("KEY_Enter");
+  await Promise.all([menuHidden, tabNoteCreated]);
+  tabNote = await TabNotes.get(tab);
+  Assert.ok(tabNote, "Note is saved when Enter is pressed inside textarea");
+
+  await TabNotes.delete(tab);
+  BrowserTestUtils.removeTab(tab);
   await SpecialPowers.popPrefEnv();
 });

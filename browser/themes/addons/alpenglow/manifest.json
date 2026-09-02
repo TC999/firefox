@@ -10,7 +10,7 @@
   "name": "Firefox Alpenglow",
   "description": "Use a colorful appearance for buttons, menus, and windows.",
   "author": "Mozilla",
-  "version": "1.5.2",
+  "version": "1.5.3",
   "icons": { "32": "icon.svg" },
 
   "theme": {
@@ -18,7 +18,7 @@
       "additional_backgrounds": [
         "background-noodles-right.svg",
         "background-noodles-left.svg",
-        "background-gradient.svg"
+        { "linear-gradient": "to bottom, #FF6BBA -18.096%, #FFC999 50%" }
       ]
     },
 
@@ -29,6 +29,7 @@
         "right top"
       ],
       "additional_backgrounds_tiling": ["no-repeat", "no-repeat", "repeat-x"],
+      "additional_backgrounds_size": ["auto", "auto", "auto 144px"],
       "zap_gradient": "linear-gradient(90deg, #9059FF 0%, #FF4AA2 52.08%, #FFBD4F 100%)"
     },
     "colors": {
@@ -74,7 +75,7 @@
       "additional_backgrounds": [
         "background-noodles-right-dark.svg",
         "background-noodles-left-dark.svg",
-        "background-gradient-dark.svg"
+        { "linear-gradient": "to bottom, #20123A 0%, #291D4F 50%" }
       ]
     },
 
@@ -85,6 +86,7 @@
         "right top"
       ],
       "additional_backgrounds_tiling": ["no-repeat", "no-repeat", "repeat-x"],
+      "additional_backgrounds_size": ["auto", "auto", "auto 144px"],
       "zap_gradient": "linear-gradient(90deg, #9059FF 0%, #FF4AA2 52.08%, #FFBD4F 100%)"
     },
     "colors": {
@@ -119,6 +121,7 @@
       "popup_border": "hsla(255, 100%, 94%, .32)",
       "popup_highlight": "hsla(255, 100%, 94%, .12)",
       "popup_highlight_text": "hsla(0, 0%, 100%, 1)",
+      "popup_icon": "hsla(271, 100%, 77%, 1)",
       "sidebar": "hsla(250, 43%, 25%, 1)",
       "sidebar_text": "hsla(255, 100%, 94%, 1)",
       "sidebar_border": "hsla(255, 100%, 94%, .24)",
@@ -130,7 +133,8 @@
 
   "theme_experiment": {
     "colors": {
-      "focus_outline": "--focus-outline-color"
+      "focus_outline": "--focus-outline-color",
+      "popup_icon": "--panel-icon-fill"
     },
     "properties": {
       "zap_gradient": "--panel-separator-zap-gradient"

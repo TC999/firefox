@@ -7,13 +7,9 @@
 
 #include <stdint.h>  // For uint16_t
 
-#ifdef ENABLE_EXPLICIT_RESOURCE_MANAGEMENT
-#  define INLINABLE_EXPLICIT_RESOURCE_MANAGEMENENT_LIST(_) \
-    _(IntrinsicGuardToAsyncDisposableStack)                \
-    _(IntrinsicGuardToDisposableStack)
-#else
-#  define INLINABLE_EXPLICIT_RESOURCE_MANAGEMENENT_LIST(_)
-#endif
+#define INLINABLE_EXPLICIT_RESOURCE_MANAGEMENENT_LIST(_) \
+  _(IntrinsicGuardToAsyncDisposableStack)                \
+  _(IntrinsicGuardToDisposableStack)
 
 #ifdef FUZZING_JS_FUZZILLI
 #  define INLINABLE_NATIVE_FUZZILLI_LIST(_) _(FuzzilliHash)
@@ -82,6 +78,7 @@
   _(DataViewByteLength)                            \
   _(DataViewByteOffset)                            \
                                                    \
+  _(Date)                                          \
   _(DateGetTime)                                   \
   _(DateGetFullYear)                               \
   _(DateGetMonth)                                  \
@@ -90,6 +87,8 @@
   _(DateGetHours)                                  \
   _(DateGetMinutes)                                \
   _(DateGetSeconds)                                \
+  _(DateNow)                                       \
+  _(DateParse)                                     \
                                                    \
   _(FunctionBind)                                  \
                                                    \

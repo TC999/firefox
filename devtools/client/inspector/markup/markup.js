@@ -120,6 +120,9 @@ const shortcutHandlers = {
     }
   },
   "markupView.edit.key": markupView => {
+    if (!markupView.canEditSelectedNodeHTML()) {
+      return;
+    }
     markupView.beginEditingHTML(markupView._selectedContainer.node);
   },
   "markupView.scrollInto.key": markupView => {
@@ -243,7 +246,7 @@ class MarkupView extends EventEmitter {
    * @param  {Inspector} inspector
    *         The inspector we're watching.
    * @param  {iframe} frame
-   *         An iframe in which the caller has kindly loaded markup.xhtml.
+   *         An iframe in which the caller has kindly loaded markup.html.
    * @param  {XULWindow} controllerWindow
    *         Will enable the undo/redo feature from devtools/client/shared/undo.
    *         Should be a XUL window, will typically point to the toolbox window.
@@ -1384,7 +1387,7 @@ class MarkupView extends EventEmitter {
           if (type === "uri") {
             openContentLink(url);
           } else if (type === "cssresource") {
-            return this.toolbox.viewGeneratedSourceInStyleEditor(url);
+            return this.toolbox.viewStyleGeneratedSource(url);
           } else if (type === "jsresource") {
             return this.toolbox.viewGeneratedSourceInDebugger(url);
           }
@@ -2227,6 +2230,16 @@ class MarkupView extends EventEmitter {
         }
       );
     });
+  }
+
+  canEditSelectedNodeHTML() {
+    const { selection } = this.inspector;
+    const isFragment = selection.isDocumentFragmentNode();
+    const isAnonymous = selection.isNativeAnonymousNode();
+    const isElement =
+      selection.isElementNode() && !selection.isPseudoElementNode();
+
+    return !isAnonymous && (isElement || isFragment);
   }
 
   /**

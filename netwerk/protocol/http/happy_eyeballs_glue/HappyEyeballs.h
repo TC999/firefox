@@ -6,29 +6,27 @@
 #define HappyEyeballs_h_
 
 #include <cstdint>
+
+#include "mozilla/net/happy_eyeballs_glue.h"
 #include "nsError.h"
 #include "nsTArray.h"
-#include "mozilla/net/happy_eyeballs_glue.h"
 
 namespace mozilla {
 namespace net {
 
 class HappyEyeballs final {
  public:
+  HappyEyeballs() = delete;
+  ~HappyEyeballs() = delete;
+
   static nsresult Init(HappyEyeballs** aHappyEyeballs,
                        const nsACString& aOrigin, uint16_t aPort,
                        const nsTArray<happy_eyeballs::AltSvc>* aAltSvc,
-                       happy_eyeballs::IpPreference aPref) {
-    return happy_eyeballs::happy_eyeballs_create(
-        (const HappyEyeballs**)aHappyEyeballs, &aOrigin, aPort, aAltSvc, aPref);
-  }
+                       happy_eyeballs::IpPreference aPref,
+                       happy_eyeballs::HttpVersions aHttpVersions);
 
   void AddRef() { happy_eyeballs::happy_eyeballs_addref(this); }
   void Release() { happy_eyeballs::happy_eyeballs_release(this); }
-
- private:
-  HappyEyeballs() = delete;
-  ~HappyEyeballs() = delete;
 };
 
 }  // namespace net

@@ -21,8 +21,8 @@ UNIFIED_SOURCES += [
     "TestEscape.cpp",
     "TestEventPriorities.cpp",
     "TestEventTargetQI.cpp",
-    "TestFile.cpp",
     "TestGCPostBarriers.cpp",
+    "TestHex.cpp",
     "TestID.cpp",
     "TestIDUtils.cpp",
     "TestINIParser.cpp",
@@ -160,8 +160,12 @@ if CONFIG["MOZ_MEMORY"]:
     ]
 
 SOURCES += [
+    "TestAsyncPlatformPipes.cpp",
     "TestCOMArray.cpp",
     "TestCOMPtr.cpp",  # Redefines IFoo and IBar
+    # nsILocalFileMac.h pulls in Carbon.h, whose global TextRange clashes with
+    # mozilla::TextRange when unified with files that "using namespace mozilla".
+    "TestFile.cpp",
     "TestHashtables.cpp",  # Redefines IFoo
     "TestNsRefPtr.cpp",  # Redefines Foo
 ]
@@ -171,6 +175,11 @@ LOCAL_INCLUDES += [
     "/toolkit/components/telemetry/tests/gtest",
     "/xpcom/components",
 ]
+
+# GCC 11 issues a false-positive -Wstringop-overread warning from
+# std::vector::reserve()/push_back() patterns in gmock-matchers.h.
+if CONFIG["CC_TYPE"] == "gcc" and 11 <= int(CONFIG["CC_VERSION"].split(".")[0]) < 12:
+    CXXFLAGS += ["-Wno-stringop-overread"]
 
 GeneratedFile(
     "dafsa_test_1.inc",

@@ -17,6 +17,7 @@
 
 #include "absl/debugging/internal/demangle.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -28,7 +29,7 @@
 #include "absl/base/config.h"
 #include "absl/debugging/internal/demangle_rust.h"
 
-#if ABSL_INTERNAL_HAS_CXA_DEMANGLE
+#ifdef ABSL_INTERNAL_HAS_CXA_DEMANGLE
 #include <cxxabi.h>
 #endif
 
@@ -456,22 +457,35 @@ static bool ZeroOrMore(ParseFunc parse_func, State *state) {
 }
 
 // Append "str" at "out_cur_idx".  If there is an overflow, out_cur_idx is
-// set to out_end_idx+1.  The output string is ensured to
-// always terminate with '\0' as long as there is no overflow.
+// set to out_end_idx+1.  The output buffer is always terminated with '\0' if it
+// has nonzero length.
 static void Append(State *state, const char *const str, const size_t length) {
-  for (size_t i = 0; i < length; ++i) {
-    if (state->parse_state.out_cur_idx + 1 <
-        state->out_end_idx) {  // +1 for '\0'
-      state->out[state->parse_state.out_cur_idx++] = str[i];
-    } else {
-      // signal overflow
-      state->parse_state.out_cur_idx = state->out_end_idx + 1;
-      break;
-    }
+  if (length == 0) {
+    return;
   }
-  if (state->parse_state.out_cur_idx < state->out_end_idx) {
-    state->out[state->parse_state.out_cur_idx] =
-        '\0';  // Terminate it with '\0'
+
+  // Figure out how much space is remaining in the output buffer to copy into.
+  const int cap = state->out_end_idx - state->parse_state.out_cur_idx;
+
+  // If overflow was already signaled (negative value, set further below) or
+  // there is zero space to write into, we cannot do anything.
+  if (cap <= 0) {
+    return;
+  }
+
+  // Copy the number of characters requested, capped by the amount of space
+  // remaining.
+  std::char_traits<char>::copy(state->out + state->parse_state.out_cur_idx, str,
+                               (std::min)(length, static_cast<size_t>(cap)));
+
+  // Did we copy everything we needed to, with enough room to NUL-terminate?
+  if (length < static_cast<size_t>(cap)) {
+    state->parse_state.out_cur_idx += static_cast<int>(length);
+    state->out[state->parse_state.out_cur_idx] = '\0';
+  } else {
+    // No, we ran out of space. Signal overflow, and NUL-terminate for safety.
+    state->parse_state.out_cur_idx = state->out_end_idx + 1;
+    state->out[state->out_end_idx - 1] = '\0';
   }
 }
 
@@ -483,36 +497,6 @@ static bool IsAlpha(char c) {
 }
 
 static bool IsDigit(char c) { return c >= '0' && c <= '9'; }
-
-// Returns true if "str" is a function clone suffix.  These suffixes are used
-// by GCC 4.5.x and later versions (and our locally-modified version of GCC
-// 4.4.x) to indicate functions which have been cloned during optimization.
-// We treat any sequence (.<alpha>+.<digit>+)+ as a function clone suffix.
-// Additionally, '_' is allowed along with the alphanumeric sequence.
-static bool IsFunctionCloneSuffix(const char *str) {
-  size_t i = 0;
-  while (str[i] != '\0') {
-    bool parsed = false;
-    // Consume a single [.<alpha> | _]*[.<digit>]* sequence.
-    if (str[i] == '.' && (IsAlpha(str[i + 1]) || str[i + 1] == '_')) {
-      parsed = true;
-      i += 2;
-      while (IsAlpha(str[i]) || str[i] == '_') {
-        ++i;
-      }
-    }
-    if (str[i] == '.' && IsDigit(str[i + 1])) {
-      parsed = true;
-      i += 2;
-      while (IsDigit(str[i])) {
-        ++i;
-      }
-    }
-    if (!parsed)
-      return false;
-  }
-  return true;  // Consumed everything in "str".
-}
 
 static bool EndsWith(State *state, const char chr) {
   return state->parse_state.out_cur_idx > 0 &&
@@ -923,8 +907,11 @@ static bool ParseAbiTags(State *state) {
   ComplexityGuard guard(state);
   if (guard.IsTooComplex()) return false;
 
-  while (ParseOneCharToken(state, 'B')) {
-    ParseState copy = state->parse_state;
+  for (;;) {
+    const ParseState copy = state->parse_state;
+    if (!ParseOneCharToken(state, 'B')) {
+      break;
+    }
     MaybeAppend(state, "[abi:");
 
     if (!ParseSourceName(state)) {
@@ -986,6 +973,7 @@ static bool ParseUnnamedTypeName(State *state) {
 
   // Unnamed type local to function or class.
   if (ParseTwoCharToken(state, "Ut") && Optional(ParseNumber(state, &which)) &&
+      which >= -1 &&                                   // Don't print garbage.
       which <= std::numeric_limits<int>::max() - 2 &&  // Don't overflow.
       ParseOneCharToken(state, '_')) {
     MaybeAppend(state, "{unnamed type#");
@@ -1001,6 +989,7 @@ static bool ParseUnnamedTypeName(State *state) {
       ZeroOrMore(ParseTemplateParamDecl, state) &&
       OneOrMore(ParseType, state) && RestoreAppend(state, copy.append) &&
       ParseOneCharToken(state, 'E') && Optional(ParseNumber(state, &which)) &&
+      which >= -1 &&                                   // Don't print garbage.
       which <= std::numeric_limits<int>::max() - 2 &&  // Don't overflow.
       ParseOneCharToken(state, '_')) {
     MaybeAppend(state, "{lambda()#");
@@ -1656,7 +1645,11 @@ static bool ParseBuiltinType(State *state) {
       return false;
     }
     MaybeAppend(state, "_Float");
-    MaybeAppendDecimal(state, number);
+    if (number >= 0) {
+      MaybeAppendDecimal(state, number);
+    } else {
+      MaybeAppend(state, "?");  // the best we can do for an invalid width
+    }
     if (ParseOneCharToken(state, 'x')) {
       MaybeAppend(state, "x");
       return true;
@@ -2932,7 +2925,7 @@ static bool ParseTopLevelMangledName(State *state) {
   if (ParseMangledName(state)) {
     if (RemainingInput(state)[0] != '\0') {
       // Drop trailing function clone suffix, if any.
-      if (IsFunctionCloneSuffix(RemainingInput(state))) {
+      if (RemainingInput(state)[0] == '.') {
         return true;
       }
       // Append trailing version suffix if any.
@@ -2957,8 +2950,7 @@ static bool Overflowed(const State *state) {
 
 // The demangler entry point.
 bool Demangle(const char* mangled, char* out, size_t out_size) {
-// mozilla - hazard-linux64-haz/debug failure when demangle_rust.cc is
-// included in the build.  For now we'll avoid this code.
+// mozilla - sixgill aborts analyzing this code; see bug 2068076.
 #if 0
   if (mangled[0] == '_' && mangled[1] == 'R') {
     return DemangleRustSymbolEncoding(mangled, out, out_size);
@@ -2975,7 +2967,7 @@ std::string DemangleString(const char* mangled) {
   std::string out;
   int status = 0;
   char* demangled = nullptr;
-#if ABSL_INTERNAL_HAS_CXA_DEMANGLE
+#ifdef ABSL_INTERNAL_HAS_CXA_DEMANGLE
   demangled = abi::__cxa_demangle(mangled, nullptr, nullptr, &status);
 #endif
   if (status == 0 && demangled != nullptr) {

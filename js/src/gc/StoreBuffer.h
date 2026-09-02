@@ -239,12 +239,7 @@ class StoreBuffer {
 
     CellPtrEdge() = default;
     explicit CellPtrEdge(T** v) : edge(v) {}
-    bool operator==(const CellPtrEdge& other) const {
-      return edge == other.edge;
-    }
-    bool operator!=(const CellPtrEdge& other) const {
-      return edge != other.edge;
-    }
+    bool operator==(const CellPtrEdge& other) const = default;
 
     bool maybeInRememberedSet(const Nursery& nursery) const {
       MOZ_ASSERT(IsInsideNursery(*edge));
@@ -268,8 +263,7 @@ class StoreBuffer {
 
     ValueEdge() : edge(nullptr) {}
     explicit ValueEdge(JS::Value* v) : edge(v) {}
-    bool operator==(const ValueEdge& other) const { return edge == other.edge; }
-    bool operator!=(const ValueEdge& other) const { return edge != other.edge; }
+    bool operator==(const ValueEdge& other) const = default;
 
     bool isGCThing() const { return edge->isGCThing(); }
 
@@ -314,11 +308,7 @@ class StoreBuffer {
     }
     int kind() const { return (int)(objectAndKind_ & 1); }
 
-    bool operator==(const SlotsEdge& other) const {
-      return objectAndKind_ == other.objectAndKind_ && start_ == other.start_ &&
-             count_ == other.count_;
-    }
-    bool operator!=(const SlotsEdge& other) const { return !(*this == other); }
+    bool operator==(const SlotsEdge& other) const = default;
 
     // True if this SlotsEdge range is adjacent to or overlaps with the other
     // SlotsEdge range. The adjacency case will coalesce a series of increasing
@@ -374,12 +364,7 @@ class StoreBuffer {
 
     WasmAnyRefEdge() : edge(nullptr) {}
     explicit WasmAnyRefEdge(wasm::AnyRef* v) : edge(v) {}
-    bool operator==(const WasmAnyRefEdge& other) const {
-      return edge == other.edge;
-    }
-    bool operator!=(const WasmAnyRefEdge& other) const {
-      return edge != other.edge;
-    }
+    bool operator==(const WasmAnyRefEdge& other) const = default;
 
     bool isGCThing() const { return edge->isGCThing(); }
 
@@ -603,7 +588,8 @@ class StoreBuffer {
 class ArenaCellSet {
   friend class StoreBuffer;
 
-  using ArenaCellBits = BitArray<MaxArenaCellIndex>;
+  // Use a 32 bit word to make it easier to access ArenaCellBits from JIT code.
+  using ArenaCellBits = BitArray<MaxArenaCellIndex, uint32_t>;
 
   // The arena this relates to.
   Arena* arena = nullptr;
@@ -627,7 +613,6 @@ class ArenaCellSet {
  public:
   using WordT = ArenaCellBits::WordT;
   static constexpr size_t BitsPerWord = ArenaCellBits::bitsPerElement;
-  static constexpr size_t NumWords = ArenaCellBits::numSlots;
 
   explicit ArenaCellSet(Arena* arena);
 
@@ -647,10 +632,6 @@ class ArenaCellSet {
 
   WordT getWord(size_t wordIndex) const { return bits.getWord(wordIndex); }
 
-  void setWord(size_t wordIndex, WordT value) {
-    bits.setWord(wordIndex, value);
-  }
-
   // Sweep this set, returning whether it also needs to be swept later.
   void trace(TenuringTracer& mover);
 
@@ -661,15 +642,16 @@ class ArenaCellSet {
   static ArenaCellSet Empty;
 
   static size_t getCellIndex(const TenuredCell* cell);
-  static void getWordIndexAndMask(size_t cellIndex, size_t* wordp,
-                                  uint32_t* maskp);
+  static std::pair<size_t, uint32_t> getWordIndexAndMask(size_t cellIndex);
 
   // Attempt to trigger a minor GC if free space in the nursery (where these
   // objects are allocated) falls below this threshold.
   static const size_t NurseryFreeThresholdBytes = 64 * 1024;
 
   static size_t offsetOfArena() { return offsetof(ArenaCellSet, arena); }
-  static size_t offsetOfBits() { return offsetof(ArenaCellSet, bits); }
+  static size_t offsetOfBits() {
+    return offsetof(ArenaCellSet, bits) + ArenaCellBits::offsetOfMap();
+  }
 };
 
 // Post-write barrier implementation for GC cells.

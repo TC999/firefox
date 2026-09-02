@@ -202,19 +202,14 @@ void SendReports(nsTArray<ReportDeliver::ReportData>& aReports,
     return;
   }
 
-  nsAutoCString uriSpec;
-  rv = uriClone->GetSpec(uriSpec);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return;
-  }
-
   nsAutoCString uriFragment;
   rv = uri->GetRef(uriFragment);
   if (NS_WARN_IF(NS_FAILED(rv))) {
     return;
   }
 
-  auto internalRequest = MakeSafeRefPtr<InternalRequest>(uriSpec, uriFragment);
+  auto internalRequest =
+      MakeSafeRefPtr<InternalRequest>(WrapNotNull(uriClone.get()), uriFragment);
 
   internalRequest->SetMethod("POST"_ns);
   internalRequest->SetBody(streamBody, body.StringCRef().Length());
@@ -475,6 +470,22 @@ void ReportDeliver::EndpointRespondedWithRemove(
     return;
   }
   reportingGlobal->mEndpoints.RemoveEndpoint(aEndpointName);
+}
+
+/* static */
+void ReportDeliver::RemoveGlobalEndpoints(uintptr_t aGlobalKey) {
+  if (NS_IsMainThread()) {
+    if (gReportDeliver) {
+      gReportDeliver->mGlobalsEndpointLists.Remove(aGlobalKey);
+    }
+  } else {
+    NS_DispatchToMainThread(NS_NewRunnableFunction(
+        "ReportDeliver::RemoveGlobalEndpoints", [aGlobalKey]() {
+          if (gReportDeliver) {
+            gReportDeliver->mGlobalsEndpointLists.Remove(aGlobalKey);
+          }
+        }));
+  }
 }
 
 /* static */

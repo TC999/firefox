@@ -9,6 +9,40 @@
 
 # yamllint disable rule:line-length
 
+ai:
+    selector: fuzzy
+    description: >-
+        Run AI Platform tests and tests for all createEngine consumers:
+        mochitest-browser-chrome and xpcshell on Linux, geckoview-junit
+        and engine-gecko unit on Android.
+        Use with --artifact to speed up your trypush.
+    paths: &ai-paths
+        - toolkit/components/ml/tests/
+        - toolkit/components/pageextractor/
+        - browser/components/aiwindow/
+        - mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/
+        - mobile/android/android-components/components/browser/engine-gecko/
+        - toolkit/components/places/
+        - browser/components/urlbar/
+        - browser/components/tabbrowser/test/xpcshell/smarttabgrouping/
+        - browser/components/genai/
+        - toolkit/components/extensions/
+        - toolkit/components/pdfjs/
+    test_paths: *ai-paths
+    query:
+        - "'mochitest-browser-chrome 'linux !spi !asan !tsan !msix !a11y !swr !standalone !trainhop"
+        - "'xpcshell 'linux !nofis !asan !tsan !condprof !ioi"
+        - "'em-14 'geckoview-junit !shippable !iso"
+        - "'test-components 'engine-gecko"
+
+ai-perf:
+    selector: fuzzy
+    description: >-
+        Run ml-* perftests on Linux.
+    query:
+        - "^perftest-linux 'ml-"
+    full: true
+
 android-components:
     selector: fuzzy
     description: >-
@@ -20,6 +54,7 @@ android-components:
 
 android-fenix:
     selector: fuzzy
+    full: true
     description: >-
         Run Fenix builds and tests.
     query:
@@ -29,15 +64,29 @@ android-fenix:
         - "'signing-apk-fenix-android-test-debug"
         - "'test-apk-fenix-debug"
         - "'ui-test-apk-fenix-arm-debug"
+        - "'ui-test-apk-fenix-tae-arm-debug"
         - "^source-test 'fenix"
-        - "'generate-baseline-profile-firebase-fenix"
+        - "'generate-baseline-profile-firebase-fenix-simulation"
+
+android-fenix-prototype:
+    selector: fuzzy
+    full: true
+    no_artifact: true
+    description: >-
+        Build and sign Fenix Nightly without any baseline profile nor PGO.
+    query:
+        - "'signing-apk-fenix-nightly-nobp"
+    try_config_params:
+        enable_always_target:
+            - docker-image
 
 android-frontend:
     selector: fuzzy
+    full: true
     description: >-
         Run android-components, Focus, and Fenix builds and tests.
     query:
-        - "'build-components"
+        - "'build-components !nightly- !beta- !release-"
         - "'test-components"
         - "'build-apk-fenix-debug"
         - "'signing-apk-fenix-debug"
@@ -45,6 +94,7 @@ android-frontend:
         - "'signing-apk-fenix-android-test-debug"
         - "'test-apk-fenix-debug"
         - "'ui-test-apk-fenix-arm-debug"
+        - "'ui-test-apk-fenix-tae-arm-debug"
         - "'build-apk-focus-debug"
         - "'signing-apk-focus-debug"
         - "'build-apk-focus-android-test-debug"
@@ -52,7 +102,7 @@ android-frontend:
         - "'test-apk-focus-debug"
         - "'ui-test-apk-focus-arm-debug"
         - "^source-test 'android | 'fenix | 'focus"
-        - "'generate-baseline-profile-firebase-fenix"
+        - "'generate-baseline-profile-firebase-fenix-simulation"
 
 android-focus:
     selector: fuzzy
@@ -85,6 +135,7 @@ android-fullstack:
         - "'signing-apk-fenix-android-test-debug"
         - "'test-apk-fenix-debug"
         - "'ui-test-apk-fenix-arm-debug"
+        - "'ui-test-apk-fenix-tae-arm-debug"
         - "'build-apk-focus-debug"
         - "'signing-apk-focus-debug"
         - "'build-apk-focus-android-test-debug"
@@ -92,7 +143,7 @@ android-fullstack:
         - "'test-apk-focus-debug"
         - "'ui-test-apk-focus-arm-debug"
         - "^source-test 'android | 'fenix | 'focus"
-        - "'generate-baseline-profile-firebase-fenix"
+        - "'generate-baseline-profile-firebase-fenix-simulation"
         # GeckoView tests (from android-geckoview preset)
         - "^source-test-mozlint eslint$ | rejected-words$ | file-perm$ | file-whitespace$"
         # Miscellaneous Tests
@@ -162,6 +213,23 @@ builds-debugopt:
     query:
         - "^build- !fuzzing !rusttests !signing !plain !asan !tsan !noopt !toolchain !upload-symbols !components !apk !bundle"
 
+claudometer:
+    selector: fuzzy
+    description: >-
+        Run the full Linux test suite (linux2204-wayland, linux2404) plus cross-platform
+        wdspec-headless tests and SpiderMonkey/hazard jobs for comprehensive coverage.
+    query:
+        - "^build-linux64/"
+        - "^test-linux2204-64-wayland/"
+        - "^test-linux2204-64-wayland-shippable"
+        - "^test-linux2404-64/"
+        - "^test-linux2404-64-shippable 'headless"
+        - "^test-macosx1470-64-shippable 'wdspec-headless"
+        - "^test-macosx1500-aarch64-shippable 'wdspec-headless"
+        - "^test-windows11-64-25h2-shippable 'wdspec-headless"
+        - "^spidermonkey-sm- !win"
+        - "^hazard-linux64-shell-haz"
+
 desktop-frontend:
     description: >-
         Run mochitest-browser, xpcshell, mochitest-chrome, mochitest-a11y,
@@ -202,7 +270,7 @@ desktop-newtab-trainhop:
     selector: fuzzy
     full: true
     query:
-        - "'mochitest trainhop !cf !tsan !ccov !asan !shippable !debug !devedition !wayland !-32"
+        - "'mochitest trainhop !artifact !cf !tsan !ccov !asan !shippable !debug !devedition !wayland !-32"
 
 devtools:
     selector: fuzzy
@@ -329,17 +397,40 @@ wpt-linux-opt:
 media-full:
     selector: fuzzy
     description: >-
-        Runs tests that exercise media playback and WebRTC code.
+        Runs tests that exercise media playback, WebRTC, EME, WebCodecs and
+        Media Source code. Covers mochitest-media (media-subsuite plain
+        mochitests under dom/media, including webcodecs, webaudio, webrtc),
+        mochitest-browser-media, WPT testharness and crashtest tasks (for
+        media/encrypted-media/webcodecs/webrtc/mediacapture specs), desktop
+        reftest (dom/media reftests), crashtest (dom/media crashtests),
+        and gtest (media C++ unit tests). The intersect_query keeps only
+        debug, asan and tsan builds, so opt and shippable variants are
+        dropped and try cycles run cheaper without losing the correctness
+        signal a media change needs. Push opt-only via a separate preset
+        (or via autoland) when validating timing-sensitive changes.
     query:
         - "mochitest-media !dfpi !nofis"
         - "mochitest-media android !spi !swr !lite"
-        - "mochitest-browser-chrome !dfpi !nofis !a11y"
         - "mochitest-browser-media"
-        - "web-platform-tests !dfpi !nofis !shippable"
+        - "web-platform-tests !dfpi !nofis !wdspec"
         - "web-platform-tests android !wdspec !spi !swr !lite"
         - "crashtest !wdspec !nofis"
         - "crashtest android !wdspec !spi !swr !lite"
+        - "reftest !nofis"
+        - "reftest android !spi !swr !lite"
         - "'gtest"
+    intersect_query:
+        - "'debug | '-asan | '-tsan"
+
+ml-perf:
+    selector: fuzzy
+    description: >-
+        Run the ml-* perftests on every desktop platform, rather than Linux
+        only like "ai-perf". ONNX tests run as one job per backend
+        (-native/-wasm task variants).
+    query:
+        - "^perftest 'ml-"
+    full: true
 
 mochitest-bc:
     description: >-
@@ -467,7 +558,16 @@ webextensions:
         - toolkit/components/extensions/test/
         - toolkit/mozapps/extensions/test/
     query:
-        - "'android | '64/ | 'windows11-64-24h2 !wpt !gpu !msix !-lite !-asan"
+        - "'android | '64/ | 'windows11-64- !wpt !gpu !msix !-lite !-asan"
+
+webgl:
+    selector: fuzzy
+    description: >-
+        Runs the tests relevant to WebGL.
+    query:
+        - "'mochitest-webgl"
+        - "source-test-mozlint-updatebot"
+        - "source-test-clang-tidy"
 
 webgpu:
     selector: fuzzy
@@ -484,9 +584,11 @@ webrender:
     selector: fuzzy
     description: >-
         Runs the conformance tests relevant to WebRender.
+    disable_target_task_filter: true
     query:
-        - "!talos !raptor !shippable !asan !tsan !nofis !python-reftest '-reftest"
-        - "!talos !raptor !shippable !asan !tsan !nofis !python-reftest webrender-"
+        - "!talos !raptor !shippable !asan !tsan !nofis !python-reftest !ccov !mingwclang !android-hw !backlog '-reftest"
+        - "!talos !raptor !shippable !asan !tsan !nofis !python-reftest !ccov !mingwclang !android-hw !backlog 'webrender-"
+        - "'webrender-android-hw-p6-opt"
 
 webrender-linux:
     selector: fuzzy
@@ -507,3 +609,16 @@ webrender-perf:
         - "'tp5"
         - "'talos-webgl"
         - "'motionmark-animometer"
+
+webrender-wrench:
+    selector: fuzzy
+    description: >-
+        Runs WebRender wrench tests on Linux, macOS, Windows, Android emulator
+        and Pixel 6.
+    disable_target_task_filter: true
+    query:
+        - "'webrender-linux64-debug"
+        - "'webrender-macos-release"
+        - "'webrender-windows"
+        - "'webrender-android-emulator-release"
+        - "'webrender-android-hw-p6-opt"

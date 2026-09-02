@@ -5,10 +5,11 @@
 #ifndef WidgetUtilsGtk_h_
 #define WidgetUtilsGtk_h_
 
+#include <stdint.h>
+
+#include "mozilla/MozPromise.h"
 #include "nsString.h"
 #include "nsTArray.h"
-#include "mozilla/MozPromise.h"
-#include <stdint.h>
 
 typedef struct _GdkDisplay GdkDisplay;
 typedef struct _GdkDevice GdkDevice;
@@ -63,6 +64,7 @@ enum class PortalKind {
   Settings,
   Location,
   OpenUri,
+  Notification,
 };
 bool ShouldUsePortal(PortalKind);
 
@@ -88,7 +90,7 @@ bool IsCancelledGError(GError* aGError);
 // Used by startup notifications
 nsCString SynthesizeStartupToken();
 void FindLatestUserTime(GdkDisplay* aDisplay, uintptr_t aWindow,
-                        unsigned long* aLatestTime);
+                        uint32_t* aLatestTime);
 #endif
 
 }  // namespace mozilla::widget

@@ -31,6 +31,7 @@ class CallbackFunction;
 class CustomElementCallback;
 class CustomElementReaction;
 class DocGroup;
+class Document;
 class Promise;
 
 enum class ElementCallbackType {
@@ -155,18 +156,6 @@ struct CustomElementDefinition {
   // marker".
   nsTArray<RefPtr<Element>> mConstructionStack;
 
-  // See step 6.1.10 of https://dom.spec.whatwg.org/#concept-create-element
-  // which set up the prefix after a custom element is created. However, In
-  // Gecko, the prefix isn't allowed to be changed in NodeInfo, so we store the
-  // prefix information here and propagate to where NodeInfo is assigned to a
-  // custom element instead.
-  nsTArray<RefPtr<nsAtom>> mPrefixStack;
-
-  // This basically is used for distinguishing the custom element constructor
-  // is invoked from document.createElement or directly from JS, i.e.
-  // `new CustomElementConstructor()`.
-  uint32_t mConstructionDepth = 0;
-
   bool IsCustomBuiltIn() { return mType != mLocalName; }
 
   bool IsInObservedAttributeList(nsAtom* aName) {
@@ -211,7 +200,8 @@ class CustomElementReactionsStack {
   // We need to lookup ElementReactionQueueMap again to get relevant reaction
   // queue. The choice of 3 for the auto size here is based on running Custom
   // Elements wpt tests.
-  typedef AutoTArray<RefPtr<Element>, 3> ElementQueue;
+  static constexpr size_t kElementQueueInlineSize = 3;
+  typedef AutoTArray<RefPtr<Element>, kElementQueueInlineSize> ElementQueue;
 
   /**
    * Enqueue a custom element upgrade reaction
@@ -298,6 +288,11 @@ class CustomElementReactionsStack {
 
   // The choice of 8 for the auto size here is based on gut feeling.
   AutoTArray<UniquePtr<ElementQueue>, 8> mReactionsStack;
+  // A cached ElementQueue, moved out when pushed onto mReactionsStack and
+  // moved back on pop, to avoid a heap allocation per push/pop cycle. Only
+  // cached when the queue still uses its inline storage, so we don't hold
+  // on to a grown buffer.
+  UniquePtr<ElementQueue> mCachedElementQueue;
   ElementQueue mBackupQueue;
   // https://html.spec.whatwg.org/#enqueue-an-element-on-the-appropriate-element-queue
   bool mIsBackupQueueProcessing;
@@ -330,7 +325,7 @@ class CustomElementReactionsStack {
       mReactionStack->mIsBackupQueueProcessing = true;
     }
 
-    MOZ_CAN_RUN_SCRIPT virtual void Run(AutoSlowOperation& aAso) override {
+    MOZ_CAN_RUN_SCRIPT void Run(AutoSlowOperation& aAso) override {
       mReactionStack->InvokeBackupQueue();
       mReactionStack->mIsBackupQueueProcessing = false;
     }
@@ -342,7 +337,7 @@ class CustomElementReactionsStack {
 
 class CustomElementRegistry final : public nsISupports, public nsWrapperCache {
  public:
-  NS_DECL_CYCLE_COLLECTING_ISUPPORTS
+  NS_DECL_CYCLE_COLLECTING_ISUPPORTS_FINAL
   NS_DECL_CYCLE_COLLECTION_SCRIPT_HOLDER_CLASS(CustomElementRegistry)
 
  public:
@@ -469,9 +464,14 @@ class CustomElementRegistry final : public nsISupports, public nsWrapperCache {
 
   bool IsScoped() const { return mIsScoped; }
 
-  static already_AddRefed<CustomElementRegistry> GetScopedRegistry(nsINode&);
+  static already_AddRefed<CustomElementRegistry> GetScopedRegistry(
+      const nsINode&);
   static void SetScopedRegistry(nsINode&, CustomElementRegistry&);
   static void RemoveScopedRegistry(nsINode&);
+  static bool IsInScopedRegistryMap(nsINode&);
+
+  // https://html.spec.whatwg.org/#scoped-document-set
+  void AddToScopedDocumentSet(Document* aDoc);
 
   void TraceDefinitions(JSTracer* aTrc);
 
@@ -532,6 +532,12 @@ class CustomElementRegistry final : public nsISupports, public nsWrapperCache {
   // https://html.spec.whatwg.org/#is-scoped
   bool mIsScoped;
 
+  // https://html.spec.whatwg.org/#scoped-document-set
+  // Ordered set of documents whose elements are associated with this scoped
+  // registry. Used to determine upgrade order across documents when define()
+  // is called.
+  nsTArray<nsWeakPtr> mScopedDocumentSet;
+
  private:
   int32_t InferNamespace(JSContext* aCx, JS::Handle<JSObject*> constructor);
 
@@ -540,8 +546,8 @@ class CustomElementRegistry final : public nsISupports, public nsWrapperCache {
 
   DocGroup* GetDocGroup() const;
 
-  virtual JSObject* WrapObject(JSContext* aCx,
-                               JS::Handle<JSObject*> aGivenProto) override;
+  JSObject* WrapObject(JSContext* aCx,
+                       JS::Handle<JSObject*> aGivenProto) override;
 
   void Define(JSContext* aCx, const nsAString& aName,
               CustomElementConstructor& aFunctionConstructor,
@@ -569,6 +575,12 @@ class CustomElementRegistry final : public nsISupports, public nsWrapperCache {
                                   ErrorResult& aRv);
 
   void Upgrade(nsINode& aRoot);
+
+  /**
+   * Initialize a Node's CustomElementRegistry to this registry.
+   * https://html.spec.whatwg.org/multipage/custom-elements.html#dom-customelementregistry-initialize
+   */
+  void Initialize(nsINode& aRoot, ErrorResult& aRv);
 };
 
 class MOZ_RAII AutoCEReaction final {

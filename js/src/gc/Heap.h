@@ -163,13 +163,6 @@ class alignas(ArenaSize) Arena {
    */
   AllocKind allocKind;
 
-  /*
-   * The zone that this Arena is contained within, when allocated. The offset
-   * of this field must match the ArenaZoneOffset stored in js/HeapAPI.h,
-   * as is statically asserted below.
-   */
-  JS::Zone* zone_;
-
  public:
   /*
    * Arena::next has two purposes: when unallocated, it points to the next
@@ -210,10 +203,9 @@ class alignas(ArenaSize) Arena {
     ArenaCellSet* bufferedCells_;
 
     /*
-     * For arenas in the atoms zone, the starting index into zone atom
-     * marking bitmaps (see AtomMarking.h) of the things in this zone.
-     * Atoms never refer to nursery things, so no store buffer index is
-     * needed.
+     * For arenas in the atoms zone, the starting index into zone atom reference
+     * bitmaps (see AtomMarking.h) of the things in this zone. Atoms never refer
+     * to nursery things, so no store buffer index is needed.
      */
     size_t atomBitmapStart_;
   };
@@ -228,9 +220,9 @@ class alignas(ArenaSize) Arena {
   uint8_t data[ArenaSize - ArenaHeaderSize];
 
   // Create a free arena in uninitialized committed memory.
-  void init(GCRuntime* gc, JS::Zone* zone, AllocKind kind);
+  void init(GCRuntime* gc, AllocKind kind);
 
-  JS::Zone* zone() const { return zone_; }
+  inline JS::Zone* zone() const;
 
   // Sets |firstFreeSpan| to the Arena's entire valid range, and
   // also sets the next span stored at |firstFreeSpan.last| as empty.
@@ -242,7 +234,7 @@ class alignas(ArenaSize) Arena {
     last->initAsEmpty();
   }
 
-  // Unregister the associated atom marking bitmap index for an arena in the
+  // Unregister the associated atom reference bitmap index for an arena in the
   // atoms zone.
   inline void freeAtomMarkingBitmapIndex(GCRuntime* gc, const AutoLockGC& lock);
 
@@ -546,6 +538,8 @@ class ArenaChunk : public ArenaChunkBase {
 
   // Merge arenas freed by background sweeping into the main free arenas bitmap.
   void mergePendingFreeArenas(GCRuntime* gc, const AutoLockGC& lock);
+
+  ArenaChunk* next() const { return info.next; }
 
 #ifdef DEBUG
   void verify() const;

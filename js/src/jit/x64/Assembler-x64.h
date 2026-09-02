@@ -218,7 +218,7 @@ static constexpr Register ABINonArgReturnVolatileReg = r10;
 static constexpr Register InstanceReg = r14;
 static constexpr Register HeapReg = r15;
 
-// Registers used for asm.js/wasm table calls. These registers must be disjoint
+// Registers used for wasm table calls. These registers must be disjoint
 // from the ABI argument registers, InstanceReg and each other.
 static constexpr Register WasmTableCallScratchReg0 = ABINonArgReg0;
 static constexpr Register WasmTableCallScratchReg1 = ABINonArgReg1;
@@ -693,6 +693,21 @@ class Assembler : public AssemblerX86Shared {
   }
   void andq(Imm32 imm, Register dest) {
     masm.andq_ir(imm.value, dest.encoding());
+  }
+  void andq(Imm32 imm, const Operand& dest) {
+    switch (dest.kind()) {
+      case Operand::REG:
+        masm.andq_ir(imm.value, dest.reg());
+        break;
+      case Operand::MEM_REG_DISP:
+        masm.andq_im(imm.value, dest.disp(), dest.base());
+        break;
+      case Operand::MEM_ADDRESS32:
+        masm.andq_im(imm.value, dest.address());
+        break;
+      default:
+        MOZ_CRASH("unexpected operand kind");
+    }
   }
   void andq(const Operand& src, Register dest) {
     switch (src.kind()) {

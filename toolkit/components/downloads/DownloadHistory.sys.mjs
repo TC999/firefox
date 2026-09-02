@@ -35,6 +35,10 @@ const METADATA_STATE_BLOCKED_PARENTAL = 6;
 const METADATA_STATE_DIRTY = 8;
 const METADATA_STATE_BLOCKED_CONTENT_ANALYSIS = 9;
 
+function getHistorySourceUrl({ source }) {
+  return source.originalUrl || source.url;
+}
+
 /**
  * Provides methods to retrieve downloads from previous sessions and store
  * downloads for future sessions.
@@ -83,18 +87,18 @@ export let DownloadHistory = {
   _listPromises: {},
 
   async addDownloadToHistory(download) {
-    if (
-      download.source.isPrivate ||
-      !lazy.PlacesUtils.history.canAddURI(
-        lazy.PlacesUtils.toURI(download.source.url)
-      )
-    ) {
+    if (download.source.isPrivate) {
+      return;
+    }
+    const sourceUrl = getHistorySourceUrl(download);
+    let sourceURI = URL.parse(sourceUrl)?.URI;
+    if (!sourceURI || !lazy.PlacesUtils.history.canAddURI(sourceURI)) {
       return;
     }
 
     await DownloadCache.addDownload(download);
 
-    await this._updateHistoryListData(download.source.url);
+    await this._updateHistoryListData(sourceUrl);
   },
 
   /**
@@ -109,13 +113,12 @@ export let DownloadHistory = {
    *        represents a private download, the call has no effect.
    */
   async updateMetaData(download) {
-    if (
-      download.source.isPrivate ||
-      !download.stopped ||
-      !lazy.PlacesUtils.history.canAddURI(
-        lazy.PlacesUtils.toURI(download.source.url)
-      )
-    ) {
+    if (download.source.isPrivate || !download.stopped) {
+      return;
+    }
+    const sourceUrl = getHistorySourceUrl(download);
+    let sourceURI = URL.parse(sourceUrl)?.URI;
+    if (!sourceURI || !lazy.PlacesUtils.history.canAddURI(sourceURI)) {
       return;
     }
 
@@ -158,9 +161,9 @@ export let DownloadHistory = {
 
     // This should be executed before any async parts, to ensure the cache is
     // updated before any notifications are activated.
-    await DownloadCache.setMetadata(download.source.url, metaData);
+    await DownloadCache.setMetadata(sourceUrl, metaData);
 
-    await this._updateHistoryListData(download.source.url);
+    await this._updateHistoryListData(sourceUrl);
   },
 
   async _updateHistoryListData(sourceUrl) {
@@ -263,6 +266,13 @@ let DownloadCache = {
    * @param {Download} download The download to add to the database and cache.
    */
   async addDownload(download) {
+    // The cache only stores metadata for URLs tracked in Places.
+    const sourceUrl = getHistorySourceUrl(download);
+    let sourceURI = URL.parse(sourceUrl)?.URI;
+    if (!sourceURI || !lazy.PlacesUtils.history.canAddURI(sourceURI)) {
+      return;
+    }
+
     await this.ensureInitialized();
 
     let targetFile = new lazy.FileUtils.File(download.target.path);
@@ -272,14 +282,12 @@ let DownloadCache = {
     // updated before any notifications are activated.
     // Note: this intentionally overwrites any metadata as this is
     // the start of a new download.
-    this._data.set(download.source.url, { targetFileSpec: targetUri.spec });
+    this._data.set(sourceUrl, { targetFileSpec: targetUri.spec });
 
-    let originalPageInfo = await lazy.PlacesUtils.history.fetch(
-      download.source.url
-    );
+    let originalPageInfo = await lazy.PlacesUtils.history.fetch(sourceUrl);
 
     let pageInfo = await lazy.PlacesUtils.history.insert({
-      url: download.source.url,
+      url: sourceUrl,
       // In case we are downloading a file that does not correspond to a web
       // page for which the title is present, we populate the otherwise empty
       // history title with the name of the destination file, to allow it to be
@@ -535,6 +543,19 @@ class HistoryDownload {
 }
 
 /**
+ * Returns the key used to store a URL in the _slotsForUrl map. For data URIs
+ * the body can be very large, so we store a SHA-256 hash instead of the raw
+ * string to avoid retaining large strings in memory as Map keys.
+ * For all other URLs the raw string is used to avoid unnecessary hashing.
+ *
+ * @param {string} url The source URL.
+ * @returns {string} The key to use in _slotsForUrl.
+ */
+function makeSlotKey(url) {
+  return url.startsWith("data:") ? lazy.PlacesUtils.sha256(url) : url;
+}
+
+/**
  * Represents one item in the list of public session and history downloads.
  *
  * The object may contain a session download, a history download, or both. When
@@ -547,6 +568,22 @@ class HistoryDownload {
 class DownloadSlot {
   constructor(list) {
     this.list = list;
+  }
+
+  // For data URI downloads, the SHA-256 hash of the original source URL used
+  // as the key in _slotsForUrl, to avoid retaining large strings in memory.
+  // Null for non-data-URI downloads. Must be set at insertion time, before
+  // source.url can be truncated.
+  #dataUrlSlotKey = null;
+
+  set slotKey(url) {
+    if (url.startsWith("data:")) {
+      this.#dataUrlSlotKey = lazy.PlacesUtils.sha256(url);
+    }
+  }
+
+  get slotKey() {
+    return this.#dataUrlSlotKey ?? getHistorySourceUrl(this.download);
   }
 
   /**
@@ -668,7 +705,7 @@ class DownloadHistoryList extends DownloadList {
    * @param {object} metaData The new meta data for the sourceUrl.
    */
   updateForMetaDataChange(sourceUrl, metaData) {
-    let slotsForUrl = this._slotsForUrl.get(sourceUrl);
+    let slotsForUrl = this._slotsForUrl.get(makeSlotKey(sourceUrl));
     if (!slotsForUrl) {
       return;
     }
@@ -691,9 +728,11 @@ class DownloadHistoryList extends DownloadList {
       this._firstSessionSlotIndex++;
     }
 
-    // Add the slot to the fast access maps.
+    // Add the slot to the fast access maps. slotKey must be set before
+    // source.url can be truncated.
+    slot.slotKey = getHistorySourceUrl(slot.download);
     slotsForUrl.add(slot);
-    this._slotsForUrl.set(slot.download.source.url, slotsForUrl);
+    this._slotsForUrl.set(slot.slotKey, slotsForUrl);
 
     // Add the associated view items.
     this._notifyAllViews("onDownloadAdded", slot.download, {
@@ -713,7 +752,7 @@ class DownloadHistoryList extends DownloadList {
     // Remove the slot from the fast access maps.
     slotsForUrl.delete(slot);
     if (slotsForUrl.size == 0) {
-      this._slotsForUrl.delete(slot.download.source.url);
+      this._slotsForUrl.delete(slot.slotKey);
     }
 
     // Remove the associated view items.
@@ -731,7 +770,8 @@ class DownloadHistoryList extends DownloadList {
    *        The Places node that represents the history download.
    */
   _insertPlacesNode(placesNode) {
-    let slotsForUrl = this._slotsForUrl.get(placesNode.uri) || new Set();
+    let slotsForUrl =
+      this._slotsForUrl.get(makeSlotKey(placesNode.uri)) || new Set();
 
     // If there are existing slots associated with this URL, we only have to
     // ensure that the Places node reference is kept updated in case the more
@@ -773,7 +813,7 @@ class DownloadHistoryList extends DownloadList {
         // The visible data doesn't change, so we don't have to notify views.
         slot.historyDownload = null;
       } else {
-        let slotsForUrl = this._slotsForUrl.get(slot.download.source.url);
+        let slotsForUrl = this._slotsForUrl.get(slot.slotKey);
         this._removeSlot({ slot, slotsForUrl });
       }
     }
@@ -797,7 +837,7 @@ class DownloadHistoryList extends DownloadList {
 
   // nsINavHistoryResultObserver
   nodeRemoved(parent, placesNode) {
-    let slotsForUrl = this._slotsForUrl.get(placesNode.uri);
+    let slotsForUrl = this._slotsForUrl.get(makeSlotKey(placesNode.uri));
     for (let slot of slotsForUrl) {
       if (slot.sessionDownload) {
         // The visible data doesn't change, so we don't have to notify views.
@@ -823,8 +863,9 @@ class DownloadHistoryList extends DownloadList {
 
   // DownloadList callback
   onDownloadAdded(download) {
-    let url = download.source.url;
-    let slotsForUrl = this._slotsForUrl.get(url) || new Set();
+    const sourceUrl = getHistorySourceUrl(download);
+    let slotsForUrl =
+      this._slotsForUrl.get(makeSlotKey(sourceUrl)) || new Set();
 
     // For every source URL, there can be at most one slot containing a history
     // download without an associated session download. If we find one, then we
@@ -850,9 +891,8 @@ class DownloadHistoryList extends DownloadList {
 
   // DownloadList callback
   onDownloadRemoved(download) {
-    let url = download.source.url;
-    let slotsForUrl = this._slotsForUrl.get(url);
     let slot = this._slotForDownload.get(download);
+    let slotsForUrl = this._slotsForUrl.get(slot.slotKey);
     this._removeSlot({ slot, slotsForUrl });
 
     this._slotForDownload.delete(download);
@@ -865,7 +905,9 @@ class DownloadHistoryList extends DownloadList {
       // Previously, we did not use the Places metadata because it was obscured
       // by the session download. Since this is no longer the case, we have to
       // read the latest metadata before resurrecting the history download.
-      slot.historyDownload.updateFromMetaData(DownloadCache.get(url));
+      slot.historyDownload.updateFromMetaData(
+        DownloadCache.get(getHistorySourceUrl(download))
+      );
       slot.sessionDownload = null;
       // Place the resurrected history slot after all the session slots.
       this._insertSlot({

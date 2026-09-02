@@ -4,10 +4,10 @@
 
 package mozilla.components.concept.engine.prompt
 
+import kotlin.test.assertNotNull
 import mozilla.components.support.test.mock
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 

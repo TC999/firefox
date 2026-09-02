@@ -5,10 +5,10 @@
 #ifndef mozilla_net_SocketProcessChild_h
 #define mozilla_net_SocketProcessChild_h
 
-#include "mozilla/net/PSocketProcessChild.h"
-#include "mozilla/ipc/InputStreamUtils.h"
-#include "mozilla/psm/IPCClientCertsChild.h"
 #include "mozilla/Mutex.h"
+#include "mozilla/ipc/InputStreamUtils.h"
+#include "mozilla/net/PSocketProcessChild.h"
+#include "mozilla/psm/IPCClientCertsChild.h"
 #include "nsRefPtrHashtable.h"
 #include "nsTHashMap.h"
 
@@ -44,7 +44,7 @@ class SocketProcessChild final : public PSocketProcessChild {
   void ActorDestroy(ActorDestroyReason aWhy) override;
 
   mozilla::ipc::IPCResult RecvInit(
-      const SocketPorcessInitAttributes& aAttributes);
+      const SocketProcessInitAttributes& aAttributes);
   mozilla::ipc::IPCResult RecvPreferenceUpdate(const Pref& aPref);
   mozilla::ipc::IPCResult RecvRequestMemoryReport(
       const uint32_t& generation, const bool& anonymize,
@@ -65,9 +65,6 @@ class SocketProcessChild final : public PSocketProcessChild {
       Endpoint<PSandboxTestingChild>&& aEndpoint);
 #endif
   mozilla::ipc::IPCResult RecvSocketProcessTelemetryPing();
-
-  PWebrtcTCPSocketChild* AllocPWebrtcTCPSocketChild(const Maybe<TabId>& tabId);
-  bool DeallocPWebrtcTCPSocketChild(PWebrtcTCPSocketChild* aActor);
 
   already_AddRefed<PHttpTransactionChild> AllocPHttpTransactionChild();
 
@@ -112,6 +109,8 @@ class SocketProcessChild final : public PSocketProcessChild {
 
   mozilla::ipc::IPCResult RecvClearSessionCache(
       ClearSessionCacheResolver&& aResolve);
+  mozilla::ipc::IPCResult RecvClearPrivateBrowsingSessionCache(
+      ClearPrivateBrowsingSessionCacheResolver&& aResolve);
 
   already_AddRefed<PTRRServiceChild> AllocPTRRServiceChild(
       const bool& aCaptiveIsPassed, const bool& aParentalControlEnabled,
@@ -136,6 +135,8 @@ class SocketProcessChild final : public PSocketProcessChild {
       GetHttpConnectionDataResolver&& aResolve);
   mozilla::ipc::IPCResult RecvGetHttp3ConnectionStatsData(
       GetHttp3ConnectionStatsDataResolver&& aResolve);
+  mozilla::ipc::IPCResult RecvGetSSLTokensCacheData(
+      GetSSLTokensCacheDataResolver&& aResolve);
 
   mozilla::ipc::IPCResult RecvInitProxyAutoConfigChild(
       Endpoint<PProxyAutoConfigChild>&& aEndpoint);
@@ -144,6 +145,11 @@ class SocketProcessChild final : public PSocketProcessChild {
   mozilla::ipc::IPCResult RecvRecheckDNS();
 
   mozilla::ipc::IPCResult RecvFlushFOGData(FlushFOGDataResolver&& aResolver);
+
+  mozilla::ipc::IPCResult RecvLoadSSLTokensCache(
+      nsTArray<SSLTokensCacheRecordInfo>&& aRecords);
+  mozilla::ipc::IPCResult RecvFlushSSLTokensCache(
+      FlushSSLTokensCacheResolver&& aResolver);
 
   mozilla::ipc::IPCResult RecvTestTriggerMetrics(
       TestTriggerMetricsResolver&& aResolve);
@@ -176,9 +182,9 @@ class SocketProcessChild final : public PSocketProcessChild {
   RefPtr<ChildProfilerController> mProfilerController;
 
   // Protect the table below.
-  Mutex mMutex MOZ_UNANNOTATED{"SocketProcessChild::mMutex"};
+  Mutex mMutex{"SocketProcessChild::mMutex"};
   nsTHashMap<uint64_t, RefPtr<BackgroundDataBridgeParent>>
-      mBackgroundDataBridgeMap;
+      mBackgroundDataBridgeMap MOZ_GUARDED_BY(mMutex);
 
   bool mShuttingDown MOZ_GUARDED_BY(mMutex) = false;
 

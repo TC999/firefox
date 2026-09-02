@@ -5,8 +5,11 @@
 #ifndef vm_AsyncFunction_h
 #define vm_AsyncFunction_h
 
+#include "mozilla/Attributes.h"  // MOZ_RAII
+
 #include "js/Class.h"
 #include "vm/GeneratorObject.h"
+#include "vm/JSContext.h"
 #include "vm/JSObject.h"
 #include "vm/PromiseObject.h"
 
@@ -159,16 +162,16 @@
 //   AsyncAwait                      # PROMISE
 //
 //   GetAliasedVar ".generator"      # PROMISE .generator
-//   Await 0                         # RVAL GENERATOR RESUMEKIND
+//   Await 0                         # RVAL RESUMEKIND
 //
-//   AfterYield                      # RVAL GENERATOR RESUMEKIND
-//   CheckResumeKind                 # RVAL
+//   AfterYield                      # RVAL RESUMEKIND
+//   [resume-kind check]             # RVAL
 // ```
 //
 // JSOp::AsyncAwait corresponds to Await steps 1-9, and JSOp::Await corresponds
 // to Await steps 10-12 in the spec.
 //
-// See the next section for JSOp::CheckResumeKind.
+// See the next section for the resume-kind check.
 //
 // After them, the async function is suspended, and if this is the first await
 // in the execution, the async function's result promise is returned to the
@@ -223,7 +226,7 @@
 // and the resume kind, either normal or throw, corresponds to fulfillment or
 // rejection, on the stack.
 //
-// The resume kind is handled by JSOp::CheckResumeKind after that.
+// The resume kind is handled by the resume-kind check after that.
 //
 // If the resume kind is normal (=fulfillment), the async function resumes
 // the execution with the resolved value as the result of `await`.
@@ -259,9 +262,9 @@
 //
 //   JumpTarget                      # VALUE
 //   GetAliasedVar ".generator"      # VALUE .generator
-//   Await 0                         # RVAL GENERATOR RESUMEKIND
-//   AfterYield                      # RVAL GENERATOR RESUMEKIND
-//   CheckResumeKind                 # RVAL
+//   Await 0                         # RVAL RESUMEKIND
+//   AfterYield                      # RVAL RESUMEKIND
+//   [resume-kind check]             # RVAL
 //
 // END:
 //   JumpTarget                      # RVAL
@@ -301,11 +304,10 @@ JSObject* AsyncFunctionReject(JSContext* cx,
 
 class AsyncFunctionGeneratorObject : public AbstractGeneratorObject {
  public:
-  enum {
-    PROMISE_SLOT = AbstractGeneratorObject::RESERVED_SLOTS,
-
-    RESERVED_SLOTS
-  };
+  JS_DEFINE_TYPED_SLOT(AbstractGeneratorObject::RESERVED_SLOTS, PROMISE_SLOT,
+                       Object);
+  static constexpr uint32_t RESERVED_SLOTS =
+      AbstractGeneratorObject::RESERVED_SLOTS + 1;
 
   static const JSClass class_;
   static const JSClassOps classOps_;
@@ -317,7 +319,7 @@ class AsyncFunctionGeneratorObject : public AbstractGeneratorObject {
                                               Handle<ModuleObject*> module);
 
   PromiseObject* promise() {
-    return &getFixedSlot(PROMISE_SLOT).toObject().as<PromiseObject>();
+    return &getFixedSlotTyped(PROMISE_SLOT).toObject().as<PromiseObject>();
   }
 };
 

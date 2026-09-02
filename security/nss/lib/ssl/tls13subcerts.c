@@ -340,7 +340,7 @@ tls13_HashCredentialAndSignOrVerifyMessage(SECKEYPrivateKey *privKey,
     return SECSuccess;
 
 loser:
-    tls_DestroySignOrVerifyContext(ctx);
+    tls_DestroySignOrVerifyContext(&ctx);
     return SECFailure;
 }
 
@@ -421,11 +421,13 @@ tls13_CheckCertDelegationUsage(sslSocket *ss)
      * it to negotiate delegated credentials.
      */
     found = PR_FALSE;
-    for (i = 0; cert->extensions[i] != NULL; i++) {
-        ext = cert->extensions[i];
-        if (SECITEM_CompareItem(&ext->id, &delegUsageOid) == SECEqual) {
-            found = PR_TRUE;
-            break;
+    if (cert->extensions) {
+        for (i = 0; cert->extensions[i] != NULL; i++) {
+            ext = cert->extensions[i];
+            if (SECITEM_CompareItem(&ext->id, &delegUsageOid) == SECEqual) {
+                found = PR_TRUE;
+                break;
+            }
         }
     }
 
@@ -652,7 +654,32 @@ tls13_MakeDcSpki(const SECKEYPublicKey *dcPub, SSLSignatureScheme dcCertVerifyAl
             }
             return SECKEY_CreateSubjectPublicKeyInfo(dcPub);
         }
-
+        case mldsaKey:
+            switch (dcPub->u.mldsa.paramSet) {
+                case SEC_OID_ML_DSA_44:
+                    if (ssl_sig_mldsa44 != dcCertVerifyAlg) {
+                        PORT_SetError(SSL_ERROR_INCORRECT_SIGNATURE_ALGORITHM);
+                        return NULL;
+                    }
+                    break;
+                case SEC_OID_ML_DSA_65:
+                    if (ssl_sig_mldsa65 != dcCertVerifyAlg) {
+                        PORT_SetError(SSL_ERROR_INCORRECT_SIGNATURE_ALGORITHM);
+                        return NULL;
+                    }
+                    break;
+                case SEC_OID_ML_DSA_87:
+                    if (ssl_sig_mldsa87 != dcCertVerifyAlg) {
+                        PORT_SetError(SSL_ERROR_INCORRECT_SIGNATURE_ALGORITHM);
+                        return NULL;
+                    }
+                    break;
+                default:
+                    PORT_SetError(SSL_ERROR_INCORRECT_SIGNATURE_ALGORITHM);
+                    return NULL;
+                    break;
+            }
+            return SECKEY_CreateSubjectPublicKeyInfo(dcPub);
         default:
             break;
     }

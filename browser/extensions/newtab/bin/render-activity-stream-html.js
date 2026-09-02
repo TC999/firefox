@@ -42,6 +42,11 @@ function templateHTML(options) {
 
   // The markup below needs to be formatted by Prettier. But any diff after
   // running this script should be caught by try-runnner.js
+  //
+  // The frame-src directive allowlists the Merino origins serving the Crossword
+  // widget bundle (staging and production). default-src 'none' otherwise blocks
+  // all iframes. Both origins are listed so the endpoint can be trainhop-swapped
+  // between staging and production without a CSP change.
   return `
 <!-- This Source Code Form is subject to the terms of the Mozilla Public
    - License, v. 2.0. If a copy of the MPL was not distributed with this file,
@@ -55,7 +60,7 @@ function templateHTML(options) {
     <meta charset="utf-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; object-src 'none'; script-src resource: chrome:; connect-src https:; img-src https: data: blob: chrome:; style-src 'unsafe-inline';"
+      content="default-src 'none'; object-src 'none'; script-src resource: chrome:; connect-src https:; img-src https: data: blob: chrome:; media-src chrome:; style-src 'unsafe-inline'; frame-src https://stage-games-particle.merino.nonprod.webservices.mozgcp.net https://prod-games-particle.merino.prod.webservices.mozgcp.net;"
     />
     <meta name="color-scheme" content="light dark" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -103,6 +108,16 @@ function templateHTML(options) {
     <script
       async
       type="module"
+      src="chrome://global/content/elements/moz-input-text.mjs"
+    ></script>
+    <script
+      async
+      type="module"
+      src="chrome://global/content/elements/moz-input-search.mjs"
+    ></script>
+    <script
+      async
+      type="module"
       src="chrome://global/content/elements/moz-box-button.mjs"
     ></script>
     <script
@@ -128,12 +143,17 @@ function templateHTML(options) {
     <script
       async
       type="module"
-      src="chrome://global/content/elements/panel-list.js"
+      src="chrome://global/content/elements/panel-list.mjs"
     ></script>
     <script
       async
       type="module"
       src="chrome://global/content/elements/moz-support-link.mjs"
+    ></script>
+    <script
+      async
+      type="module"
+      src="chrome://global/content/elements/moz-checkbox.mjs"
     ></script>
   </body>
 </html>

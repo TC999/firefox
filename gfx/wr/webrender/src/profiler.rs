@@ -31,7 +31,6 @@ use crate::renderer::{FullFrameStats, init::wr_has_been_initialized};
 use api::units::DeviceIntSize;
 use std::collections::vec_deque::VecDeque;
 use std::fmt::{Write, Debug};
-use std::f32;
 use std::ops::Range;
 use std::time::Duration;
 
@@ -69,6 +68,9 @@ static PROFILER_PRESETS: &'static[(&'static str, &'static str)] = &[
     (&"Frame times", &"Frame CPU total,Frame building,Visibility,Prepare,Batching,Glyph resolve,Texture cache update,Shader build time,Renderer,GPU"),
     // Stats about the content of the frame.
     (&"Frame stats", &"Primitives,Visible primitives,Draw calls,Vertices,Color passes,Alpha passes,Rendered picture tiles,Rasterized glyphs"),
+    // How much of each frame-building pass's traversal produces a draw, and the
+    // per-prim fan-out across dirty tiles.
+    (&"Frame build traversal", &"Primitives,Visibility visited prims,Prepare visited prims,Visible primitives,Prepare cmd targets,Prepare pictures, ,Visibility,Prepare"),
     // Texture cache allocation stats.
     (&"Texture cache stats", &"Atlas textures mem, Standalone textures mem, Picture tiles mem, Render targets mem, Depth targets mem, Atlas items mem,
         Texture cache standalone pressure, Texture cache eviction count, Texture cache youngest evicted, ,
@@ -93,7 +95,7 @@ static PROFILER_PRESETS: &'static[(&'static str, &'static str)] = &[
     (&"GPU Memory", &"External image mem, Atlas textures mem, Standalone textures mem, Picture tiles mem, Render targets mem, Depth targets mem, Atlas items mem, GPU cache mem, GPU buffer mem, GPU total mem"),
     (&"CPU Memory", &"Image templates, Image templates mem, Font templates,Font templates mem, DisplayList mem"),
     (&"Memory", &"$CPU,CPU Memory, ,$GPU,GPU Memory"),
-    (&"Interners", "Interned primitives,Interned clips,Interned pictures,Interned text runs,Interned normal borders,Interned image borders,Interned images,Interned YUV images,Interned line decorations,Interned linear gradients,Interned radial gradients,Interned conic gradients,Interned filter data,Interned backdrop renders, Interned backdrop captures"),
+    (&"Interners", "Intern insertions,Intern removals,Off-grid coords, ,Interned primitives,Interned clips,Interned pictures,Interned text runs,Interned normal borders,Interned image borders,Interned images,Interned YUV images,Interned line decorations,Interned linear gradients,Interned radial gradients,Interned conic gradients,Interned filter data,Interned backdrop renders, Interned backdrop captures"),
     // Gpu sampler queries (need the pref gfx.webrender.debug.gpu-sampler-queries).
     (&"GPU samplers", &"Alpha targets samplers,Transparent pass samplers,Opaque pass samplers,Total samplers"),
 
@@ -277,7 +279,38 @@ pub const COMPOSITOR_SURFACE_UNDERLAYS: usize = 131;
 pub const COMPOSITOR_SURFACE_OVERLAYS: usize = 132;
 pub const COMPOSITOR_SURFACE_BLITS: usize = 133;
 
-pub const NUM_PROFILER_EVENTS: usize = 134;
+/// Primitives visited by the visibility pass (all prims of every visible
+/// cluster it walks). Compare against `VISIBLE_PRIMITIVES` to see how much of
+/// each pass's traversal produces a draw.
+pub const VISIBILITY_VISITED_PRIMS: usize = 134;
+/// Primitives visited by the prepare pass. Lower than
+/// `VISIBILITY_VISITED_PRIMS` when prepare prunes whole picture subtrees whose
+/// surface has no dirty intersection.
+pub const PREPARE_VISITED_PRIMS: usize = 135;
+/// Total (primitive, command buffer) pairs emitted by prepare. Divided by
+/// `VISIBLE_PRIMITIVES` this is the average per-prim fan-out across dirty
+/// tiles and surface tasks.
+pub const PREPARE_CMD_TARGETS: usize = 136;
+/// Pictures that prepare obtained a context for this frame.
+pub const PREPARE_PICTURES: usize = 137;
+
+/// New entries added to any interner by the scene build applied this frame.
+/// Only set on frames that applied a scene build, so an absent value means no
+/// scene was built. A repaint that changes nothing an interning key can see
+/// (notably a pure scroll, whose external scroll offset is normalised out in
+/// the display list builder) must report zero.
+pub const INTERN_INSERTIONS: usize = 138;
+/// Entries garbage-collected from any interner by the scene build applied this
+/// frame. Counterpart to `INTERN_INSERTIONS`; a churning key shows up as both.
+pub const INTERN_REMOVALS: usize = 139;
+/// Coordinates in the display list that were not whole app units on the grid its
+/// builder declared. Scroll offset normalization is exact only on that grid, so a
+/// non-zero value means those positions drift with the scroll offset and will
+/// churn interning and invalidation. Should be zero; useful when investigating
+/// unexplained invalidation.
+pub const OFF_GRID_COORDS: usize = 140;
+
+pub const NUM_PROFILER_EVENTS: usize = 141;
 
 pub struct Profiler {
     counters: Vec<Counter>,
@@ -490,6 +523,15 @@ impl Profiler {
             int("Compositor surface underlays", "", COMPOSITOR_SURFACE_UNDERLAYS, Expected::none()),
             int("Compositor surface overlays", "", COMPOSITOR_SURFACE_OVERLAYS, Expected::none()),
             int("Compositor surface blits", "", COMPOSITOR_SURFACE_BLITS, Expected::none()),
+
+            int("Visibility visited prims", "", VISIBILITY_VISITED_PRIMS, Expected::none()),
+            int("Prepare visited prims", "", PREPARE_VISITED_PRIMS, Expected::none()),
+            int("Prepare cmd targets", "", PREPARE_CMD_TARGETS, Expected::none()),
+            int("Prepare pictures", "", PREPARE_PICTURES, Expected::none()),
+
+            int("Intern insertions", "", INTERN_INSERTIONS, Expected::none()),
+            int("Intern removals", "", INTERN_REMOVALS, Expected::none()),
+            int("Off-grid coords", "", OFF_GRID_COORDS, expected(0..1)),
         ];
 
         let mut counters = Vec::with_capacity(profile_counters.len());
@@ -1343,10 +1385,10 @@ pub trait ProfilerHooks : Send + Sync {
     fn unregister_thread(&self);
 
     /// Called at the beginning of a profile scope.
-    fn begin_marker(&self, label: &str);
+    fn begin_marker(&self, label: &str, text: &str);
 
     /// Called at the end of a profile scope.
-    fn end_marker(&self, label: &str);
+    fn end_marker(&self, label: &str, text: &str);
 
     /// Called to mark an event happening.
     fn event_marker(&self, label: &str);
@@ -1378,9 +1420,11 @@ pub fn set_profiler_hooks(hooks: Option<&'static dyn ProfilerHooks>) {
     }
 }
 
+#[allow(unused)]
 /// A simple RAII style struct to manage a profile scope.
 pub struct ProfileScope {
     name: &'static str,
+    text: &'static str,
 }
 
 
@@ -1430,15 +1474,31 @@ pub fn thread_is_being_profiled() -> bool {
 
 impl ProfileScope {
     /// Begin a new profile scope
+    #[allow(unused)]
     pub fn new(name: &'static str) -> Self {
         unsafe {
             if let Some(ref hooks) = PROFILER_HOOKS {
-                hooks.begin_marker(name);
+                hooks.begin_marker(name, "");
             }
         }
 
         ProfileScope {
             name,
+            text: "",
+        }
+    }
+
+    #[allow(unused)]
+    pub fn with_text(name: &'static str, text: &'static str) -> Self {
+        unsafe {
+            if let Some(ref hooks) = PROFILER_HOOKS {
+                hooks.begin_marker(name, text);
+            }
+        }
+
+        ProfileScope {
+            name,
+            text,
         }
     }
 }
@@ -1447,16 +1507,32 @@ impl Drop for ProfileScope {
     fn drop(&mut self) {
         unsafe {
             if let Some(ref hooks) = PROFILER_HOOKS {
-                hooks.end_marker(self.name);
+                hooks.end_marker(self.name, self.text);
             }
         }
     }
 }
 
+#[cfg(not(feature="tracy"))]
 /// A helper macro to define profile scopes.
 macro_rules! profile_marker {
     ($string:expr) => {
         let _scope = $crate::profiler::ProfileScope::new($string);
+    };
+    ($string:expr, $text:expr) => {
+        let _scope = $crate::profiler::ProfileScope::with_text($string, $text);
+    };
+}
+
+#[cfg(feature="tracy")]
+/// A helper macro to define profile scopes.
+macro_rules! profile_marker {
+    ($string:expr) => {
+        tracy_rs::profile_scope!($string)
+    };
+    ($string:expr, $text:expr) => {
+        // Just drop the extra text in the case of tracy.
+        tracy_rs::profile_scope!($string)
     };
 }
 
@@ -1556,7 +1632,7 @@ impl Counter {
             unit: descriptor.unit,
             show_as: descriptor.show_as,
             expected: descriptor.expected.clone(),
-            value: std::f64::NAN,
+            value: f64::NAN,
             num_samples: 0,
             sum: 0.0,
             next_max: 0.0,
@@ -1646,7 +1722,7 @@ impl Counter {
             graph.set(self.value);
         }
 
-        self.value = std::f64::NAN;
+        self.value = f64::NAN;
 
         if update_avg {
             if self.num_samples > 0 {
@@ -1659,7 +1735,7 @@ impl Counter {
             }
             self.sum = 0.0;
             self.num_samples = 0;
-            self.next_max = std::f64::MIN;
+            self.next_max = f64::MIN;
         }
     }
 }

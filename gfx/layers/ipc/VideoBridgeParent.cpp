@@ -3,6 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "VideoBridgeParent.h"
+
 #include "CompositorThread.h"
 #include "mozilla/DataMutex.h"
 #include "mozilla/ipc/Endpoint.h"
@@ -18,9 +19,6 @@ using namespace mozilla::gfx;
 
 using VideoBridgeTable = EnumeratedArray<VideoBridgeSource, VideoBridgeParent*,
                                          size_t(VideoBridgeSource::_Count)>;
-
-NS_IMPL_NONLOGGING_ADDREF_INHERITED(VideoBridgeParent, HostIPCAllocator)
-NS_IMPL_NONLOGGING_RELEASE_INHERITED(VideoBridgeParent, HostIPCAllocator)
 
 MOZ_RUNINIT static StaticDataMutex<VideoBridgeTable> sVideoBridgeFromProcess(
     "VideoBridges");
@@ -42,7 +40,7 @@ VideoBridgeParent::VideoBridgeParent(VideoBridgeSource aSource)
   }
 }
 
-VideoBridgeParent::~VideoBridgeParent() {
+void VideoBridgeParent::UnregisterSingleton() {
   auto videoBridgeFromProcess = sVideoBridgeFromProcess.Lock();
   for (auto& bridgeParent : *videoBridgeFromProcess) {
     if (bridgeParent == this) {
@@ -50,6 +48,8 @@ VideoBridgeParent::~VideoBridgeParent() {
     }
   }
 }
+
+VideoBridgeParent::~VideoBridgeParent() { UnregisterSingleton(); }
 
 /* static */
 void VideoBridgeParent::Open(Endpoint<PVideoBridgeParent>&& aEndpoint,
@@ -78,7 +78,6 @@ RefPtr<VideoBridgeParent> VideoBridgeParent::GetSingleton(
     case VideoBridgeSource::RddProcess:
     case VideoBridgeSource::GpuProcess:
     case VideoBridgeSource::MFMediaEngineCDMProcess:
-      MOZ_ASSERT((*videoBridgeFromProcess)[aSource.value()]);
       return RefPtr{(*videoBridgeFromProcess)[aSource.value()]};
     default:
       MOZ_CRASH("Unhandled case");
@@ -192,6 +191,8 @@ void VideoBridgeParent::ActorDestroy(ActorDestroyReason aWhy) {
     mClosed = true;
     mCompositorThreadHolder = nullptr;
   }
+
+  UnregisterSingleton();
 }
 
 /* static */
@@ -246,11 +247,11 @@ void VideoBridgeParent::DoUnregisterExternalImages() {
   }
 }
 
-PTextureParent* VideoBridgeParent::AllocPTextureParent(
+already_AddRefed<PTextureParent> VideoBridgeParent::AllocPTextureParent(
     const SurfaceDescriptor& aSharedData, ReadLockDescriptor& aReadLock,
     const LayersBackend& aLayersBackend, const TextureFlags& aFlags,
     const dom::ContentParentId& aContentId, const uint64_t& aSerial) {
-  PTextureParent* parent = TextureHost::CreateIPDLActor(
+  RefPtr<PTextureParent> parent = TextureHost::CreateIPDLActor(
       this, aSharedData, std::move(aReadLock), aLayersBackend, aFlags,
       aContentId, aSerial, Nothing());
 
@@ -261,20 +262,19 @@ PTextureParent* VideoBridgeParent::AllocPTextureParent(
   MonitorAutoLock lock(mMonitor);
   mTextureMap.insert(
       {aSerial, {TextureHost::AsTextureHost(parent), aContentId}});
-  return parent;
+  return parent.forget();
 }
 
-bool VideoBridgeParent::DeallocPTextureParent(PTextureParent* actor) {
+void VideoBridgeParent::RemoveTexture(uint64_t aSerial) {
   RefPtr<TextureHost> textureHost;
   {
     MonitorAutoLock lock(mMonitor);
-    auto i = mTextureMap.find(TextureHost::GetTextureSerial(actor));
+    auto i = mTextureMap.find(aSerial);
     if (i != mTextureMap.end()) {
       textureHost = std::move(i->second.mTextureHost);
       mTextureMap.erase(i);
     }
   }
-  return TextureHost::DestroyIPDLActor(actor);
 }
 
 void VideoBridgeParent::SendAsyncMessage(

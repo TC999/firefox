@@ -18,7 +18,7 @@
 namespace mozilla::dom {
 
 nsXULElement* NS_NewXULTooltipElement(
-    already_AddRefed<mozilla::dom::NodeInfo>&& aNodeInfo) {
+    already_AddRefed<mozilla::dom::NodeInfo> aNodeInfo) {
   RefPtr<mozilla::dom::NodeInfo> nodeInfo(aNodeInfo);
   auto* nim = nodeInfo->NodeInfoManager();
   RefPtr<XULTooltipElement> tooltip =
@@ -60,7 +60,8 @@ void XULTooltipElement::AfterSetAttr(int32_t aNameSpaceID, nsAtom* aName,
         aValue->ToString(value);
       }
       nsContentUtils::AddScriptRunner(NS_NewRunnableFunction(
-          "XULTooltipElement::AfterSetAttr", [description, value]() {
+          "XULTooltipElement::AfterSetAttr",
+          [description, value = std::move(value)]() {
             Element* descriptionElement = description->AsElement();
             descriptionElement->SetTextContent(value, IgnoreErrors());
           }));

@@ -6,8 +6,11 @@
 #define LAYOUT_STYLE_TYPEDOM_CSSSCALE_H_
 
 #include "js/TypeDecls.h"
+#include "mozilla/RefPtr.h"
 #include "mozilla/dom/CSSNumericValueBindingFwd.h"
 #include "mozilla/dom/CSSTransformComponent.h"
+#include "mozilla/dom/DOMMatrixBindingFwd.h"
+#include "nsCycleCollectionParticipant.h"
 
 template <class T>
 struct already_AddRefed;
@@ -18,6 +21,7 @@ class nsISupports;
 namespace mozilla {
 
 class ErrorResult;
+struct StyleScaleComponent;
 
 namespace dom {
 
@@ -27,13 +31,22 @@ class Optional;
 
 class CSSScale final : public CSSTransformComponent {
  public:
-  explicit CSSScale(nsCOMPtr<nsISupports> aParent);
+  CSSScale(nsCOMPtr<nsISupports> aParent, bool aIs2D,
+           RefPtr<CSSNumericValue> aX, RefPtr<CSSNumericValue> aY,
+           RefPtr<CSSNumericValue> aZ);
+
+  static RefPtr<CSSScale> Create(nsCOMPtr<nsISupports> aParent,
+                                 const StyleScaleComponent& aScaleComponent);
+
+  NS_DECL_ISUPPORTS_INHERITED
+  NS_DECL_CYCLE_COLLECTION_CLASS_INHERITED(CSSScale, CSSTransformComponent)
 
   JSObject* WrapObject(JSContext* aCx,
                        JS::Handle<JSObject*> aGivenProto) override;
 
   // start of CSSScale Web IDL declarations
 
+  // https://drafts.css-houdini.org/css-typed-om-1/#dom-cssscale-cssscale
   static already_AddRefed<CSSScale> Constructor(
       const GlobalObject& aGlobal, const CSSNumberish& aX,
       const CSSNumberish& aY, const Optional<CSSNumberish>& aZ,
@@ -53,11 +66,17 @@ class CSSScale final : public CSSTransformComponent {
 
   // end of CSSScale Web IDL declarations
 
+  already_AddRefed<DOMMatrix> ToMatrix(ErrorResult& aRv);
+
   void ToCssTextWithProperty(const CSSPropertyId& aPropertyId,
                              nsACString& aDest) const;
 
  protected:
   virtual ~CSSScale() = default;
+
+  RefPtr<CSSNumericValue> mX;
+  RefPtr<CSSNumericValue> mY;
+  RefPtr<CSSNumericValue> mZ;
 };
 
 }  // namespace dom

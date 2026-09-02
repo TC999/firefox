@@ -5,10 +5,9 @@
 #ifndef _xpcAccessiblePivot_H_
 #define _xpcAccessiblePivot_H_
 
-#include "nsIAccessiblePivot.h"
-
 #include "Accessible.h"
 #include "nsCycleCollectionParticipant.h"
+#include "nsIAccessiblePivot.h"
 #include "xpcAccessible.h"
 
 namespace mozilla::a11y {
@@ -19,6 +18,10 @@ class xpcAccessiblePivot final : public nsIAccessiblePivot {
  public:
   explicit xpcAccessiblePivot(nsIAccessible* aRoot);
 
+  xpcAccessiblePivot() = delete;
+  xpcAccessiblePivot(const xpcAccessiblePivot&) = delete;
+  void operator=(const xpcAccessiblePivot&) = delete;
+
   NS_DECL_CYCLE_COLLECTING_ISUPPORTS
   NS_DECL_CYCLE_COLLECTION_CLASS_AMBIGUOUS(xpcAccessiblePivot,
                                            nsIAccessiblePivot)
@@ -27,9 +30,6 @@ class xpcAccessiblePivot final : public nsIAccessiblePivot {
 
  private:
   ~xpcAccessiblePivot();
-  xpcAccessiblePivot() = delete;
-  xpcAccessiblePivot(const xpcAccessiblePivot&) = delete;
-  void operator=(const xpcAccessiblePivot&) = delete;
 
   Accessible* Root() { return mRoot ? mRoot->ToInternalGeneric() : nullptr; }
 

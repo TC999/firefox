@@ -12,6 +12,11 @@
 #include "nsIReferrerInfo.h"
 #include "nsReadableUtils.h"
 
+namespace IPC {
+class MessageReader;
+class MessageWriter;
+}  // namespace IPC
+
 #define REFERRERINFO_CONTRACTID "@mozilla.org/referrer-info;1"
 // 041a129f-10ce-4bda-a60d-e027a26d5ed0
 #define REFERRERINFO_CID \
@@ -72,6 +77,10 @@ class ReferrerInfo : public nsIReferrerInfo {
   // create an exact copy of the ReferrerInfo
   already_AddRefed<ReferrerInfo> Clone() const;
 
+  void Serialize(IPC::MessageWriter* aWriter) const;
+  static bool Deserialize(IPC::MessageReader* aReader,
+                          RefPtr<nsIReferrerInfo>* aResult);
+
   // create an copy of the ReferrerInfo with new referrer policy
   already_AddRefed<ReferrerInfo> CloneWithNewPolicy(
       ReferrerPolicyEnum aPolicy) const;
@@ -79,9 +88,6 @@ class ReferrerInfo : public nsIReferrerInfo {
   // create an copy of the ReferrerInfo with new original referrer
   already_AddRefed<ReferrerInfo> CloneWithNewOriginalReferrer(
       nsIURI* aOriginalReferrer) const;
-
-  // Record the telemetry for the referrer policy.
-  void RecordTelemetry(nsIHttpChannel* aChannel);
 
   /*
    * Helper function to create a new ReferrerInfo object from a given document
@@ -441,12 +447,6 @@ class ReferrerInfo : public nsIReferrerInfo {
 
   // Store a computed referrer for a given channel
   Maybe<nsCString> mComputedReferrer;
-
-#ifdef DEBUG
-  // Indicates if the telemetry has been recorded. This is used to make sure the
-  // telemetry will be only recored once.
-  bool mTelemetryRecorded = false;
-#endif  // DEBUG
 };
 
 }  // namespace mozilla::dom

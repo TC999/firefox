@@ -146,15 +146,13 @@ class MOZ_RAII AutoRunParallelTask : public GCParallelTask {
 
 class MOZ_RAII AutoStopVerifyingBarriers {
   GCRuntime* gc;
-  bool restartPreVerifier;
+  bool restartPreVerifier = false;
 
  public:
   AutoStopVerifyingBarriers(JSRuntime* rt, bool isShutdown) : gc(&rt->gc) {
     if (gc->isVerifyPreBarriersEnabled()) {
       gc->endVerifyPreBarriers();
       restartPreVerifier = !isShutdown;
-    } else {
-      restartPreVerifier = false;
     }
   }
 
@@ -163,18 +161,18 @@ class MOZ_RAII AutoStopVerifyingBarriers {
     // inside of an outer minor GC. This is not allowed by the
     // gc::Statistics phase tree. So we pause the "real" GC, if in fact one
     // is in progress.
-    gcstats::PhaseKind outer = gc->stats().currentPhaseKind();
-    if (outer != gcstats::PhaseKind::NONE) {
-      gc->stats().endPhase(outer);
-    }
-    MOZ_ASSERT(gc->stats().currentPhaseKind() == gcstats::PhaseKind::NONE);
-
     if (restartPreVerifier) {
-      gc->startVerifyPreBarriers();
-    }
+      gcstats::PhaseKind outer = gc->stats().currentPhaseKind();
+      if (outer != gcstats::PhaseKind::NONE) {
+        gc->stats().endPhase(outer);
+      }
+      MOZ_ASSERT(gc->stats().currentPhaseKind() == gcstats::PhaseKind::NONE);
 
-    if (outer != gcstats::PhaseKind::NONE) {
-      gc->stats().beginPhase(outer);
+      gc->startVerifyPreBarriers();
+
+      if (outer != gcstats::PhaseKind::NONE) {
+        gc->stats().beginPhase(outer);
+      }
     }
   }
 };
@@ -280,7 +278,7 @@ struct MovingTracer final : public GenericTracerImpl<MovingTracer> {
 
  private:
   template <typename T>
-  void onEdge(T** thingp, const char* name);
+  bool onEdge(T** thingp, const char* name);
   friend class GenericTracerImpl<MovingTracer>;
 };
 
@@ -290,7 +288,7 @@ struct MinorSweepingTracer final
 
  private:
   template <typename T>
-  void onEdge(T** thingp, const char* name);
+  bool onEdge(T** thingp, const char* name);
   friend class GenericTracerImpl<MinorSweepingTracer>;
 };
 

@@ -11,6 +11,7 @@
   --content-search-handoff-ui-caret-color: FieldText;
   --content-search-handoff-ui-border-width: 1px;
   --content-search-handoff-ui-border-radius: var(--border-radius-circle);
+  --content-search-handoff-ui-engine-icon: var(--newtab-search-icon);
   --content-search-handoff-ui-unfocused-border-color: transparent;
   --content-search-handoff-ui-fakefocus-border-color: SelectedItem;
   --content-search-handoff-ui-fakefocus-box-shadow-inner: color-mix(in srgb, SelectedItem 25%, transparent);
@@ -20,7 +21,6 @@
 /**
  * @nova-cleanup(remove-conditional): Remove this override once Nova ships for newtab.
  */
-/* stylelint-disable-next-line media-query-no-invalid */
 @media not -moz-pref("browser.newtabpage.activity-stream.nova.enabled") {
   :host {
     --content-search-handoff-ui-border-radius: var(--border-radius-medium);
@@ -55,7 +55,7 @@
 
 .search-handoff-button {
   position: relative;
-  background: var(--content-search-handoff-ui-background-color) var(--newtab-search-icon) 16px center no-repeat;
+  background: var(--content-search-handoff-ui-background-color) var(--content-search-handoff-ui-engine-icon) 16px center no-repeat;
   background-size: var(--size-item-medium);
   padding-inline-start: calc(2 * var(--space-xlarge));
   padding-inline-end: var(--space-small);
@@ -80,7 +80,7 @@
 }
 
 .fake-caret {
-  /* To replicate the default caret blink rate of 567ms (https://searchfox.org/mozilla-central/source/widget/cocoa/nsLookAndFeel.mm#397):
+  /* To replicate the default caret blink rate of 567ms (https://searchfox.org/firefox-main/source/widget/cocoa/nsLookAndFeel.mm#397):
    - Multiply the blink time by 2 to cover both the visible and hidden states.
    - Use steps(2, start) to divide the animation into 2 phases:
      1. First 567ms (Step 1) → Caret is visible

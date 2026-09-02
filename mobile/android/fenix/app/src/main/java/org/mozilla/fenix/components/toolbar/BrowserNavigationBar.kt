@@ -13,7 +13,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.ui.platform.ComposeView
 import androidx.coordinatorlayout.widget.CoordinatorLayout.LayoutParams
 import androidx.core.view.isVisible
 import mozilla.components.compose.browser.toolbar.NavigationBar
@@ -27,8 +26,7 @@ import org.mozilla.fenix.theme.FirefoxTheme
 import org.mozilla.fenix.utils.Settings
 
 /**
- * A wrapper over the [NavigationBar] composable that provides enhanced customization and
- * lifecycle-aware integration for use within the [BrowserToolbarView] framework.
+ * A wrapper over the [NavigationBar] composable that provides enhanced customization and lifecycle-aware integration.
  *
  * @param context [Context] used to access resources and other application-level operations.
  * @param container [ViewGroup] which will serve as parent of this View.
@@ -42,18 +40,20 @@ class BrowserNavigationBar(
     private val toolbarStore: BrowserToolbarStore,
     private val settings: Settings,
     private val hideWhenKeyboardShown: Boolean,
-    ) {
-    val layout = ComposeView(context).apply {
-        setContent { DefaultNavigationBarContent() }
-    }.apply {
-        id = R.id.navigation_bar
-        addToParent(this)
-        setNavbarDynamicBehavior(this)
-    }
+) {
+    val layout =
+        NavigationBarComposeView(context) {
+                DefaultNavigationBarContent()
+            }
+            .apply {
+                id = R.id.navigation_bar
+                addToParent(this)
+                setNavbarDynamicBehavior(this)
+            }
 
     /**
-     * Returns a [Composable] function that renders the default navigation bar content and ensures
-     * that the associated view-based layout is removed from its parent to prevent UI overlap.
+     * Returns a [Composable] function that renders the default navigation bar content and ensures that the associated
+     * view-based layout is removed from its parent to prevent UI overlap.
      */
     fun asComposable(): @Composable () -> Unit = {
         val removed = remember { mutableStateOf(false) }
@@ -79,18 +79,20 @@ class BrowserNavigationBar(
     @Composable
     private fun DefaultNavigationBarContent() {
         val uiState by toolbarStore.stateFlow.collectAsState()
-        val toolbarGravity = remember(settings) {
-            when (settings.shouldUseBottomToolbar) {
-                true -> Bottom
-                false -> Top
+        val toolbarGravity =
+            remember(settings) {
+                when (settings.shouldUseBottomToolbar) {
+                    true -> Bottom
+                    false -> Top
+                }
             }
-        }
-        val isKeyboardVisible = if (hideWhenKeyboardShown) {
-            val keyboardState by keyboardAsState()
-            keyboardState == KeyboardState.Opened
-        } else {
-            false
-        }
+        val isKeyboardVisible =
+            if (hideWhenKeyboardShown) {
+                val keyboardState by keyboardAsState()
+                keyboardState == KeyboardState.Opened
+            } else {
+                false
+            }
 
         if (uiState.displayState.navigationActions.isNotEmpty() && !isKeyboardVisible) {
             FirefoxTheme {
@@ -103,19 +105,20 @@ class BrowserNavigationBar(
         }
     }
 
-    private fun addToParent(view: ComposeView) {
+    private fun addToParent(view: NavigationBarComposeView) {
         container.addView(
             view,
             LayoutParams(
-                LayoutParams.MATCH_PARENT,
-                LayoutParams.WRAP_CONTENT,
-            ).apply {
-                gravity = Gravity.BOTTOM
-            },
+                    LayoutParams.MATCH_PARENT,
+                    LayoutParams.WRAP_CONTENT,
+                )
+                .apply {
+                    gravity = Gravity.BOTTOM
+                },
         )
     }
 
-    private fun setNavbarDynamicBehavior(view: ComposeView) {
+    private fun setNavbarDynamicBehavior(view: NavigationBarComposeView) {
         if (!settings.shouldUseBottomToolbar && settings.isDynamicToolbarEnabled) {
             (view.layoutParams as LayoutParams).apply {
                 behavior = NavbarToolbarSyncBehavior(context)

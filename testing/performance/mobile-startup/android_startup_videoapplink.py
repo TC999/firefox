@@ -24,9 +24,14 @@ An error of greater than 0.0002 indicates we have 1 icon, any less than this sta
 Else(newssite(cvne), shopify (cvne), tab-restore):
 An error of greater than 0.001 indicates we have the loading bar present, any less than this startup is done
 """
+PERFHERDER_NAMES = {
+    "cold_view_nav_end": "applink_startup",
+    "mobile_restore": "tab_restore",
+    "homeview_startup": "homeview_startup",
+}
 ACCEPTABLE_THRESHOLD_ERROR = {
     "homeview_startup": 0.0002,
-    "cold_view_nav_end": 0.001,
+    "cold_view_nav_end": 0.003,
     "mobile_restore": 0.001,
 }
 BACKGROUND_TABS = [
@@ -50,8 +55,20 @@ SERVER_CERT_FINGERPRINT = (
 )
 
 
+class InvalidLastFrame(Exception):
+    """If thrown, the difference in images is too high, we suspect a faulty run"""
+
+    pass
+
+
 class ImageAnalzer:
     def __init__(self, browser, test, test_url, profilers):
+        if test == "homeview_startup":
+            self.metric_name = PERFHERDER_NAMES[test]
+        else:
+            self.metric_name = (
+                "shopify_" if "shopify" in test_url else "newssite_"
+            ) + PERFHERDER_NAMES[test]
         self.video = None
         self.browser = browser
         self.test = test
@@ -83,6 +100,27 @@ class ImageAnalzer:
         self.device.shell("settings put global window_animation_scale 1")
         self.device.shell("settings put global transition_animation_scale 1")
         self.device.shell("settings put global animator_duration_scale 1")
+        a11y_enabled = self.device.shell_output(
+            "settings get secure accessibility_enabled"
+        )
+        a11y_services = self.device.shell_output(
+            "settings get secure enabled_accessibility_services"
+        )
+        print(
+            f"A11Y STATE: accessibility_enabled={a11y_enabled}, services={a11y_services}"
+        )
+        print("A11Y: Clearing enabled_accessibility_services and accessibility_enabled")
+        self.device.shell('settings put secure enabled_accessibility_services ""')
+        self.device.shell("settings put secure accessibility_enabled 0")
+        a11y_enabled = self.device.shell_output(
+            "settings get secure accessibility_enabled"
+        )
+        a11y_services = self.device.shell_output(
+            "settings get secure enabled_accessibility_services"
+        )
+        print(
+            f"A11Y STATE AFTER CLEAR: accessibility_enabled={a11y_enabled}, services={a11y_services}"
+        )
         self.device.disable_notifications("com.topjohnwu.magisk")
         self.device_model = self.device.shell_output("getprop ro.product.model")
 
@@ -213,7 +251,7 @@ class ImageAnalzer:
         # We crop out the bottom 100 pixels to remove the fading in of the OS navigation controls
         # We crop out the right 20 pixels to remove the scroll bar as it interferes with startup accuracy
         if cropped:
-            return frame[100 : int(self.height) - 100, 0 : int(self.width) - 20]
+            return frame[100 : int(self.height) - 150, 0 : int(self.width) - 20]
         return frame
 
     def error(self, img1, img2):
@@ -324,7 +362,7 @@ class ImageAnalzer:
                 + str(self.cpu_data[process]["time"])
                 + ', "name": "'
                 + process
-                + '-cpu-time", "shouldAlert": true }'
+                + f'-cpu-time", "shouldAlert": true, "suite": "{self.metric_name}_submetrics"}}'
             )
 
     def validate_end_frame(self, frame_to_check):
@@ -339,15 +377,20 @@ class ImageAnalzer:
             filename += f"-{device}.png"
             validated_image = cv2.imread(str(pathlib.Path(VALID_IMAGES_DIR, filename)))
             cropped_image = validated_image[
-                100 : int(self.height) - 100, 0 : int(self.width) - 20
+                100 : int(self.height) - 150, 0 : int(self.width) - 20
             ]
             cropped_image = cv2.cvtColor(cropped_image, cv2.COLOR_BGR2GRAY)
             diff = self.error(self.get_image(frame_to_check), cropped_image)
             print(f"Error we found in images: {diff}")
             if diff > 0.5:
-                raise Exception(
+                raise InvalidLastFrame(
                     "Difference in Images is too high, suspected faulty run"
                 )
+
+    def run_test(self, iteration):
+        self.app_setup()
+        self.get_video(iteration)
+        return self.get_page_loaded_time(iteration)
 
 
 def get_profiler_combinations():
@@ -369,12 +412,6 @@ if __name__ == "__main__":
     test = sys.argv[2]
     test_url = sys.argv[3]
 
-    perfherder_names = {
-        "cold_view_nav_end": "applink_startup",
-        "mobile_restore": "tab_restore",
-        "homeview_startup": "homeview_startup",
-    }
-
     base_testing_dir = os.environ["TESTING_DIR"]
     profiler_combinations = get_profiler_combinations()
     iterations = 10
@@ -392,10 +429,13 @@ if __name__ == "__main__":
 
         ImageObject = ImageAnalzer(browser, test, test_url, profilers)
         for iteration in range(iterations):
-            ImageObject.app_setup()
-            ImageObject.get_video(iteration)
-            nav_done_frame = ImageObject.get_page_loaded_time(iteration)
-            ImageObject.validate_end_frame(nav_done_frame)
+            nav_done_frame = ImageObject.run_test(iteration)
+            try:
+                ImageObject.validate_end_frame(nav_done_frame)
+            except InvalidLastFrame:
+                print("Something went wrong, retrying image validation")
+                nav_done_frame = ImageObject.run_test(iteration)
+                ImageObject.validate_end_frame(nav_done_frame)
             start_video_timestamp += [
                 ImageObject.get_time_from_frame_num(nav_done_frame)
             ]
@@ -403,7 +443,16 @@ if __name__ == "__main__":
         'perfMetrics: {"values": '
         + str(start_video_timestamp)
         + ', "name": "'
-        + perfherder_names[test]
+        + PERFHERDER_NAMES[test]
         + '", "shouldAlert": true}'
     )
+
+    print(
+        'perfMetrics: {"values": '
+        + str(start_video_timestamp)
+        + ', "name": "'
+        + ImageObject.metric_name
+        + f'", "shouldAlert": true, "suite": "{ImageObject.metric_name}_submetrics"}}'
+    )
+
     ImageObject.perfmetrics_cpu_data_ingesting()

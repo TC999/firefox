@@ -24,17 +24,14 @@
   }
 }
 
-main {
+main.newtab-main {
   margin: 0 auto;
   display: flex;
   flex-direction: column;
   justify-content: center;
   width: $wrapper-default-width;
   padding: 0;
-
-  &.newtab-main {
-    min-width: min-content;
-  }
+  min-width: min-content;
 
   .vertical-center-wrapper {
     margin: auto 0;
@@ -63,12 +60,12 @@ main {
 }
 
 // Edge case for if search is turned off (compact layout)
-.no-search main {
+.no-search main.newtab-main {
   margin-block-start: var(--space-xxlarge);
 }
 
 .ds-outer-wrapper-search-alignment {
-  main {
+  main.newtab-main {
     // This override is to ensure while Discovery Stream loads,
     // the search bar does not jump around. (it sticks to the top)
     margin: 0 auto;
@@ -76,7 +73,7 @@ main {
 }
 
 .ds-outer-wrapper-breakpoint-override {
-  main {
+  main.newtab-main {
     width: auto;
     padding-block-end: 0;
 
@@ -152,7 +149,6 @@ main {
         grid-template-columns: repeat(4, 1fr);
       }
     }
-
   }
 }
 
@@ -242,10 +238,9 @@ main {
 
 .asrouter-newtab-message-wrapper {
   background-color: var(--background-color-canvas);
-  // @backward-compat { version 150 } D281466/D283723 renamed design tokens; remove once Firefox 150 is on Release.
-  border: 2px solid var(--card-border-color, var(--border-color-card));
+  border: 2px solid var(--card-border-color);
   color: var(--text-color);
-  border-radius: var(--border-radius-medium);
+  border-radius: var(--border-radius-large);
   margin-block: 0 var(--space-xlarge);
   margin-inline: auto;
   overflow: hidden;
@@ -258,4 +253,31 @@ main {
   @media (min-width: $break-point-layout-variant) {
     max-width: 904px;
   }
+}
+
+// @nova-cleanup(remove-conditional): Rename to .outer-wrapper here and in
+// Base.jsx. Blocked on two things, so split it to its own bug if they are not
+// resolved: .outer-wrapper above still carries classic rules that would start
+// applying once the names merge, and the toolkit theme tests
+// (browser_ext_themes_ntp_colors{,_perwindow}.js) select on .nova-outer-wrapper.
+.nova-outer-wrapper {
+  color: var(--newtab-text-primary-color);
+  min-height: 100vh;
+  padding-block-start: var(--space-xlarge);
+
+  // The attribution is positioned against #root, so the page needs clear space
+  // at the bottom for it. Classic gets that from .outer-wrapper's all-round
+  // padding; .nova-outer-wrapper only pads block-start. Sized to clear the
+  // attribution's own inset plus a line of text.
+  // @nova-cleanup(remove-conditional): Delete this &:has() block only when
+  // .nova-outer-wrapper merges into .outer-wrapper AND the merged rule keeps a
+  // block-end padding at least this large. If that merge is deferred to its own
+  // bug, leave this block alone.
+  &:has(.wallpaper-attribution) {
+    padding-block-end: calc(var(--space-large) + var(--space-xxlarge));
+  }
+}
+
+.asrouter-multistage-message-wrapper {
+  margin-block: var(--space-xlarge);
 }

@@ -6,19 +6,17 @@
 #ifndef mozilla_image_imgRequestProxy_h
 #define mozilla_image_imgRequestProxy_h
 
+#include "IProgressObserver.h"
 #include "imgIRequest.h"
-
-#include "nsIPrincipal.h"
-#include "nsISupportsPriority.h"
-#include "nsITimedChannel.h"
-#include "nsCOMPtr.h"
-#include "nsThreadUtils.h"
 #include "mozilla/PreloaderBase.h"
 #include "mozilla/TimeStamp.h"
 #include "mozilla/UniquePtr.h"
 #include "mozilla/gfx/Rect.h"
-
-#include "IProgressObserver.h"
+#include "nsCOMPtr.h"
+#include "nsIPrincipal.h"
+#include "nsISupportsPriority.h"
+#include "nsITimedChannel.h"
+#include "nsThreadUtils.h"
 
 #define NS_IMGREQUESTPROXY_CID                \
   {/* 20557898-1dd2-11b2-8f65-9c462ee2bc95 */ \
@@ -200,7 +198,7 @@ class imgRequestProxy : public mozilla::PreloaderBase,
                         Document* aLoadingDocument, bool aSyncNotify,
                         imgRequestProxy** aClone);
 
-  virtual imgRequestProxy* NewClonedProxy();
+  virtual already_AddRefed<imgRequestProxy> NewClonedProxy();
 
  public:
   NS_FORWARD_SAFE_NSITIMEDCHANNEL(TimedChannel())
@@ -265,7 +263,7 @@ class imgRequestProxyStatic : public imgRequestProxy {
       bool* aHadCrossOriginRedirects) override;
 
  protected:
-  imgRequestProxy* NewClonedProxy() override;
+  already_AddRefed<imgRequestProxy> NewClonedProxy() override;
 
   // Our principal. We have to cache it, rather than accessing the underlying
   // request on-demand, because static proxies don't have an underlying request.

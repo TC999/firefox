@@ -19,7 +19,7 @@ add_task(async function test_datepicker_keyboard_nav() {
   let browser = helper.tab.linkedBrowser;
   Assert.equal(helper.panel.state, "open", "Panel should be opened");
 
-  await testCalendarBtnAttribute("aria-expanded", "true");
+  await testPickerBtnAttribute("aria-expanded", "true");
 
   let closed = helper.promisePickerClosed();
 
@@ -34,7 +34,7 @@ add_task(async function test_datepicker_keyboard_nav() {
     "Panel should be closed after Escape from anywhere on the window"
   );
 
-  await testCalendarBtnAttribute("aria-expanded", "false");
+  await testPickerBtnAttribute("aria-expanded", "false");
 
   let ready = helper.waitForPickerReady();
 
@@ -57,7 +57,7 @@ add_task(async function test_datepicker_keyboard_nav() {
 
   await ready;
 
-  await testCalendarBtnAttribute("aria-expanded", "true");
+  await testPickerBtnAttribute("aria-expanded", "true");
 
   Assert.equal(
     helper.panel.state,
@@ -79,9 +79,11 @@ add_task(async function test_datepicker_keyboard_nav() {
     () => {
       return monthYearEl.textContent == DATE_FORMAT(new Date(prevMonth));
     },
-    `Should change to November 2016, instead got ${
-      helper.getElement(MONTH_YEAR).textContent
-    }`
+    {
+      msg: `Should change to November 2016, instead got ${
+        helper.getElement(MONTH_YEAR).textContent
+      }`,
+    }
   );
 
   Assert.ok(
@@ -134,7 +136,7 @@ add_task(async function test_datepicker_keyboard_nav() {
 
   await ready;
 
-  await testCalendarBtnAttribute("aria-expanded", "true");
+  await testPickerBtnAttribute("aria-expanded", "true");
 
   Assert.equal(helper.panel.state, "open", "Panel should be opened on Space");
 
@@ -145,9 +147,11 @@ add_task(async function test_datepicker_keyboard_nav() {
     () => {
       return selectedDayEl.textContent === "16";
     },
-    `Should change to the 16th, instead got ${
-      helper.getElement(DAY_SELECTED).textContent
-    }`
+    {
+      msg: `Should change to the 16th, instead got ${
+        helper.getElement(DAY_SELECTED).textContent
+      }`,
+    }
   );
 
   Assert.ok(
@@ -168,7 +172,7 @@ add_task(async function test_datepicker_keyboard_nav() {
     "Panel should be closed on Escape"
   );
 
-  await testCalendarBtnAttribute("aria-expanded", "false");
+  await testPickerBtnAttribute("aria-expanded", "false");
 
   // Check the focus is returned to the Day field
   await SpecialPowers.spawn(browser, [], async () => {
@@ -206,7 +210,7 @@ add_task(async function test_datepicker_keyboard_nav() {
     "Panel should be opened on Enter from the Calendar button"
   );
 
-  await testCalendarBtnAttribute("aria-expanded", "true");
+  await testPickerBtnAttribute("aria-expanded", "true");
 
   // Move focus from 2016-11-16 to 2016-11-17
   EventUtils.synthesizeKey("KEY_ArrowRight", {});
@@ -221,13 +225,13 @@ add_task(async function test_datepicker_keyboard_nav() {
     "closed",
     "Panel should be closed on Space from the date gridcell"
   );
-  await testCalendarBtnAttribute("aria-expanded", "false");
+  await testPickerBtnAttribute("aria-expanded", "false");
 
   // Check the focus is returned to the Calendar button
   await SpecialPowers.spawn(browser, [], async () => {
     const input = content.document.querySelector("input");
     const shadowRoot = SpecialPowers.wrap(input).openOrClosedShadowRoot;
-    const calendarBtn = shadowRoot.getElementById("calendar-button");
+    const calendarBtn = shadowRoot.getElementById("picker-button");
     // Testing the focus position within content:
     Assert.equal(
       input,
@@ -249,7 +253,7 @@ add_task(async function test_datepicker_keyboard_nav() {
   await SpecialPowers.spawn(browser, [], () => {
     const input = content.document.querySelector("input");
     const shadowRoot = SpecialPowers.wrap(input).openOrClosedShadowRoot;
-    const calendarBtn = shadowRoot.getElementById("calendar-button");
+    const calendarBtn = shadowRoot.getElementById("picker-button");
     Assert.equal(
       calendarBtn.children[0].tagName,
       "svg",
@@ -269,7 +273,7 @@ add_task(async function test_datepicker_keyboard_nav() {
     "Panel should be opened on Space from the Calendar button"
   );
 
-  await testCalendarBtnAttribute("aria-expanded", "true");
+  await testPickerBtnAttribute("aria-expanded", "true");
 
   await helper.tearDown();
 });

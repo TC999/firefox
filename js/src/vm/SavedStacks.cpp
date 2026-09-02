@@ -235,10 +235,10 @@ struct MOZ_STACK_CLASS SavedFrame::Lookup {
 
   void trace(JSTracer* trc) {
     TraceRoot(trc, &source, "SavedFrame::Lookup::source");
-    TraceNullableRoot(trc, &functionDisplayName,
-                      "SavedFrame::Lookup::functionDisplayName");
-    TraceNullableRoot(trc, &asyncCause, "SavedFrame::Lookup::asyncCause");
-    TraceNullableRoot(trc, &parent, "SavedFrame::Lookup::parent");
+    TraceRoot(trc, &functionDisplayName,
+              "SavedFrame::Lookup::functionDisplayName");
+    TraceRoot(trc, &asyncCause, "SavedFrame::Lookup::asyncCause");
+    TraceRoot(trc, &parent, "SavedFrame::Lookup::parent");
   }
 };
 
@@ -353,11 +353,15 @@ bool SavedFrame::HashPolicy::match(SavedFrame* existing, const Lookup& lookup) {
     return false;
   }
 
+  if (existing->getMutedErrors() != lookup.mutedErrors) {
+    return false;
+  }
+
   return true;
 }
 
 /* static */
-void SavedFrame::HashPolicy::rekey(Key& key, const Key& newKey) {
+void SavedFrame::HashPolicy::rekey(Key& key, SavedFrame* newKey) {
   key = newKey;
 }
 
@@ -368,16 +372,7 @@ bool SavedFrame::finishSavedFrameInit(JSContext* cx, HandleObject ctor,
 }
 
 static const JSClassOps SavedFrameClassOps = {
-    nullptr,               // addProperty
-    nullptr,               // delProperty
-    nullptr,               // enumerate
-    nullptr,               // newEnumerate
-    nullptr,               // resolve
-    nullptr,               // mayResolve
-    SavedFrame::finalize,  // finalize
-    nullptr,               // call
-    nullptr,               // construct
-    nullptr,               // trace
+    .finalize = SavedFrame::finalize,
 };
 
 const ClassSpec SavedFrame::classSpec_ = {
@@ -551,19 +546,19 @@ void SavedFrame::initParent(SavedFrame* maybeParent) {
 }
 
 void SavedFrame::initFromLookup(JSContext* cx, Handle<Lookup> lookup) {
-  // Make sure any atoms used in the lookup are marked in the current zone.
-  // Normally we would try to keep these mark bits up to date around the
-  // points where the context moves between compartments, but Lookups live on
-  // the stack (where the atoms are kept alive regardless) and this is a
-  // more convenient pinchpoint.
+  // Make sure any atoms used in the lookup are recorded in the current zone.
+  // Normally we would try to keep these references up to date around the points
+  // where the context moves between compartments, but Lookups live on the stack
+  // (where the atoms are kept alive regardless) and this is a more convenient
+  // pinchpoint.
   if (lookup.source()) {
-    cx->markAtom(lookup.source());
+    cx->recordRef(lookup.source());
   }
   if (lookup.functionDisplayName()) {
-    cx->markAtom(lookup.functionDisplayName());
+    cx->recordRef(lookup.functionDisplayName());
   }
   if (lookup.asyncCause()) {
-    cx->markAtom(lookup.asyncCause());
+    cx->recordRef(lookup.asyncCause());
   }
 
   initSource(lookup.source());
@@ -593,7 +588,8 @@ SavedFrame* SavedFrame::create(JSContext* cx) {
   }
   cx->check(proto);
 
-  return NewTenuredObjectWithGivenProto<SavedFrame>(cx, proto);
+  return NewObjectWithGivenProto<SavedFrame>(cx, proto,
+                                             {.newKind = TenuredObject});
 }
 
 bool SavedFrame::isSelfHosted(JSContext* cx) {
@@ -792,7 +788,7 @@ JS_PUBLIC_API SavedFrameResult GetSavedFrameSource(
     sourcep.set(frame->getSource());
   }
   if (sourcep->isAtom()) {
-    cx->markAtom(&sourcep->asAtom());
+    cx->recordRef(&sourcep->asAtom());
   }
   return SavedFrameResult::Ok;
 }
@@ -876,7 +872,7 @@ JS_PUBLIC_API SavedFrameResult GetSavedFrameFunctionDisplayName(
     namep.set(frame->getFunctionDisplayName());
   }
   if (namep && namep->isAtom()) {
-    cx->markAtom(&namep->asAtom());
+    cx->recordRef(&namep->asAtom());
   }
   return SavedFrameResult::Ok;
 }
@@ -909,7 +905,7 @@ JS_PUBLIC_API SavedFrameResult GetSavedFrameAsyncCause(
     }
   }
   if (asyncCausep && asyncCausep->isAtom()) {
-    cx->markAtom(&asyncCausep->asAtom());
+    cx->recordRef(&asyncCausep->asAtom());
   }
   return SavedFrameResult::Ok;
 }
@@ -1478,6 +1474,7 @@ bool SavedStacks::insertFrames(JSContext* cx, MutableHandle<SavedFrame*> frame,
                                        ? &startAtObj->as<JSFunction>()
                                        : nullptr);
   bool seenStartAt = !startAt;
+  bool framePushed = false;
   RootedField<LocationValue, 1> location(roots);
   RootedField<JSAtom*, 2> displayAtom(roots);
   RootedField<JSAtom*, 3> causeAtom(roots);
@@ -1486,7 +1483,7 @@ bool SavedStacks::insertFrames(JSContext* cx, MutableHandle<SavedFrame*> frame,
   while (!iter.done()) {
     Activation& activation = *iter.activation();
     Maybe<LiveSavedFrameCache::FramePtr> framePtr =
-        LiveSavedFrameCache::FramePtr::create(iter);
+        LiveSavedFrameCache::FramePtr::create(cx, iter);
 
     if (capture.is<JS::AllFrames>() && iter.hasUsableAbstractFramePtr()) {
       unreachedEvalTargets.eraseIfEqual(iter.abstractFramePtr());
@@ -1561,6 +1558,7 @@ bool SavedStacks::insertFrames(JSContext* cx, MutableHandle<SavedFrame*> frame,
     // If we haven't yet seen the start, then don't add anything to the stack
     // chain.
     if (seenStartAt) {
+      framePushed = true;
       if (!stackChain.emplaceBack(location.source(), location.sourceId(),
                                   location.line(), location.column(),
                                   displayAtom,
@@ -1572,7 +1570,8 @@ bool SavedStacks::insertFrames(JSContext* cx, MutableHandle<SavedFrame*> frame,
       }
     }
 
-    if (captureIsSatisfied(cx, principals, location.source(), capture)) {
+    if (framePushed &&
+        captureIsSatisfied(cx, principals, location.source(), capture)) {
       break;
     }
 
@@ -1582,7 +1581,7 @@ bool SavedStacks::insertFrames(JSContext* cx, MutableHandle<SavedFrame*> frame,
     }
 
     ++iter;
-    framePtr = LiveSavedFrameCache::FramePtr::create(iter);
+    framePtr = LiveSavedFrameCache::FramePtr::create(cx, iter);
 
     if (iter.activation() != &activation && capture.is<JS::AllFrames>()) {
       // If there were no cache hits in the entire activation, clear its
@@ -1663,7 +1662,7 @@ bool SavedStacks::insertFrames(JSContext* cx, MutableHandle<SavedFrame*> frame,
       seenCached = false;
     }
 
-    if (capture.is<JS::MaxFrames>()) {
+    if (framePushed && capture.is<JS::MaxFrames>()) {
       capture.as<JS::MaxFrames>().maxFrames--;
     }
   }
@@ -1803,7 +1802,7 @@ bool SavedStacks::checkForEvalInFramePrev(
   }
 
   Maybe<LiveSavedFrameCache::FramePtr> maybeTarget =
-      LiveSavedFrameCache::FramePtr::create(iter);
+      LiveSavedFrameCache::FramePtr::create(cx, iter);
   MOZ_ASSERT(maybeTarget);
 
   LiveSavedFrameCache::FramePtr target = *maybeTarget;
@@ -1895,13 +1894,9 @@ bool SavedStacks::getLocation(JSContext* cx, const FrameIter& iter,
   // that doesn't employ memoization, and update |locationp|'s slots directly.
 
   if (iter.isWasm()) {
-    // Only asm.js has a displayURL.
-    if (const char16_t* displayURL = iter.displayURL()) {
-      locationp.setSource(AtomizeChars(cx, displayURL, js_strlen(displayURL)));
-    } else {
-      const char* filename = iter.filename() ? iter.filename() : "";
-      locationp.setSource(AtomizeUTF8Chars(cx, filename, strlen(filename)));
-    }
+    MOZ_ASSERT(!iter.displayURL(), "wasm script source has no displayURL.");
+    const char* filename = iter.filename() ? iter.filename() : "";
+    locationp.setSource(AtomizeUTF8Chars(cx, filename, strlen(filename)));
     if (!locationp.source()) {
       return false;
     }

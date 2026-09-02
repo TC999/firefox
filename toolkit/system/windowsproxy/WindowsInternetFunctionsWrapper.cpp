@@ -1,4 +1,3 @@
-/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -11,7 +10,6 @@
 #include "WinRegistry.h"
 #include "mozilla/Logging.h"
 #include "mozilla/Services.h"
-#include "mozilla/StaticPrefs_network.h"
 #include "nsINetworkLinkService.h"
 #include "nsIObserverService.h"
 #include "nsThreadUtils.h"
@@ -85,10 +83,6 @@ WindowsInternetFunctionsWrapper::WindowsInternetFunctionsWrapper() {
 void WindowsInternetFunctionsWrapper::Init() {
   MOZ_ASSERT(NS_IsMainThread());
   LOG(("WindowsInternetFunctionsWrapper %p Init()", this));
-
-  if (!StaticPrefs::network_proxy_detect_system_proxy_changes()) {
-    return;
-  }
 
   using namespace mozilla::widget::WinRegistry;
   Key key(HKEY_CURRENT_USER,

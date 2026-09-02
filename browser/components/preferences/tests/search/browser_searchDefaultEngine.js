@@ -1,11 +1,20 @@
 /* Any copyright is dedicated to the Public Domain.
  * http://creativecommons.org/publicdomain/zero/1.0/ */
 
+/*
+ * Tests the functionality of the default search engine and separate private
+ * default search engine dropdowns on about:preferences#search.
+ */
+
 const { SearchTestUtils } = ChromeUtils.importESModule(
   "resource://testing-common/SearchTestUtils.sys.mjs"
 );
 
 SearchTestUtils.init(this);
+
+// Nearly every task here opens about:preferences#search, and each open costs
+// tens of seconds under test-verify's chaos mode, so request a longer timeout.
+requestLongerTimeout(8);
 
 add_setup(async function () {
   await SearchTestUtils.installSearchExtension({
@@ -177,8 +186,13 @@ add_task(async function test_separatePrivateDefault() {
     "Private engine selection box should be enabled"
   );
 
+  // Await the SearchService update to finish syncing the backend preference.
+  let prefChangePromise = TestUtils.waitForPrefChange(
+    "browser.search.separatePrivateDefault"
+  );
   separateEngineCheckbox.click();
   await separateEngineCheckbox.parentElement.updateComplete;
+  await prefChangePromise;
 
   Assert.ok(
     !Services.prefs.getBoolPref("browser.search.separatePrivateDefault"),
@@ -215,7 +229,7 @@ async function setDefaultEngine(
   EventUtils.synthesizeMouseAtCenter(
     defaultEngineSelector,
     {},
-    defaultEngineSelector.ownerGlobal
+    defaultEngineSelector.documentGlobal
   );
   await popupShown;
 
@@ -231,7 +245,11 @@ async function setDefaultEngine(
   // Waiting for popupHiding here seemed to cause a race condition, however
   // as we're really just interested in the notification, we'll just use
   // that here.
-  EventUtils.synthesizeMouseAtCenter(engine2Item, {}, engine2Item.ownerGlobal);
+  EventUtils.synthesizeMouseAtCenter(
+    engine2Item,
+    {},
+    engine2Item.documentGlobal
+  );
   await defaultChanged;
 
   const newDefault = testPrivate
@@ -272,6 +290,126 @@ add_task(async function test_setDefaultEngine() {
       },
     },
     "Should have received the correct event details"
+  );
+
+  gBrowser.removeCurrentTab();
+});
+
+add_task(async function test_defaultEngineDropdownClosesOnSecondClick() {
+  await openPreferencesViaOpenPreferencesAPI("search", { leaveOpen: true });
+
+  const doc = gBrowser.selectedBrowser.contentDocument;
+  const input = doc.getElementById("defaultEngineNormal");
+  const defaultEngineSelector = input.inputEl;
+  const defaultEnginePopup = input.panelList;
+
+  Assert.ok(!defaultEnginePopup.open, "Dropdown should be closed initially");
+
+  const popupShown = BrowserTestUtils.waitForEvent(defaultEnginePopup, "shown");
+  EventUtils.synthesizeMouseAtCenter(
+    defaultEngineSelector,
+    {},
+    defaultEngineSelector.documentGlobal
+  );
+  await popupShown;
+
+  Assert.ok(
+    defaultEnginePopup.open,
+    "Dropdown should be open after clicking the default engine"
+  );
+  Assert.equal(
+    defaultEngineSelector.getAttribute("aria-expanded"),
+    "true",
+    "Should have marked the dropdown as expanded"
+  );
+
+  const valueBeforeSecondClick = input.value;
+  const popupHidden = BrowserTestUtils.waitForEvent(
+    defaultEnginePopup,
+    "hidden"
+  );
+  EventUtils.synthesizeMouseAtCenter(
+    defaultEngineSelector,
+    {},
+    defaultEngineSelector.documentGlobal
+  );
+  await popupHidden;
+
+  Assert.ok(
+    !defaultEnginePopup.open,
+    "Dropdown should be closed after clicking the default engine again"
+  );
+  Assert.equal(
+    defaultEngineSelector.getAttribute("aria-expanded"),
+    "false",
+    "Should have marked the dropdown as collapsed"
+  );
+  // If the open dropdown covered the trigger, the second click would land on a
+  // panel-item and select an engine, which also hides the panel.
+  Assert.equal(
+    input.value,
+    valueBeforeSecondClick,
+    "Second click should have toggled the dropdown, not selected an engine"
+  );
+
+  gBrowser.removeCurrentTab();
+});
+
+add_task(async function test_privateDefaultEngineResetOnUncheck() {
+  await SpecialPowers.pushPrefEnv({
+    set: [
+      ["browser.search.separatePrivateDefault.ui.enabled", true],
+      ["browser.search.separatePrivateDefault", true],
+    ],
+  });
+
+  const engine1 = SearchService.getEngineByName("engine1");
+  await SearchService.setDefaultPrivate(
+    engine1,
+    SearchService.CHANGE_REASON.UNKNOWN
+  );
+
+  Assert.equal(
+    (await SearchService.getDefaultPrivate()).name,
+    "engine1",
+    "engine1 should be the private default before unchecking"
+  );
+
+  await openPreferencesViaOpenPreferencesAPI("search", { leaveOpen: true });
+
+  const doc = gBrowser.selectedBrowser.contentDocument;
+  const separateEngineCheckbox = doc.getElementById(
+    "browserSeparateDefaultEngine"
+  );
+
+  let prefChangePromise = TestUtils.waitForPrefChange(
+    "browser.search.separatePrivateDefault"
+  );
+  separateEngineCheckbox.click();
+  await separateEngineCheckbox.parentElement.updateComplete;
+  await prefChangePromise;
+
+  Assert.ok(
+    !Services.prefs.getBoolPref("browser.search.separatePrivateDefault"),
+    "Pref should be false after unchecking"
+  );
+
+  prefChangePromise = TestUtils.waitForPrefChange(
+    "browser.search.separatePrivateDefault"
+  );
+  separateEngineCheckbox.click();
+  await separateEngineCheckbox.parentElement.updateComplete;
+  await prefChangePromise;
+
+  Assert.ok(
+    Services.prefs.getBoolPref("browser.search.separatePrivateDefault"),
+    "Pref should be true after re-checking"
+  );
+
+  Assert.notEqual(
+    (await SearchService.getDefaultPrivate()).name,
+    "engine1",
+    "Private default should have been cleared when unchecked and not restored to engine1 on re-check"
   );
 
   gBrowser.removeCurrentTab();

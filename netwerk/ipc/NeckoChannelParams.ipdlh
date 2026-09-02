@@ -46,6 +46,8 @@ using nsILoadInfo::SchemelessInputType from "nsILoadInfo.h";
 using mozilla::dom::UserNavigationInvolvement from "mozilla/dom/UserNavigationInvolvement.h";
 using mozilla::RFPTargetSet from "nsRFPService.h";
 using PropertiesFile from "nsContentUtils.h";
+[RefCounted] using mozilla::dom::ParentProcessChannelHandle from "mozilla/dom/ParentProcessChannelHandle.h";
+using struct mozilla::dom::RemoteType from "mozilla/dom/RemoteType.h";
 
 namespace mozilla {
 namespace net {
@@ -123,7 +125,7 @@ struct LoadInfoArgs
   PrincipalInfo?              principalToInheritInfo;
   PrincipalInfo?              topLevelPrincipalInfo;
   URIParams?                  resultPrincipalURI;
-  nsCString                   triggeringRemoteType;
+  RemoteType                  triggeringRemoteType;
   nsID                        sandboxedNullPrincipalID;
   uint32_t                    securityFlags;
   uint32_t                    sandboxFlags;
@@ -159,7 +161,6 @@ struct LoadInfoArgs
   OriginAttributes            originAttributes;
   RedirectHistoryEntryInfo[]  redirectChainIncludingInternalRedirects;
   RedirectHistoryEntryInfo[]  redirectChain;
-  bool                        hasInjectedCookieForCookieBannerHandling;
   SchemelessInputType         schemelessInput;
   HTTPSUpgradeTelemetryType   httpsUpgradeTelemetry;
 
@@ -207,7 +208,6 @@ struct LoadInfoArgs
   RequestMode?                requestMode;
   bool                        isFromProcessingFrameAttributes;
   bool                        isMediaRequest;
-  bool                        isMediaInitialRequest;
   bool                        isFromObjectOrEmbed;
   CookieJarSettingsArgs       cookieJarSettings;
   uint32_t                    requestBlockingReason;
@@ -217,6 +217,7 @@ struct LoadInfoArgs
   IPAddressSpace              ipAddressSpace;
   RFPTargetSet?               overriddenFingerprintingSettings;
   bool                        isMetaRefresh;
+  bool                        activatedFromNavigationalPrefetch;
   CrossOriginEmbedderPolicy   loadingEmbedderPolicy;
   bool                        originTrialCoepCredentiallessEnabledForTopLevel;
   nullable nsIURI             unstrippedURI;
@@ -401,7 +402,6 @@ struct HttpChannelOpenArgs
   uint32_t                    initialRwin;
   uint32_t                    redirectMode;
   int16_t                     priority;
-  bool                        uploadStreamHasHeaders;
   bool                        allowSTS;
   bool                        resumeAt;
   bool                        allowSpdy;
@@ -473,11 +473,13 @@ struct HttpConnectionInfoCloneArgs
   uint8_t trrMode;
   bool isIPv4Disabled;
   bool isIPv6Disabled;
+  bool isHttp3Disabled;
   nsCString topWindowOrigin;
   bool isHttp3;
   bool webTransport;
   uint64_t webTransportId;
   bool hasIPHintAddress;
+  bool http3Only;
   nsCString echConfig;
   bool happyEyeballsEnabled;
   ProxyInfoCloneArgs[] proxyInfo;
@@ -577,6 +579,7 @@ struct RedirectToRealChannelArgs {
   EarlyHintConnectArgs[] earlyHints;
   uint32_t earlyHintLinkType;
   nullable nsIReferrerInfo referrerInfo;
+  nullable ParentProcessChannelHandle channelHandle;
 };
 
 struct TimingStructArgs {
@@ -588,6 +591,8 @@ struct TimingStructArgs {
   TimeStamp connectEnd;
   TimeStamp requestStart;
   TimeStamp responseStart;
+  TimeStamp firstInterimResponseStart;
+  TimeStamp finalResponseHeadersStart;
   TimeStamp responseEnd;
   TimeStamp transactionPending;
 };
@@ -601,6 +606,8 @@ struct ResourceTimingStructArgs {
   TimeStamp connectEnd;
   TimeStamp requestStart;
   TimeStamp responseStart;
+  TimeStamp firstInterimResponseStart;
+  TimeStamp finalResponseHeadersStart;
   TimeStamp responseEnd;
   TimeStamp fetchStart;
   TimeStamp redirectStart;

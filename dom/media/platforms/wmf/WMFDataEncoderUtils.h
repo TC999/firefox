@@ -15,17 +15,17 @@
 #include "mozilla/Logging.h"
 #include "mozilla/mscom/EnsureMTA.h"
 
-#define WMF_ENC_LOGD(arg, ...)                    \
-  MOZ_LOG(                                        \
-      mozilla::sPEMLog, mozilla::LogLevel::Debug, \
-      ("WMFMediaDataEncoder(0x%p)::%s: " arg, this, __func__, ##__VA_ARGS__))
-#define WMF_ENC_LOGE(arg, ...)                    \
-  MOZ_LOG(                                        \
-      mozilla::sPEMLog, mozilla::LogLevel::Error, \
-      ("WMFMediaDataEncoder(0x%p)::%s: " arg, this, __func__, ##__VA_ARGS__))
-#define WMF_ENC_SLOGE(arg, ...)                       \
-  MOZ_LOG(mozilla::sPEMLog, mozilla::LogLevel::Error, \
-          ("WMFMediaDataEncoder: %s" arg, __func__, ##__VA_ARGS__))
+#define WMF_ENC_LOGD(arg, ...)                                                 \
+  MOZ_LOG_FMT(mozilla::sPEMLog, mozilla::LogLevel::Debug,                      \
+              "WMFMediaDataEncoder(0x{})::{}: " arg, fmt::ptr(this), __func__, \
+              ##__VA_ARGS__)
+#define WMF_ENC_LOGE(arg, ...)                                                 \
+  MOZ_LOG_FMT(mozilla::sPEMLog, mozilla::LogLevel::Error,                      \
+              "WMFMediaDataEncoder(0x{})::{}: " arg, fmt::ptr(this), __func__, \
+              ##__VA_ARGS__)
+#define WMF_ENC_SLOGE(arg, ...)                           \
+  MOZ_LOG_FMT(mozilla::sPEMLog, mozilla::LogLevel::Error, \
+              "WMFMediaDataEncoder: {}" arg, __func__, ##__VA_ARGS__)
 
 namespace mozilla {
 
@@ -34,6 +34,15 @@ class MFTEncoder;
 extern LazyLogModule sPEMLog;
 
 GUID CodecToSubtype(CodecType aCodec);
+
+// Whether the NV12 buffer fed to the MFT can be laid out for aSize. Applies
+// whatever the source format, since the MFT's input type is always NV12: the
+// single stride of aSize.width is short of a chroma row at odd widths.
+bool IsFrameSizeSupportedForNV12Input(const gfx::IntSize& aSize);
+
+// Whether a hardware encoder, if available, would be allowed.
+bool CanUseWMFHwEncoder(const GUID& aSubtype);
+bool CanUseWMFHwEncoder(const EncoderConfig& aConfig);
 
 media::EncodeSupportSet CanCreateWMFEncoder(const EncoderConfig& aConfig);
 

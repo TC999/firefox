@@ -113,6 +113,15 @@ class nsIGlobalObject : public nsISupports {
                          bool aIsJSImplementedWebIDL = false) const;
 
   /**
+   * Should a JavaScript microtask be allowed to run from this global?
+   *
+   * This is slightly different than IsScriptForbidden since the HTML
+   * specification allows the enqueue and dequeue of jobs in detached
+   * iframes.
+   */
+  bool CanRunJSMicroTask(JSObject* aCallbackGlobal) const;
+
+  /**
    * Return the JSObject for this global, if it still has one.  Otherwise return
    * null.
    *
@@ -142,7 +151,7 @@ class nsIGlobalObject : public nsISupports {
   bool HasJSGlobal() const { return GetGlobalJSObjectPreserveColor(); }
 
   virtual nsISerialEventTarget* SerialEventTarget() const = 0;
-  virtual nsresult Dispatch(already_AddRefed<nsIRunnable>&&) const = 0;
+  virtual nsresult Dispatch(already_AddRefed<nsIRunnable>) const = 0;
 
   // This method is not meant to be overridden.
   nsIPrincipal* PrincipalOrNull() const;
@@ -192,11 +201,9 @@ class nsIGlobalObject : public nsISupports {
     return nullptr;
   }
 
-  virtual void SetWebTaskSchedulingState(
-      mozilla::dom::WebTaskSchedulingState* aState) {}
-  virtual mozilla::dom::WebTaskSchedulingState* GetWebTaskSchedulingState()
-      const {
-    return nullptr;
+  void SetWebTaskSchedulingState(mozilla::dom::WebTaskSchedulingState* aState);
+  mozilla::dom::WebTaskSchedulingState* GetWebTaskSchedulingState() const {
+    return mWebTaskSchedulingState;
   }
 
   // For globals with a concept of a Base URI (windows, workers), the base URI,
@@ -254,6 +261,7 @@ class nsIGlobalObject : public nsISupports {
   // Returns a pointer to this object as an inner window if this is one or
   // nullptr otherwise.
   nsPIDOMWindowInner* GetAsInnerWindow();
+  bool IsInnerWindow() const { return mIsInnerWindow; }
 
   virtual void TriggerUpdateCCFlag() {}
 
@@ -418,6 +426,9 @@ class nsIGlobalObject : public nsISupports {
 
   // https://streams.spec.whatwg.org/#byte-length-queuing-strategy-size-function
   RefPtr<mozilla::dom::Function> mByteLengthQueuingStrategySizeFunction;
+
+  // https://wicg.github.io/scheduling-apis/#scheduling-state
+  RefPtr<mozilla::dom::WebTaskSchedulingState> mWebTaskSchedulingState;
 };
 
 #endif  // nsIGlobalObject_h_

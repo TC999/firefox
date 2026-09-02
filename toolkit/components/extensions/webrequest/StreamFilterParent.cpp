@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -47,9 +45,6 @@ class ChannelEventWrapper : public ChannelEvent {
     return do_AddRef(mTarget);
   }
 
- protected:
-  ~ChannelEventWrapper() override = default;
-
  private:
   nsCOMPtr<nsIEventTarget> mTarget;
 };
@@ -60,9 +55,6 @@ class ChannelEventFunction final : public ChannelEventWrapper {
       : ChannelEventWrapper(aTarget), mFunc(std::move(aFunc)) {}
 
   void Run() override { mFunc(); }
-
- protected:
-  ~ChannelEventFunction() override = default;
 
  private:
   std::function<void()> mFunc;
@@ -78,9 +70,6 @@ class ChannelEventRunnable final : public ChannelEventWrapper {
     nsresult rv = mRunnable->Run();
     (void)NS_WARN_IF(NS_FAILED(rv));
   }
-
- protected:
-  ~ChannelEventRunnable() override = default;
 
  private:
   RefPtr<Runnable> mRunnable;
@@ -181,7 +170,7 @@ void StreamFilterParent::Disconnect(const nsACString& aReason) {
   nsAutoCString reason(aReason);
 
   RefPtr<StreamFilterParent> self(this);
-  RunOnActorThread(FUNC, [self, reason] {
+  RunOnActorThread(FUNC, [self, reason = std::move(reason)] {
     if (self->IPCActive()) {
       self->mState = State::Disconnected;
       self->CheckResult(self->SendError(reason));
@@ -472,8 +461,8 @@ nsresult StreamFilterParent::Write(Data& aData) {
       NS_ASSIGNMENT_DEPEND);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  rv =
-      mOrigListener->OnDataAvailable(mChannel, stream, mOffset, aData.Length());
+  nsCOMPtr<nsIStreamListener> origListener = mOrigListener;
+  rv = origListener->OnDataAvailable(mChannel, stream, mOffset, aData.Length());
   NS_ENSURE_SUCCESS(rv, rv);
 
   mOffset += aData.Length();
@@ -644,7 +633,8 @@ StreamFilterParent::OnStartRequest(nsIRequest* aRequest) {
     }
   }
 
-  nsresult rv = mOrigListener->OnStartRequest(aRequest);
+  nsCOMPtr<nsIStreamListener> origListener = mOrigListener;
+  nsresult rv = origListener->OnStartRequest(aRequest);
 
   // Important: Do this only *after* running the next listener in the chain, so
   // that we get the final delivery target after any retargeting that it may do.
@@ -711,7 +701,8 @@ nsresult StreamFilterParent::EmitStopRequest(nsresult aStatusCode) {
   MOZ_ASSERT(!mSentStop);
 
   mSentStop = true;
-  nsresult rv = mOrigListener->OnStopRequest(mChannel, aStatusCode);
+  nsCOMPtr<nsIStreamListener> origListener = mOrigListener;
+  nsresult rv = origListener->OnStopRequest(mChannel, aStatusCode);
 
   if (mLoadGroup && !mDisconnected) {
     (void)mLoadGroup->RemoveRequest(this, nullptr, aStatusCode);
@@ -743,17 +734,22 @@ void StreamFilterParent::DoSendData(Data&& aData) {
     MutexAutoLock al(mBufferMutex);
     if (mPrependedBufferCount == 0) {
       mBufferedData.insertFront(new BufferedData(std::move(aData)));
+      ++mPrependedBufferCount;
     } else {
       MOZ_ASSERT(!mBufferedData.isEmpty());
       int i = 0;
+      bool inserted = false;
       for (BufferedData* item : mBufferedData) {
         if (++i == mPrependedBufferCount) {
           item->setNext(new BufferedData(std::move(aData)));
           ++mPrependedBufferCount;
+          inserted = true;
           break;
         }
       }
-      MOZ_ASSERT_UNREACHABLE("mPrependedBufferCount past end of mBufferedData");
+      if (!inserted) {
+        MOZ_ASSERT_UNREACHABLE("mPrependedBufferCount outside mBufferedData");
+      }
     }
   }
 
@@ -797,8 +793,9 @@ StreamFilterParent::OnDataAvailable(nsIRequest* aRequest,
     }
 
     mOffset += aCount;
-    return mOrigListener->OnDataAvailable(aRequest, aInputStream,
-                                          mOffset - aCount, aCount);
+    nsCOMPtr<nsIStreamListener> origListener = mOrigListener;
+    return origListener->OnDataAvailable(aRequest, aInputStream,
+                                         mOffset - aCount, aCount);
   }
 
   Data data;
@@ -813,6 +810,19 @@ StreamFilterParent::OnDataAvailable(nsIRequest* aRequest,
   if (mState == State::Disconnecting) {
     MutexAutoLock al(mBufferMutex);
     BufferData(std::move(data));
+  } else if (mState == State::Disconnected) {
+    // Although we already return early on Disconnected above, it is possible
+    // to still encounter Disconnected again here, e.g. via FinishDisconnect:
+    // it first hops to the IO thread to call FlushBufferedData, then back to
+    // the actor thread to set mState to Disconnected. If OnDataAvailable is
+    // called while hopping back to the actor thread, it is possible for mState
+    // to transition to Disconnected while OnDataAvailable is Read()ing above.
+    //
+    // To preserve FIFO order, flush buffered data if any (rare), and the data
+    // that we just read. The next OnDataAvailable call would immediately write
+    // to mOrigListener, so we need to write without further delays.
+    FlushBufferedData();
+    return Write(data);
   } else if (mState == State::Closed) {
     return NS_ERROR_FAILURE;
   } else {
@@ -874,22 +884,24 @@ void StreamFilterParent::AssertIsIOThread() { MOZ_ASSERT(IsIOThread()); }
 
 template <typename Function>
 void StreamFilterParent::RunOnMainThread(const char* aName, Function&& aFunc) {
-  mQueue->RunOrEnqueue(new ChannelEventFunction(mMainThread, std::move(aFunc)));
+  mQueue->RunOrEnqueue(MakeUnique<ChannelEventFunction>(
+      mMainThread, std::forward<Function>(aFunc)));
 }
 
 void StreamFilterParent::RunOnMainThread(already_AddRefed<Runnable> aRunnable) {
   mQueue->RunOrEnqueue(
-      new ChannelEventRunnable(mMainThread, std::move(aRunnable)));
+      MakeUnique<ChannelEventRunnable>(mMainThread, std::move(aRunnable)));
 }
 
 template <typename Function>
 void StreamFilterParent::RunOnIOThread(const char* aName, Function&& aFunc) {
-  mQueue->RunOrEnqueue(new ChannelEventFunction(mIOThread, std::move(aFunc)));
+  mQueue->RunOrEnqueue(MakeUnique<ChannelEventFunction>(
+      mIOThread, std::forward<Function>(aFunc)));
 }
 
 void StreamFilterParent::RunOnIOThread(already_AddRefed<Runnable> aRunnable) {
   mQueue->RunOrEnqueue(
-      new ChannelEventRunnable(mIOThread, std::move(aRunnable)));
+      MakeUnique<ChannelEventRunnable>(mIOThread, std::move(aRunnable)));
 }
 
 template <typename Function>

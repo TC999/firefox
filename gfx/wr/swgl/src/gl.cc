@@ -904,11 +904,12 @@ static void prepare_texture(Texture& t, const IntRect* skip = nullptr);
 
 template <typename S>
 static inline void init_filter(S* s, Texture& t) {
-  // If the width is not at least 2 pixels, then we can't safely sample the end
-  // of the row with a linear filter. In that case, just punt to using nearest
-  // filtering instead.
-  s->filter = t.width >= 2 ? gl_filter_to_texture_filter(t.mag_filter)
-                           : TextureFilter::NEAREST;
+  // If the width is not at least 2 pixel blocks, then we can't safely sample
+  // the end of the row with a linear filter. In that case, just punt to using
+  // nearest filtering instead.
+  int filterWidth = t.internal_format == GL_RGB_RAW_422_APPLE ? 4 : 2;
+  s->filter = t.width >= filterWidth ? gl_filter_to_texture_filter(t.mag_filter)
+                                     : TextureFilter::NEAREST;
 }
 
 template <typename S>
@@ -1839,6 +1840,7 @@ static void convert_copy(GLenum external_format, GLenum internal_format,
           }
           return;
         case GL_R8:
+        case GL_R16:
           break;
         default:
           debugf("unsupported format conversion from %x to %x\n",
@@ -2540,13 +2542,6 @@ static void request_clear(Texture& t, T value, const IntRect& scissor) {
     // Do delayed clear for 2D texture without scissor.
     t.enable_delayed_clear(value);
   }
-}
-
-template <typename T>
-static inline void request_clear(Texture& t, T value) {
-  // If scissoring is enabled, use the scissor rect. Otherwise, just scissor to
-  // the entire texture bounds.
-  request_clear(t, value, ctx->scissortest ? ctx->scissor : t.offset_bounds());
 }
 
 extern "C" {

@@ -80,6 +80,8 @@ turn-on-scheduled-backups-location-label = Location
 #   $recommendedFolder (String) - Name of the recommended folder for saving backups
 turn-on-scheduled-backups-location-default-folder =
     .value = { $recommendedFolder } (recommended)
+turn-on-scheduled-backups-location-choose-folder =
+    .value = Choose a location
 turn-on-scheduled-backups-location-choose-button =
     { PLATFORM() ->
         [macos] Choose…
@@ -97,6 +99,7 @@ turn-on-scheduled-backups-confirm-button = Turn on backup
 # Tell the user there was an error accessing the user's selected backup
 # folder. The folder may be invalid or inaccessible.
 turn-on-scheduled-backups-error-file-system = There was a problem with your selected backup folder. Choose a different folder and try again.
+turn-on-scheduled-backups-error-default-dir-denied = We couldn’t access your backup folder. Try picking a new location.
 backup-error-file-system = There was a problem with your selected backup folder while backing up { -brand-short-name }.
 
 ## These strings are displayed in a modal when users want to turn off scheduled backups.
@@ -256,7 +259,7 @@ backup-file-how-to-restore-header = How to restore:
 # The ☰ character is intended as a visual icon representing the Firefox
 # application menu.
 backup-file-moz-browser-restore-step-1 = Open the application menu ☰ and go to Settings > Sync
-backup-file-moz-browser-restore-step-2 = Click “Choose backup file” and select this file
+backup-file-moz-browser-restore-step-2-1 = Click “Restore your data” and select this file
 backup-file-moz-browser-restore-step-3 = Restart { -brand-short-name } when asked
 
 backup-file-other-browser-restore-step-1 = Download and install { -brand-short-name }
@@ -264,7 +267,7 @@ backup-file-download-moz-browser-button = Download
 # The ☰ character is intended as a visual icon representing the Firefox
 # application menu.
 backup-file-other-browser-restore-step-2 = Start { -brand-short-name }, open the application menu ☰ and go to Settings > Sync
-backup-file-other-browser-restore-step-3 = Click “Choose backup file” and select this file
+backup-file-other-browser-restore-step-3-1 = Click “Restore your data” and select this file
 backup-file-other-browser-restore-step-4 = Restart { -brand-short-name } when asked
 
 ## These strings are used in the about:restore and about:welcome pages

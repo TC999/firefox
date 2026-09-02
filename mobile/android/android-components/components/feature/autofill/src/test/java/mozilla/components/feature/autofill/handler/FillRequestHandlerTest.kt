@@ -4,6 +4,8 @@
 
 package mozilla.components.feature.autofill.handler
 
+import java.util.UUID
+import kotlin.test.assertNotNull
 import kotlinx.coroutines.test.runTest
 import mozilla.components.concept.storage.Login
 import mozilla.components.concept.storage.LoginsStorage
@@ -24,7 +26,6 @@ import mozilla.components.support.test.any
 import mozilla.components.support.test.mock
 import mozilla.components.support.test.robolectric.testContext
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -32,7 +33,6 @@ import org.mockito.ArgumentMatchers.anyString
 import org.mockito.Mockito.doReturn
 import org.mockito.Mockito.`when`
 import org.robolectric.RobolectricTestRunner
-import java.util.UUID
 
 @RunWith(RobolectricTestRunner::class)
 internal class FillRequestHandlerTest {
@@ -46,7 +46,7 @@ internal class FillRequestHandlerTest {
                 packageName = "com.twitter.android",
                 logins = mapOf(credentials),
                 assertThat = { builder ->
-                    assertNotNull(builder!!)
+                    assertNotNull(builder)
                     assertEquals(1, builder.logins.size)
                     assertEquals(credentials.second, builder.logins[0])
                     assertEquals(false, builder.needsConfirmation)
@@ -73,7 +73,7 @@ internal class FillRequestHandlerTest {
                 packageName = "com.twitter.android",
                 logins = emptyMap(),
                 assertThat = { builder ->
-                    assertNotNull(builder!!)
+                    assertNotNull(builder)
                     assertEquals(0, builder.logins.size)
                     assertEquals(false, builder.needsConfirmation)
                 },
@@ -96,9 +96,7 @@ internal class FillRequestHandlerTest {
         createTestCase<LoginFillResponseBuilder>(
             filename = "fixtures/app_expensify.xml",
             packageName = "org.me.mobiexpensifyg",
-            logins = mapOf(
-                generateRandomLoginFor("expensify.com"),
-            ),
+            logins = mapOf(generateRandomLoginFor("expensify.com")),
             assertThat = { builder ->
                 // Unfortunately we are not able to link the app and the website yet.
                 assertNull(builder)
@@ -114,7 +112,7 @@ internal class FillRequestHandlerTest {
             packageName = "com.facebook.katana",
             logins = mapOf(credentials),
             assertThat = { builder ->
-                assertNotNull(builder!!)
+                assertNotNull(builder)
                 assertEquals(1, builder.logins.size)
                 assertEquals(credentials.second, builder.logins[0])
             },
@@ -129,7 +127,7 @@ internal class FillRequestHandlerTest {
             packageName = "com.facebook.lite",
             logins = mapOf(credentials),
             assertThat = { builder ->
-                assertNotNull(builder!!)
+                assertNotNull(builder)
                 assertEquals(1, builder.logins.size)
                 assertEquals(credentials.second, builder.logins[0])
             },
@@ -144,7 +142,7 @@ internal class FillRequestHandlerTest {
             packageName = "com.facebook.mlite",
             logins = mapOf(credentials),
             assertThat = { builder ->
-                assertNotNull(builder!!)
+                assertNotNull(builder)
                 assertEquals(1, builder.logins.size)
                 assertEquals(credentials.second, builder.logins[0])
             },
@@ -159,7 +157,7 @@ internal class FillRequestHandlerTest {
             packageName = "org.mozilla.fenix",
             logins = mapOf(credentials),
             assertThat = { builder ->
-                assertNotNull(builder!!)
+                assertNotNull(builder)
                 assertEquals(1, builder.logins.size)
                 assertEquals(credentials.second, builder.logins[0])
             },
@@ -174,7 +172,7 @@ internal class FillRequestHandlerTest {
             packageName = "org.chromium.webview_shell",
             logins = mapOf(credentials),
             assertThat = { builder ->
-                assertNotNull(builder!!)
+                assertNotNull(builder)
                 assertEquals(0, builder.logins.size)
                 assertEquals(false, builder.needsConfirmation)
             },
@@ -201,32 +199,34 @@ private fun <B : FillResponseBuilder> FillRequestHandlerTest.createTestCase(
     val verifier: CredentialAccessVerifier = mock()
     doReturn(canVerifyRelationship).`when`(verifier).hasCredentialRelationship(any(), any(), any())
 
-    val configuration = AutofillConfiguration(
-        storage = storage,
-        publicSuffixList = PublicSuffixList(testContext),
-        unlockActivity = AbstractAutofillUnlockActivity::class.java,
-        confirmActivity = AbstractAutofillConfirmActivity::class.java,
-        searchActivity = AbstractAutofillSearchActivity::class.java,
-        applicationName = "Test",
-        httpClient = mock(),
-        verifier = verifier,
-    )
+    val configuration =
+        AutofillConfiguration(
+            storage = storage,
+            publicSuffixList = PublicSuffixList(testContext),
+            unlockActivity = AbstractAutofillUnlockActivity::class.java,
+            confirmActivity = AbstractAutofillConfirmActivity::class.java,
+            searchActivity = AbstractAutofillSearchActivity::class.java,
+            applicationName = "Test",
+            httpClient = mock(),
+            verifier = verifier,
+        )
 
-    val handler = FillRequestHandler(
-        testContext,
-        configuration,
-    )
+    val handler =
+        FillRequestHandler(
+            testContext,
+            configuration,
+        )
 
     val builder = handler.handle(structure)
-    @Suppress("UNCHECKED_CAST")
-    assertThat(builder as? B)
+    @Suppress("UNCHECKED_CAST") assertThat(builder as? B)
 }
 
 private fun generateRandomLoginFor(origin: String): Pair<String, Login> {
-    return origin to Login(
-        guid = UUID.randomUUID().toString(),
-        origin = origin,
-        username = "user" + UUID.randomUUID().toString(),
-        password = "password" + UUID.randomUUID().toString(),
-    )
+    return origin to
+        Login(
+            guid = UUID.randomUUID().toString(),
+            origin = origin,
+            username = "user" + UUID.randomUUID().toString(),
+            password = "password" + UUID.randomUUID().toString(),
+        )
 }

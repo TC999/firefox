@@ -5,6 +5,7 @@
 include "mozilla/GfxMessageUtils.h";
 
 using struct mozilla::gfx::DeviceColor from "mozilla/gfx/2D.h";
+using mozilla::gfx::SamplingFilter from "mozilla/gfx/2D.h";
 using mozilla::gfx::IntPoint from "mozilla/gfx/Point.h";
 using mozilla::gfx::IntRect from "mozilla/gfx/Point.h";
 using mozilla::gfx::RoundedRect from "mozilla/gfx/Point.h";
@@ -23,6 +24,14 @@ union NativeLayerCommand {
   CommandSetLayers;
   CommandLayerInfo;
   CommandChangedSurface;
+};
+
+union SurfaceTransfer {
+  SurfaceTransferMacOS;
+};
+
+struct SurfaceTransferMacOS {
+  IOSurfacePort Surface;
 };
 
 struct CommandCreateLayer {
@@ -56,13 +65,13 @@ struct CommandLayerInfo {
   IntRect? ClipRect;
   RoundedRect? RoundedClipRect;
   Matrix4x4 Transform;
-  int8_t SamplingFilter;
+  SamplingFilter samplingFilter;
   bool SurfaceIsFlipped;
 };
 
 struct CommandChangedSurface {
   uint64_t ID;
-  IOSurfacePort Surface;
+  SurfaceTransfer Transfer;
   bool IsDRM;
   bool IsHDR;
   IntSize Size;

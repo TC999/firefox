@@ -136,7 +136,7 @@ InProcessParent::GetOsPid(int32_t* aOsPid) {
 }
 
 NS_IMETHODIMP InProcessParent::GetRemoteType(nsACString& aRemoteType) {
-  aRemoteType = NOT_REMOTE_TYPE;
+  aRemoteType = dom::RemoteType::NotRemote().Stringify();
   return NS_OK;
 }
 
@@ -191,6 +191,15 @@ InProcessParent::GetCanSend(bool* aCanSend) {
 ContentParent* InProcessParent::AsContentParent() { return nullptr; }
 
 JSActorManager* InProcessParent::AsJSActorManager() { return this; }
+
+NS_IMETHODIMP
+InProcessParent::AboutToLoadOrigin(nsIPrincipal* aPrincipal) { return NS_OK; }
+
+NS_IMETHODIMP InProcessParent::ValidatePrincipalXPCOM(nsIPrincipal* aPrincipal,
+                                                      bool* aRetVal) {
+  *aRetVal = true;
+  return NS_OK;
+}
 
 ////////////////////////
 // nsIDOMProcessChild //
@@ -264,13 +273,13 @@ static IProtocol* GetOtherInProcessActor(IProtocol* aActor) {
 
   // Discover the manager of aActor which is PInProcess.
   IProtocol* current = aActor;
-  while (current && current->CanRecv()) {
+  while (current && current->CanSend()) {
     if (current->GetProtocolId() == PInProcessMsgStart) {
       break;  // Found the correct actor.
     }
     current = current->Manager();
   }
-  if (!current || !current->CanRecv()) {
+  if (!current || !current->CanSend()) {
     return nullptr;  // Not a live PInProcess actor, return |nullptr|
   }
 

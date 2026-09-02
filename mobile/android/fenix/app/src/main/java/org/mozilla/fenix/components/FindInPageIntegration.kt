@@ -17,7 +17,6 @@ import mozilla.components.support.base.feature.LifecycleAwareFeature
 import mozilla.components.support.base.feature.UserInteractionHandler
 import org.mozilla.fenix.components.appstate.AppAction.FindInPageAction
 import org.mozilla.fenix.components.appstate.AppState
-import org.mozilla.fenix.ext.settings
 
 /**
  * BrowserFragment delegate to handle all layout updates needed to show or hide the find in page bar.
@@ -26,13 +25,13 @@ import org.mozilla.fenix.ext.settings
  * @param appStore The [AppStore] used to update the [AppState.showFindInPage] state.
  * @param sessionId ID of the [store] session in which the query will be performed.
  * @param view The [FindInPageBar] view to display.
- * @param engineView the browser in which the queries will be made and which needs to be better positioned
- * to suit the find in page bar.
- * @param toolbarsHideCallback Callback to hide all toolbars to ensure an unobstructed browser page
- * in which to search and present results.
- * @param toolbarsResetCallback Callback to reset the toolbars to how they should be displayed
- * after this feature is dismissed.
+ * @param engineView the browser in which the queries will be made and which needs to be better positioned to suit the
+ *   find in page bar.
  * @param findInPageHeight The height of the find in page bar.
+ * @param toolbarsHideCallback Callback to hide all toolbars to ensure an unobstructed browser page in which to search
+ *   and present results.
+ * @param toolbarsResetCallback Callback to reset the toolbars to how they should be displayed after this feature is
+ *   dismissed.
  */
 class FindInPageIntegration(
     private val store: BrowserStore,
@@ -40,17 +39,14 @@ class FindInPageIntegration(
     private val sessionId: String? = null,
     private val view: FindInPageBar,
     private val engineView: EngineView,
+    private val findInPageHeight: Int = 0,
     private val toolbarsHideCallback: () -> Unit,
     private val toolbarsResetCallback: () -> Unit,
-    private val findInPageHeight: Int = view.context.settings().browserToolbarHeight,
 ) : LifecycleAwareFeature, UserInteractionHandler {
-    @VisibleForTesting
-    internal val feature by lazy { FindInPageFeature(store, view, engineView, ::onClose) }
+    @VisibleForTesting internal val feature by lazy { FindInPageFeature(store, view, engineView, ::onClose) }
     private var _isFeatureActive = false
 
-    /**
-     * Check if the find in page feature is active in this instant.
-     */
+    /** Check if the find in page feature is active in this instant. */
     val isFeatureActive
         get() = _isFeatureActive
 
@@ -75,9 +71,7 @@ class FindInPageIntegration(
         _isFeatureActive = false
     }
 
-    /**
-     * Start the find in page functionality.
-     */
+    /** Start the find in page functionality. */
     @UiThread
     fun launch() {
         onLaunch(view, feature)

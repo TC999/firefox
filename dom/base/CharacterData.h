@@ -82,7 +82,7 @@ class CharacterData : public nsIContent {
 
   NS_DECL_ADDSIZEOFEXCLUDINGTHIS
 
-  explicit CharacterData(already_AddRefed<dom::NodeInfo>&& aNodeInfo);
+  explicit CharacterData(already_AddRefed<dom::NodeInfo> aNodeInfo);
 
   void MarkAsMaybeModifiedFrequently() {
     SetFlags(NS_MAYBE_MODIFIED_FREQUENTLY);
@@ -154,15 +154,13 @@ class CharacterData : public nsIContent {
    */
   bool TextEndsWithOnlyWhitespace(uint32_t aOffset) const;
 
-  /**
-   * Append the text content to aResult.
-   */
-  void AppendTextTo(nsAString& aResult) const { mBuffer.AppendTo(aResult); }
-
-  /**
-   * Append the text content to aResult.
-   */
-  [[nodiscard]] bool AppendTextTo(nsAString& aResult,
+  // Append the text content to aResult.
+  template <typename CharT>
+  void AppendTextTo(nsTSubstring<CharT>& aResult) const {
+    mBuffer.AppendTo(aResult);
+  }
+  template <typename CharT>
+  [[nodiscard]] bool AppendTextTo(nsTSubstring<CharT>& aResult,
                                   const fallible_t& aFallible) const {
     return mBuffer.AppendTo(aResult, aFallible);
   }

@@ -5,6 +5,7 @@
 #include "mozilla/dom/Text.h"
 
 #include "mozAutoDocUpdate.h"
+#include "mozilla/dom/DirectionalityUtils.h"
 #include "nsTextNode.h"
 
 namespace mozilla::dom {
@@ -67,7 +68,7 @@ static Text* FirstLogicallyAdjacentTextNode(Text* aNode) {
       return aNode;
     }
     aNode = static_cast<Text*>(sibling);
-  } while (1);  // Must run out of previous siblings eventually!
+  } while (true);  // Must run out of previous siblings eventually!
 }
 
 static Text* LastLogicallyAdjacentTextNode(Text* aNode) {
@@ -78,7 +79,7 @@ static Text* LastLogicallyAdjacentTextNode(Text* aNode) {
     }
 
     aNode = static_cast<Text*>(sibling);
-  } while (1);  // Must run out of next siblings eventually!
+  } while (true);  // Must run out of next siblings eventually!
 }
 
 void Text::GetWholeText(nsAString& aWholeText) {
@@ -130,7 +131,7 @@ nsresult Text::BindToTree(BindContext& aContext, nsINode& aParent) {
   nsresult rv = CharacterData::BindToTree(aContext, aParent);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  SetDirectionFromNewTextNode(this);
+  SetDirectionFromNewTextNode(this, &aParent);
 
   return NS_OK;
 }

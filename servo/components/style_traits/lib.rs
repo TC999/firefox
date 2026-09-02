@@ -20,7 +20,6 @@ extern crate to_shmem_derive;
 extern crate url;
 
 use bitflags::bitflags;
-use cssparser::{CowRcStr, Token};
 use selectors::parser::SelectorParseErrorKind;
 #[cfg(feature = "servo")]
 use stylo_atoms::Atom;
@@ -32,8 +31,7 @@ use stylo_atoms::Atom;
 pub enum DevicePixel {}
 
 /// Represents a mobile style pinch zoom factor.
-#[derive(Clone, Copy, Debug, PartialEq)]
-#[cfg_attr(feature = "servo", derive(Deserialize, Serialize, MallocSizeOf))]
+#[derive(Clone, Copy, Debug, Deserialize, MallocSizeOf, PartialEq, Serialize)]
 pub struct PinchZoomFactor(f32);
 
 impl PinchZoomFactor {
@@ -71,29 +69,26 @@ pub mod dom;
 pub mod specified_value_info;
 #[macro_use]
 pub mod values;
+pub mod owned_array;
 pub mod owned_slice;
 pub mod owned_str;
 
 pub use crate::specified_value_info::{CssType, KeywordsCollectFn, SpecifiedValueInfo};
 pub use crate::values::{
-    Comma, CommaWithSpace, CssString, CssStringWriter, CssWriter, KeywordValue, MathSum,
-    NumericValue, OneOrMoreSeparated, Separator, Space, ToCss, ToTyped, TypedValue, TypedValueList,
-    UnitValue,
+    Comma, CommaWithSpace, CssString, CssStringWriter, CssWriter, OneOrMoreSeparated, Separator,
+    Space, ToCss,
 };
 
 /// The error type for all CSS parsing routines.
-pub type ParseError<'i> = cssparser::ParseError<'i, StyleParseErrorKind<'i>>;
-
-/// Error in property value parsing
-pub type ValueParseError<'i> = cssparser::ParseError<'i, ValueParseErrorKind<'i>>;
+pub type ParseError = cssparser::ParseError<StyleParseErrorKind>;
 
 #[derive(Clone, Debug, PartialEq)]
 /// Errors that can be encountered while parsing CSS values.
-pub enum StyleParseErrorKind<'i> {
+pub enum StyleParseErrorKind {
     /// A bad URL token in a DVB.
-    BadUrlInDeclarationValueBlock(CowRcStr<'i>),
+    BadUrlInDeclarationValueBlock,
     /// A bad string token in a DVB.
-    BadStringInDeclarationValueBlock(CowRcStr<'i>),
+    BadStringInDeclarationValueBlock,
     /// Unexpected closing parenthesis in a DVB.
     UnbalancedCloseParenthesisInDeclarationValueBlock,
     /// Unexpected closing bracket in a DVB.
@@ -103,9 +98,9 @@ pub enum StyleParseErrorKind<'i> {
     /// A property declaration value had input remaining after successfully parsing.
     PropertyDeclarationValueNotExhausted,
     /// An unexpected dimension token was encountered.
-    UnexpectedDimension(CowRcStr<'i>),
+    UnexpectedDimension,
     /// Missing or invalid media feature name.
-    MediaQueryExpectedFeatureName(CowRcStr<'i>),
+    MediaQueryExpectedFeatureName,
     /// Missing or invalid media feature value.
     MediaQueryExpectedFeatureValue,
     /// A media feature range operator was not expected.
@@ -113,7 +108,7 @@ pub enum StyleParseErrorKind<'i> {
     /// min- or max- properties must have a value.
     RangedExpressionWithNoValue,
     /// A function was encountered that was not expected.
-    UnexpectedFunction(CowRcStr<'i>),
+    UnexpectedFunction,
     /// Error encountered parsing a @property's `syntax` descriptor
     PropertySyntaxField(PropertySyntaxParseError),
     /// Error encountered parsing a @property's `inherits` descriptor.
@@ -129,72 +124,26 @@ pub enum StyleParseErrorKind<'i> {
     /// Unexpected @charset rule encountered.
     UnexpectedCharsetRule,
     /// The @property `<custom-property-name>` must start with `--`
-    UnexpectedIdent(CowRcStr<'i>),
+    UnexpectedIdent,
     /// A placeholder for many sources of errors that require more specific variants.
     UnspecifiedError,
     /// An unexpected token was found within a namespace rule.
-    UnexpectedTokenWithinNamespace(Token<'i>),
-    /// An error was encountered while parsing a property value.
-    ValueError(ValueParseErrorKind<'i>),
+    UnexpectedTokenWithinNamespace,
     /// An error was encountered while parsing a selector
-    SelectorError(SelectorParseErrorKind<'i>),
+    SelectorError(SelectorParseErrorKind),
     /// The property declaration was for an unknown property.
-    UnknownProperty(CowRcStr<'i>),
+    UnknownProperty,
     /// The property declaration was for a disabled experimental property.
     ExperimentalProperty,
-    /// The property declaration contained an invalid color value.
-    InvalidColor(CowRcStr<'i>, Token<'i>),
-    /// The property declaration contained an invalid filter value.
-    InvalidFilter(CowRcStr<'i>, Token<'i>),
     /// The property declaration contained an invalid value.
-    OtherInvalidValue(CowRcStr<'i>),
+    OtherInvalidValue,
     /// `!important` declarations are disallowed in `@position-try` or keyframes.
     UnexpectedImportantDeclaration,
 }
 
-impl<'i> From<ValueParseErrorKind<'i>> for StyleParseErrorKind<'i> {
-    fn from(this: ValueParseErrorKind<'i>) -> Self {
-        StyleParseErrorKind::ValueError(this)
-    }
-}
-
-impl<'i> From<SelectorParseErrorKind<'i>> for StyleParseErrorKind<'i> {
-    fn from(this: SelectorParseErrorKind<'i>) -> Self {
+impl From<SelectorParseErrorKind> for StyleParseErrorKind {
+    fn from(this: SelectorParseErrorKind) -> Self {
         StyleParseErrorKind::SelectorError(this)
-    }
-}
-
-/// Specific errors that can be encountered while parsing property values.
-#[derive(Clone, Debug, PartialEq)]
-pub enum ValueParseErrorKind<'i> {
-    /// An invalid token was encountered while parsing a color value.
-    InvalidColor(Token<'i>),
-    /// An invalid filter value was encountered.
-    InvalidFilter(Token<'i>),
-}
-
-impl<'i> StyleParseErrorKind<'i> {
-    /// Create an InvalidValue parse error
-    pub fn new_invalid<S>(name: S, value_error: ParseError<'i>) -> ParseError<'i>
-    where
-        S: Into<CowRcStr<'i>>,
-    {
-        let name = name.into();
-        let variant = match value_error.kind {
-            cssparser::ParseErrorKind::Custom(StyleParseErrorKind::ValueError(e)) => match e {
-                ValueParseErrorKind::InvalidColor(token) => {
-                    StyleParseErrorKind::InvalidColor(name, token)
-                },
-                ValueParseErrorKind::InvalidFilter(token) => {
-                    StyleParseErrorKind::InvalidFilter(name, token)
-                },
-            },
-            _ => StyleParseErrorKind::OtherInvalidValue(name),
-        };
-        cssparser::ParseError {
-            kind: cssparser::ParseErrorKind::Custom(variant),
-            location: value_error.location,
-        }
     }
 }
 
@@ -260,12 +209,11 @@ bitflags! {
         /// independent.
         /// <https://drafts.css-houdini.org/css-properties-values-api-1/#ref-for-computationally-independent%E2%91%A0>
         const DISALLOW_COMPUTATIONALLY_DEPENDENT = 1 << 2;
-        /// In CSS Values and Units, values produced by `attr()` are considered attr()-tainted, as are
-        /// functions that contain an attr()-tainted value. Using an attr()-tainted value as or in a <url>
-        /// makes a declaration invalid at computed-value time.
-        /// https://drafts.csswg.org/css-values-5/#attr-security
-        /// TODO(bug1997583): Remove this mode in favor of a more robust range-based attr tracking.
-        const DISALLOW_URLS = 1 << 3;
+        /// In Typed OM; unitless zero must not be interpreted as a length.
+        const DISALLOW_UNITLESS_ZERO_LENGTH = 1 << 3;
+        /// Media query conditions in the preludes for @media, @custom-media, and @import.
+        /// <https://drafts.csswg.org/mediaqueries/>
+        const MEDIA_QUERY_CONDITION = 1 << 4;
     }
 }
 
@@ -288,9 +236,10 @@ impl ParsingMode {
         !self.intersects(ParsingMode::DISALLOW_COMPUTATIONALLY_DEPENDENT)
     }
 
-    /// Whether the parsing mode disallows <url> to be resolved.
-    pub fn disallows_urls(&self) -> bool {
-        self.intersects(ParsingMode::DISALLOW_URLS)
+    /// Whether the parsing mode allows unitless zero lengths to be interpreted as px.
+    #[inline]
+    pub fn allows_unitless_zero_lengths(&self) -> bool {
+        !self.intersects(ParsingMode::DISALLOW_UNITLESS_ZERO_LENGTH)
     }
 }
 

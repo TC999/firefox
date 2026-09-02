@@ -2,22 +2,24 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "nsSocketTransport2.h"
 #include "nsServerSocket.h"
-#include "nsProxyRelease.h"
-#include "nsError.h"
-#include "nsNetCID.h"
-#include "prnetdb.h"
-#include "prio.h"
-#include "nsThreadUtils.h"
+
 #include "mozilla/EndianUtils.h"
 #include "mozilla/net/DNS.h"
-#include "nsServiceManagerUtils.h"
+#include "nsError.h"
 #include "nsIFile.h"
+#include "nsNetCID.h"
+#include "nsProxyRelease.h"
+#include "nsServiceManagerUtils.h"
+#include "nsSocketTransport2.h"
+#include "nsThreadUtils.h"
+#include "prio.h"
+#include "prnetdb.h"
 #if defined(XP_WIN)
-#  include "private/pprio.h"
-#  include <winsock2.h>
 #  include <mstcpip.h>
+#  include <winsock2.h>
+
+#  include "private/pprio.h"
 
 #  ifndef IPV6_V6ONLY
 #    define IPV6_V6ONLY 27
@@ -145,7 +147,10 @@ void nsServerSocket::CreateClientTransport(PRFileDesc* aClientFD,
     return;
   }
 
-  mListener->OnSocketAccepted(this, trans);
+  nsCOMPtr<nsIServerSocketListener> listener = GetListener();
+  if (listener) {
+    listener->OnSocketAccepted(this, trans);
+  }
 }
 
 //-----------------------------------------------------------------------------
@@ -196,22 +201,19 @@ void nsServerSocket::OnSocketDetached(PRFileDesc* fd) {
     mFD = nullptr;
   }
 
-  if (mListener) {
-    mListener->OnStopListening(this, mCondition);
+  RefPtr<nsIServerSocketListener> listener;
+  {
+    MutexAutoLock lock(mLock);
+    listener = ToRefPtr(std::move(mListener));
+  }
 
-    // need to atomically clear mListener.  see our Close() method.
-    RefPtr<nsIServerSocketListener> listener = nullptr;
-    {
-      MutexAutoLock lock(mLock);
-      listener = ToRefPtr(std::move(mListener));
-    }
+  if (listener) {
+    listener->OnStopListening(this, mCondition);
 
     // XXX we need to proxy the release to the listener's target thread to work
     // around bug 337492.
-    if (listener) {
-      NS_ProxyRelease("nsServerSocket::mListener", mListenerTarget,
-                      listener.forget());
-    }
+    NS_ProxyRelease("nsServerSocket::mListener", mListenerTarget,
+                    listener.forget());
   }
 }
 
@@ -366,28 +368,38 @@ nsresult nsServerSocket::InitWithAddressInternal(const PRNetAddr* aAddr,
     return ErrorAccordingToNSPR(PR_GetError());
   }
 
-#if defined(XP_WIN)
-  // https://docs.microsoft.com/en-us/windows/win32/winsock/dual-stack-sockets
-  // To create a Dual-Stack Socket, we have to disable IPV6_V6ONLY.
-  if (aDualStack) {
-    PROsfd osfd = PR_FileDesc2NativeHandle(mFD);
-    if (osfd != -1) {
-      int disable = 0;
-      setsockopt(osfd, IPPROTO_IPV6, IPV6_V6ONLY, (char*)&disable,
-                 sizeof(disable));
-    }
-  }
-#else
-  (void)aDualStack;
-#endif
-
   PR_SetFDInheritable(mFD, false);
 
   PRSocketOptionData opt;
 
+#if defined(XP_WIN)
+  {
+    PROsfd osfd = PR_FileDesc2NativeHandle(mFD);
+    if (osfd != -1) {
+      // https://docs.microsoft.com/en-us/windows/win32/winsock/dual-stack-sockets
+      // To create a Dual-Stack Socket, we have to disable IPV6_V6ONLY.
+      if (aDualStack) {
+        int disable = 0;
+        setsockopt(osfd, IPPROTO_IPV6, IPV6_V6ONLY, (char*)&disable,
+                   sizeof(disable));
+      }
+
+      // On Windows, SO_REUSEADDR allows a second process to bind to a port that
+      // is already being actively listened on, enabling silent port hijacking.
+      // SO_EXCLUSIVEADDRUSE prevents this; the two options are mutually
+      // exclusive.
+      int enable = 1;
+      setsockopt(osfd, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, (char*)&enable,
+                 sizeof(enable));
+    }
+  }
+#else
+  (void)aDualStack;
+
   opt.option = PR_SockOpt_Reuseaddr;
   opt.value.reuse_addr = true;
   PR_SetSocketOption(mFD, &opt);
+#endif
 
   opt.option = PR_SockOpt_Nonblocking;
   opt.value.non_blocking = true;
@@ -536,9 +548,9 @@ NS_IMETHODIMP
 nsServerSocket::AsyncListen(nsIServerSocketListener* aListener) {
   // ensuring mFD implies ensuring mLock
   NS_ENSURE_TRUE(mFD, NS_ERROR_NOT_INITIALIZED);
-  NS_ENSURE_TRUE(mListener == nullptr, NS_ERROR_IN_PROGRESS);
   {
     MutexAutoLock lock(mLock);
+    NS_ENSURE_TRUE(mListener == nullptr, NS_ERROR_IN_PROGRESS);
     mListener = new ServerSocketListenerProxy(aListener);
     mListenerTarget = GetCurrentSerialEventTarget();
   }

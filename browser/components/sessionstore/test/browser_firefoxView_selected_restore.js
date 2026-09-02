@@ -2,10 +2,13 @@
  * http://creativecommons.org/publicdomain/zero/1.0/ */
 
 const { _LastSession } = ChromeUtils.importESModule(
-  "resource:///modules/sessionstore/SessionStore.sys.mjs"
+  "moz-src:///browser/components/sessionstore/SessionStore.sys.mjs"
 );
 const { sinon } = ChromeUtils.importESModule(
   "resource://testing-common/Sinon.sys.mjs"
+);
+const FirefoxViewTestUtils = ChromeUtils.importESModule(
+  "resource://testing-common/FirefoxViewTestUtils.sys.mjs"
 );
 
 const state = {
@@ -25,6 +28,9 @@ const state = {
     },
   ],
 };
+
+FirefoxViewTestUtils.init(this);
+FirefoxViewTestUtils.enableFirefoxViewButton(window);
 
 add_task(async function test_firefox_view_selected_tab() {
   let fxViewBtn = document.getElementById("firefox-view-button");

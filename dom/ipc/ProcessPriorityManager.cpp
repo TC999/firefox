@@ -748,7 +748,7 @@ ProcessPriority ParticularProcessPriorityManager::CurrentPriority() {
 
 ProcessPriority ParticularProcessPriorityManager::ComputePriority() {
   if (!mHighPriorityBrowserParents.IsEmpty() ||
-      mContentParent->GetRemoteType() == EXTENSION_REMOTE_TYPE ||
+      mContentParent->GetRemoteType().IsExtension() ||
       mHoldsPlayingAudioWakeLock) {
     return PROCESS_PRIORITY_FOREGROUND;
   }

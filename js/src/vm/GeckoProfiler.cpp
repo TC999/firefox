@@ -2,8 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "vm/GeckoProfiler-inl.h"
-
 #include "mozilla/DebugOnly.h"
 #include "mozilla/Sprintf.h"
 
@@ -22,6 +20,7 @@
 
 #include "gc/Marking-inl.h"
 #include "jit/JSJitFrameIter-inl.h"
+#include "vm/GeckoProfiler-inl.h"
 
 using namespace js;
 using mozilla::Utf8Unit;
@@ -121,9 +120,6 @@ void GeckoProfilerRuntime::enable(bool enabled) {
     cx->jitActivation->setLastProfilingCallSite(nullptr);
   }
 
-  // Enable/disable JIT code info collection for the Gecko Profiler.
-  jit::ResetPerfSpewer(enabled);
-
   enabled_ = enabled;
 
   scriptSources_.writeLock()->clear();
@@ -178,34 +174,31 @@ void GeckoProfilerRuntime::enable(bool enabled) {
 /* Lookup the string for the function/script, creating one if necessary */
 const char* GeckoProfilerRuntime::profileString(JSContext* cx,
                                                 BaseScript* script) {
-  ProfileStringMap::AddPtr s = strings().lookupForAdd(script);
+  JS::Zone* zone = script->zone();
+  if (!zone->profilerStrings) {
+    auto map = cx->make_unique<JS::WeakCache<ProfileStringMap>>(zone);
+    if (!map) {
+      return nullptr;
+    }
+    zone->profilerStrings = std::move(map);
+  }
 
-  if (!s) {
+  ProfileStringMap& map = zone->profilerStrings->get();
+  ProfileStringMap::AddPtr ptr = map.lookupForAdd(script);
+
+  if (!ptr) {
     UniqueChars str = allocProfileString(cx, script);
     if (!str) {
       return nullptr;
     }
     MOZ_ASSERT(script->hasBytecode());
-    if (!strings().add(s, script, std::move(str))) {
+    if (!map.add(ptr, script, std::move(str))) {
       ReportOutOfMemory(cx);
       return nullptr;
     }
   }
 
-  return s->value().get();
-}
-
-void GeckoProfilerRuntime::onScriptFinalized(BaseScript* script) {
-  /*
-   * This function is called whenever a script is destroyed, regardless of
-   * whether profiling has been turned on, so don't invoke a function on an
-   * invalid hash set. Also, even if profiling was enabled but then turned
-   * off, we still want to remove the string, so no check of enabled() is
-   * done.
-   */
-  if (ProfileStringMap::Ptr entry = strings().lookup(script)) {
-    strings().remove(entry);
-  }
+  return ptr->value().get();
 }
 
 void GeckoProfilerRuntime::markEvent(const char* event, const char* details,
@@ -335,7 +328,7 @@ UniqueChars GeckoProfilerRuntime::allocProfileString(JSContext* cx,
                                                      BaseScript* script) {
   // Note: this profiler string is regexp-matched by
   // profiler code. Most recently at
-  // https://github.com/firefox-devtools/profiler/blob/245b1a400c5c368ccc13641d0335398bafa0e870/src/profile-logic/process-profile.js#L520-L525
+  // https://github.com/firefox-devtools/profiler/blob/8f4935823ec06507c3125d4c6c1e78eef31361f3/src/profile-logic/process-profile.ts#L407-L415
 
   // If the script has a function, try calculating its name.
   JSAtom* name = nullptr;
@@ -430,25 +423,23 @@ void GeckoProfilerThread::trace(JSTracer* trc) {
   }
 }
 
-void GeckoProfilerRuntime::fixupStringsMapAfterMovingGC() {
-  for (auto iter = strings().modIter(); !iter.done(); iter.next()) {
-    BaseScript* script = iter.get().key();
-    if (IsForwarded(script)) {
-      script = Forwarded(script);
-      iter.rekey(script);
+size_t GeckoProfilerRuntime::stringsCount() {
+  size_t count = 0;
+  for (AllZonesIter zone(rt); !zone.done(); zone.next()) {
+    if (zone->profilerStrings) {
+      count += zone->profilerStrings->get().count();
+    }
+  }
+  return count;
+}
+
+void GeckoProfilerRuntime::stringsReset() {
+  for (AllZonesIter zone(rt); !zone.done(); zone.next()) {
+    if (zone->profilerStrings) {
+      zone->profilerStrings->get().clear();
     }
   }
 }
-
-#ifdef JSGC_HASH_TABLE_CHECKS
-void GeckoProfilerRuntime::checkStringsMapAfterMovingGC() {
-  CheckTableAfterMovingGC(strings(), [](const auto& entry) {
-    BaseScript* script = entry.key();
-    CheckGCThingAfterMovingGC(script);
-    return script;
-  });
-}
-#endif
 
 // Get all script sources as a list of ProfilerJSSourceData.
 js::ProfilerJSSources GeckoProfilerRuntime::getProfilerScriptSources(
@@ -460,10 +451,7 @@ js::ProfilerJSSources GeckoProfilerRuntime::getProfilerScriptSources(
     const RefPtr<ScriptSource>& scriptSource = iter.get();
     MOZ_ASSERT(scriptSource);
 
-    bool hasSourceText;
-    bool retrievableSource;
-    ScriptSource::getSourceProperties(scriptSource, &hasSourceText,
-                                      &retrievableSource);
+    ScriptSource::DataReader sourceReader(scriptSource);
 
     uint32_t sourceId = scriptSource->id();
 
@@ -509,21 +497,21 @@ js::ProfilerJSSources GeckoProfilerRuntime::getProfilerScriptSources(
       continue;
     }
 
-    if (retrievableSource) {
+    if (sourceReader.isRetrievable()) {
       (void)result.append(ProfilerJSSourceData::CreateRetrievableFile(
           sourceId, std::move(filenameCopy), filenameLen, startLine,
           startColumn, std::move(sourceMapURLCopy), sourceMapURLLen));
       continue;
     }
 
-    if (!hasSourceText) {
+    if (!sourceReader.hasSourceText()) {
       (void)result.append(ProfilerJSSourceData(
           sourceId, std::move(filenameCopy), filenameLen, startLine,
           startColumn, std::move(sourceMapURLCopy), sourceMapURLLen));
       continue;
     }
 
-    size_t sourceLength = scriptSource->length();
+    size_t sourceLength = sourceReader->length();
     if (sourceLength == 0) {
       (void)result.append(ProfilerJSSourceData(
           sourceId, JS::UniqueTwoByteChars(), 0, std::move(filenameCopy),
@@ -536,7 +524,8 @@ js::ProfilerJSSources GeckoProfilerRuntime::getProfilerScriptSources(
     size_t charsLength = 0;
 
     if (scriptSource->shouldUnwrapEventHandlerBody()) {
-      sourceResult = scriptSource->functionBodyStringChars(&charsLength);
+      sourceResult =
+          sourceReader->functionBodyStringChars(scriptSource, &charsLength);
 
       if (charsLength == 0) {
         (void)result.append(ProfilerJSSourceData(
@@ -546,7 +535,7 @@ js::ProfilerJSSources GeckoProfilerRuntime::getProfilerScriptSources(
         continue;
       }
     } else {
-      sourceResult = scriptSource->substringChars(0, sourceLength);
+      sourceResult = sourceReader->substringChars(0, sourceLength);
       charsLength = sourceLength;
     }
 
@@ -580,7 +569,7 @@ js::ProfilerJSSources GeckoProfilerRuntime::getProfilerScriptSources(
 void ProfilingStackFrame::trace(JSTracer* trc) {
   if (isJsFrame()) {
     JSScript* s = rawScript();
-    TraceNullableRoot(trc, &s, "ProfilingStackFrame script");
+    TraceRoot(trc, &s, "ProfilingStackFrame script");
     spOrScript = s;
   }
 }
@@ -632,11 +621,20 @@ JS_PUBLIC_API JSScript* ProfilingStackFrame::script() const {
     return nullptr;
   }
 
-  // If profiling is supressed then we can't trust the script pointers to be
-  // valid as they could be in the process of being moved by a compacting GC
-  // (although it's still OK to get the runtime from them).
+  // While profiling is suppressed the script pointer may be unsafe to use, as
+  // it could be in the middle of being relocated by a compacting GC (although
+  // it's still OK to get the runtime from it). A suppression site that
+  // guarantees scripts are not moving (currently only minor GC) opts in to
+  // allowing access here so the profiler can still resolve line/column
+  // attribution for the affected frames.
+  //
+  // The returned script is only safe to use for tenured data (e.g. its
+  // filename, line/column via pc()). It may still be reachable during a minor
+  // GC, so nursery-allocated objects hanging off it, notably its JSFunction,
+  // must not be dereferenced here. Go through function(), which keeps the
+  // broader isProfilerSamplingEnabled() guard.
   JSContext* cx = script->runtimeFromAnyThread()->mainContextFromAnyThread();
-  if (!cx->isProfilerSamplingEnabled()) {
+  if (!cx->isProfilerSamplingEnabled() && !cx->allowProfilerScriptAccess()) {
     return nullptr;
   }
 
@@ -646,7 +644,17 @@ JS_PUBLIC_API JSScript* ProfilingStackFrame::script() const {
 
 JS_PUBLIC_API JSFunction* ProfilingStackFrame::function() const {
   JSScript* script = this->script();
-  return script ? script->function() : nullptr;
+  if (!script) {
+    return nullptr;
+  }
+  // JSFunctions can live in the nursery and so may move during minor GC.
+  // Fall back to the broader sample-suppression flag here so callers don't
+  // dereference a function pointer while objects are being relocated.
+  JSContext* cx = script->runtimeFromAnyThread()->mainContextFromAnyThread();
+  if (!cx->isProfilerSamplingEnabled()) {
+    return nullptr;
+  }
+  return script->function();
 }
 
 JS_PUBLIC_API jsbytecode* ProfilingStackFrame::pc() const {
@@ -667,8 +675,9 @@ int32_t ProfilingStackFrame::pcToOffset(JSScript* aScript, jsbytecode* aPc) {
 void ProfilingStackFrame::setPC(jsbytecode* pc) {
   MOZ_ASSERT(isJsFrame());
   JSScript* script = this->script();
-  MOZ_ASSERT(
-      script);  // This should not be called while profiling is suppressed.
+  // This should not be called while script access is suppressed (see
+  // script()).
+  MOZ_ASSERT(script);
   pcOffsetIfJS_ = pcToOffset(script, pc);
 }
 
@@ -684,6 +693,10 @@ JS_PUBLIC_API void js::SetContextProfilingStack(
 
 JS_PUBLIC_API void js::EnableContextProfilingStack(JSContext* cx,
                                                    bool enabled) {
+  // Toggling leaves the engine transiently half-initialized (e.g. a Baseline
+  // Interpreter frame whose JitScript has no profiler label string yet), so the
+  // SamplerThread must not walk this thread's JS stack until we're done.
+  AutoSuppressProfilerSampling suppressSampling(cx);
   cx->geckoProfiler().enable(enabled);
   cx->runtime()->geckoProfiler().enable(enabled);
 }
@@ -741,17 +754,23 @@ js::RetrieveProfilerSourceContent(JSContext* cx, const char* filename) {
   return ProfilerJSSourceData();
 }
 
-AutoSuppressProfilerSampling::AutoSuppressProfilerSampling(JSContext* cx)
-    : cx_(cx), previouslyEnabled_(cx->isProfilerSamplingEnabled()) {
+AutoSuppressProfilerSampling::AutoSuppressProfilerSampling(
+    JSContext* cx, ProfilerScriptAccess scriptAccess)
+    : cx_(cx),
+      previouslyEnabled_(cx->isProfilerSamplingEnabled()),
+      previousScriptAccess_(cx->allowProfilerScriptAccess()) {
   if (previouslyEnabled_) {
     cx_->disableProfilerSampling();
   }
+  cx_->setAllowProfilerScriptAccess(scriptAccess ==
+                                    ProfilerScriptAccess::Allow);
 }
 
 AutoSuppressProfilerSampling::~AutoSuppressProfilerSampling() {
   if (previouslyEnabled_) {
     cx_->enableProfilerSampling();
   }
+  cx_->setAllowProfilerScriptAccess(previousScriptAccess_);
 }
 
 namespace JS {

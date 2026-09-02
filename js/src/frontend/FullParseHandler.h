@@ -691,20 +691,12 @@ class FullParseHandler {
                                  moduleSpec, importAttributeList);
   }
 
-  BinaryNodeResult newImportDeclaration(Node importSpecSet, Node moduleRequest,
+  BinaryNodeResult newImportDeclaration(Node importClause, Node moduleRequest,
+                                        ImportPhase phase,
                                         const TokenPos& pos) {
-    return newResult<BinaryNode>(ParseNodeKind::ImportDecl, pos, importSpecSet,
-                                 moduleRequest);
+    return newResult<ImportDeclarationNode>(pos, importClause, moduleRequest,
+                                            phase);
   }
-
-#ifdef ENABLE_SOURCE_PHASE_IMPORTS
-  BinaryNodeResult newImportSourceDeclaration(Node importedBinding,
-                                              Node moduleRequest,
-                                              const TokenPos& pos) {
-    return newResult<BinaryNode>(ParseNodeKind::ImportSourceDecl, pos,
-                                 importedBinding, moduleRequest);
-  }
-#endif
 
   BinaryNodeResult newImportSpec(Node importNameNode, Node bindingName) {
     return newBinary(ParseNodeKind::ImportSpec, importNameNode, bindingName);
@@ -757,18 +749,10 @@ class FullParseHandler {
                                  metaHolder);
   }
 
-  BinaryNodeResult newCallImport(NullaryNodeType importHolder, Node singleArg) {
-    return newResult<BinaryNode>(ParseNodeKind::CallImportExpr, importHolder,
-                                 singleArg);
+  BinaryNodeResult newCallImport(NullaryNodeType importHolder, Node singleArg,
+                                 ImportPhase phase) {
+    return newResult<CallImportNode>(importHolder, singleArg, phase);
   }
-
-#ifdef ENABLE_SOURCE_PHASE_IMPORTS
-  BinaryNodeResult newCallImportSource(NullaryNodeType importHolder,
-                                       Node singleArg) {
-    return newResult<BinaryNode>(ParseNodeKind::CallImportSourceExpr,
-                                 importHolder, singleArg);
-  }
-#endif
 
   BinaryNodeResult newCallImportSpec(Node specifierArg, Node optionalArg) {
     return newResult<BinaryNode>(ParseNodeKind::CallImportSpec, specifierArg,
@@ -966,7 +950,6 @@ class FullParseHandler {
   }
   void setFunctionBox(FunctionNodeType funNode, FunctionBox* funbox) {
     funNode->setFunbox(funbox);
-    funbox->functionNode = funNode;
   }
   void addFunctionFormalParameter(FunctionNodeType funNode, Node argpn) {
     addList(/* list = */ funNode->body(), /* kid = */ argpn);

@@ -16,6 +16,10 @@ class ErrorResult;
 
 namespace dom {
 
+/**
+ * CrossShadowBoundaryRange inherits StaticRange but the boundaries may cross
+ * the shadow DOM boundaries. This won't exposed to the web.
+ */
 class CrossShadowBoundaryRange final : public StaticRange,
                                        public nsStubMutationObserver {
  public:
@@ -44,6 +48,22 @@ class CrossShadowBoundaryRange final : public StaticRange,
 
   nsINode* GetCommonAncestor() const { return mCommonAncestor; }
 
+  // Recomputes mCommonAncestor from the current mStart/mEnd and moves the
+  // mutation-observer registration to it if it changed. Called from
+  // StaticRange::DoSetRange after the boundaries are updated, so it runs for
+  // every boundary change rather than only on initial creation.
+  void UpdateCommonAncestor();
+
+  /**
+   * Return true if the boundaries are in the same range root, i.e., in the
+   * same uncomposed document or in the same shadow container.
+   */
+  [[nodiscard]] bool IsPositionedInSameRangeRoot() const {
+    return IsPositioned() &&
+           RangeUtils::ComputeRootNode(mStart.GetContainer()) ==
+               RangeUtils::ComputeRootNode(mEnd.GetContainer());
+  }
+
   // CrossShadowBoundaryRange should have a very limited usage.
   nsresult SetStartAndEnd(nsINode* aStartContainer, uint32_t aStartOffset,
                           nsINode* aEndContainer, uint32_t aEndOffset) = delete;
@@ -60,25 +80,12 @@ class CrossShadowBoundaryRange final : public StaticRange,
 
  private:
   explicit CrossShadowBoundaryRange(nsINode* aNode, nsRange* aOwner)
-      : StaticRange(aNode, StaticRange::MutationObserved::Yes, TreeKind::Flat),
+      : StaticRange(aNode, StaticRange::MutationObserved::Yes,
+                    TreeKind::FlatForSelection),
         mOwner(aOwner) {}
   virtual ~CrossShadowBoundaryRange() = default;
 
-  /**
-   * DoSetRange() is called when `AbstractRange::SetStartAndEndInternal()` sets
-   * mStart and mEnd.
-   *
-   * @param aStartBoundary  Computed start point.  This must equals or be before
-   *                        aEndBoundary in the DOM tree order.
-   * @param aEndBoundary    Computed end point.
-   * @param aRootNode       The root node of aStartBoundary or aEndBoundary.
-   *                        It's useless to CrossShadowBoundaryRange.
-   * @param aOwner          The nsRange that owns this CrossShadowBoundaryRange.
-   */
-  template <typename SPT, typename SRT, typename EPT, typename ERT>
-  void DoSetRange(const RangeBoundaryBase<SPT, SRT>& aStartBoundary,
-                  const RangeBoundaryBase<EPT, ERT>& aEndBoundary,
-                  nsINode* aRootNode, nsRange* aOwner);
+  void ResetToReuse();
 
   // This is either NULL if this CrossShadowBoundaryRange has been
   // reset by Release() or the closest common shadow-including ancestor
@@ -93,6 +100,12 @@ class CrossShadowBoundaryRange final : public StaticRange,
   // CrossShadowBoundaryRange, so it's safe to use raw pointer here.
   nsRange* mOwner;
 };
+
+inline CrossShadowBoundaryRange* StaticRange::AsCrossShadowBoundaryRange() {
+  MOZ_ASSERT(IsCrossShadowBoundaryRange());
+  return static_cast<CrossShadowBoundaryRange*>(this);
+}
+
 }  // namespace dom
 }  // namespace mozilla
 

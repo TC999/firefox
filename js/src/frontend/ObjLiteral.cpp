@@ -156,8 +156,8 @@ JSObject* InterpretObjLiteralObj(
   gc::AllocKind allocKind =
       AllocKindForObjectLiteral<kind>(literalInsns, propertyCount);
 
-  Rooted<PlainObject*> obj(
-      cx, NewPlainObjectWithAllocKind(cx, allocKind, TenuredObject));
+  Rooted<PlainObject*> obj(cx, NewPlainObject(cx, {.newKind = TenuredObject,
+                                                   .allocKind = allocKind}));
   if (!obj) {
     return nullptr;
   }
@@ -188,7 +188,7 @@ JSObject* InterpretObjLiteralObj(
     InterpretObjLiteralValue(cx, atomCache, insn, &propVal);
 
     if constexpr (kind == PropertySetKind::UniqueNames) {
-      if (!AddDataPropertyToPlainObject(cx, obj, propId, propVal)) {
+      if (!AddDataPropertyToNativeObjectNoHooks(cx, obj, propId, propVal)) {
         return nullptr;
       }
     } else {

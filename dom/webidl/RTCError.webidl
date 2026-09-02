@@ -1,4 +1,3 @@
-/* -*- Mode: IDL; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/.
@@ -17,8 +16,11 @@ enum RTCErrorDetailType {
   "hardware-encoder-error"
 };
 
+// Current spec does not expose this on Worker, but that will change soon
+// See https://github.com/w3c/webrtc-pc/issues/3092 and
+// https://www.w3.org/2026/03/24-webrtc-minutes.html#51c7
 [Pref="media.peerconnection.enabled",
- Exposed=Window]
+ Exposed=(Window,DedicatedWorker)]
 interface RTCError : DOMException {
   constructor(RTCErrorInit init, optional UTF8String message = "");
   readonly attribute RTCErrorDetailType errorDetail;

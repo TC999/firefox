@@ -2,8 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "mozilla/CheckedInt.h"
 #include "mozilla/layers/NativeLayerRootRemoteMacParent.h"
+#include "mozilla/CheckedInt.h"
 #include "xpcpublic.h"
 
 namespace mozilla {
@@ -60,15 +60,18 @@ NativeLayerRootRemoteMacParent::RecvCommitNativeLayerCommands(
         HandleLayerInfo(layerInfo.ID(), layerInfo.Position(),
                         layerInfo.DisplayRect(), layerInfo.ClipRect(),
                         layerInfo.RoundedClipRect(), layerInfo.Transform(),
-                        layerInfo.SamplingFilter(),
+                        layerInfo.samplingFilter(),
                         layerInfo.SurfaceIsFlipped());
         break;
       }
 
       case NativeLayerCommand::TCommandChangedSurface: {
         auto& changedSurface = command.get_CommandChangedSurface();
+        auto& transfer = changedSurface.Transfer();
+        MOZ_ASSERT(transfer.type() == SurfaceTransfer::TSurfaceTransferMacOS);
+        auto& transferMacOS = transfer.get_SurfaceTransferMacOS();
         HandleChangedSurface(changedSurface.ID(),
-                             std::move(changedSurface.Surface()),
+                             std::move(transferMacOS.Surface()),
                              changedSurface.IsDRM(), changedSurface.IsHDR(),
                              changedSurface.Size());
         break;
@@ -173,7 +176,8 @@ void NativeLayerRootRemoteMacParent::HandleSetLayers(
 void NativeLayerRootRemoteMacParent::HandleLayerInfo(
     uint64_t aID, IntPoint aPosition, IntRect aDisplayRect,
     Maybe<IntRect> aClipRect, Maybe<RoundedRect> aRoundedClipRect,
-    Matrix4x4 aTransform, int8_t aSamplingFilter, bool aSurfaceIsFlipped) {
+    Matrix4x4 aTransform, SamplingFilter aSamplingFilter,
+    bool aSurfaceIsFlipped) {
   auto entry = mKnownLayers.MaybeGet(aID);
   if (!entry) {
     gfxWarning() << "Got a LayerInfo for an unknown layer.";
@@ -189,7 +193,7 @@ void NativeLayerRootRemoteMacParent::HandleLayerInfo(
   layer->SetClipRect(aClipRect);
   layer->SetRoundedClipRect(aRoundedClipRect);
   layer->SetTransform(aTransform);
-  layer->SetSamplingFilter(static_cast<gfx::SamplingFilter>(aSamplingFilter));
+  layer->SetSamplingFilter(aSamplingFilter);
   layer->SetSurfaceIsFlipped(aSurfaceIsFlipped);
 }
 

@@ -4,22 +4,23 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include "nsASCIIMask.h"
-#include "nsCharSeparatedTokenizer.h"
-#include "nsPrintfCString.h"
-#include "nsString.h"
-#include "mozilla/StringBuffer.h"
-#include "nsReadableUtils.h"
-#include "nsCRTGlue.h"
+
+#include "gtest/BlackBox.h"
+#include "gtest/MozGTestBench.h"  // For MOZ_GTEST_BENCH
+#include "gtest/gtest.h"
+#include "js/String.h"
 #include "mozilla/RefPtr.h"
+#include "mozilla/StringBuffer.h"
 #include "mozilla/TextUtils.h"
 #include "mozilla/Utf8.h"
-#include "nsTArray.h"
-#include "gtest/gtest.h"
-#include "gtest/MozGTestBench.h"  // For MOZ_GTEST_BENCH
-#include "gtest/BlackBox.h"
+#include "nsASCIIMask.h"
 #include "nsBidiUtils.h"
-#include "js/String.h"
+#include "nsCRTGlue.h"
+#include "nsCharSeparatedTokenizer.h"
+#include "nsPrintfCString.h"
+#include "nsReadableUtils.h"
+#include "nsString.h"
+#include "nsTArray.h"
 
 #define CONVERSION_ITERATIONS 50000
 
@@ -531,8 +532,8 @@ TEST_F(Strings, DependentStrings) {
     auto data = tmp.Data();
     nsDependentCString foo(tmp);
     // Neither string should be using a shared buffer.
-    EXPECT_FALSE(tmp.GetDataFlags() & DataFlags::REFCOUNTED);
-    EXPECT_FALSE(foo.GetDataFlags() & DataFlags::REFCOUNTED);
+    EXPECT_FALSE(tmp.GetDataFlags() & DataFlags::STRINGBUFFER);
+    EXPECT_FALSE(foo.GetDataFlags() & DataFlags::STRINGBUFFER);
     // Both strings should be pointing to the original buffer.
     EXPECT_EQ(data, tmp.Data());
     EXPECT_EQ(data, foo.Data());
@@ -543,8 +544,8 @@ TEST_F(Strings, DependentStrings) {
     auto data = tmp.Data();
     nsDependentCString foo(std::move(tmp));
     // Neither string should be using a shared buffer.
-    EXPECT_FALSE(tmp.GetDataFlags() & DataFlags::REFCOUNTED);
-    EXPECT_FALSE(foo.GetDataFlags() & DataFlags::REFCOUNTED);
+    EXPECT_FALSE(tmp.GetDataFlags() & DataFlags::STRINGBUFFER);
+    EXPECT_FALSE(foo.GetDataFlags() & DataFlags::STRINGBUFFER);
     // First string should be reset, the second should be pointing to the
     // original buffer.
     EXPECT_NE(data, tmp.Data());
@@ -557,8 +558,8 @@ TEST_F(Strings, DependentStrings) {
     auto data = tmp.Data();
     nsCString foo(tmp);
     // Original string should not be shared, copy should be shared.
-    EXPECT_FALSE(tmp.GetDataFlags() & DataFlags::REFCOUNTED);
-    EXPECT_TRUE(foo.GetDataFlags() & DataFlags::REFCOUNTED);
+    EXPECT_FALSE(tmp.GetDataFlags() & DataFlags::STRINGBUFFER);
+    EXPECT_TRUE(foo.GetDataFlags() & DataFlags::STRINGBUFFER);
     // First string should remain the same, the second should be pointing to
     // a new buffer.
     EXPECT_EQ(data, tmp.Data());
@@ -2413,6 +2414,25 @@ TEST_F(Strings, printf) {
 // We don't need these macros following the printf test.
 #undef verify_printf_strings
 #undef create_printf_strings
+
+TEST(String, SpaceshipCompare)
+{
+  nsAutoCString a("A");
+  nsCString b("B");
+  EXPECT_EQ(a <=> a, std::strong_ordering::equal);
+  EXPECT_EQ(a <=> b, std::strong_ordering::less);
+  EXPECT_EQ(b <=> a, std::strong_ordering::greater);
+  EXPECT_EQ(b <=> b, std::strong_ordering::equal);
+
+  nsLiteralCString ab = "AB"_ns;
+  EXPECT_EQ(a <=> ab, std::strong_ordering::less);
+  EXPECT_EQ(b <=> ab, std::strong_ordering::greater);
+
+  a.Append("B");
+  EXPECT_EQ(a <=> a, std::strong_ordering::equal);
+  EXPECT_EQ(a <=> b, std::strong_ordering::less);
+  EXPECT_EQ(a <=> ab, std::strong_ordering::equal);
+}
 
 // Note the five calls in the loop, so divide by 100k
 MOZ_GTEST_BENCH_F(Strings, PerfStripWhitespace, [this] {

@@ -304,7 +304,7 @@ def setup_gecko_profile_from_try_config(config, jobs):
             simpleperf_deps = [
                 "linux64-android-simpleperf-linux-repack",
                 "linux64-samply",
-                "symbolicator-cli",
+                "profiler-node-tools",
             ]
             for dep in simpleperf_deps:
                 if dep not in fetch_toolchains:
@@ -391,7 +391,8 @@ def setup_regression_detector(config, jobs):
 
             base_project = None
             if (
-                config.params.get("try_task_config", {})
+                config.params
+                .get("try_task_config", {})
                 .get("env", {})
                 .get("PERF_BASE_REVISION", None)
                 is not None
@@ -428,6 +429,10 @@ def set_perftest_attributes(config, jobs):
         attributes = job.setdefault("attributes", {})
         attributes["perftest_name"] = job["name"]
         yield job
+
+
+# Restrict most perftest jobs to Ubuntu 24.04, keeping only allowed exceptions on 18.04.
+transforms.add(linux_perf_platform_restrictions.restrict_perftest_to_2404)
 
 
 @transforms.add

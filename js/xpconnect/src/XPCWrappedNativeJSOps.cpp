@@ -4,19 +4,21 @@
 
 /* JavaScript JSClasses and JSOps for our Wrapped Native JS Objects. */
 
-#include "xpcprivate.h"
-#include "xpc_make_class.h"
 #include "mozilla/dom/BindingUtils.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/Preferences.h"
+
+#include <string_view>
+
+#include "xpc_make_class.h"
+#include "xpcprivate.h"
+
 #include "js/CharacterEncoding.h"
 #include "js/Class.h"
 #include "js/Object.h"  // JS::GetClass
 #include "js/Printf.h"
 #include "js/PropertyAndElement.h"  // JS_DefineProperty, JS_DefinePropertyById, JS_GetProperty, JS_GetPropertyById
 #include "js/Symbol.h"
-
-#include <string_view>
 
 using namespace mozilla;
 using namespace JS;
@@ -647,16 +649,12 @@ static bool XPC_WN_NoHelper_Resolve(JSContext* cx, HandleObject obj,
 }
 
 static const JSClassOps XPC_WN_NoHelper_JSClassOps = {
-    XPC_WN_OnlyIWrite_AddPropertyStub,  // addProperty
-    XPC_WN_CannotDeletePropertyStub,    // delProperty
-    XPC_WN_Shared_Enumerate,            // enumerate
-    nullptr,                            // newEnumerate
-    XPC_WN_NoHelper_Resolve,            // resolve
-    nullptr,                            // mayResolve
-    XPC_WN_NoHelper_Finalize,           // finalize
-    nullptr,                            // call
-    nullptr,                            // construct
-    XPCWrappedNative::Trace,            // trace
+    .addProperty = XPC_WN_OnlyIWrite_AddPropertyStub,
+    .delProperty = XPC_WN_CannotDeletePropertyStub,
+    .enumerate = XPC_WN_Shared_Enumerate,
+    .resolve = XPC_WN_NoHelper_Resolve,
+    .finalize = XPC_WN_NoHelper_Finalize,
+    .trace = XPCWrappedNative::Trace,
 };
 
 const js::ClassExtension XPC_WN_JSClassExtension = {
@@ -1122,16 +1120,11 @@ static bool XPC_WN_Proto_Resolve(JSContext* cx, HandleObject obj, HandleId id,
 }
 
 static const JSClassOps XPC_WN_Proto_JSClassOps = {
-    XPC_WN_OnlyIWrite_Proto_AddPropertyStub,  // addProperty
-    XPC_WN_CannotDeletePropertyStub,          // delProperty
-    XPC_WN_Proto_Enumerate,                   // enumerate
-    nullptr,                                  // newEnumerate
-    XPC_WN_Proto_Resolve,                     // resolve
-    nullptr,                                  // mayResolve
-    XPC_WN_Proto_Finalize,                    // finalize
-    nullptr,                                  // call
-    nullptr,                                  // construct
-    nullptr,                                  // trace
+    .addProperty = XPC_WN_OnlyIWrite_Proto_AddPropertyStub,
+    .delProperty = XPC_WN_CannotDeletePropertyStub,
+    .enumerate = XPC_WN_Proto_Enumerate,
+    .resolve = XPC_WN_Proto_Resolve,
+    .finalize = XPC_WN_Proto_Finalize,
 };
 
 static const js::ClassExtension XPC_WN_Proto_ClassExtension = {
@@ -1210,16 +1203,11 @@ static size_t XPC_WN_TearOff_ObjectMoved(JSObject* obj, JSObject* old) {
 }
 
 static const JSClassOps XPC_WN_Tearoff_JSClassOps = {
-    XPC_WN_OnlyIWrite_AddPropertyStub,  // addProperty
-    XPC_WN_CannotDeletePropertyStub,    // delProperty
-    XPC_WN_TearOff_Enumerate,           // enumerate
-    nullptr,                            // newEnumerate
-    XPC_WN_TearOff_Resolve,             // resolve
-    nullptr,                            // mayResolve
-    XPC_WN_TearOff_Finalize,            // finalize
-    nullptr,                            // call
-    nullptr,                            // construct
-    nullptr,                            // trace
+    .addProperty = XPC_WN_OnlyIWrite_AddPropertyStub,
+    .delProperty = XPC_WN_CannotDeletePropertyStub,
+    .enumerate = XPC_WN_TearOff_Enumerate,
+    .resolve = XPC_WN_TearOff_Resolve,
+    .finalize = XPC_WN_TearOff_Finalize,
 };
 
 static const js::ClassExtension XPC_WN_Tearoff_JSClassExtension = {

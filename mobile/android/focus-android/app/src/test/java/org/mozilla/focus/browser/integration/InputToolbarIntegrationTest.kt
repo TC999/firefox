@@ -5,13 +5,13 @@
 package org.mozilla.focus.browser.integration
 
 import android.view.View
+import kotlin.test.assertNotNull
 import kotlinx.coroutines.isActive
 import mozilla.components.browser.toolbar.BrowserToolbar
 import mozilla.components.support.test.mock
 import mozilla.components.support.test.robolectric.testContext
 import mozilla.components.support.test.whenever
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -30,11 +30,9 @@ import org.robolectric.RobolectricTestRunner
 class InputToolbarIntegrationTest {
     private lateinit var toolbar: BrowserToolbar
 
-    @Mock
-    private lateinit var fragment: UrlInputFragment
+    @Mock private lateinit var fragment: UrlInputFragment
 
-    @Mock
-    private lateinit var fragmentView: View
+    @Mock private lateinit var fragmentView: View
 
     private lateinit var inputToolbarIntegration: InputToolbarIntegration
 
@@ -49,12 +47,13 @@ class InputToolbarIntegrationTest {
         whenever(fragment.context).thenReturn(testContext)
         whenever(fragment.view).thenReturn(fragmentView)
 
-        inputToolbarIntegration = InputToolbarIntegration(
-            toolbar,
-            fragment,
-            mock(),
-            mock(),
-        )
+        inputToolbarIntegration =
+            InputToolbarIntegration(
+                toolbar,
+                fragment,
+                mock(),
+                mock(),
+            )
     }
 
     @Test

@@ -128,7 +128,7 @@ nsXHTMLContentSerializer::AppendText(Text* aText, int32_t aStartOffset,
                    NS_ERROR_OUT_OF_MEMORY);
   } else {
     int32_t lastNewlineOffset = kNotFound;
-    if (HasLongLines(data, lastNewlineOffset)) {
+    if (mAllowLineBreaking && HasLongLines(data, lastNewlineOffset)) {
       // We have long lines, rewrap
       mDoWrap = true;
       bool result = AppendToStringWrapped(data, *mOutput);
@@ -271,7 +271,7 @@ bool nsXHTMLContentSerializer::SerializeAttributes(
             nsAutoString absURI;
             rv = NS_MakeAbsoluteURI(absURI, valueStr, uri);
             if (NS_SUCCEEDED(rv)) {
-              valueStr = absURI;
+              valueStr = std::move(absURI);
             }
           }
         }
@@ -541,6 +541,7 @@ bool nsXHTMLContentSerializer::LineBreakBeforeOpen(int32_t aNamespaceID,
     return true;
   }
 
+  // FIXME: If all callers can use NodeInfo, we can use NodeInfo::HTMLTag().
   return nsHTMLElement::IsBlock(nsHTMLTags::CaseSensitiveAtomTagToId(aName));
 }
 
@@ -596,6 +597,7 @@ bool nsXHTMLContentSerializer::LineBreakAfterClose(int32_t aNamespaceID,
     return true;
   }
 
+  // FIXME: If all callers can use NodeInfo, we can use NodeInfo::HTMLTag().
   return nsHTMLElement::IsBlock(nsHTMLTags::CaseSensitiveAtomTagToId(aName));
 }
 

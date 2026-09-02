@@ -49,14 +49,32 @@ struct TestWebrtcGmpVideoEncoder : public Test {
     ASSERT_TRUE(mGmpThread);
   }
 
-  void TearDown() override { mEncoder = nullptr; }
+  // Dropping the last RefPtr does not destroy the encoder: it and
+  // GMPVideoEncoderParent hold refs on each other, and only Shutdown() breaks
+  // that cycle. Shutdown() also clears the encode-complete callback. The mock
+  // it points at died with the test body, so the pointer would otherwise stay
+  // dangling for the rest of the process.
+  void TearDown() override {
+    mEncoder->Shutdown();
+    mEncoder = nullptr;
+  }
+
+  // Connect before starting the init: MediaEventSource does not replay, and a
+  // warm plugin finishes the init on the GMP thread before this thread would
+  // get a chance to subscribe.
+  void InitEncodeAndWait() {
+    auto init = TakeN(*mEncoder->InitPluginEvent(), 1);
+    EXPECT_EQ(mEncoder->InitEncode(&mCodecSettings, mSettings),
+              WEBRTC_VIDEO_CODEC_OK);
+    (void)WaitFor(init);
+  }
 };
 
 struct MockEncodedImageCallback : public webrtc::EncodedImageCallback {
   MOCK_METHOD(Result, OnEncodedImage,
               (const webrtc::EncodedImage&, const webrtc::CodecSpecificInfo*),
               (override));
-  MOCK_METHOD(void, OnDroppedFrame, (DropReason), (override));
+  MOCK_METHOD(void, OnFrameDropped, (uint32_t, int, bool), (override));
 };
 
 auto CreateBlackFrame(int width, int height) {
@@ -67,15 +85,11 @@ auto CreateBlackFrame(int width, int height) {
 
 TEST_F(TestWebrtcGmpVideoEncoder, EmptyLifecycle) {}
 
-TEST_F(TestWebrtcGmpVideoEncoder, InitEncode) {
-  mEncoder->InitEncode(&mCodecSettings, mSettings);
-  WaitFor(*mEncoder->InitPluginEvent());
-}
+TEST_F(TestWebrtcGmpVideoEncoder, InitEncode) { InitEncodeAndWait(); }
 
 TEST_F(TestWebrtcGmpVideoEncoder, Encode) {
   using Result = webrtc::EncodedImageCallback::Result;
-  mEncoder->InitEncode(&mCodecSettings, mSettings);
-  WaitFor(*mEncoder->InitPluginEvent());
+  InitEncodeAndWait();
 
   MozPromiseHolder<GenericPromise> doneHolder;
   RefPtr donePromise = doneHolder.Ensure(__func__);
@@ -105,8 +119,7 @@ TEST_F(TestWebrtcGmpVideoEncoder, Encode) {
 
 TEST_F(TestWebrtcGmpVideoEncoder, BackPressure) {
   using Result = webrtc::EncodedImageCallback::Result;
-  mEncoder->InitEncode(&mCodecSettings, mSettings);
-  WaitFor(*mEncoder->InitPluginEvent());
+  InitEncodeAndWait();
 
   MozPromiseHolder<GenericPromise> doneHolder;
   RefPtr donePromise = doneHolder.Ensure(__func__);
@@ -134,9 +147,8 @@ TEST_F(TestWebrtcGmpVideoEncoder, BackPressure) {
         countIteration();
         return Result(Result::OK);
       });
-  EXPECT_CALL(
-      callback,
-      OnDroppedFrame(MockEncodedImageCallback::DropReason::kDroppedByEncoder))
+  EXPECT_CALL(callback, OnFrameDropped(_, /* spatial_id = */ 0,
+                                       /* is_end_of_temporal_unit = */ true))
       .Times(AtLeast(iterations / 10))
       .WillRepeatedly(countIteration);
   mEncoder->RegisterEncodeCompleteCallback(&callback);
@@ -164,8 +176,7 @@ TEST_F(TestWebrtcGmpVideoEncoder, BackPressure) {
 
 TEST_F(TestWebrtcGmpVideoEncoder, ReUse) {
   using Result = webrtc::EncodedImageCallback::Result;
-  mEncoder->InitEncode(&mCodecSettings, mSettings);
-  WaitFor(*mEncoder->InitPluginEvent());
+  InitEncodeAndWait();
 
   MozPromiseHolder<GenericPromise> doneHolder;
   RefPtr donePromise = doneHolder.Ensure(__func__);
@@ -210,8 +221,7 @@ TEST_F(TestWebrtcGmpVideoEncoder, ReUse) {
     block = false;
     lock.Notify();
   }
-  mEncoder->InitEncode(&mCodecSettings, mSettings);
-  WaitFor(*mEncoder->InitPluginEvent());
+  InitEncodeAndWait();
   mEncoder->RegisterEncodeCompleteCallback(&callback);
 
   EXPECT_EQ(
@@ -231,8 +241,7 @@ TEST_F(TestWebrtcGmpVideoEncoder, TrackedFrameDrops) {
   // telling us. It will drop every fifth input frame. This shall get tracked
   // as frame drops.
   mCodecSettings.SetFrameDropEnabled(true);
-  mEncoder->InitEncode(&mCodecSettings, mSettings);
-  WaitFor(*mEncoder->InitPluginEvent());
+  InitEncodeAndWait();
 
   Monitor m(__func__);
   size_t numEvents = 0;
@@ -248,9 +257,8 @@ TEST_F(TestWebrtcGmpVideoEncoder, TrackedFrameDrops) {
       handleEvent();
       return Result(Result::OK);
     });
-    EXPECT_CALL(
-        callback,
-        OnDroppedFrame(MockEncodedImageCallback::DropReason::kDroppedByEncoder))
+    EXPECT_CALL(callback, OnFrameDropped(_, /* spatial_id = */ 0,
+                                         /* is_end_of_temporal_unit = */ true))
         .WillOnce(handleEvent);
   }
   mEncoder->RegisterEncodeCompleteCallback(&callback);
@@ -272,5 +280,143 @@ TEST_F(TestWebrtcGmpVideoEncoder, TrackedFrameDrops) {
       lock.Wait();
     }
   }
+}
+
+static void ExpectStrippedBytes(const nsTArray<uint8_t>& aActual,
+                                std::initializer_list<uint8_t> aExpected) {
+  ASSERT_EQ(aActual.Length(), aExpected.size());
+  size_t i = 0;
+  for (uint8_t expected : aExpected) {
+    EXPECT_EQ(aActual[i], expected) << "mismatch at byte " << i;
+    ++i;
+  }
+}
+
+// AUD first, then an IDR that uses a 3-byte start code. The AUD is removed and
+// the now-first NALU is normalized to a 4-byte start code so the GMP packaging
+// stays valid.
+TEST(TestWebrtcAudStrip, AudFirstThreeByteIdr)
+{
+  const uint8_t input[] = {
+      0, 0, 0, 1,    0x09, 0x10,  // AUD, 4-byte start code
+      0, 0, 1, 0x65, 0xAA, 0xBB,  // IDR slice, 3-byte start code
+  };
+  nsTArray<uint8_t> out;
+  EXPECT_TRUE(StripH264AccessUnitDelimiters(input, sizeof(input), out));
+  ExpectStrippedBytes(out, {0, 0, 0, 1, 0x65, 0xAA, 0xBB});
+}
+
+// AUD last, as GeForce NOW sends it. The trailing AUD is removed; the leading
+// NALUs keep their original start codes.
+TEST(TestWebrtcAudStrip, AudLast)
+{
+  const uint8_t input[] = {
+      0, 0, 0, 1,    0x67, 0x21, 0x22,  // SPS, 4-byte start code
+      0, 0, 1, 0x68, 0x23,              // PPS, 3-byte start code
+      0, 0, 1, 0x65, 0x24, 0x25,        // IDR, 3-byte start code
+      0, 0, 1, 0x09, 0x10,              // AUD, 3-byte start code
+  };
+  nsTArray<uint8_t> out;
+  EXPECT_TRUE(StripH264AccessUnitDelimiters(input, sizeof(input), out));
+  ExpectStrippedBytes(out, {
+                               0,
+                               0,
+                               0,
+                               1,
+                               0x67,
+                               0x21,
+                               0x22,  // SPS
+                               0,
+                               0,
+                               1,
+                               0x68,
+                               0x23,  // PPS
+                               0,
+                               0,
+                               1,
+                               0x65,
+                               0x24,
+                               0x25,  // IDR
+                           });
+}
+
+// Only an AUD present: the helper yields an empty buffer, which Decode_g treats
+// as a benign frame drop.
+TEST(TestWebrtcAudStrip, AudOnly)
+{
+  const uint8_t input[] = {0, 0, 0, 1, 0x09, 0x10};
+  nsTArray<uint8_t> out;
+  EXPECT_TRUE(StripH264AccessUnitDelimiters(input, sizeof(input), out));
+  EXPECT_TRUE(out.IsEmpty());
+}
+
+// A trailing (empty) start code must not cause an out-of-bounds read.
+TEST(TestWebrtcAudStrip, AudPlusTrailingEmptyStartCode)
+{
+  const uint8_t input[] = {
+      0, 0, 0, 1,    0x41, 0x26,  // non-IDR slice, 4-byte start code
+      0, 0, 1, 0x09, 0x10,        // AUD, 3-byte start code
+      0, 0, 1,                    // trailing start code, no payload
+  };
+  nsTArray<uint8_t> out;
+  EXPECT_TRUE(StripH264AccessUnitDelimiters(input, sizeof(input), out));
+  ExpectStrippedBytes(out, {0, 0, 0, 1, 0x41, 0x26});
+}
+
+// No AUD: returns false and leaves the output empty, avoiding a copy.
+TEST(TestWebrtcAudStrip, NoAud)
+{
+  const uint8_t input[] = {
+      0, 0, 0, 1,    0x67, 0x21,  // SPS
+      0, 0, 1, 0x65, 0x24,        // IDR
+  };
+  nsTArray<uint8_t> out;
+  EXPECT_FALSE(StripH264AccessUnitDelimiters(input, sizeof(input), out));
+  EXPECT_TRUE(out.IsEmpty());
+}
+
+// No AUD, plus a trailing empty start code: exercises the empty-NALU guard in
+// the initial scan loop (the AUD-present cases stop scanning before reaching
+// it).
+TEST(TestWebrtcAudStrip, NoAudTrailingEmptyStartCode)
+{
+  const uint8_t input[] = {
+      0, 0, 0, 1, 0x41, 0x26,  // non-IDR slice, 4-byte start code
+      0, 0, 1,                 // trailing start code, no payload
+  };
+  nsTArray<uint8_t> out;
+  EXPECT_FALSE(StripH264AccessUnitDelimiters(input, sizeof(input), out));
+  EXPECT_TRUE(out.IsEmpty());
+}
+
+// AUD first plus SPS/PPS/slice: all non-AUD NALUs are preserved in order.
+TEST(TestWebrtcAudStrip, AudFirstPreservesOtherNalus)
+{
+  const uint8_t input[] = {
+      0, 0, 0, 1,    0x09, 0x10,  // AUD, 4-byte start code
+      0, 0, 0, 1,    0x67, 0x21,  // SPS, 4-byte start code
+      0, 0, 1, 0x68, 0x23,        // PPS, 3-byte start code
+      0, 0, 1, 0x65, 0x24,        // IDR, 3-byte start code
+  };
+  nsTArray<uint8_t> out;
+  EXPECT_TRUE(StripH264AccessUnitDelimiters(input, sizeof(input), out));
+  ExpectStrippedBytes(out, {
+                               0,
+                               0,
+                               0,
+                               1,
+                               0x67,
+                               0x21,  // SPS
+                               0,
+                               0,
+                               1,
+                               0x68,
+                               0x23,  // PPS
+                               0,
+                               0,
+                               1,
+                               0x65,
+                               0x24,  // IDR
+                           });
 }
 }  // namespace mozilla

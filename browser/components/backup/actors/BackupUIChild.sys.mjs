@@ -2,6 +2,17 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+const lazy = {};
+
+ChromeUtils.defineLazyGetter(lazy, "logConsole", function () {
+  return console.createInstance({
+    prefix: "BackupUIChild",
+    maxLogLevel: Services.prefs.getBoolPref("browser.backup.log", false)
+      ? "Debug"
+      : "Warn",
+  });
+});
+
 /**
  * A JSWindowActor that is responsible for marshalling information between
  * the BackupService singleton and any registered UI widgets that need to
@@ -11,6 +22,25 @@
  */
 export class BackupUIChild extends JSWindowActorChild {
   #inittedWidgets = new WeakSet();
+
+  /**
+   * Finds the first connected widget matching the given node name.
+   *
+   * @param {string} nodeName
+   *   The uppercase node name to match (e.g. "BACKUP-SETTINGS").
+   * @returns {Element|null}
+   */
+  #findWidget(nodeName) {
+    let widgets = ChromeUtils.nondeterministicGetWeakSetKeys(
+      this.#inittedWidgets
+    );
+    for (let widget of widgets) {
+      if (widget.isConnected && widget.nodeName == nodeName) {
+        return widget;
+      }
+    }
+    return null;
+  }
 
   /**
    * Handles custom events fired by widgets that want to register with
@@ -61,43 +91,32 @@ export class BackupUIChild extends JSWindowActorChild {
         win: event.detail?.win,
         filter: event.detail?.filter,
         existingBackupPath: event.detail?.existingBackupPath,
+        alsoDeleteLastBackup: event.detail?.alsoDeleteLastBackup,
       });
 
-      let widgets = ChromeUtils.nondeterministicGetWeakSetKeys(
-        this.#inittedWidgets
-      );
-
-      for (let widget of widgets) {
-        if (widget.isConnected && widget.nodeName == targetNodeName) {
-          const win = widget.ownerGlobal;
-          // Using Cu.cloneInto here allows us to embed components that use this event
-          // in non-parent-processes such as about:welcome
-          const detail = Cu.cloneInto({ path, filename, iconURL }, win, {
-            wrapReflectors: true,
-          });
-          const event = new win.CustomEvent(
-            "BackupUI:SelectNewFilepickerPath",
-            {
-              bubbles: true,
-              composed: true,
-              detail,
-            }
-          );
-          widget.dispatchEvent(event);
-          break;
-        }
+      let widget = this.#findWidget(targetNodeName);
+      if (widget) {
+        const win = widget.documentGlobal;
+        // Using Cu.cloneInto here allows us to embed components that use this event
+        // in non-parent-processes such as about:welcome
+        const detail = Cu.cloneInto({ path, filename, iconURL }, win, {
+          wrapReflectors: true,
+        });
+        const evt = new win.CustomEvent("BackupUI:SelectNewFilepickerPath", {
+          bubbles: true,
+          composed: true,
+          detail,
+        });
+        widget.dispatchEvent(evt);
       }
     } else if (event.type == "BackupUI:GetBackupFileInfo") {
-      let { backupFile } = event.detail;
-      this.sendAsyncMessage("GetBackupFileInfo", {
-        backupFile,
-      });
+      this.sendAsyncMessage("GetBackupFileInfo");
     } else if (event.type == "BackupUI:RestoreFromBackupFile") {
-      let { backupFile, backupPassword, restoreType } = event.detail;
+      let { backupPassword, restoreType, source } = event.detail;
       let result = await this.sendQuery("RestoreFromBackupFile", {
-        backupFile,
         backupPassword,
         restoreType,
+        source,
       });
 
       if (result.success) {
@@ -128,14 +147,52 @@ export class BackupUIChild extends JSWindowActorChild {
       }
     } else if (event.type == "BackupUI:ShowBackupLocation") {
       this.sendAsyncMessage("ShowBackupLocation");
-    } else if (event.type == "BackupUI:EditBackupLocation") {
-      this.sendAsyncMessage("EditBackupLocation", event.detail);
     } else if (event.type == "BackupUI:SetEmbeddedComponentPersistentData") {
       this.sendAsyncMessage("SetEmbeddedComponentPersistentData", event.detail);
     } else if (event.type == "BackupUI:FlushEmbeddedComponentPersistentData") {
       this.sendAsyncMessage("FlushEmbeddedComponentPersistentData");
     } else if (event.type == "BackupUI:ErrorBarDismissed") {
       this.sendAsyncMessage("ErrorBarDismissed");
+    } else if (event.type == "BackupUI:FindBackupsInWellKnownLocations") {
+      this.sendAsyncMessage("FindBackupsInWellKnownLocations", event.detail);
+    } else if (event.type == "BackupUI:ProbeDefaultBackupDir") {
+      let targetNodeName = event.composedTarget.nodeName;
+      let readAccessGranted = false;
+      try {
+        ({ readAccessGranted } = await this.sendQuery("ProbeDefaultBackupDir"));
+      } catch (e) {
+        lazy.logConsole.error("ProbeDefaultBackupDir failed:", e);
+      }
+
+      let widget = this.#findWidget(targetNodeName);
+      if (widget) {
+        const win = widget.documentGlobal;
+        const detail = Cu.cloneInto({ readAccessGranted }, win, {
+          wrapReflectors: true,
+        });
+        widget.dispatchEvent(
+          new win.CustomEvent("BackupUI:DefaultDirProbeResult", {
+            bubbles: false,
+            detail,
+          })
+        );
+      }
+    } else if (event.type == "BackupUI:PrepareRestoreDialog") {
+      let targetNodeName = event.composedTarget.nodeName;
+      try {
+        await this.sendQuery("PrepareRestoreDialog", event.detail);
+      } catch (e) {
+        lazy.logConsole.error("PrepareRestoreDialog failed:", e);
+      }
+
+      let widget = this.#findWidget(targetNodeName);
+      if (widget) {
+        widget.dispatchEvent(
+          new widget.documentGlobal.CustomEvent("BackupUI:RestoreDialogReady", {
+            bubbles: false,
+          })
+        );
+      }
     }
   }
 
@@ -151,11 +208,11 @@ export class BackupUIChild extends JSWindowActorChild {
         this.#inittedWidgets
       );
       for (let widget of widgets) {
-        if (!widget.isConnected || !widget.ownerGlobal) {
+        if (!widget.isConnected || !widget.documentGlobal) {
           continue;
         }
 
-        const state = Cu.cloneInto(message.data.state, widget.ownerGlobal);
+        const state = Cu.cloneInto(message.data.state, widget.documentGlobal);
 
         const waivedWidget = Cu.waiveXrays(widget);
         waivedWidget.backupServiceState = state;

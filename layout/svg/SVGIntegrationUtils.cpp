@@ -366,7 +366,7 @@ nsRect SVGIntegrationUtils::ComputePostEffectsInkOverflowRect(
   }
 
   // Return overflowRect relative to aFrame, rather than "user space":
-  return overflowRect.value() -
+  return *overflowRect -
          (aFrame->GetOffsetTo(firstFrame) + firstFrameToBoundingBox);
 }
 
@@ -517,8 +517,7 @@ static MaskPaintResult CreateAndPaintMaskSurface(
         ctx.GetDrawTarget(), aParams.frame, cssPxToDevPxMatrix, aOpacity,
         svgReset->mMask.mLayers[0].mMaskMode, aParams.imgParams);
     paintResult.maskSurface = aMaskFrames[0]->GetMaskForMaskedFrame(params);
-    paintResult.maskTransform = ctx.CurrentMatrix();
-    paintResult.maskTransform.Invert();
+    paintResult.maskTransform = ctx.CurrentMatrix().Inverse();
     if (!paintResult.maskSurface) {
       paintResult.transparentBlackMask = true;
     }
@@ -528,7 +527,7 @@ static MaskPaintResult CreateAndPaintMaskSurface(
 
   const LayoutDeviceRect& maskSurfaceRect =
       aParams.maskRect.valueOr(LayoutDeviceRect());
-  if (aParams.maskRect.isSome() && maskSurfaceRect.IsEmpty()) {
+  if (aParams.maskRect && maskSurfaceRect.IsEmpty()) {
     // XXX: Is this ever true?
     paintResult.transparentBlackMask = true;
     return paintResult;
@@ -829,8 +828,7 @@ void PaintMaskAndClipPathInternal(const PaintFramesParams& aParams,
     if (shouldPushMask) {
       // We want the mask to be untransformed so use the inverse of the
       // current transform as the maskTransform to compensate.
-      Matrix maskTransform = context.CurrentMatrix();
-      maskTransform.Invert();
+      Matrix maskTransform = context.CurrentMatrix().Inverse();
 
       autoGroupForBlend.PushGroupForBlendBack(
           gfxContentType::COLOR_ALPHA,
@@ -1006,7 +1004,8 @@ WrFiltersStatus SVGIntegrationUtils::CreateWebRenderCSSFilters(
             aFrame->PresContext()->AppUnitsPerDevPixel();
         float radius = NSAppUnitsToFloatPixels(filter.AsBlur().ToAppUnits(),
                                                appUnitsPerDevPixel);
-        wrFilters.AppendElement(wr::FilterOp::Blur(radius, radius));
+        wrFilters.AppendElement(
+            wr::FilterOp::Blur(radius, radius, /* should_inflate */ true));
         break;
       }
       case StyleFilter::Tag::DropShadow: {
@@ -1097,7 +1096,8 @@ bool PaintFrameCallback::operator()(gfxContext* aContext,
                                     const gfxRect& aFillRect,
                                     const SamplingFilter aSamplingFilter,
                                     const gfxMatrix& aTransform) {
-  if (mFrame->HasAnyStateBits(NS_FRAME_DRAWING_AS_PAINTSERVER)) {
+  if (mFrame->HasAnyStateBits(NS_FRAME_DRAWING_AS_PAINTSERVER) ||
+      aTransform.IsSingular()) {
     return false;
   }
 
@@ -1108,11 +1108,7 @@ bool PaintFrameCallback::operator()(gfxContext* aContext,
   // Clip to aFillRect so that we don't paint outside.
   aContext->Clip(aFillRect);
 
-  gfxMatrix invmatrix = aTransform;
-  if (!invmatrix.Invert()) {
-    return false;
-  }
-  aContext->Multiply(invmatrix);
+  aContext->Multiply(aTransform.Inverse());
 
   // nsLayoutUtils::PaintFrame will anchor its painting at mFrame. But we want
   // to have it anchored at the top left corner of the bounding box of all of
@@ -1185,7 +1181,8 @@ already_AddRefed<gfxDrawable> SVGIntegrationUtils::DrawableFromPaintServer(
                            aPaintServerSize.height);
     overrideBounds.Scale(1.0 / aFrame->PresContext()->AppUnitsPerDevPixel());
     uint32_t imgFlags = imgIContainer::FLAG_ASYNC_NOTIFY;
-    if (aFlags.contains(DecodeFlag::SyncDecodeImages)) {
+    if (aFlags.contains(DecodeFlag::SyncDecodeImages) ||
+        aFrame->UsedImageDecoding() == StyleImageDecoding::Sync) {
       imgFlags |= imgIContainer::FLAG_SYNC_DECODE;
     }
     imgDrawingParams imgParams(imgFlags);
@@ -1206,7 +1203,7 @@ already_AddRefed<gfxDrawable> SVGIntegrationUtils::DrawableFromPaintServer(
     gfxFloat scaleY = overrideBounds.Height() / aRenderSize.height;
     gfxMatrix scaleMatrix = gfxMatrix::Scaling(scaleX, scaleY);
     pattern->SetMatrix(scaleMatrix * pattern->GetMatrix());
-    return do_AddRef(new gfxPatternDrawable(pattern, aRenderSize));
+    return MakeAndAddRef<gfxPatternDrawable>(pattern, aRenderSize);
   }
 
   if (aFrame->IsSVGFrame() &&
@@ -1219,9 +1216,9 @@ already_AddRefed<gfxDrawable> SVGIntegrationUtils::DrawableFromPaintServer(
 
   // We don't want to paint into a surface as long as we don't need to, so we
   // set up a drawing callback.
-  RefPtr<gfxDrawingCallback> cb =
-      new PaintFrameCallback(aFrame, aPaintServerSize, aRenderSize, aFlags);
-  return do_AddRef(new gfxCallbackDrawable(cb, aRenderSize));
+  auto cb = MakeRefPtr<PaintFrameCallback>(aFrame, aPaintServerSize,
+                                           aRenderSize, aFlags);
+  return MakeAndAddRef<gfxCallbackDrawable>(cb, aRenderSize);
 }
 
 }  // namespace mozilla

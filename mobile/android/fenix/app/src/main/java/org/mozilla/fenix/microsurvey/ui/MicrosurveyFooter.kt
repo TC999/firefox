@@ -17,11 +17,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import mozilla.components.compose.base.LinkText
+import mozilla.components.compose.base.LinkTextState
 import mozilla.components.compose.base.annotation.FlexibleWindowLightDarkPreview
 import mozilla.components.compose.base.button.FilledButton
 import org.mozilla.fenix.R
-import org.mozilla.fenix.compose.LinkText
-import org.mozilla.fenix.compose.LinkTextState
 import org.mozilla.fenix.theme.FirefoxTheme
 
 /**
@@ -56,13 +56,14 @@ fun MicrosurveyFooter(
 
         LinkText(
             text = stringResource(id = R.string.micro_survey_privacy_notice_2),
-            linkTextStates = listOf(
-                LinkTextState(
-                    text = stringResource(id = R.string.micro_survey_privacy_notice_2),
-                    url = "",
-                    onClick = { onPrivacyPolicyLinkClick() },
+            linkTextStates =
+                listOf(
+                    LinkTextState(
+                        text = stringResource(id = R.string.micro_survey_privacy_notice_2),
+                        url = "",
+                        onClick = { onPrivacyPolicyLinkClick() },
+                    )
                 ),
-            ),
             style = FirefoxTheme.typography.caption,
             linkTextDecoration = TextDecoration.Underline,
         )

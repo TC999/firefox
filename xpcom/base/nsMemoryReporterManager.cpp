@@ -4,38 +4,39 @@
 
 #include "nsMemoryReporterManager.h"
 
+#include "GeckoProfilerReporter.h"
 #include "nsAtomTable.h"
-#include "nsCOMPtr.h"
 #include "nsCOMArray.h"
+#include "nsCOMPtr.h"
+#include "nsIGlobalObject.h"
+#include "nsIOService.h"
+#include "nsIObserverService.h"
+#include "nsITimer.h"
+#include "nsIXPConnect.h"
+#include "nsPIDOMWindow.h"
 #include "nsPrintfCString.h"
 #include "nsProxyRelease.h"
 #include "nsServiceManagerUtils.h"
-#include "nsITimer.h"
 #include "nsThreadManager.h"
 #include "nsThreadUtils.h"
-#include "nsPIDOMWindow.h"
-#include "nsIObserverService.h"
-#include "nsIOService.h"
-#include "nsIGlobalObject.h"
-#include "nsIXPConnect.h"
-#include "GeckoProfilerReporter.h"
 #if defined(XP_UNIX) || defined(MOZ_DMD)
 #  include "nsMemoryInfoDumper.h"
 #endif
-#include "nsNetCID.h"
-#include "nsThread.h"
 #include "VRProcessManager.h"
 #include "mozilla/MemoryReportingProcess.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/RDDProcessManager.h"
 #include "mozilla/Services.h"
-#include "mozilla/glean/XpcomMetrics.h"
+#include "mozilla/StaticPrefs_memory.h"
 #include "mozilla/UniquePtrExtensions.h"
-#include "mozilla/dom/MemoryReportTypes.h"
 #include "mozilla/dom/ContentParent.h"
+#include "mozilla/dom/MemoryReportTypes.h"
 #include "mozilla/gfx/GPUProcessManager.h"
-#include "mozilla/ipc/UtilityProcessManager.h"
+#include "mozilla/glean/XpcomMetrics.h"
 #include "mozilla/ipc/FileDescriptorUtils.h"
+#include "mozilla/ipc/UtilityProcessManager.h"
+#include "nsNetCID.h"
+#include "nsThread.h"
 #ifdef MOZ_PHC
 #  include "PHC.h"
 #endif
@@ -46,9 +47,9 @@
 #endif
 
 #ifdef XP_WIN
-#  include "mozilla/MemoryInfo.h"
-
 #  include <process.h>
+
+#  include "mozilla/MemoryInfo.h"
 #  ifndef getpid
 #    define getpid _getpid
 #  endif
@@ -62,11 +63,11 @@ using namespace dom;
 
 #if defined(XP_LINUX)
 
-#  include "mozilla/MemoryMapping.h"
-
 #  include <malloc.h>
-#  include <string.h>
 #  include <stdlib.h>
+#  include <string.h>
+
+#  include "mozilla/MemoryMapping.h"
 
 [[nodiscard]] static nsresult GetProcSelfStatmField(int aField, int64_t* aN) {
   // There are more than two fields, but we're only interested in the first
@@ -231,6 +232,7 @@ using namespace dom;
 
 #  ifdef __FreeBSD__
 #    include <libutil.h>
+
 #    include <algorithm>
 
 [[nodiscard]] static nsresult GetKinfoVmentrySelf(int64_t* aPrss,
@@ -285,8 +287,8 @@ using namespace dom;
 
 #elif defined(SOLARIS)
 
-#  include <procfs.h>
 #  include <fcntl.h>
+#  include <procfs.h>
 #  include <unistd.h>
 
 static void XMappingIter(int64_t& aVsize, int64_t& aResident,
@@ -469,7 +471,7 @@ static bool InSharedRegion(mach_vm_address_t aAddr, cpu_type_t aType) {
 
   cpu_type_t cpu_type;
   size_t len = sizeof(cpu_type);
-  if (sysctlbyname("sysctl.proc_cputype", &cpu_type, &len, NULL, 0) != 0) {
+  if (sysctlbyname("sysctl.proc_cputype", &cpu_type, &len, nullptr, 0) != 0) {
     return NS_ERROR_FAILURE;
   }
 
@@ -573,8 +575,9 @@ static bool InSharedRegion(mach_vm_address_t aAddr, cpu_type_t aType) {
 
 #elif defined(XP_WIN)
 
-#  include <windows.h>
 #  include <psapi.h>
+#  include <windows.h>
+
 #  include <algorithm>
 
 #  include "nsTHashMap.h"
@@ -741,10 +744,7 @@ struct SegmentKind {
     return mozilla::HashGeneric(mState, mType, mProtect, mIsStack);
   }
 
-  bool operator==(const SegmentKind& aOther) const {
-    return mState == aOther.mState && mType == aOther.mType &&
-           mProtect == aOther.mProtect && mIsStack == aOther.mIsStack;
-  }
+  bool operator==(const SegmentKind& aOther) const = default;
 };
 
 struct SegmentStats {
@@ -753,7 +753,7 @@ struct SegmentStats {
 };
 
 class WindowsAddressSpaceReporter final : public nsIMemoryReporter {
-  ~WindowsAddressSpaceReporter() {}
+  ~WindowsAddressSpaceReporter() = default;
 
  public:
   NS_DECL_ISUPPORTS
@@ -923,7 +923,7 @@ NS_IMPL_ISUPPORTS(WindowsAddressSpaceReporter, nsIMemoryReporter)
 
 #ifdef HAVE_VSIZE_MAX_CONTIGUOUS_REPORTER
 class VsizeMaxContiguousReporter final : public nsIMemoryReporter {
-  ~VsizeMaxContiguousReporter() {}
+  ~VsizeMaxContiguousReporter() = default;
 
  public:
   NS_DECL_ISUPPORTS
@@ -944,7 +944,7 @@ NS_IMPL_ISUPPORTS(VsizeMaxContiguousReporter, nsIMemoryReporter)
 
 #ifdef HAVE_PRIVATE_REPORTER
 class PrivateReporter final : public nsIMemoryReporter {
-  ~PrivateReporter() {}
+  ~PrivateReporter() = default;
 
  public:
   NS_DECL_ISUPPORTS
@@ -1965,8 +1965,8 @@ nsresult nsMemoryReporterManager::StartGettingReports() {
   if (!s->mChildrenPending.IsEmpty()) {
     nsCOMPtr<nsITimer> timer;
     rv = NS_NewTimerWithFuncCallback(
-        getter_AddRefs(timer), TimeoutCallback, this, kTimeoutLengthMS,
-        nsITimer::TYPE_ONE_SHOT,
+        getter_AddRefs(timer), TimeoutCallback, this,
+        StaticPrefs::memory_reporter_timeout(), nsITimer::TYPE_ONE_SHOT,
         "nsMemoryReporterManager::StartGettingReports"_ns);
     if (NS_WARN_IF(NS_FAILED(rv))) {
       FinishReporting();
@@ -2797,8 +2797,7 @@ class MinimizeMemoryUsageRunnable : public Runnable {
 
 NS_IMETHODIMP
 nsMemoryReporterManager::MinimizeMemoryUsage(nsIRunnable* aCallback) {
-  RefPtr<MinimizeMemoryUsageRunnable> runnable =
-      new MinimizeMemoryUsageRunnable(aCallback);
+  RefPtr runnable = MakeRefPtr<MinimizeMemoryUsageRunnable>(aCallback);
 
   return NS_DispatchToMainThread(runnable);
 }
@@ -2868,17 +2867,15 @@ namespace mozilla {
     return NS_ERROR_FAILURE;                  \
   }
 
-nsresult RegisterStrongMemoryReporter(nsIMemoryReporter* aReporter) {
-  // Hold a strong reference to the argument to make sure it gets released if
-  // we return early below.
+nsresult RegisterStrongMemoryReporter(
+    already_AddRefed<nsIMemoryReporter> aReporter) {
   nsCOMPtr<nsIMemoryReporter> reporter = aReporter;
   GET_MEMORY_REPORTER_MANAGER(mgr)
   return mgr->RegisterStrongReporter(reporter);
 }
 
-nsresult RegisterStrongAsyncMemoryReporter(nsIMemoryReporter* aReporter) {
-  // Hold a strong reference to the argument to make sure it gets released if
-  // we return early below.
+nsresult RegisterStrongAsyncMemoryReporter(
+    already_AddRefed<nsIMemoryReporter> aReporter) {
   nsCOMPtr<nsIMemoryReporter> reporter = aReporter;
   GET_MEMORY_REPORTER_MANAGER(mgr)
   return mgr->RegisterStrongAsyncReporter(reporter);

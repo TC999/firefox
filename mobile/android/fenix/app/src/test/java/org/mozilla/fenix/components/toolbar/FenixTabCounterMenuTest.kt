@@ -6,8 +6,6 @@ package org.mozilla.fenix.components.toolbar
 
 import android.content.Context
 import androidx.appcompat.view.ContextThemeWrapper
-import io.mockk.mockk
-import io.mockk.verify
 import mozilla.components.concept.menu.candidate.DividerMenuCandidate
 import mozilla.components.concept.menu.candidate.TextMenuCandidate
 import mozilla.components.support.test.robolectric.testContext
@@ -24,13 +22,13 @@ import org.robolectric.RobolectricTestRunner
 class FenixTabCounterMenuTest {
 
     private lateinit var context: Context
-    private lateinit var onItemTapped: (TabCounterMenu.Item) -> Unit
+    private val onItemTappedCalls = mutableListOf<TabCounterMenu.Item>()
+    private val onItemTapped: (TabCounterMenu.Item) -> Unit = { onItemTappedCalls.add(it) }
     private lateinit var menu: FenixTabCounterMenu
 
     @Before
     fun setup() {
         context = ContextThemeWrapper(testContext, R.style.NormalTheme)
-        onItemTapped = mockk(relaxed = true)
         menu = FenixTabCounterMenu(context, onItemTapped)
     }
 
@@ -43,7 +41,7 @@ class FenixTabCounterMenuTest {
         assertEquals("New tab", item.text)
         item.onClick()
 
-        verify { onItemTapped(TabCounterMenu.Item.NewTab) }
+        assertEquals(listOf(TabCounterMenu.Item.NewTab), onItemTappedCalls)
     }
 
     @Test
@@ -55,7 +53,7 @@ class FenixTabCounterMenuTest {
         assertEquals("New private tab", item.text)
         item.onClick()
 
-        verify { onItemTapped(TabCounterMenu.Item.NewPrivateTab) }
+        assertEquals(listOf(TabCounterMenu.Item.NewPrivateTab), onItemTappedCalls)
     }
 
     @Test
@@ -69,17 +67,18 @@ class FenixTabCounterMenuTest {
         assertEquals("New private tab", newPrivateTab.text)
 
         newTab.onClick()
-        verify { onItemTapped(TabCounterMenu.Item.NewTab) }
+        assertEquals(listOf(TabCounterMenu.Item.NewTab), onItemTappedCalls)
 
         newPrivateTab.onClick()
-        verify { onItemTapped(TabCounterMenu.Item.NewPrivateTab) }
+        assertEquals(
+            listOf(TabCounterMenu.Item.NewTab, TabCounterMenu.Item.NewPrivateTab),
+            onItemTappedCalls,
+        )
     }
 
     @Test
     fun `GIVEN top toolbar position WHEN menu items getter is called THEN return two new tab items and a close button`() {
-        val (newTab, newPrivateTab, divider, closeTab) = menu.menuItems(
-            toolbarPosition = ToolbarPosition.TOP,
-        )
+        val (newTab, newPrivateTab, divider, closeTab) = menu.menuItems(toolbarPosition = ToolbarPosition.TOP)
 
         assertEquals("New tab", (newTab as TextMenuCandidate).text)
         assertEquals("New private tab", (newPrivateTab as TextMenuCandidate).text)
@@ -89,9 +88,7 @@ class FenixTabCounterMenuTest {
 
     @Test
     fun `GIVEN bottom toolbar position WHEN menu items getter is called THEN return two new tab items and a close button`() {
-        val (closeTab, divider, newPrivateTab, newTab) = menu.menuItems(
-            toolbarPosition = ToolbarPosition.BOTTOM,
-        )
+        val (closeTab, divider, newPrivateTab, newTab) = menu.menuItems(toolbarPosition = ToolbarPosition.BOTTOM)
 
         assertEquals("New tab", (newTab as TextMenuCandidate).text)
         assertEquals("New private tab", (newPrivateTab as TextMenuCandidate).text)

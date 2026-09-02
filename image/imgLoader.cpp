@@ -8,8 +8,6 @@
 #include "nsIThreadRetargetableStreamListener.h"
 #undef LoadImage
 
-#include "imgLoader.h"
-
 #include <algorithm>
 #include <utility>
 
@@ -17,31 +15,33 @@
 #include "Image.h"
 #include "ImageLogging.h"
 #include "ReferrerInfo.h"
+#include "imgLoader.h"
 #include "imgRequestProxy.h"
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/ChaosMode.h"
 #include "mozilla/ClearOnShutdown.h"
 #include "mozilla/LoadInfo.h"
+#include "mozilla/Maybe.h"
 #include "mozilla/NullPrincipal.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/ProfilerLabels.h"
+#include "mozilla/SharedSubResourceCache.h"
 #include "mozilla/StaticPrefs_image.h"
 #include "mozilla/StaticPrefs_network.h"
 #include "mozilla/StoragePrincipalHelper.h"
-#include "mozilla/Maybe.h"
-#include "mozilla/SharedSubResourceCache.h"
 #include "mozilla/dom/CacheExpirationTime.h"
 #include "mozilla/dom/ContentParent.h"
 #include "mozilla/dom/FetchPriority.h"
 #include "mozilla/dom/nsMixedContentBlocker.h"
 #ifdef NIGHTLY_BUILD
-#  include "mozilla/dom/PolicyContainer.h"
-#  include "mozilla/dom/IntegrityPolicyWAICT.h"
-#  include "mozilla/dom/WAICTUtils.h"
 #  include "mozilla/StaticPrefs_security.h"
+#  include "mozilla/dom/IntegrityPolicyWAICT.h"
+#  include "mozilla/dom/PolicyContainer.h"
+#  include "mozilla/dom/WAICTUtils.h"
 #  include "nsStringStream.h"
 static bool ShouldEnableWAICT(mozilla::dom::Document* aDoc);
 #endif
+#include "mozilla/gfx/Types.h"
 #include "mozilla/image/ImageMemoryReporter.h"
 #include "mozilla/layers/CompositorManagerChild.h"
 #include "nsCOMPtr.h"
@@ -78,9 +78,9 @@ static bool ShouldEnableWAICT(mozilla::dom::Document* aDoc);
 // we want to explore making the document own the load group
 // so we can associate the document URI with the load group.
 // until this point, we have an evil hack:
+#include "nsIDocShell.h"
 #include "nsIHttpChannelInternal.h"
 #include "nsILoadGroupChild.h"
-#include "nsIDocShell.h"
 
 using namespace mozilla;
 using namespace mozilla::dom;
@@ -352,6 +352,7 @@ class imgMemoryReporter final : public nsIMemoryReporter {
       nsIHandleReportCallback* aHandleReport, nsISupports* aData,
       const nsACString& aPathPrefix, const ImageMemoryCounter& aCounter,
       layers::SharedSurfacesMemoryReport& aSharedSurfaces) {
+    using DeviceColor = mozilla::gfx::DeviceColor;
     for (const SurfaceMemoryCounter& counter : aCounter.Surfaces()) {
       nsAutoCString surfacePathPrefix(aPathPrefix);
       switch (counter.Type()) {
@@ -448,11 +449,11 @@ class imgMemoryReporter final : public nsIMemoryReporter {
       const SVGImageContext& context = counter.Key().SVGContext();
       surfacePathPrefix.AppendLiteral(", svgContext:[ ");
       if (context.GetViewportSize()) {
-        const CSSIntSize& size = context.GetViewportSize().ref();
+        const CSSSize& size = context.GetViewportSize().ref();
         surfacePathPrefix.AppendLiteral("viewport=(");
-        surfacePathPrefix.AppendInt(size.width);
+        surfacePathPrefix.AppendFloat(size.width);
         surfacePathPrefix.AppendLiteral("x");
-        surfacePathPrefix.AppendInt(size.height);
+        surfacePathPrefix.AppendFloat(size.height);
         surfacePathPrefix.AppendLiteral(") ");
       }
       if (context.GetPreserveAspectRatio()) {
@@ -467,24 +468,27 @@ class imgMemoryReporter final : public nsIMemoryReporter {
         surfacePathPrefix.AppendInt(int32_t(*scheme));
         surfacePathPrefix.AppendLiteral(" ");
       }
-      if (context.GetContextPaint()) {
-        const SVGEmbeddingContextPaint* paint = context.GetContextPaint();
+      if (const SVGContextPaint* paint = context.GetContextPaint()) {
         surfacePathPrefix.AppendLiteral("contextPaint=(");
-        if (paint->GetFill()) {
+        if (paint->IsSolidColor(SVGContextPaint::Tag::Fill)) {
+          DeviceColor color = paint->AsSolidColor(SVGContextPaint::Tag::Fill);
           surfacePathPrefix.AppendLiteral(" fill=");
-          surfacePathPrefix.AppendInt(paint->GetFill()->ToABGR(), 16);
+          surfacePathPrefix.AppendInt(color.ToABGR(), 16);
         }
-        if (paint->GetFillOpacity() != 1.0) {
+        if (paint->GetOpacity(SVGContextPaint::Tag::Fill) != 1.0) {
           surfacePathPrefix.AppendLiteral(" fillOpa=");
-          surfacePathPrefix.AppendFloat(paint->GetFillOpacity());
+          surfacePathPrefix.AppendFloat(
+              paint->GetOpacity(SVGContextPaint::Tag::Fill));
         }
-        if (paint->GetStroke()) {
+        if (paint->IsSolidColor(SVGContextPaint::Tag::Stroke)) {
+          DeviceColor color = paint->AsSolidColor(SVGContextPaint::Tag::Stroke);
           surfacePathPrefix.AppendLiteral(" stroke=");
-          surfacePathPrefix.AppendInt(paint->GetStroke()->ToABGR(), 16);
+          surfacePathPrefix.AppendInt(color.ToABGR(), 16);
         }
-        if (paint->GetStrokeOpacity() != 1.0) {
+        if (paint->GetOpacity(SVGContextPaint::Tag::Stroke) != 1.0) {
           surfacePathPrefix.AppendLiteral(" strokeOpa=");
-          surfacePathPrefix.AppendFloat(paint->GetStrokeOpacity());
+          surfacePathPrefix.AppendFloat(
+              paint->GetOpacity(SVGContextPaint::Tag::Stroke));
         }
         surfacePathPrefix.AppendLiteral(" ) ");
       }
@@ -672,9 +676,9 @@ nsProgressNotificationProxy::GetInterface(const nsIID& iid, void** result) {
 static void NewRequestAndEntry(bool aForcePrincipalCheckForCacheEntry,
                                imgLoader* aLoader, const ImageCacheKey& aKey,
                                imgRequest** aRequest, imgCacheEntry** aEntry) {
-  RefPtr<imgRequest> request = new imgRequest(aLoader, aKey);
-  RefPtr<imgCacheEntry> entry =
-      new imgCacheEntry(aLoader, request, aForcePrincipalCheckForCacheEntry);
+  auto request = MakeRefPtr<imgRequest>(aLoader, aKey);
+  auto entry = MakeRefPtr<imgCacheEntry>(aLoader, request,
+                                         aForcePrincipalCheckForCacheEntry);
   aLoader->AddToUncachedImages(request);
   request.forget(aRequest);
   entry.forget(aEntry);
@@ -1182,7 +1186,7 @@ nsresult imgLoader::CreateNewProxyForRequest(
      proxy calls to |aObserver|.
    */
 
-  RefPtr<imgRequestProxy> proxyRequest = new imgRequestProxy();
+  auto proxyRequest = MakeRefPtr<imgRequestProxy>();
 
   /* It is important to call |SetLoadFlags()| before calling |Init()| because
      |Init()| adds the request to the loadgroup.
@@ -1257,7 +1261,7 @@ already_AddRefed<imgLoader> imgLoader::CreateImageLoader() {
   // we hand out imgLoader instances and code starts using them.
   mozilla::image::EnsureModuleInitialized();
 
-  RefPtr<imgLoader> loader = new imgLoader();
+  auto loader = MakeRefPtr<imgLoader>();
   loader->Init();
 
   return loader.forget();
@@ -1323,7 +1327,7 @@ void imgLoader::GlobalInit() {
   sCacheMaxSize = cachesize > 0 ? cachesize : 0;
 
   sMemReporter = new imgMemoryReporter();
-  RegisterStrongAsyncMemoryReporter(sMemReporter);
+  RegisterStrongAsyncMemoryReporter(do_AddRef(sMemReporter));
   RegisterImagesContentUsedUncompressedDistinguishedAmount(
       imgMemoryReporter::ImagesContentUsedUncompressedDistinguishedAmount);
 }
@@ -1858,15 +1862,10 @@ bool imgLoader::ValidateRequestWithNewChannel(
   }
 
   // Make sure that OnStatus/OnProgress calls have the right request set...
-  RefPtr<nsProgressNotificationProxy> progressproxy =
-      new nsProgressNotificationProxy(newChannel, req);
-  if (!progressproxy) {
-    return false;
-  }
-
-  RefPtr<imgCacheValidator> hvc =
-      new imgCacheValidator(progressproxy, this, request, aLoadingDocument,
-                            aInnerWindowId, forcePrincipalCheck);
+  auto progressproxy = MakeRefPtr<nsProgressNotificationProxy>(newChannel, req);
+  auto hvc = MakeRefPtr<imgCacheValidator>(progressproxy, this, request,
+                                           aLoadingDocument, aInnerWindowId,
+                                           forcePrincipalCheck);
 
   // Casting needed here to get past multiple inheritance.
   nsCOMPtr<nsIStreamListener> listener =
@@ -2787,7 +2786,7 @@ nsresult imgLoader::LoadImageWithChannel(nsIChannel* channel,
 #endif
 
   // Filter out any load flags not from nsIRequest
-  requestFlags &= nsIRequest::LOAD_REQUESTMASK;
+  requestFlags &= nsIRequest::LOAD_INHERIT_MASK;
 
   nsresult rv = NS_OK;
   if (request) {
@@ -2833,12 +2832,12 @@ nsresult imgLoader::LoadImageWithChannel(nsIChannel* channel,
     NS_ENSURE_SUCCESS(rv, rv);
 
 #ifdef NIGHTLY_BUILD
-    RefPtr<ProxyListener> pl =
-        new ProxyListener(static_cast<nsIStreamListener*>(request.get()),
-                          ShouldEnableWAICT(aLoadingDocument));
+    auto pl = MakeRefPtr<ProxyListener>(
+        static_cast<nsIStreamListener*>(request.get()),
+        ShouldEnableWAICT(aLoadingDocument));
 #else
-    RefPtr<ProxyListener> pl =
-        new ProxyListener(static_cast<nsIStreamListener*>(request.get()));
+    auto pl = MakeRefPtr<ProxyListener>(
+        static_cast<nsIStreamListener*>(request.get()));
 #endif
     pl.forget(listener);
 
@@ -3077,7 +3076,7 @@ static bool MaybeCheckWAICTIntegrity(nsIStreamListener* aListener,
   promise->Then(
       GetCurrentSerialEventTarget(), __func__,
       [listener = nsCOMPtr{aListener}, channel, request = nsCOMPtr{aRequest},
-       status, policy = RefPtr{policy}, computedHash,
+       status, policy = RefPtr{policy}, computedHash = std::move(computedHash),
        bufferedImage = std::move(aBufferedImage)](bool) {
         nsCOMPtr<nsIURI> originalURI;
         channel->GetOriginalURI(getter_AddRefs(originalURI));
@@ -3169,7 +3168,8 @@ ProxyListener::OnStartRequest(nsIRequest* aRequest) {
     }
   }
 
-  return mDestListener->OnStartRequest(aRequest);
+  nsCOMPtr<nsIStreamListener> destListener = mDestListener;
+  return destListener->OnStartRequest(aRequest);
 }
 
 NS_IMETHODIMP
@@ -3194,7 +3194,8 @@ ProxyListener::OnStopRequest(nsIRequest* aRequest, nsresult status) {
   }
 #endif
 
-  return mDestListener->OnStopRequest(aRequest, status);
+  nsCOMPtr<nsIStreamListener> destListener = mDestListener;
+  return destListener->OnStopRequest(aRequest, status);
 }
 
 /** nsIStreamListener methods **/
@@ -3226,7 +3227,8 @@ ProxyListener::OnDataAvailable(nsIRequest* aRequest, nsIInputStream* inStr,
   }
 #endif
 
-  return mDestListener->OnDataAvailable(aRequest, inStr, sourceOffset, count);
+  nsCOMPtr<nsIStreamListener> destListener = mDestListener;
+  return destListener->OnDataAvailable(aRequest, inStr, sourceOffset, count);
 }
 
 NS_IMETHODIMP
@@ -3451,7 +3453,8 @@ imgCacheValidator::OnStartRequest(nsIRequest* aRequest) {
   // changes the caching behaviour for imgRequests.
   mImgLoader->PutIntoCache(mNewRequest->CacheKey(), mNewEntry);
   UpdateProxies(/* aCancelRequest */ false, /* aSyncNotify */ true);
-  return mDestListener->OnStartRequest(aRequest);
+  nsCOMPtr<nsIStreamListener> destListener = mDestListener;
+  return destListener->OnStartRequest(aRequest);
 }
 
 NS_IMETHODIMP
@@ -3463,7 +3466,8 @@ imgCacheValidator::OnStopRequest(nsIRequest* aRequest, nsresult status) {
     return NS_OK;
   }
 
-  return mDestListener->OnStopRequest(aRequest, status);
+  nsCOMPtr<nsIStreamListener> destListener = mDestListener;
+  return destListener->OnStopRequest(aRequest, status);
 }
 
 /** nsIStreamListener methods **/
@@ -3478,7 +3482,8 @@ imgCacheValidator::OnDataAvailable(nsIRequest* aRequest, nsIInputStream* inStr,
     return NS_OK;
   }
 
-  return mDestListener->OnDataAvailable(aRequest, inStr, sourceOffset, count);
+  nsCOMPtr<nsIStreamListener> destListener = mDestListener;
+  return destListener->OnDataAvailable(aRequest, inStr, sourceOffset, count);
 }
 
 NS_IMETHODIMP

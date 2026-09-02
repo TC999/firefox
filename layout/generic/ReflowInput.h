@@ -275,6 +275,19 @@ struct ReflowInput : public SizeComputationInput {
     return mComputedMaxSize.BSize(mWritingMode);
   }
 
+  // The block-size to resolve percentages against when they are resolved
+  // against our own content-box size, e.g. percentage gaps in a flex or grid
+  // container.
+  nscoord ComputedBSizeAsPercentageBasis() const {
+    if (mFlags.mTreatBSizeAsIndefinite) {
+      return NS_UNCONSTRAINEDSIZE;
+    }
+    if (mPercentageBasisInBlockAxis) {
+      return *mPercentageBasisInBlockAxis;
+    }
+    return ComputedBSize();
+  }
+
   // WARNING: In general, adjusting available inline-size or block-size is not
   // safe because ReflowInput has members whose values depend on the available
   // size passing through the constructor. For example,
@@ -385,11 +398,6 @@ struct ReflowInput : public SizeComputationInput {
   const nsStyleBorder* mStyleBorder = nullptr;
   const nsStyleMargin* mStyleMargin = nullptr;
 
-  enum class BreakType : uint8_t {
-    Auto,
-    Column,
-    Page,
-  };
   BreakType mBreakType = BreakType::Auto;
 
   // a frame (e.g. nsTableCellFrame) which may need to generate a special
@@ -495,9 +503,10 @@ struct ReflowInput : public SizeComputationInput {
     // a "fake" reflow input made in order to be the parent of a real one
     bool mDummyParentReflowInput : 1;
 
-    // Should this frame reflow its place-holder children? If the available
-    // height of this frame didn't change, but its in a paginated environment
-    // (e.g. columns), it should always reflow its placeholder children.
+    // Should this frame reflow its placeholder children? If the available
+    // block-size of this frame didn't change, but it's in a fragmented
+    // environment (e.g. columns), it should always reflow its placeholder
+    // children.
     bool mMustReflowPlaceholders : 1;
 
     // the STATIC_POS_IS_CB_ORIGIN ctor flag
@@ -540,6 +549,21 @@ struct ReflowInput : public SizeComputationInput {
     // If true, then children of this frame can generate class A breakpoints
     // for paginated reflow.
     bool mCanHaveClassABreakpoints : 1;
+
+    // If true, indicates that an ancestor of this frame has requested
+    // text-box-trim on the start side of this frame.
+    // https://drafts.csswg.org/css-inline-3/#text-box-trim
+    bool mShouldApplyTextBoxTrimStart : 1;
+
+    // These two flags indicate that an ancestor of this frame has requested
+    // text-box-trim on the end side of this frame's block. Note that two
+    // flags are required -- one for trimming the last line of the block,
+    // and one for trimming the last line of each fragment -- because whether
+    // this particular frame is an intermediate fragment is not known until
+    // it is actually reflowed.
+    // https://drafts.csswg.org/css-inline-3/#text-box-trim
+    bool mShouldApplyTextBoxTrimAtBlockEnd : 1;
+    bool mShouldApplyTextBoxTrimAtFragmentEnd : 1;
   };
   Flags mFlags;
 
@@ -675,11 +699,6 @@ struct ReflowInput : public SizeComputationInput {
    * Calculate the used line-height property without a reflow input instance.
    * The return value will be >= 0.
    *
-   * @param aBlockBSize The computed block size of the content rect of the block
-   *                    that the line should fill. Only used with
-   *                    line-height:-moz-block-height. NS_UNCONSTRAINEDSIZE
-   *                    results in a normal line-height for
-   *                    line-height:-moz-block-height.
    * @param aFontSizeInflation The result of the appropriate
    *                           nsLayoutUtils::FontSizeInflationFor call,
    *                           or 1.0 if during intrinsic size
@@ -687,15 +706,13 @@ struct ReflowInput : public SizeComputationInput {
    */
   static nscoord CalcLineHeight(const ComputedStyle&,
                                 nsPresContext* aPresContext,
-                                const nsIContent* aContent, nscoord aBlockBSize,
+                                const nsIContent* aContent,
                                 float aFontSizeInflation);
-
   static nscoord CalcLineHeight(const StyleLineHeight&,
                                 const nsStyleFont& aRelativeToFont,
                                 nsPresContext* aPresContext, bool aIsVertical,
-                                const nsIContent* aContent, nscoord aBlockBSize,
+                                const nsIContent* aContent,
                                 float aFontSizeInflation);
-
   static nscoord CalcLineHeightForCanvas(const StyleLineHeight& aLh,
                                          const nsFont& aRelativeToFont,
                                          nsAtom* aLanguage,
@@ -786,9 +803,7 @@ struct ReflowInput : public SizeComputationInput {
   // https://drafts.csswg.org/css-sizing-4/#aspect-ratio-minimum
   bool ShouldApplyAutomaticMinimumOnBlockAxis() const;
 
-  // Returns true if mFrame has a constrained available block-size, or if mFrame
-  // is a continuation. When this method returns true, mFrame can be considered
-  // to be in a "fragmented context."
+  // Returns true if mFrame can be considered to be in a "fragmented context."
   //
   // Note: this method usually returns true when mFrame is in a paged
   // environment (e.g. printing) or has a multi-column container ancestor.

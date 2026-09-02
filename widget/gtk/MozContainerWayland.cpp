@@ -45,25 +45,24 @@
  *  wl_subsurface of MozContainer.
  */
 
-#include "MozContainer.h"
-
 #include <dlfcn.h>
 #include <glib.h>
 #include <stdio.h>
 #include <wayland-egl.h>
 
-#include "mozilla/gfx/gfxVars.h"
+#include "MozContainer.h"
+#include "base/task.h"
 #include "mozilla/StaticPrefs_widget.h"
+#include "mozilla/gfx/gfxVars.h"
 #include "nsGtkUtils.h"
 #include "nsWaylandDisplay.h"
-#include "base/task.h"
 
 #undef LOGWAYLAND
 #undef LOGCONTAINER
 #ifdef MOZ_LOGGING
+#  include "Units.h"
 #  include "mozilla/Logging.h"
 #  include "nsTArray.h"
-#  include "Units.h"
 #  include "nsWindow.h"
 extern mozilla::LazyLogModule gWidgetWaylandLog;
 extern mozilla::LazyLogModule gWidgetLog;
@@ -210,14 +209,6 @@ static bool moz_container_wayland_ensure_surface(MozContainer* container,
   nsWindow* window = moz_container_get_nsWindow(container);
   MOZ_RELEASE_ASSERT(window);
 
-  if (!surface->MapLocked(lock, parentSurface,
-                          aPosition ? *aPosition : DesktopIntPoint())) {
-    return false;
-  }
-
-  surface->AddOpaqueSurfaceHandlerLocked(lock, gdkWindow,
-                                         /* aRegisterCommitHandler */ true);
-
   GtkWindow* parent =
       gtk_window_get_transient_for(GTK_WINDOW(window->GetGtkWidget()));
   if (parent) {
@@ -228,20 +219,30 @@ static bool moz_container_wayland_ensure_surface(MozContainer* container,
                              MOZ_WL_SURFACE(parentWindow->GetMozContainer()));
   }
 
-  bool fractionalScale = false;
-  if (StaticPrefs::widget_wayland_fractional_scale_enabled()) {
-    fractionalScale = surface->EnableFractionalScaleLocked(
-        lock,
+  if (!surface->MapLocked(lock, parentSurface,
+                          aPosition ? *aPosition : DesktopIntPoint())) {
+    return false;
+  }
+
+  surface->SetViewportFollowsSizeChangesLocked(lock);
+  surface->AddOpaqueSurfaceHandlerLocked(lock, gdkWindow,
+                                         /* aRegisterCommitHandler */ true);
+
+  bool fractionalScale = StaticPrefs::widget_wayland_fractional_scale_enabled();
+  bool setHandler = surface->IsToplevelSurface() && fractionalScale;
+  if (setHandler) {
+    surface->SetScaleCallbackLocked(
+        lock, WaylandSurface::ScaleCallbackType::Widget,
         [win = RefPtr{window}]() {
           win->RefreshScale(/* aRefreshScreen */ true,
                             /* aForceRefresh */ true);
-        },
-        /* aManageViewport */ true);
+        });
   }
-
-  if (!fractionalScale) {
-    surface->EnableCeiledScaleLocked(lock);
-  }
+  surface->SetScaleTypeLocked(lock,
+                              fractionalScale
+                                  ? WaylandSurface::ScaleType::Fractional
+                                  : WaylandSurface::ScaleType::Ceiled,
+                              /* aSetHandler */ setHandler);
 
   surface->SetOpaqueRegionLocked(lock,
                                  window->GetOpaqueRegion().ToUnknownRegion());
@@ -252,6 +253,10 @@ static bool moz_container_wayland_ensure_surface(MozContainer* container,
   surface->CommitLocked(lock);
 
   moz_container_wayland_invalidate(container);
+
+  // We're set so run map callback now
+  surface->RunMapCallbackLocked(lock);
+
   return true;
 }
 

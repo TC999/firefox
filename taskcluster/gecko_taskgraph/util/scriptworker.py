@@ -18,7 +18,6 @@ Additional configuration is found in the :ref:`graph config <taskgraph-graph-con
 
 import functools
 import itertools
-import json
 import os
 from datetime import datetime
 
@@ -67,13 +66,12 @@ SIGNING_SCOPE_ALIAS_TO_PROJECT = [
             "mozilla-beta",
             "mozilla-release",
             "mozilla-esr115",
-            "mozilla-esr128",
             "mozilla-esr140",
+            "mozilla-esr153",
             "comm-beta",
             "comm-release",
-            "comm-esr115",
-            "comm-esr128",
             "comm-esr140",
+            "comm-esr153",
         },
     ],
 ]
@@ -123,13 +121,12 @@ BEETMOVER_SCOPE_ALIAS_TO_PROJECT = [
             "mozilla-beta",
             "mozilla-release",
             "mozilla-esr115",
-            "mozilla-esr128",
             "mozilla-esr140",
+            "mozilla-esr153",
             "comm-beta",
             "comm-release",
-            "comm-esr115",
-            "comm-esr128",
             "comm-esr140",
+            "comm-esr153",
         },
     ],
 ]
@@ -231,17 +228,17 @@ BALROG_SCOPE_ALIAS_TO_PROJECT = [
         },
     ],
     [
-        "esr128",
-        {
-            "mozilla-esr128",
-            "comm-esr128",
-        },
-    ],
-    [
         "esr140",
         {
             "mozilla-esr140",
             "comm-esr140",
+        },
+    ],
+    [
+        "esr153",
+        {
+            "mozilla-esr153",
+            "comm-esr153",
         },
     ],
 ]
@@ -254,8 +251,8 @@ BALROG_SERVER_SCOPES = {
     "beta": "balrog:server:beta",
     "release": "balrog:server:release",
     "esr115": "balrog:server:esr",
-    "esr128": "balrog:server:esr",
     "esr140": "balrog:server:esr",
+    "esr153": "balrog:server:esr",
     "default": "balrog:server:dep",
 }
 
@@ -432,44 +429,6 @@ get_balrog_server_scope = functools.partial(
 cached_load_yaml = functools.cache(load_yaml)
 
 
-# release_config {{{1
-def get_release_config(config):
-    """Get the build number and version for a release task.
-
-    Currently only applies to beetmover tasks.
-
-    Args:
-        config (TransformConfig): The configuration for the kind being transformed.
-
-    Returns:
-        dict: containing both `build_number` and `version`.  This can be used to
-            update `task.payload`.
-    """
-    release_config = {}
-
-    partial_updates = os.environ.get("PARTIAL_UPDATES", "")
-    if partial_updates != "" and config.kind in (
-        "release-bouncer-sub",
-        "release-bouncer-check",
-        "release-update-verify-config",
-        "release-balrog-submit-toplevel",
-    ):
-        partial_updates = json.loads(partial_updates)
-        release_config["partial_versions"] = ", ".join([
-            "{}build{}".format(v, info["buildNumber"])
-            for v, info in partial_updates.items()
-        ])
-        if release_config["partial_versions"] == "{}":
-            del release_config["partial_versions"]
-
-    release_config["version"] = config.params["version"]
-    release_config["appVersion"] = config.params["app_version"]
-
-    release_config["next_version"] = config.params["next_version"]
-    release_config["build_number"] = config.params["build_number"]
-    return release_config
-
-
 def get_signing_type_per_platform(build_platform, is_shippable, config):
     if "devedition" in build_platform:
         return get_devedition_signing_type(config)
@@ -530,6 +489,7 @@ def generate_beetmover_upstream_artifacts(
                 "from",
                 f"beetmover filename {filename}",
                 platform=platform,
+                level=str(config.params.get("level", "1")),
             )
             if dep not in map_config["mapping"][filename]["from"]:
                 continue
@@ -624,15 +584,17 @@ def generate_artifact_registry_gcs_sources_rpm(dep):
     """Generate GCS sources for RPM packages from beetmover-repackage-rpm task.
 
     The beetmover-repackage-rpm task contains all RPM packages (firefox + langpacks)
-    for a given platform in its artifactMap. This function extracts all destinations
-    from that artifactMap to upload to the YUM repository.
+    for a given platform in its artifactMap, alongside non-package artifacts such as
+    RPM-KEY. This function extracts the destinations of the packages themselves, which
+    are the only thing to upload to the YUM repository.
     """
     gcs_sources = []
     for config in dep.task["payload"]["artifactMap"]:
         if config["taskId"]["task-reference"] == "<repackage-rpm-signing>":
             for path_info in config["paths"].values():
-                if "destinations" in path_info and path_info["destinations"]:
-                    gcs_sources.append(path_info["destinations"][0])
+                destinations = path_info.get("destinations")
+                if destinations and destinations[0].endswith(".rpm"):
+                    gcs_sources.append(destinations[0])
     return gcs_sources
 
 
@@ -692,7 +654,11 @@ def generate_beetmover_artifact_map(config, job, **kwargs):
         for filename in map_config["mapping"]:
             # Relevancy checks
             resolve_keyed_by(
-                map_config["mapping"][filename], "from", "blah", platform=platform
+                map_config["mapping"][filename],
+                "from",
+                "blah",
+                platform=platform,
+                level=str(config.params.get("level", "1")),
             )
             if dep not in map_config["mapping"][filename]["from"]:
                 # We don't get this file from this dependency.

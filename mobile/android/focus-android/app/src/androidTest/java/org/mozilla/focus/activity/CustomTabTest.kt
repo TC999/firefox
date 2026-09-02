@@ -33,23 +33,23 @@ class CustomTabTest {
     private val actionButtonDescription = "TestButton"
     private val featureSettingsHelper = FeatureSettingsHelper()
 
-    @get:Rule(order = 0)
-    val focusTestRule: FocusTestRule = FocusTestRule()
+    @get:Rule(order = 0) val focusTestRule: FocusTestRule = FocusTestRule()
 
-    private val webServerRule get() = focusTestRule.mockWebServerRule
+    private val webServerRule
+        get() = focusTestRule.mockWebServerRule
 
     @get:Rule
-    val activityTestRule = ActivityTestRule(
-        IntentReceiverActivity::class.java,
-        true,
-        false,
-    )
+    val activityTestRule =
+        ActivityTestRule(
+            IntentReceiverActivity::class.java,
+            true,
+            false,
+        )
 
     @Before
     fun setUp() {
         featureSettingsHelper.setCfrForTrackingProtectionEnabled(false)
         featureSettingsHelper.setShowStartBrowsingCfrEnabled(false)
-        featureSettingsHelper.setCookieBannerReductionEnabled(false)
     }
 
     @After
@@ -63,7 +63,7 @@ class CustomTabTest {
         val customTabPage = webServerRule.server.genericAsset
         val customTabActivity =
             launchActivity<IntentReceiverActivity>(
-                createCustomTabIntent(customTabPage.url, menuItemTestLabel, actionButtonDescription),
+                createCustomTabIntent(customTabPage.url, menuItemTestLabel, actionButtonDescription)
             )
 
         browserScreen {
@@ -95,9 +95,10 @@ class CustomTabTest {
             progressBar.waitUntilGone(waitingTime)
             verifyCustomTabUrl(customTabPage.url)
             openCustomTabMenu()
-        }.clickOpenInFocusButton {
-            verifyCustomTabUrl(customTabPage.url)
         }
+            .clickOpenInFocusButton {
+                verifyCustomTabUrl(customTabPage.url)
+            }
     }
 
     @SmokeTest
@@ -111,16 +112,19 @@ class CustomTabTest {
             verifyPageContent(firstPage.content)
             clickLinkMatchingText("Tab 2")
             verifyCustomTabUrl(secondPage.url)
-        }.openCustomTabMenu {
-        }.pressBack {
-            progressBar.waitUntilGone(waitingTime)
-            verifyCustomTabUrl(firstPage.url)
-        }.openMainMenu {
-        }.pressForward {
-            verifyCustomTabUrl(secondPage.url)
-        }.openMainMenu {
-        }.clickReloadButton {
-            verifyPageContent(secondPage.content)
         }
+            .openCustomTabMenu {}
+            .pressBack {
+                progressBar.waitUntilGone(waitingTime)
+                verifyCustomTabUrl(firstPage.url)
+            }
+            .openMainMenu {}
+            .pressForward {
+                verifyCustomTabUrl(secondPage.url)
+            }
+            .openMainMenu {}
+            .clickReloadButton {
+                verifyPageContent(secondPage.content)
+            }
     }
 }

@@ -39,15 +39,13 @@ bool DocumentChannelParent::Init(dom::CanonicalBrowsingContext* aContext,
   }
 
   ContentParent* contentParent =
-      static_cast<ContentParent*>(Manager()->Manager());
+      mozilla::ipc::ActorCast<ContentParent>(Manager()->Manager());
 
   RefPtr<DocumentLoadListener::OpenPromise> promise;
-  if (loadState->GetChannelInitialized()) {
-    promise = DocumentLoadListener::ClaimParentLoad(
-        getter_AddRefs(mDocumentLoadListener), loadState->GetLoadIdentifier(),
-        Some(aArgs.channelId()));
-  }
-  if (!promise) {
+  mDocumentLoadListener = loadState->TakeSpeculativeListener();
+  if (mDocumentLoadListener) {
+    promise = mDocumentLoadListener->ClaimParentLoad(Some(aArgs.channelId()));
+  } else {
     bool isDocumentLoad =
         aArgs.elementCreationArgs().type() ==
         DocumentChannelElementCreationArgs::TDocumentCreationArgs;
@@ -139,7 +137,8 @@ DocumentChannelParent::RedirectToRealChannel(
         CreateAndReject(ResponseRejectReason::ChannelClosed, __func__);
   }
 
-  ContentParent* cp = static_cast<ContentParent*>(Manager()->Manager());
+  ContentParent* cp =
+      mozilla::ipc::ActorCast<ContentParent>(Manager()->Manager());
   nsTArray<EarlyHintConnectArgs> earlyHints;
   mDocumentLoadListener->RegisterEarlyHintLinksAndGetConnectArgs(cp->ChildID(),
                                                                  earlyHints);

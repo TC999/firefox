@@ -1,18 +1,19 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "mozilla/a11y/DocAccessible.h"
-#include "mozilla/a11y/DocAccessibleParent.h"
 #include "mozilla/a11y/PdfStructTreeBuilder.h"
-#include "mozilla/a11y/TableCellAccessible.h"
+
 #include "mozilla/ClearOnShutdown.h"
-#include "mozilla/dom/BrowserParent.h"
-#include "mozilla/dom/CanonicalBrowsingContext.h"
 #include "mozilla/StaticPrefs_accessibility.h"
 #include "mozilla/StaticPtr.h"
+#include "mozilla/a11y/DocAccessible.h"
+#include "mozilla/a11y/DocAccessibleParent.h"
+#include "mozilla/a11y/TableCellAccessible.h"
+#include "mozilla/dom/BrowserParent.h"
+#include "mozilla/dom/CanonicalBrowsingContext.h"
+#include "mozilla/dom/Document.h"
+#include "mozilla/dom/WindowGlobalParent.h"
 #include "skia/include/docs/SkPDFDocument.h"
 
 namespace mozilla::a11y {
@@ -29,13 +30,13 @@ static void AccNameToPdfAlt(Accessible* aAcc,
 // We use an array rather than a map for two reasons:
 // 1. There aren't likely to be many of these alive at once.
 // 2. Some functions need to find a builder associated with a descendant
-// BrowsingContext, not just the root.
+// WindowContext, not just the root.
 // If this turns out to be a problem, we could include ids for the root
-// BrowsingContext and any descendant BrowsingContexts in the map.
+// WindowContext and any descendant WindowContexts in the map.
 static StaticAutoPtr<nsTArray<PdfStructTreeBuilder>> sBuilders;
 
 /* static */
-void PdfStructTreeBuilder::Init(dom::BrowsingContext* aBrowsingContext) {
+void PdfStructTreeBuilder::Init(dom::WindowContext* aWindowContext) {
   if (!StaticPrefs::accessibility_tagged_pdf_output_enabled()) {
     return;
   }
@@ -46,27 +47,28 @@ void PdfStructTreeBuilder::Init(dom::BrowsingContext* aBrowsingContext) {
     }
   }
   for (PdfStructTreeBuilder& builder : *sBuilders) {
-    for (dom::BrowsingContext* ancestor = aBrowsingContext->GetParent();
-         ancestor; ancestor = ancestor->GetParent()) {
-      if (ancestor->Id() == builder.mRootBrowsingContextId) {
+    for (dom::WindowContext* ancestor =
+             aWindowContext->GetParentWindowContext();
+         ancestor; ancestor = ancestor->GetParentWindowContext()) {
+      if (ancestor->InnerWindowId() == builder.mRootInnerWindowId) {
         // This is an OOP iframe associated with an existing builder.
-        builder.InitInternal(aBrowsingContext);
+        builder.InitInternal(aWindowContext);
         return;
       }
     }
   }
   // This is a new document being printed.
-  auto builder = sBuilders->EmplaceBack(aBrowsingContext->Id());
-  builder->InitInternal(aBrowsingContext);
+  auto builder = sBuilders->EmplaceBack(aWindowContext->InnerWindowId());
+  builder->InitInternal(aWindowContext);
 }
 
 /* static */
-PdfStructTreeBuilder* PdfStructTreeBuilder::Get(uint64_t aBrowsingContextId) {
+PdfStructTreeBuilder* PdfStructTreeBuilder::Get(uint64_t aInnerWindowId) {
   if (!sBuilders) {
     return nullptr;
   }
   for (PdfStructTreeBuilder& builder : *sBuilders) {
-    if (builder.mRootBrowsingContextId == aBrowsingContextId) {
+    if (builder.mRootInnerWindowId == aInnerWindowId) {
       return &builder;
     }
   }
@@ -74,12 +76,12 @@ PdfStructTreeBuilder* PdfStructTreeBuilder::Get(uint64_t aBrowsingContextId) {
 }
 
 /* static */
-void PdfStructTreeBuilder::Done(uint64_t aBrowsingContextId) {
+void PdfStructTreeBuilder::Done(uint64_t aInnerWindowId) {
   if (!sBuilders) {
     return;
   }
   for (size_t i = 0; i < sBuilders->Length(); ++i) {
-    if ((*sBuilders)[i].mRootBrowsingContextId == aBrowsingContextId) {
+    if ((*sBuilders)[i].mRootInnerWindowId == aInnerWindowId) {
       sBuilders->RemoveElementAt(i);
       break;
     }
@@ -87,16 +89,15 @@ void PdfStructTreeBuilder::Done(uint64_t aBrowsingContextId) {
 }
 
 /* static */
-int PdfStructTreeBuilder::GetPdfId(uint64_t aBrowsingContextId,
-                                   uint64_t aAccId) {
+int PdfStructTreeBuilder::GetPdfId(uint64_t aInnerWindowId, uint64_t aAccId) {
   if (!sBuilders) {
     return 0;
   }
-  // aBrowsingContextId might be a descendant BrowsingContext. Rather than
-  // walking the BrowsingContext ancestry for each builder, we just ask each
-  // builder whether it contains this id, since there won't be many builders.
+  // aInnerWindowId might be a descendant WindowContext. Rather than walking the
+  // WindowContext ancestry for each builder, we just ask each builder whether
+  // it contains this id, since there won't be many builders.
   for (const PdfStructTreeBuilder& builder : *sBuilders) {
-    if (int pdfId = builder.GetPdfIdInternal(aBrowsingContextId, aAccId)) {
+    if (int pdfId = builder.GetPdfIdInternal(aInnerWindowId, aAccId)) {
       return pdfId;
     }
   }
@@ -125,31 +126,36 @@ PdfStructTreeBuilder::GlobalAccessibleId PdfStructTreeBuilder::GetAccId(
   if (!acc) {
     return {};
   }
-  dom::BrowsingContext* bc = doc->GetBrowsingContext();
-  if (!bc) {
+  uint64_t innerWindowId = doc->InnerWindowID();
+  if (!innerWindowId) {
     return {};
   }
-  return {bc->Id(), acc->ID()};
+  return {innerWindowId, acc->ID()};
 }
 
-PdfStructTreeBuilder::PdfStructTreeBuilder(uint64_t aBrowsingContextId)
-    : mRootBrowsingContextId(aBrowsingContextId) {
+PdfStructTreeBuilder::PdfStructTreeBuilder(uint64_t aInnerWindowId)
+    : mRootInnerWindowId(aInnerWindowId) {
   mReadyPromise = new ReadyPromise::Private(__func__);
 }
 
-void PdfStructTreeBuilder::InitInternal(
-    dom::BrowsingContext* aBrowsingContext) {
-  if (aBrowsingContext->Id() != mRootBrowsingContextId) {
+void PdfStructTreeBuilder::InitInternal(dom::WindowContext* aWindowContext) {
+  if (aWindowContext->InnerWindowId() != mRootInnerWindowId) {
     // We've just received the document for an out-of-process iframe.
     MOZ_ASSERT(mPendingOopIframes > 0);
     --mPendingOopIframes;
   }
-  dom::CanonicalBrowsingContext* cbc = aBrowsingContext->Canonical();
-  if (dom::BrowserParent* bp = cbc->GetBrowserParent()) {
+  if (dom::BrowserParent* bp =
+          aWindowContext->Canonical()->GetBrowserParent()) {
     // Request the accessibility tree for each descendant out-of-process
-    // iframe.
+    // iframe. While all of the direct children should be reachable, some of the
+    // deeper descendants might not be yet, so we also traverse the descendants
+    // for each OOP iframe when InitInternal is called for it , skipping any
+    // that have already been requested. We could instead walk only the direct
+    // children, but walking descendants means we benefit from greater
+    // parallelism in the case that deeper descendants *are* already reachable.
     bp->VisitAllDescendants([this](dom::BrowserParent* descBp) {
-      if (!descBp->GetTopLevelDocAccessible()) {
+      if (mRequestedBrowserParentIds.EnsureInserted(descBp->GetTabId())) {
+        MOZ_ASSERT(!descBp->GetTopLevelDocAccessible());
         (void)descBp->SendRequestDocAccessibleForPrint();
         ++mPendingOopIframes;
       }
@@ -164,17 +170,17 @@ void PdfStructTreeBuilder::InitInternal(
 }
 
 bool PdfStructTreeBuilder::BuildStructTree(SkPDF::StructureElementNode& aRoot) {
-  RefPtr bc = dom::CanonicalBrowsingContext::Get(mRootBrowsingContextId);
-  if (!bc) {
+  RefPtr wgp = dom::WindowGlobalParent::GetByInnerWindowId(mRootInnerWindowId);
+  if (!wgp) {
     return false;
   }
   Accessible* rootAcc = nullptr;
-  if (bc->IsInProcess()) {
-    if (dom::Document* doc = bc->GetDocument()) {
+  if (wgp->IsInProcess()) {
+    if (dom::Document* doc = wgp->GetDocument()) {
       rootAcc = GetExistingDocAccessible(doc);
     }
   } else {
-    rootAcc = DocAccessibleParent::GetFrom(bc);
+    rootAcc = DocAccessibleParent::GetFrom(wgp);
   }
   if (!rootAcc) {
     return false;
@@ -183,18 +189,20 @@ bool PdfStructTreeBuilder::BuildStructTree(SkPDF::StructureElementNode& aRoot) {
   return true;
 }
 
-int PdfStructTreeBuilder::GeneratePdfId(Accessible* aAcc) {
-  uint64_t bcId = 0;
+// Returns the inner window id of the document containing aAcc. This must match
+// the id computed by GetAccId in the process rendering that document.
+static uint64_t InnerWindowIdFor(Accessible* aAcc) {
   if (RemoteAccessible* remoteAcc = aAcc->AsRemote()) {
-    bcId = remoteAcc->Document()->GetBrowsingContext()->Id();
-  } else {
-    bcId =
-        aAcc->AsLocal()->Document()->DocumentNode()->GetBrowsingContext()->Id();
+    return remoteAcc->Document()->Manager()->InnerWindowId();
   }
+  return aAcc->AsLocal()->Document()->DocumentNode()->InnerWindowID();
+}
+
+int PdfStructTreeBuilder::GeneratePdfId(Accessible* aAcc) {
   // This can be called more than once for the same Accessible; e.g. when
   // referencing table cell headers. It should always return the same id for the
   // same Accessible.
-  GlobalAccessibleId key = {bcId, aAcc->ID()};
+  GlobalAccessibleId key = {InnerWindowIdFor(aAcc), aAcc->ID()};
   auto entry = mAccToPdf.lookupForAdd(key);
   if (!entry) {
     // We haven't seen this Accessible before. Generate a new PDF id.
@@ -223,9 +231,13 @@ void PdfStructTreeBuilder::BuildStructSubtree(
       if (!cell) {
         break;
       }
+      // Query each axis separately so one doesn't suppress the other's implicit
+      // headers.
       nsTArray<Accessible*> accHeaders;
       cell->ColHeaderCells(&accHeaders);
-      cell->RowHeaderCells(&accHeaders);
+      nsTArray<Accessible*> accRowHeaders;
+      cell->RowHeaderCells(&accRowHeaders);
+      accHeaders.AppendElements(std::move(accRowHeaders));
       std::vector<int> pdfHeaders;
       pdfHeaders.reserve(accHeaders.Length());
       for (Accessible* accHeader : accHeaders) {
@@ -333,15 +345,15 @@ void PdfStructTreeBuilder::BuildStructSubtree(
   }
 }
 
-int PdfStructTreeBuilder::GetPdfIdInternal(uint64_t aBrowsingContextId,
+int PdfStructTreeBuilder::GetPdfIdInternal(uint64_t aInnerWindowId,
                                            uint64_t aAccId) const {
-  if (aBrowsingContextId == 0) {
+  if (aInnerWindowId == 0) {
     // This indicates that the following drawing instructions are not associated
     // with anything in the struct tree; e.g. page headers and footers.
     MOZ_ASSERT(aAccId == 0);
     return 0;
   }
-  if (auto entry = mAccToPdf.lookup({aBrowsingContextId, aAccId})) {
+  if (auto entry = mAccToPdf.lookup({aInnerWindowId, aAccId})) {
     return entry->value();
   }
   MOZ_ASSERT_UNREACHABLE(

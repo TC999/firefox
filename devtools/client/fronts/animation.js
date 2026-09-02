@@ -9,11 +9,11 @@ const {
   registerFront,
 } = require("resource://devtools/shared/protocol.js");
 const {
-  animationPlayerSpec,
+  animationSpec,
   animationsSpec,
 } = require("resource://devtools/shared/specs/animation.js");
 
-class AnimationPlayerFront extends FrontClassWithSpec(animationPlayerSpec) {
+class AnimationFront extends FrontClassWithSpec(animationSpec) {
   constructor(conn, targetFront, parentFront) {
     super(conn, targetFront, parentFront);
 
@@ -49,11 +49,7 @@ class AnimationPlayerFront extends FrontClassWithSpec(animationPlayerSpec) {
       currentTime: this._form.currentTime,
       playState: this._form.playState,
       playbackRate: this._form.playbackRate,
-      playBackRateMultiplier:
-        // @backward-compat { version 151 } playBackRateMultiplier was added in 151,
-        // we need to set a default when connecting to older server.
-        // Once 151 hits release, the `|| 1` can be removed.
-        this._form.playBackRateMultiplier || 1,
+      playBackRateMultiplier: this._form.playBackRateMultiplier,
       name: this._form.name,
       duration: this._form.duration,
       delay: this._form.delay,
@@ -75,7 +71,7 @@ class AnimationPlayerFront extends FrontClassWithSpec(animationPlayerSpec) {
   }
 
   /**
-   * Executed when the AnimationPlayerActor emits a "changed" event. Used to
+   * Executed when the AnimationActor emits a "changed" event. Used to
    * update the local knowledge of the state.
    */
   onChanged(partialState) {
@@ -206,7 +202,7 @@ class AnimationPlayerFront extends FrontClassWithSpec(animationPlayerSpec) {
   }
 }
 
-registerFront(AnimationPlayerFront);
+registerFront(AnimationFront);
 
 class AnimationsFront extends FrontClassWithSpec(animationsSpec) {
   constructor(client, targetFront, parentFront) {

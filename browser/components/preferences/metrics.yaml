@@ -30,7 +30,6 @@ privacy.ui.fpp.click:
       checked:
         description: The checked state of the fingerprinting protection checkbox
         type: boolean
-    telemetry_mirror: PrivacyUiFpp_Click_Checkbox
   menu:
     type: event
     description: >
@@ -50,7 +49,6 @@ privacy.ui.fpp.click:
       value:
         description: The value of the clicked menu item of the menulist.
         type: string
-    telemetry_mirror: PrivacyUiFpp_Click_Menu
 
 network.proxy.settings:
   proxy_type_preference:
@@ -85,6 +83,7 @@ security.doh.settings:
       security.doh.settings.mode_changed#button.
     bugs:
       - https://bugzil.la/1829905
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2037081
     data_reviews:
       - https://bugzil.la/1829905
     notification_emails:
@@ -97,7 +96,6 @@ security.doh.settings:
           The `value` of the event. Mirrors to the Legacy Telemetry
           event's `value` parameter.
         type: string
-    telemetry_mirror: SecurityDohSettings_ModeChanged_Button
 
   provider_choice_value:
     type: event
@@ -108,6 +106,7 @@ security.doh.settings:
       security.doh.settings.provider_choice#value.
     bugs:
       - https://bugzil.la/1829905
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2037081
     data_reviews:
       - https://bugzil.la/1829905
     notification_emails:
@@ -120,7 +119,6 @@ security.doh.settings:
           The `value` of the event. Mirrors to the Legacy Telemetry
           event's `value` parameter.
         type: string
-    telemetry_mirror: SecurityDohSettings_ProviderChoice_Value
 
 intl.ui.browser_language:
   manage_main:
@@ -384,8 +382,6 @@ aboutpreferences:
         description: Identifier for this tab.
         type: string
     telemetry_mirror: Aboutpreferences_Show_Initial
-    no_lint:
-      - COMMON_PREFIX
 
   show_click:
     type: event
@@ -400,8 +396,6 @@ aboutpreferences:
     expires: never
     extra_keys: *aboutpreferences_show_extra
     telemetry_mirror: Aboutpreferences_Show_Click
-    no_lint:
-      - COMMON_PREFIX
 
   show_hash:
     type: event
@@ -415,8 +409,6 @@ aboutpreferences:
     expires: never
     extra_keys: *aboutpreferences_show_extra
     telemetry_mirror: Aboutpreferences_Show_Hash
-    no_lint:
-      - COMMON_PREFIX
 
   change:
     type: event

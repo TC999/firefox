@@ -238,6 +238,15 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
             if min_ref_count <= expr_info.ref_count {
                 self.need_bake_expressions.insert(exp_handle);
             }
+            if let Expression::Load { pointer } = *expr {
+                if info[pointer]
+                    .ty
+                    .inner_with(&module.types)
+                    .is_atomic_pointer(&module.types)
+                {
+                    self.need_bake_expressions.insert(exp_handle);
+                }
+            }
 
             if let Expression::Math { fun, arg, arg1, .. } = *expr {
                 match fun {
@@ -921,6 +930,23 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                     ep_input.local_invocation_index_name.as_ref().unwrap()
                 )?;
             }
+            Some(crate::Binding::Location {
+                interpolation: Some(crate::Interpolation::PerVertex),
+                ..
+            }) => {
+                if self.options.shader_model < ShaderModel::V6_1 {
+                    return Err(Error::ShaderModelTooLow(
+                        "per_vertex fragment inputs".to_string(),
+                        ShaderModel::V6_1,
+                    ));
+                }
+                write!(
+                    self.out,
+                    "{{ GetAttributeAtVertex({0}.{1}, 0), GetAttributeAtVertex({0}.{1}, 1), GetAttributeAtVertex({0}.{1}, 2) }}",
+                    ep_input.arg_name,
+                    fake_member.name,
+                )?;
+            }
             _ => {
                 write!(self.out, "{}.{}", ep_input.arg_name, fake_member.name)?;
             }
@@ -1493,10 +1519,10 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
         if let Some(MatrixType {
             columns,
             rows: crate::VectorSize::Bi,
-            width: 4,
+            width,
         }) = matrix_data
         {
-            write!(self.out, "__mat{}x2", columns as u8)?;
+            write!(self.out, "__mat{}x2_f{}", columns as u8, width * 8)?;
         } else {
             // Even though Naga IR matrices are column-major, we must describe
             // matrices passed from the CPU as being in row-major order.
@@ -2305,7 +2331,33 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
             }
             Statement::Store { pointer, value } => {
                 let ty_inner = func_ctx.resolve_type(pointer, &module.types);
-                if let Some(crate::AddressSpace::Storage { .. }) = ty_inner.pointer_space() {
+                if ty_inner.is_atomic_pointer(&module.types) {
+                    let pointer_space = ty_inner.pointer_space().unwrap();
+                    let dummy = self.namer.call("dummy");
+                    write!(self.out, "{level}{{ ")?;
+                    if let TypeInner::Pointer { base, .. } = *ty_inner {
+                        self.write_value_type(module, &module.types[base].inner)?;
+                    }
+                    write!(self.out, " {dummy} = 0; ")?;
+                    match pointer_space {
+                        crate::AddressSpace::WorkGroup => {
+                            write!(self.out, "InterlockedExchange(")?;
+                            self.write_expr(module, pointer, func_ctx)?;
+                        }
+                        crate::AddressSpace::Storage { .. } => {
+                            let var_handle = self.fill_access_chain(module, pointer, func_ctx)?;
+                            let var_name = &self.names[&NameKey::GlobalVariable(var_handle)];
+                            write!(self.out, "{var_name}.InterlockedExchange(")?;
+                            let chain = mem::take(&mut self.temp_access_chain);
+                            self.write_storage_address(module, &chain, func_ctx)?;
+                            self.temp_access_chain = chain;
+                        }
+                        _ => unreachable!(),
+                    }
+                    write!(self.out, ", ")?;
+                    self.write_expr(module, value, func_ctx)?;
+                    writeln!(self.out, ", {dummy}); }}")?;
+                } else if let Some(crate::AddressSpace::Storage { .. }) = ty_inner.pointer_space() {
                     let var_handle = self.fill_access_chain(module, pointer, func_ctx)?;
                     self.write_storage_store(
                         module,
@@ -2328,6 +2380,7 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                         },
                         Struct {
                             columns: crate::VectorSize,
+                            width: u8,
                             base: Handle<crate::Expression>,
                         },
                     }
@@ -2370,7 +2423,7 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                                     if let Some(MatrixType {
                                         columns,
                                         rows: crate::VectorSize::Bi,
-                                        width: 4,
+                                        width,
                                     }) = get_inner_matrix_of_struct_array_member(
                                         module,
                                         matrix_expr,
@@ -2380,6 +2433,7 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                                         Some((
                                             MatrixAccess::Struct {
                                                 columns,
+                                                width,
                                                 base: matrix_expr,
                                             },
                                             vector,
@@ -2455,7 +2509,11 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                             }
                         }
                         Some((
-                            MatrixAccess::Struct { columns, base },
+                            MatrixAccess::Struct {
+                                columns,
+                                width,
+                                base,
+                            },
                             Some(Index::Expression(vec_index)),
                             scalar,
                         )) => {
@@ -2463,9 +2521,19 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                             // the previously injected functions __set_col_of_matCx2 / __set_el_of_matCx2.
 
                             if scalar.is_some() {
-                                write!(self.out, "__set_el_of_mat{}x2", columns as u8)?;
+                                write!(
+                                    self.out,
+                                    "__set_el_of_mat{}x2_f{}",
+                                    columns as u8,
+                                    width * 8
+                                )?;
                             } else {
-                                write!(self.out, "__set_col_of_mat{}x2", columns as u8)?;
+                                write!(
+                                    self.out,
+                                    "__set_col_of_mat{}x2_f{}",
+                                    columns as u8,
+                                    width * 8
+                                )?;
                             }
                             write!(self.out, "(")?;
                             self.write_expr(module, base, func_ctx)?;
@@ -2495,7 +2563,7 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                             if let Some(MatrixType {
                                 columns,
                                 rows: crate::VectorSize::Bi,
-                                width: 4,
+                                width,
                             }) = get_inner_matrix_of_struct_array_member(
                                 module, pointer, func_ctx, false,
                             ) {
@@ -2504,7 +2572,7 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                                     resolved = &module.types[base].inner;
                                 }
 
-                                write!(self.out, "(__mat{}x2", columns as u8)?;
+                                write!(self.out, "(__mat{}x2_f{}", columns as u8, width * 8)?;
                                 if let TypeInner::Array { base, size, .. } = *resolved {
                                     self.write_array_size(module, base, size)?;
                                 }
@@ -3000,6 +3068,537 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn write_math_expression(
+        &mut self,
+        module: &Module,
+        fun: crate::MathFunction,
+        arg: Handle<crate::Expression>,
+        arg1: Option<Handle<crate::Expression>>,
+        arg2: Option<Handle<crate::Expression>>,
+        arg3: Option<Handle<crate::Expression>>,
+        func_ctx: &back::FunctionCtx<'_>,
+    ) -> BackendResult {
+        use crate::MathFunction as Mf;
+
+        enum Function {
+            Asincosh { is_sin: bool },
+            Atanh,
+            Pack2x16float,
+            Pack2x16snorm,
+            Pack2x16unorm,
+            Pack4x8snorm,
+            Pack4x8unorm,
+            Pack4xI8,
+            Pack4xU8,
+            Pack4xI8Clamp,
+            Pack4xU8Clamp,
+            Unpack2x16float,
+            Unpack2x16snorm,
+            Unpack2x16unorm,
+            Unpack4x8snorm,
+            Unpack4x8unorm,
+            Unpack4xI8,
+            Unpack4xU8,
+            Dot4I8Packed,
+            Dot4U8Packed,
+            QuantizeToF16,
+            Regular(&'static str),
+            MissingIntOverload(&'static str),
+            MissingIntReturnType(&'static str),
+            CountTrailingZeros,
+            CountLeadingZeros,
+        }
+
+        let fun = match fun {
+            // comparison
+            Mf::Abs => match func_ctx.resolve_type(arg, &module.types).scalar() {
+                Some(Scalar::I32) => Function::Regular(ABS_FUNCTION),
+                _ => Function::Regular("abs"),
+            },
+            Mf::Min => Function::Regular("min"),
+            Mf::Max => Function::Regular("max"),
+            Mf::Clamp => Function::Regular("clamp"),
+            Mf::Saturate => Function::Regular("saturate"),
+            // trigonometry
+            Mf::Cos => Function::Regular("cos"),
+            Mf::Cosh => Function::Regular("cosh"),
+            Mf::Sin => Function::Regular("sin"),
+            Mf::Sinh => Function::Regular("sinh"),
+            Mf::Tan => Function::Regular("tan"),
+            Mf::Tanh => Function::Regular("tanh"),
+            Mf::Acos => Function::Regular("acos"),
+            Mf::Asin => Function::Regular("asin"),
+            Mf::Atan => Function::Regular("atan"),
+            Mf::Atan2 => Function::Regular("atan2"),
+            Mf::Asinh => Function::Asincosh { is_sin: true },
+            Mf::Acosh => Function::Asincosh { is_sin: false },
+            Mf::Atanh => Function::Atanh,
+            Mf::Radians => Function::Regular("radians"),
+            Mf::Degrees => Function::Regular("degrees"),
+            // decomposition
+            Mf::Ceil => Function::Regular("ceil"),
+            Mf::Floor => Function::Regular("floor"),
+            Mf::Round => Function::Regular("round"),
+            Mf::Fract => Function::Regular("frac"),
+            Mf::Trunc => Function::Regular("trunc"),
+            Mf::Modf => Function::Regular(MODF_FUNCTION),
+            Mf::Frexp => Function::Regular(FREXP_FUNCTION),
+            Mf::Ldexp => Function::Regular("ldexp"),
+            // exponent
+            Mf::Exp => Function::Regular("exp"),
+            Mf::Exp2 => Function::Regular("exp2"),
+            Mf::Log => Function::Regular("log"),
+            Mf::Log2 => Function::Regular("log2"),
+            Mf::Pow => Function::Regular("pow"),
+            // geometry
+            Mf::Dot => Function::Regular("dot"),
+            Mf::Dot4I8Packed => Function::Dot4I8Packed,
+            Mf::Dot4U8Packed => Function::Dot4U8Packed,
+            //Mf::Outer => ,
+            Mf::Cross => Function::Regular("cross"),
+            Mf::Distance => Function::Regular("distance"),
+            Mf::Length => Function::Regular("length"),
+            Mf::Normalize => Function::Regular("normalize"),
+            Mf::FaceForward => Function::Regular("faceforward"),
+            Mf::Reflect => Function::Regular("reflect"),
+            Mf::Refract => Function::Regular("refract"),
+            // computational
+            Mf::Sign => Function::Regular("sign"),
+            Mf::Fma => Function::Regular("mad"),
+            Mf::Mix => Function::Regular("lerp"),
+            Mf::Step => Function::Regular("step"),
+            Mf::SmoothStep => Function::Regular("smoothstep"),
+            Mf::Sqrt => Function::Regular("sqrt"),
+            Mf::InverseSqrt => Function::Regular("rsqrt"),
+            //Mf::Inverse =>,
+            Mf::Transpose => Function::Regular("transpose"),
+            Mf::Determinant => Function::Regular("determinant"),
+            Mf::QuantizeToF16 => Function::QuantizeToF16,
+            // bits
+            Mf::CountTrailingZeros => Function::CountTrailingZeros,
+            Mf::CountLeadingZeros => Function::CountLeadingZeros,
+            Mf::CountOneBits => Function::MissingIntOverload("countbits"),
+            Mf::ReverseBits => Function::MissingIntOverload("reversebits"),
+            Mf::FirstTrailingBit => Function::MissingIntReturnType("firstbitlow"),
+            Mf::FirstLeadingBit => Function::MissingIntReturnType("firstbithigh"),
+            Mf::ExtractBits => Function::Regular(EXTRACT_BITS_FUNCTION),
+            Mf::InsertBits => Function::Regular(INSERT_BITS_FUNCTION),
+            // Data Packing
+            Mf::Pack2x16float => Function::Pack2x16float,
+            Mf::Pack2x16snorm => Function::Pack2x16snorm,
+            Mf::Pack2x16unorm => Function::Pack2x16unorm,
+            Mf::Pack4x8snorm => Function::Pack4x8snorm,
+            Mf::Pack4x8unorm => Function::Pack4x8unorm,
+            Mf::Pack4xI8 => Function::Pack4xI8,
+            Mf::Pack4xU8 => Function::Pack4xU8,
+            Mf::Pack4xI8Clamp => Function::Pack4xI8Clamp,
+            Mf::Pack4xU8Clamp => Function::Pack4xU8Clamp,
+            // Data Unpacking
+            Mf::Unpack2x16float => Function::Unpack2x16float,
+            Mf::Unpack2x16snorm => Function::Unpack2x16snorm,
+            Mf::Unpack2x16unorm => Function::Unpack2x16unorm,
+            Mf::Unpack4x8snorm => Function::Unpack4x8snorm,
+            Mf::Unpack4x8unorm => Function::Unpack4x8unorm,
+            Mf::Unpack4xI8 => Function::Unpack4xI8,
+            Mf::Unpack4xU8 => Function::Unpack4xU8,
+            _ => return Err(Error::Unimplemented(format!("write_expr_math {fun:?}"))),
+        };
+
+        match fun {
+            Function::Asincosh { is_sin } => {
+                write!(self.out, "log(")?;
+                self.write_expr(module, arg, func_ctx)?;
+                write!(self.out, " + sqrt(")?;
+                self.write_expr(module, arg, func_ctx)?;
+                write!(self.out, " * ")?;
+                self.write_expr(module, arg, func_ctx)?;
+                match is_sin {
+                    true => write!(self.out, " + 1.0))")?,
+                    false => write!(self.out, " - 1.0))")?,
+                }
+            }
+            Function::Atanh => {
+                write!(self.out, "0.5 * log((1.0 + ")?;
+                self.write_expr(module, arg, func_ctx)?;
+                write!(self.out, ") / (1.0 - ")?;
+                self.write_expr(module, arg, func_ctx)?;
+                write!(self.out, "))")?;
+            }
+            Function::Pack2x16float => {
+                write!(self.out, "(f32tof16(")?;
+                self.write_expr(module, arg, func_ctx)?;
+                write!(self.out, "[0]) | f32tof16(")?;
+                self.write_expr(module, arg, func_ctx)?;
+                write!(self.out, "[1]) << 16)")?;
+            }
+            Function::Pack2x16snorm => {
+                let scale = 32767;
+
+                write!(self.out, "uint((int(round(clamp(")?;
+                self.write_expr(module, arg, func_ctx)?;
+                write!(
+                    self.out,
+                    "[0], -1.0, 1.0) * {scale}.0)) & 0xFFFF) | ((int(round(clamp("
+                )?;
+                self.write_expr(module, arg, func_ctx)?;
+                write!(self.out, "[1], -1.0, 1.0) * {scale}.0)) & 0xFFFF) << 16))",)?;
+            }
+            Function::Pack2x16unorm => {
+                let scale = 65535;
+
+                write!(self.out, "(uint(round(clamp(")?;
+                self.write_expr(module, arg, func_ctx)?;
+                write!(self.out, "[0], 0.0, 1.0) * {scale}.0)) | uint(round(clamp(")?;
+                self.write_expr(module, arg, func_ctx)?;
+                write!(self.out, "[1], 0.0, 1.0) * {scale}.0)) << 16)")?;
+            }
+            Function::Pack4x8snorm => {
+                let scale = 127;
+
+                write!(self.out, "uint((int(round(clamp(")?;
+                self.write_expr(module, arg, func_ctx)?;
+                write!(
+                    self.out,
+                    "[0], -1.0, 1.0) * {scale}.0)) & 0xFF) | ((int(round(clamp("
+                )?;
+                self.write_expr(module, arg, func_ctx)?;
+                write!(
+                    self.out,
+                    "[1], -1.0, 1.0) * {scale}.0)) & 0xFF) << 8) | ((int(round(clamp("
+                )?;
+                self.write_expr(module, arg, func_ctx)?;
+                write!(
+                    self.out,
+                    "[2], -1.0, 1.0) * {scale}.0)) & 0xFF) << 16) | ((int(round(clamp("
+                )?;
+                self.write_expr(module, arg, func_ctx)?;
+                write!(self.out, "[3], -1.0, 1.0) * {scale}.0)) & 0xFF) << 24))",)?;
+            }
+            Function::Pack4x8unorm => {
+                let scale = 255;
+
+                write!(self.out, "(uint(round(clamp(")?;
+                self.write_expr(module, arg, func_ctx)?;
+                write!(self.out, "[0], 0.0, 1.0) * {scale}.0)) | uint(round(clamp(")?;
+                self.write_expr(module, arg, func_ctx)?;
+                write!(
+                    self.out,
+                    "[1], 0.0, 1.0) * {scale}.0)) << 8 | uint(round(clamp("
+                )?;
+                self.write_expr(module, arg, func_ctx)?;
+                write!(
+                    self.out,
+                    "[2], 0.0, 1.0) * {scale}.0)) << 16 | uint(round(clamp("
+                )?;
+                self.write_expr(module, arg, func_ctx)?;
+                write!(self.out, "[3], 0.0, 1.0) * {scale}.0)) << 24)")?;
+            }
+            fun @ (Function::Pack4xI8
+            | Function::Pack4xU8
+            | Function::Pack4xI8Clamp
+            | Function::Pack4xU8Clamp) => {
+                let was_signed = matches!(fun, Function::Pack4xI8 | Function::Pack4xI8Clamp);
+                let clamp_bounds = match fun {
+                    Function::Pack4xI8Clamp => Some(("-128", "127")),
+                    Function::Pack4xU8Clamp => Some(("0", "255")),
+                    _ => None,
+                };
+                if was_signed {
+                    write!(self.out, "uint(")?;
+                }
+                let write_arg = |this: &mut Self| -> BackendResult {
+                    if let Some((min, max)) = clamp_bounds {
+                        write!(this.out, "clamp(")?;
+                        this.write_expr(module, arg, func_ctx)?;
+                        write!(this.out, ", {min}, {max})")?;
+                    } else {
+                        this.write_expr(module, arg, func_ctx)?;
+                    }
+                    Ok(())
+                };
+                write!(self.out, "(")?;
+                write_arg(self)?;
+                write!(self.out, "[0] & 0xFF) | ((")?;
+                write_arg(self)?;
+                write!(self.out, "[1] & 0xFF) << 8) | ((")?;
+                write_arg(self)?;
+                write!(self.out, "[2] & 0xFF) << 16) | ((")?;
+                write_arg(self)?;
+                write!(self.out, "[3] & 0xFF) << 24)")?;
+                if was_signed {
+                    write!(self.out, ")")?;
+                }
+            }
+
+            Function::Unpack2x16float => {
+                write!(self.out, "float2(f16tof32(")?;
+                self.write_expr(module, arg, func_ctx)?;
+                write!(self.out, "), f16tof32((")?;
+                self.write_expr(module, arg, func_ctx)?;
+                write!(self.out, ") >> 16))")?;
+            }
+            Function::Unpack2x16snorm => {
+                let scale = 32767;
+
+                write!(self.out, "(float2(int2(")?;
+                self.write_expr(module, arg, func_ctx)?;
+                write!(self.out, " << 16, ")?;
+                self.write_expr(module, arg, func_ctx)?;
+                write!(self.out, ") >> 16) / {scale}.0)")?;
+            }
+            Function::Unpack2x16unorm => {
+                let scale = 65535;
+
+                write!(self.out, "(float2(")?;
+                self.write_expr(module, arg, func_ctx)?;
+                write!(self.out, " & 0xFFFF, ")?;
+                self.write_expr(module, arg, func_ctx)?;
+                write!(self.out, " >> 16) / {scale}.0)")?;
+            }
+            Function::Unpack4x8snorm => {
+                let scale = 127;
+
+                write!(self.out, "(float4(int4(")?;
+                self.write_expr(module, arg, func_ctx)?;
+                write!(self.out, " << 24, ")?;
+                self.write_expr(module, arg, func_ctx)?;
+                write!(self.out, " << 16, ")?;
+                self.write_expr(module, arg, func_ctx)?;
+                write!(self.out, " << 8, ")?;
+                self.write_expr(module, arg, func_ctx)?;
+                write!(self.out, ") >> 24) / {scale}.0)")?;
+            }
+            Function::Unpack4x8unorm => {
+                let scale = 255;
+
+                write!(self.out, "(float4(")?;
+                self.write_expr(module, arg, func_ctx)?;
+                write!(self.out, " & 0xFF, ")?;
+                self.write_expr(module, arg, func_ctx)?;
+                write!(self.out, " >> 8 & 0xFF, ")?;
+                self.write_expr(module, arg, func_ctx)?;
+                write!(self.out, " >> 16 & 0xFF, ")?;
+                self.write_expr(module, arg, func_ctx)?;
+                write!(self.out, " >> 24) / {scale}.0)")?;
+            }
+            fun @ (Function::Unpack4xI8 | Function::Unpack4xU8) => {
+                write!(self.out, "(")?;
+                if matches!(fun, Function::Unpack4xU8) {
+                    write!(self.out, "u")?;
+                }
+                write!(self.out, "int4(")?;
+                self.write_expr(module, arg, func_ctx)?;
+                write!(self.out, ", ")?;
+                self.write_expr(module, arg, func_ctx)?;
+                write!(self.out, " >> 8, ")?;
+                self.write_expr(module, arg, func_ctx)?;
+                write!(self.out, " >> 16, ")?;
+                self.write_expr(module, arg, func_ctx)?;
+                write!(self.out, " >> 24) << 24 >> 24)")?;
+            }
+            fun @ (Function::Dot4I8Packed | Function::Dot4U8Packed) => {
+                let arg1 = arg1.unwrap();
+
+                if self.options.shader_model >= ShaderModel::V6_4 {
+                    // Intrinsics `dot4add_{i, u}8packed` are available in SM 6.4 and later.
+                    let function_name = match fun {
+                        Function::Dot4I8Packed => "dot4add_i8packed",
+                        Function::Dot4U8Packed => "dot4add_u8packed",
+                        _ => unreachable!(),
+                    };
+                    write!(self.out, "{function_name}(")?;
+                    self.write_expr(module, arg, func_ctx)?;
+                    write!(self.out, ", ")?;
+                    self.write_expr(module, arg1, func_ctx)?;
+                    write!(self.out, ", 0)")?;
+                } else {
+                    // Fall back to a polyfill as `dot4add_u8packed` is not available.
+                    write!(self.out, "dot(")?;
+
+                    if matches!(fun, Function::Dot4U8Packed) {
+                        write!(self.out, "u")?;
+                    }
+                    write!(self.out, "int4(")?;
+                    self.write_expr(module, arg, func_ctx)?;
+                    write!(self.out, ", ")?;
+                    self.write_expr(module, arg, func_ctx)?;
+                    write!(self.out, " >> 8, ")?;
+                    self.write_expr(module, arg, func_ctx)?;
+                    write!(self.out, " >> 16, ")?;
+                    self.write_expr(module, arg, func_ctx)?;
+                    write!(self.out, " >> 24) << 24 >> 24, ")?;
+
+                    if matches!(fun, Function::Dot4U8Packed) {
+                        write!(self.out, "u")?;
+                    }
+                    write!(self.out, "int4(")?;
+                    self.write_expr(module, arg1, func_ctx)?;
+                    write!(self.out, ", ")?;
+                    self.write_expr(module, arg1, func_ctx)?;
+                    write!(self.out, " >> 8, ")?;
+                    self.write_expr(module, arg1, func_ctx)?;
+                    write!(self.out, " >> 16, ")?;
+                    self.write_expr(module, arg1, func_ctx)?;
+                    write!(self.out, " >> 24) << 24 >> 24)")?;
+                }
+            }
+            Function::QuantizeToF16 => {
+                write!(self.out, "f16tof32(f32tof16(")?;
+                self.write_expr(module, arg, func_ctx)?;
+                write!(self.out, "))")?;
+            }
+            Function::Regular(fun_name) => {
+                write!(self.out, "{fun_name}(")?;
+                self.write_expr(module, arg, func_ctx)?;
+                if let Some(arg) = arg1 {
+                    write!(self.out, ", ")?;
+                    self.write_expr(module, arg, func_ctx)?;
+                }
+                if let Some(arg) = arg2 {
+                    write!(self.out, ", ")?;
+                    self.write_expr(module, arg, func_ctx)?;
+                }
+                if let Some(arg) = arg3 {
+                    write!(self.out, ", ")?;
+                    self.write_expr(module, arg, func_ctx)?;
+                }
+                write!(self.out, ")")?
+            }
+            // These overloads are only missing on FXC, so this is only needed for 32bit types,
+            // as non-32bit types are DXC only.
+            Function::MissingIntOverload(fun_name) => {
+                let scalar_kind = func_ctx.resolve_type(arg, &module.types).scalar();
+                if let Some(Scalar::I32) = scalar_kind {
+                    write!(self.out, "asint({fun_name}(asuint(")?;
+                    self.write_expr(module, arg, func_ctx)?;
+                    write!(self.out, ")))")?;
+                } else {
+                    write!(self.out, "{fun_name}(")?;
+                    self.write_expr(module, arg, func_ctx)?;
+                    write!(self.out, ")")?;
+                }
+            }
+            // These overloads are only missing on FXC, so this is only needed for 32bit types,
+            // as non-32bit types are DXC only.
+            Function::MissingIntReturnType(fun_name) => {
+                let scalar_kind = func_ctx.resolve_type(arg, &module.types).scalar();
+                if let Some(Scalar::I32) = scalar_kind {
+                    write!(self.out, "asint({fun_name}(")?;
+                    self.write_expr(module, arg, func_ctx)?;
+                    write!(self.out, "))")?;
+                } else {
+                    write!(self.out, "{fun_name}(")?;
+                    self.write_expr(module, arg, func_ctx)?;
+                    write!(self.out, ")")?;
+                }
+            }
+            Function::CountTrailingZeros => {
+                match *func_ctx.resolve_type(arg, &module.types) {
+                    TypeInner::Vector { size, scalar } => {
+                        let s = match size {
+                            crate::VectorSize::Bi => ".xx",
+                            crate::VectorSize::Tri => ".xxx",
+                            crate::VectorSize::Quad => ".xxxx",
+                        };
+
+                        let scalar_width_bits = scalar.width * 8;
+
+                        if scalar.kind == ScalarKind::Uint || scalar.width != 4 {
+                            write!(self.out, "min(({scalar_width_bits}u){s}, firstbitlow(")?;
+                            self.write_expr(module, arg, func_ctx)?;
+                            write!(self.out, "))")?;
+                        } else {
+                            // This is only needed for the FXC path, on 32bit signed integers.
+                            write!(
+                                self.out,
+                                "asint(min(({scalar_width_bits}u){s}, firstbitlow("
+                            )?;
+                            self.write_expr(module, arg, func_ctx)?;
+                            write!(self.out, ")))")?;
+                        }
+                    }
+                    TypeInner::Scalar(scalar) => {
+                        let scalar_width_bits = scalar.width * 8;
+
+                        if scalar.kind == ScalarKind::Uint || scalar.width != 4 {
+                            write!(self.out, "min({scalar_width_bits}u, firstbitlow(")?;
+                            self.write_expr(module, arg, func_ctx)?;
+                            write!(self.out, "))")?;
+                        } else {
+                            // This is only needed for the FXC path, on 32bit signed integers.
+                            write!(self.out, "asint(min({scalar_width_bits}u, firstbitlow(")?;
+                            self.write_expr(module, arg, func_ctx)?;
+                            write!(self.out, ")))")?;
+                        }
+                    }
+                    _ => unreachable!(),
+                }
+
+                return Ok(());
+            }
+            Function::CountLeadingZeros => {
+                match *func_ctx.resolve_type(arg, &module.types) {
+                    TypeInner::Vector { size, scalar } => {
+                        let s = match size {
+                            crate::VectorSize::Bi => ".xx",
+                            crate::VectorSize::Tri => ".xxx",
+                            crate::VectorSize::Quad => ".xxxx",
+                        };
+
+                        // scalar width - 1
+                        let constant = scalar.width * 8 - 1;
+
+                        if scalar.kind == ScalarKind::Uint {
+                            write!(self.out, "(({constant}u){s} - firstbithigh(")?;
+                            self.write_expr(module, arg, func_ctx)?;
+                            write!(self.out, "))")?;
+                        } else {
+                            let conversion_func = match scalar.width {
+                                4 => "asint",
+                                _ => "",
+                            };
+                            write!(self.out, "(")?;
+                            self.write_expr(module, arg, func_ctx)?;
+                            write!(
+                                self.out,
+                                " < (0){s} ? (0){s} : ({constant}){s} - {conversion_func}(firstbithigh("
+                            )?;
+                            self.write_expr(module, arg, func_ctx)?;
+                            write!(self.out, ")))")?;
+                        }
+                    }
+                    TypeInner::Scalar(scalar) => {
+                        // scalar width - 1
+                        let constant = scalar.width * 8 - 1;
+
+                        if let ScalarKind::Uint = scalar.kind {
+                            write!(self.out, "({constant}u - firstbithigh(")?;
+                            self.write_expr(module, arg, func_ctx)?;
+                            write!(self.out, "))")?;
+                        } else {
+                            let conversion_func = match scalar.width {
+                                4 => "asint",
+                                _ => "",
+                            };
+                            write!(self.out, "(")?;
+                            self.write_expr(module, arg, func_ctx)?;
+                            write!(
+                                self.out,
+                                " < 0 ? 0 : {constant} - {conversion_func}(firstbithigh("
+                            )?;
+                            self.write_expr(module, arg, func_ctx)?;
+                            write!(self.out, ")))")?;
+                        }
+                    }
+                    _ => unreachable!(),
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     fn write_const_expression(
         &mut self,
         module: &Module,
@@ -3016,6 +3615,8 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
             crate::Literal::F64(value) => write!(self.out, "{value:?}L")?,
             crate::Literal::F32(value) => write!(self.out, "{value:?}")?,
             crate::Literal::F16(value) => write!(self.out, "{value:?}h")?,
+            crate::Literal::U16(value) => write!(self.out, "uint16_t({value})")?,
+            crate::Literal::I16(value) => write!(self.out, "int16_t({value})")?,
             crate::Literal::U32(value) => write!(self.out, "{value}u")?,
             // `-2147483648` is parsed by some compilers as unary negation of
             // positive 2147483648, which is too large for an int, causing
@@ -3282,11 +3883,18 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                     if let Some(MatrixType {
                         columns,
                         rows: crate::VectorSize::Bi,
-                        width: 4,
+                        width,
                     }) = get_inner_matrix_of_struct_array_member(module, base, func_ctx, true)
-                        .or_else(|| get_global_uniform_matrix(module, base, func_ctx))
+                        .or_else(|| {
+                            get_inner_matrix_of_global_uniform(module, base, func_ctx, true)
+                        })
                     {
-                        write!(self.out, "__get_col_of_mat{}x2(", columns as u8)?;
+                        write!(
+                            self.out,
+                            "__get_col_of_mat{}x2_f{}(",
+                            columns as u8,
+                            width * 8
+                        )?;
                         self.write_expr(module, base, func_ctx)?;
                         write!(self.out, ", ")?;
                         self.write_expr(module, index, func_ctx)?;
@@ -3405,10 +4013,11 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                     // __matCx2 struct.
                     if let Some(MatrixType {
                         rows: crate::VectorSize::Bi,
-                        width: 4,
                         ..
                     }) = get_inner_matrix_of_struct_array_member(module, base, func_ctx, true)
-                        .or_else(|| get_global_uniform_matrix(module, base, func_ctx))
+                        .or_else(|| {
+                            get_inner_matrix_of_global_uniform(module, base, func_ctx, true)
+                        })
                     {
                         self.write_expr(module, base, func_ctx)?;
                         write!(self.out, "._{index}")?;
@@ -3630,7 +4239,17 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
 
                 if let Some(offset) = offset {
                     write!(self.out, ", ")?;
-                    write!(self.out, "int2(")?; // work around https://github.com/microsoft/DirectXShaderCompiler/issues/5082#issuecomment-1540147807
+                    // Work around https://github.com/microsoft/DirectXShaderCompiler/issues/5082#issuecomment-1540147807
+                    let (size, scalar) = func_ctx
+                        .resolve_type(offset, &module.types)
+                        .vector_size_and_scalar()
+                        .unwrap();
+                    assert_eq!(scalar.kind, ScalarKind::Sint);
+                    write!(self.out, "{}", scalar.to_hlsl_str()?)?;
+                    if let Some(size) = size {
+                        write!(self.out, "{}", common::vector_size_str(size))?;
+                    }
+                    write!(self.out, "(")?;
                     self.write_const_expression(module, offset, func_ctx.expressions)?;
                     write!(self.out, ")")?;
                 }
@@ -3752,13 +4371,13 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                         //  - a (possibly nested) array of __matCx2's
                         if let Some(MatrixType {
                             rows: crate::VectorSize::Bi,
-                            width: 4,
                             ..
                         }) = get_inner_matrix_of_struct_array_member(
                             module, pointer, func_ctx, false,
                         )
-                        .or_else(|| get_inner_matrix_of_global_uniform(module, pointer, func_ctx))
-                        {
+                        .or_else(|| {
+                            get_inner_matrix_of_global_uniform(module, pointer, func_ctx, false)
+                        }) {
                             let mut resolved = func_ctx.resolve_type(pointer, &module.types);
                             let ptr_tr = resolved.pointer_base_type();
                             if let Some(ptr_ty) =
@@ -3811,6 +4430,7 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                 if inner.scalar_kind() == Some(ScalarKind::Float)
                     && (kind == ScalarKind::Sint || kind == ScalarKind::Uint)
                     && convert.is_some()
+                    && matches!(convert, Some(4) | Some(8))
                 {
                     // Use helper functions for float to int casts in order to
                     // avoid undefined behaviour when value is out of range for
@@ -3864,6 +4484,24 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                         None => {
                             if inner.scalar_width() == Some(8) {
                                 false
+                            } else if inner.scalar_width() == Some(2) {
+                                // HLSL's asint()/asuint() only work on 32-bit types.
+                                // For 16-bit bitcasts, use type constructor instead.
+                                let dst_scalar = Scalar { kind, width: 2 };
+                                match *inner {
+                                    TypeInner::Vector { size, .. } => {
+                                        write!(
+                                            self.out,
+                                            "{}{}(",
+                                            dst_scalar.to_hlsl_str()?,
+                                            common::vector_size_str(size)
+                                        )?;
+                                    }
+                                    _ => {
+                                        write!(self.out, "{}(", dst_scalar.to_hlsl_str()?)?;
+                                    }
+                                };
+                                true
                             } else {
                                 write!(self.out, "{}(", kind.to_hlsl_cast(),)?;
                                 true
@@ -3883,531 +4521,7 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                 arg2,
                 arg3,
             } => {
-                use crate::MathFunction as Mf;
-
-                enum Function {
-                    Asincosh { is_sin: bool },
-                    Atanh,
-                    Pack2x16float,
-                    Pack2x16snorm,
-                    Pack2x16unorm,
-                    Pack4x8snorm,
-                    Pack4x8unorm,
-                    Pack4xI8,
-                    Pack4xU8,
-                    Pack4xI8Clamp,
-                    Pack4xU8Clamp,
-                    Unpack2x16float,
-                    Unpack2x16snorm,
-                    Unpack2x16unorm,
-                    Unpack4x8snorm,
-                    Unpack4x8unorm,
-                    Unpack4xI8,
-                    Unpack4xU8,
-                    Dot4I8Packed,
-                    Dot4U8Packed,
-                    QuantizeToF16,
-                    Regular(&'static str),
-                    MissingIntOverload(&'static str),
-                    MissingIntReturnType(&'static str),
-                    CountTrailingZeros,
-                    CountLeadingZeros,
-                }
-
-                let fun = match fun {
-                    // comparison
-                    Mf::Abs => match func_ctx.resolve_type(arg, &module.types).scalar() {
-                        Some(Scalar::I32) => Function::Regular(ABS_FUNCTION),
-                        _ => Function::Regular("abs"),
-                    },
-                    Mf::Min => Function::Regular("min"),
-                    Mf::Max => Function::Regular("max"),
-                    Mf::Clamp => Function::Regular("clamp"),
-                    Mf::Saturate => Function::Regular("saturate"),
-                    // trigonometry
-                    Mf::Cos => Function::Regular("cos"),
-                    Mf::Cosh => Function::Regular("cosh"),
-                    Mf::Sin => Function::Regular("sin"),
-                    Mf::Sinh => Function::Regular("sinh"),
-                    Mf::Tan => Function::Regular("tan"),
-                    Mf::Tanh => Function::Regular("tanh"),
-                    Mf::Acos => Function::Regular("acos"),
-                    Mf::Asin => Function::Regular("asin"),
-                    Mf::Atan => Function::Regular("atan"),
-                    Mf::Atan2 => Function::Regular("atan2"),
-                    Mf::Asinh => Function::Asincosh { is_sin: true },
-                    Mf::Acosh => Function::Asincosh { is_sin: false },
-                    Mf::Atanh => Function::Atanh,
-                    Mf::Radians => Function::Regular("radians"),
-                    Mf::Degrees => Function::Regular("degrees"),
-                    // decomposition
-                    Mf::Ceil => Function::Regular("ceil"),
-                    Mf::Floor => Function::Regular("floor"),
-                    Mf::Round => Function::Regular("round"),
-                    Mf::Fract => Function::Regular("frac"),
-                    Mf::Trunc => Function::Regular("trunc"),
-                    Mf::Modf => Function::Regular(MODF_FUNCTION),
-                    Mf::Frexp => Function::Regular(FREXP_FUNCTION),
-                    Mf::Ldexp => Function::Regular("ldexp"),
-                    // exponent
-                    Mf::Exp => Function::Regular("exp"),
-                    Mf::Exp2 => Function::Regular("exp2"),
-                    Mf::Log => Function::Regular("log"),
-                    Mf::Log2 => Function::Regular("log2"),
-                    Mf::Pow => Function::Regular("pow"),
-                    // geometry
-                    Mf::Dot => Function::Regular("dot"),
-                    Mf::Dot4I8Packed => Function::Dot4I8Packed,
-                    Mf::Dot4U8Packed => Function::Dot4U8Packed,
-                    //Mf::Outer => ,
-                    Mf::Cross => Function::Regular("cross"),
-                    Mf::Distance => Function::Regular("distance"),
-                    Mf::Length => Function::Regular("length"),
-                    Mf::Normalize => Function::Regular("normalize"),
-                    Mf::FaceForward => Function::Regular("faceforward"),
-                    Mf::Reflect => Function::Regular("reflect"),
-                    Mf::Refract => Function::Regular("refract"),
-                    // computational
-                    Mf::Sign => Function::Regular("sign"),
-                    Mf::Fma => Function::Regular("mad"),
-                    Mf::Mix => Function::Regular("lerp"),
-                    Mf::Step => Function::Regular("step"),
-                    Mf::SmoothStep => Function::Regular("smoothstep"),
-                    Mf::Sqrt => Function::Regular("sqrt"),
-                    Mf::InverseSqrt => Function::Regular("rsqrt"),
-                    //Mf::Inverse =>,
-                    Mf::Transpose => Function::Regular("transpose"),
-                    Mf::Determinant => Function::Regular("determinant"),
-                    Mf::QuantizeToF16 => Function::QuantizeToF16,
-                    // bits
-                    Mf::CountTrailingZeros => Function::CountTrailingZeros,
-                    Mf::CountLeadingZeros => Function::CountLeadingZeros,
-                    Mf::CountOneBits => Function::MissingIntOverload("countbits"),
-                    Mf::ReverseBits => Function::MissingIntOverload("reversebits"),
-                    Mf::FirstTrailingBit => Function::MissingIntReturnType("firstbitlow"),
-                    Mf::FirstLeadingBit => Function::MissingIntReturnType("firstbithigh"),
-                    Mf::ExtractBits => Function::Regular(EXTRACT_BITS_FUNCTION),
-                    Mf::InsertBits => Function::Regular(INSERT_BITS_FUNCTION),
-                    // Data Packing
-                    Mf::Pack2x16float => Function::Pack2x16float,
-                    Mf::Pack2x16snorm => Function::Pack2x16snorm,
-                    Mf::Pack2x16unorm => Function::Pack2x16unorm,
-                    Mf::Pack4x8snorm => Function::Pack4x8snorm,
-                    Mf::Pack4x8unorm => Function::Pack4x8unorm,
-                    Mf::Pack4xI8 => Function::Pack4xI8,
-                    Mf::Pack4xU8 => Function::Pack4xU8,
-                    Mf::Pack4xI8Clamp => Function::Pack4xI8Clamp,
-                    Mf::Pack4xU8Clamp => Function::Pack4xU8Clamp,
-                    // Data Unpacking
-                    Mf::Unpack2x16float => Function::Unpack2x16float,
-                    Mf::Unpack2x16snorm => Function::Unpack2x16snorm,
-                    Mf::Unpack2x16unorm => Function::Unpack2x16unorm,
-                    Mf::Unpack4x8snorm => Function::Unpack4x8snorm,
-                    Mf::Unpack4x8unorm => Function::Unpack4x8unorm,
-                    Mf::Unpack4xI8 => Function::Unpack4xI8,
-                    Mf::Unpack4xU8 => Function::Unpack4xU8,
-                    _ => return Err(Error::Unimplemented(format!("write_expr_math {fun:?}"))),
-                };
-
-                match fun {
-                    Function::Asincosh { is_sin } => {
-                        write!(self.out, "log(")?;
-                        self.write_expr(module, arg, func_ctx)?;
-                        write!(self.out, " + sqrt(")?;
-                        self.write_expr(module, arg, func_ctx)?;
-                        write!(self.out, " * ")?;
-                        self.write_expr(module, arg, func_ctx)?;
-                        match is_sin {
-                            true => write!(self.out, " + 1.0))")?,
-                            false => write!(self.out, " - 1.0))")?,
-                        }
-                    }
-                    Function::Atanh => {
-                        write!(self.out, "0.5 * log((1.0 + ")?;
-                        self.write_expr(module, arg, func_ctx)?;
-                        write!(self.out, ") / (1.0 - ")?;
-                        self.write_expr(module, arg, func_ctx)?;
-                        write!(self.out, "))")?;
-                    }
-                    Function::Pack2x16float => {
-                        write!(self.out, "(f32tof16(")?;
-                        self.write_expr(module, arg, func_ctx)?;
-                        write!(self.out, "[0]) | f32tof16(")?;
-                        self.write_expr(module, arg, func_ctx)?;
-                        write!(self.out, "[1]) << 16)")?;
-                    }
-                    Function::Pack2x16snorm => {
-                        let scale = 32767;
-
-                        write!(self.out, "uint((int(round(clamp(")?;
-                        self.write_expr(module, arg, func_ctx)?;
-                        write!(
-                            self.out,
-                            "[0], -1.0, 1.0) * {scale}.0)) & 0xFFFF) | ((int(round(clamp("
-                        )?;
-                        self.write_expr(module, arg, func_ctx)?;
-                        write!(self.out, "[1], -1.0, 1.0) * {scale}.0)) & 0xFFFF) << 16))",)?;
-                    }
-                    Function::Pack2x16unorm => {
-                        let scale = 65535;
-
-                        write!(self.out, "(uint(round(clamp(")?;
-                        self.write_expr(module, arg, func_ctx)?;
-                        write!(self.out, "[0], 0.0, 1.0) * {scale}.0)) | uint(round(clamp(")?;
-                        self.write_expr(module, arg, func_ctx)?;
-                        write!(self.out, "[1], 0.0, 1.0) * {scale}.0)) << 16)")?;
-                    }
-                    Function::Pack4x8snorm => {
-                        let scale = 127;
-
-                        write!(self.out, "uint((int(round(clamp(")?;
-                        self.write_expr(module, arg, func_ctx)?;
-                        write!(
-                            self.out,
-                            "[0], -1.0, 1.0) * {scale}.0)) & 0xFF) | ((int(round(clamp("
-                        )?;
-                        self.write_expr(module, arg, func_ctx)?;
-                        write!(
-                            self.out,
-                            "[1], -1.0, 1.0) * {scale}.0)) & 0xFF) << 8) | ((int(round(clamp("
-                        )?;
-                        self.write_expr(module, arg, func_ctx)?;
-                        write!(
-                            self.out,
-                            "[2], -1.0, 1.0) * {scale}.0)) & 0xFF) << 16) | ((int(round(clamp("
-                        )?;
-                        self.write_expr(module, arg, func_ctx)?;
-                        write!(self.out, "[3], -1.0, 1.0) * {scale}.0)) & 0xFF) << 24))",)?;
-                    }
-                    Function::Pack4x8unorm => {
-                        let scale = 255;
-
-                        write!(self.out, "(uint(round(clamp(")?;
-                        self.write_expr(module, arg, func_ctx)?;
-                        write!(self.out, "[0], 0.0, 1.0) * {scale}.0)) | uint(round(clamp(")?;
-                        self.write_expr(module, arg, func_ctx)?;
-                        write!(
-                            self.out,
-                            "[1], 0.0, 1.0) * {scale}.0)) << 8 | uint(round(clamp("
-                        )?;
-                        self.write_expr(module, arg, func_ctx)?;
-                        write!(
-                            self.out,
-                            "[2], 0.0, 1.0) * {scale}.0)) << 16 | uint(round(clamp("
-                        )?;
-                        self.write_expr(module, arg, func_ctx)?;
-                        write!(self.out, "[3], 0.0, 1.0) * {scale}.0)) << 24)")?;
-                    }
-                    fun @ (Function::Pack4xI8
-                    | Function::Pack4xU8
-                    | Function::Pack4xI8Clamp
-                    | Function::Pack4xU8Clamp) => {
-                        let was_signed =
-                            matches!(fun, Function::Pack4xI8 | Function::Pack4xI8Clamp);
-                        let clamp_bounds = match fun {
-                            Function::Pack4xI8Clamp => Some(("-128", "127")),
-                            Function::Pack4xU8Clamp => Some(("0", "255")),
-                            _ => None,
-                        };
-                        if was_signed {
-                            write!(self.out, "uint(")?;
-                        }
-                        let write_arg = |this: &mut Self| -> BackendResult {
-                            if let Some((min, max)) = clamp_bounds {
-                                write!(this.out, "clamp(")?;
-                                this.write_expr(module, arg, func_ctx)?;
-                                write!(this.out, ", {min}, {max})")?;
-                            } else {
-                                this.write_expr(module, arg, func_ctx)?;
-                            }
-                            Ok(())
-                        };
-                        write!(self.out, "(")?;
-                        write_arg(self)?;
-                        write!(self.out, "[0] & 0xFF) | ((")?;
-                        write_arg(self)?;
-                        write!(self.out, "[1] & 0xFF) << 8) | ((")?;
-                        write_arg(self)?;
-                        write!(self.out, "[2] & 0xFF) << 16) | ((")?;
-                        write_arg(self)?;
-                        write!(self.out, "[3] & 0xFF) << 24)")?;
-                        if was_signed {
-                            write!(self.out, ")")?;
-                        }
-                    }
-
-                    Function::Unpack2x16float => {
-                        write!(self.out, "float2(f16tof32(")?;
-                        self.write_expr(module, arg, func_ctx)?;
-                        write!(self.out, "), f16tof32((")?;
-                        self.write_expr(module, arg, func_ctx)?;
-                        write!(self.out, ") >> 16))")?;
-                    }
-                    Function::Unpack2x16snorm => {
-                        let scale = 32767;
-
-                        write!(self.out, "(float2(int2(")?;
-                        self.write_expr(module, arg, func_ctx)?;
-                        write!(self.out, " << 16, ")?;
-                        self.write_expr(module, arg, func_ctx)?;
-                        write!(self.out, ") >> 16) / {scale}.0)")?;
-                    }
-                    Function::Unpack2x16unorm => {
-                        let scale = 65535;
-
-                        write!(self.out, "(float2(")?;
-                        self.write_expr(module, arg, func_ctx)?;
-                        write!(self.out, " & 0xFFFF, ")?;
-                        self.write_expr(module, arg, func_ctx)?;
-                        write!(self.out, " >> 16) / {scale}.0)")?;
-                    }
-                    Function::Unpack4x8snorm => {
-                        let scale = 127;
-
-                        write!(self.out, "(float4(int4(")?;
-                        self.write_expr(module, arg, func_ctx)?;
-                        write!(self.out, " << 24, ")?;
-                        self.write_expr(module, arg, func_ctx)?;
-                        write!(self.out, " << 16, ")?;
-                        self.write_expr(module, arg, func_ctx)?;
-                        write!(self.out, " << 8, ")?;
-                        self.write_expr(module, arg, func_ctx)?;
-                        write!(self.out, ") >> 24) / {scale}.0)")?;
-                    }
-                    Function::Unpack4x8unorm => {
-                        let scale = 255;
-
-                        write!(self.out, "(float4(")?;
-                        self.write_expr(module, arg, func_ctx)?;
-                        write!(self.out, " & 0xFF, ")?;
-                        self.write_expr(module, arg, func_ctx)?;
-                        write!(self.out, " >> 8 & 0xFF, ")?;
-                        self.write_expr(module, arg, func_ctx)?;
-                        write!(self.out, " >> 16 & 0xFF, ")?;
-                        self.write_expr(module, arg, func_ctx)?;
-                        write!(self.out, " >> 24) / {scale}.0)")?;
-                    }
-                    fun @ (Function::Unpack4xI8 | Function::Unpack4xU8) => {
-                        write!(self.out, "(")?;
-                        if matches!(fun, Function::Unpack4xU8) {
-                            write!(self.out, "u")?;
-                        }
-                        write!(self.out, "int4(")?;
-                        self.write_expr(module, arg, func_ctx)?;
-                        write!(self.out, ", ")?;
-                        self.write_expr(module, arg, func_ctx)?;
-                        write!(self.out, " >> 8, ")?;
-                        self.write_expr(module, arg, func_ctx)?;
-                        write!(self.out, " >> 16, ")?;
-                        self.write_expr(module, arg, func_ctx)?;
-                        write!(self.out, " >> 24) << 24 >> 24)")?;
-                    }
-                    fun @ (Function::Dot4I8Packed | Function::Dot4U8Packed) => {
-                        let arg1 = arg1.unwrap();
-
-                        if self.options.shader_model >= ShaderModel::V6_4 {
-                            // Intrinsics `dot4add_{i, u}8packed` are available in SM 6.4 and later.
-                            let function_name = match fun {
-                                Function::Dot4I8Packed => "dot4add_i8packed",
-                                Function::Dot4U8Packed => "dot4add_u8packed",
-                                _ => unreachable!(),
-                            };
-                            write!(self.out, "{function_name}(")?;
-                            self.write_expr(module, arg, func_ctx)?;
-                            write!(self.out, ", ")?;
-                            self.write_expr(module, arg1, func_ctx)?;
-                            write!(self.out, ", 0)")?;
-                        } else {
-                            // Fall back to a polyfill as `dot4add_u8packed` is not available.
-                            write!(self.out, "dot(")?;
-
-                            if matches!(fun, Function::Dot4U8Packed) {
-                                write!(self.out, "u")?;
-                            }
-                            write!(self.out, "int4(")?;
-                            self.write_expr(module, arg, func_ctx)?;
-                            write!(self.out, ", ")?;
-                            self.write_expr(module, arg, func_ctx)?;
-                            write!(self.out, " >> 8, ")?;
-                            self.write_expr(module, arg, func_ctx)?;
-                            write!(self.out, " >> 16, ")?;
-                            self.write_expr(module, arg, func_ctx)?;
-                            write!(self.out, " >> 24) << 24 >> 24, ")?;
-
-                            if matches!(fun, Function::Dot4U8Packed) {
-                                write!(self.out, "u")?;
-                            }
-                            write!(self.out, "int4(")?;
-                            self.write_expr(module, arg1, func_ctx)?;
-                            write!(self.out, ", ")?;
-                            self.write_expr(module, arg1, func_ctx)?;
-                            write!(self.out, " >> 8, ")?;
-                            self.write_expr(module, arg1, func_ctx)?;
-                            write!(self.out, " >> 16, ")?;
-                            self.write_expr(module, arg1, func_ctx)?;
-                            write!(self.out, " >> 24) << 24 >> 24)")?;
-                        }
-                    }
-                    Function::QuantizeToF16 => {
-                        write!(self.out, "f16tof32(f32tof16(")?;
-                        self.write_expr(module, arg, func_ctx)?;
-                        write!(self.out, "))")?;
-                    }
-                    Function::Regular(fun_name) => {
-                        write!(self.out, "{fun_name}(")?;
-                        self.write_expr(module, arg, func_ctx)?;
-                        if let Some(arg) = arg1 {
-                            write!(self.out, ", ")?;
-                            self.write_expr(module, arg, func_ctx)?;
-                        }
-                        if let Some(arg) = arg2 {
-                            write!(self.out, ", ")?;
-                            self.write_expr(module, arg, func_ctx)?;
-                        }
-                        if let Some(arg) = arg3 {
-                            write!(self.out, ", ")?;
-                            self.write_expr(module, arg, func_ctx)?;
-                        }
-                        write!(self.out, ")")?
-                    }
-                    // These overloads are only missing on FXC, so this is only needed for 32bit types,
-                    // as non-32bit types are DXC only.
-                    Function::MissingIntOverload(fun_name) => {
-                        let scalar_kind = func_ctx.resolve_type(arg, &module.types).scalar();
-                        if let Some(Scalar::I32) = scalar_kind {
-                            write!(self.out, "asint({fun_name}(asuint(")?;
-                            self.write_expr(module, arg, func_ctx)?;
-                            write!(self.out, ")))")?;
-                        } else {
-                            write!(self.out, "{fun_name}(")?;
-                            self.write_expr(module, arg, func_ctx)?;
-                            write!(self.out, ")")?;
-                        }
-                    }
-                    // These overloads are only missing on FXC, so this is only needed for 32bit types,
-                    // as non-32bit types are DXC only.
-                    Function::MissingIntReturnType(fun_name) => {
-                        let scalar_kind = func_ctx.resolve_type(arg, &module.types).scalar();
-                        if let Some(Scalar::I32) = scalar_kind {
-                            write!(self.out, "asint({fun_name}(")?;
-                            self.write_expr(module, arg, func_ctx)?;
-                            write!(self.out, "))")?;
-                        } else {
-                            write!(self.out, "{fun_name}(")?;
-                            self.write_expr(module, arg, func_ctx)?;
-                            write!(self.out, ")")?;
-                        }
-                    }
-                    Function::CountTrailingZeros => {
-                        match *func_ctx.resolve_type(arg, &module.types) {
-                            TypeInner::Vector { size, scalar } => {
-                                let s = match size {
-                                    crate::VectorSize::Bi => ".xx",
-                                    crate::VectorSize::Tri => ".xxx",
-                                    crate::VectorSize::Quad => ".xxxx",
-                                };
-
-                                let scalar_width_bits = scalar.width * 8;
-
-                                if scalar.kind == ScalarKind::Uint || scalar.width != 4 {
-                                    write!(
-                                        self.out,
-                                        "min(({scalar_width_bits}u){s}, firstbitlow("
-                                    )?;
-                                    self.write_expr(module, arg, func_ctx)?;
-                                    write!(self.out, "))")?;
-                                } else {
-                                    // This is only needed for the FXC path, on 32bit signed integers.
-                                    write!(
-                                        self.out,
-                                        "asint(min(({scalar_width_bits}u){s}, firstbitlow("
-                                    )?;
-                                    self.write_expr(module, arg, func_ctx)?;
-                                    write!(self.out, ")))")?;
-                                }
-                            }
-                            TypeInner::Scalar(scalar) => {
-                                let scalar_width_bits = scalar.width * 8;
-
-                                if scalar.kind == ScalarKind::Uint || scalar.width != 4 {
-                                    write!(self.out, "min({scalar_width_bits}u, firstbitlow(")?;
-                                    self.write_expr(module, arg, func_ctx)?;
-                                    write!(self.out, "))")?;
-                                } else {
-                                    // This is only needed for the FXC path, on 32bit signed integers.
-                                    write!(
-                                        self.out,
-                                        "asint(min({scalar_width_bits}u, firstbitlow("
-                                    )?;
-                                    self.write_expr(module, arg, func_ctx)?;
-                                    write!(self.out, ")))")?;
-                                }
-                            }
-                            _ => unreachable!(),
-                        }
-
-                        return Ok(());
-                    }
-                    Function::CountLeadingZeros => {
-                        match *func_ctx.resolve_type(arg, &module.types) {
-                            TypeInner::Vector { size, scalar } => {
-                                let s = match size {
-                                    crate::VectorSize::Bi => ".xx",
-                                    crate::VectorSize::Tri => ".xxx",
-                                    crate::VectorSize::Quad => ".xxxx",
-                                };
-
-                                // scalar width - 1
-                                let constant = scalar.width * 8 - 1;
-
-                                if scalar.kind == ScalarKind::Uint {
-                                    write!(self.out, "(({constant}u){s} - firstbithigh(")?;
-                                    self.write_expr(module, arg, func_ctx)?;
-                                    write!(self.out, "))")?;
-                                } else {
-                                    let conversion_func = match scalar.width {
-                                        4 => "asint",
-                                        _ => "",
-                                    };
-                                    write!(self.out, "(")?;
-                                    self.write_expr(module, arg, func_ctx)?;
-                                    write!(
-                                        self.out,
-                                        " < (0){s} ? (0){s} : ({constant}){s} - {conversion_func}(firstbithigh("
-                                    )?;
-                                    self.write_expr(module, arg, func_ctx)?;
-                                    write!(self.out, ")))")?;
-                                }
-                            }
-                            TypeInner::Scalar(scalar) => {
-                                // scalar width - 1
-                                let constant = scalar.width * 8 - 1;
-
-                                if let ScalarKind::Uint = scalar.kind {
-                                    write!(self.out, "({constant}u - firstbithigh(")?;
-                                    self.write_expr(module, arg, func_ctx)?;
-                                    write!(self.out, "))")?;
-                                } else {
-                                    let conversion_func = match scalar.width {
-                                        4 => "asint",
-                                        _ => "",
-                                    };
-                                    write!(self.out, "(")?;
-                                    self.write_expr(module, arg, func_ctx)?;
-                                    write!(
-                                        self.out,
-                                        " < 0 ? 0 : {constant} - {conversion_func}(firstbithigh("
-                                    )?;
-                                    self.write_expr(module, arg, func_ctx)?;
-                                    write!(self.out, ")))")?;
-                                }
-                            }
-                            _ => unreachable!(),
-                        }
-
-                        return Ok(());
-                    }
-                }
+                return self.write_math_expression(module, fun, arg, arg1, arg2, arg3, func_ctx);
             }
             Expression::Swizzle {
                 size,
@@ -4677,10 +4791,36 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
         name: String,
         // The expression which is being named.
         // Generally, this is the same as handle, except in WorkGroupUniformLoad
-        named: Handle<crate::Expression>,
-        ctx: &back::FunctionCtx,
+        expr: Handle<crate::Expression>,
+        func_ctx: &back::FunctionCtx,
     ) -> BackendResult {
-        match ctx.info[named].ty {
+        if let crate::Expression::Load { pointer } = func_ctx.expressions[expr] {
+            let ty_inner = func_ctx.resolve_type(pointer, &module.types);
+            if ty_inner.is_atomic_pointer(&module.types) {
+                let pointer_space = ty_inner.pointer_space().unwrap();
+                self.write_value_type(module, func_ctx.info[handle].ty.inner_with(&module.types))?;
+                write!(self.out, " {name}; ")?;
+                match pointer_space {
+                    crate::AddressSpace::WorkGroup => {
+                        write!(self.out, "InterlockedOr(")?;
+                        self.write_expr(module, pointer, func_ctx)?;
+                    }
+                    crate::AddressSpace::Storage { .. } => {
+                        let var_handle = self.fill_access_chain(module, pointer, func_ctx)?;
+                        let var_name = &self.names[&NameKey::GlobalVariable(var_handle)];
+                        write!(self.out, "{var_name}.InterlockedOr(")?;
+                        let chain = mem::take(&mut self.temp_access_chain);
+                        self.write_storage_address(module, &chain, func_ctx)?;
+                        self.temp_access_chain = chain;
+                    }
+                    _ => unreachable!(),
+                }
+                writeln!(self.out, ", 0, {name});")?;
+                self.named_expressions.insert(expr, name);
+                return Ok(());
+            }
+        }
+        match func_ctx.info[expr].ty {
             proc::TypeResolution::Handle(ty_handle) => match module.types[ty_handle].inner {
                 TypeInner::Struct { .. } => {
                     let ty_name = &self.names[&NameKey::Type(ty_handle)];
@@ -4695,7 +4835,7 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
             }
         }
 
-        let resolved = ctx.resolve_type(named, &module.types);
+        let resolved = func_ctx.resolve_type(expr, &module.types);
 
         write!(self.out, " {name}")?;
         // If rhs is a array type, we should write array size
@@ -4703,9 +4843,9 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
             self.write_array_size(module, base, size)?;
         }
         write!(self.out, " = ")?;
-        self.write_expr(module, handle, ctx)?;
+        self.write_expr(module, handle, func_ctx)?;
         writeln!(self.out, ";")?;
-        self.named_expressions.insert(named, name);
+        self.named_expressions.insert(expr, name);
 
         Ok(())
     }
@@ -4919,44 +5059,15 @@ pub(super) fn get_inner_matrix_of_struct_array_member(
     None
 }
 
-/// Simpler version of get_inner_matrix_of_global_uniform that only looks at the
-/// immediate expression, rather than traversing an access chain.
-fn get_global_uniform_matrix(
-    module: &Module,
-    base: Handle<crate::Expression>,
-    func_ctx: &back::FunctionCtx<'_>,
-) -> Option<MatrixType> {
-    let base_tr = func_ctx
-        .resolve_type(base, &module.types)
-        .pointer_base_type();
-    let base_ty = base_tr.as_ref().map(|tr| tr.inner_with(&module.types));
-    match (&func_ctx.expressions[base], base_ty) {
-        (
-            &crate::Expression::GlobalVariable(handle),
-            Some(&TypeInner::Matrix {
-                columns,
-                rows,
-                scalar,
-            }),
-        ) if module.global_variables[handle].space == crate::AddressSpace::Uniform => {
-            Some(MatrixType {
-                columns,
-                rows,
-                width: scalar.width,
-            })
-        }
-        _ => None,
-    }
-}
-
 /// Returns the matrix data if the access chain starting at `base`:
-/// - starts with an expression with resolved type of [`TypeInner::Matrix`]
-/// - contains zero or more expressions with resolved type of [`TypeInner::Array`] of [`TypeInner::Matrix`]
-/// - ends with an [`Expression::GlobalVariable`](crate::Expression::GlobalVariable) in [`AddressSpace::Uniform`](crate::AddressSpace::Uniform)
+/// - starts with an expression with resolved type of [`TypeInner::Matrix`], or
+/// - contains zero or more expressions with resolved type of [`TypeInner::Array`] of [`TypeInner::Matrix`] if `direct = false`
+/// - and ends with an [`Expression::GlobalVariable`](crate::Expression::GlobalVariable) in [`AddressSpace::Uniform`](crate::AddressSpace::Uniform)
 fn get_inner_matrix_of_global_uniform(
     module: &Module,
     base: Handle<crate::Expression>,
     func_ctx: &back::FunctionCtx<'_>,
+    direct: bool,
 ) -> Option<MatrixType> {
     let mut mat_data = None;
     let mut array_base = None;
@@ -4981,7 +5092,9 @@ fn get_inner_matrix_of_global_uniform(
                 })
             }
             TypeInner::Array { base, .. } => {
-                array_base = Some(base);
+                if !direct {
+                    array_base = Some(base);
+                }
             }
             _ => break,
         }

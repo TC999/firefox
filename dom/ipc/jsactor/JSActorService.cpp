@@ -32,6 +32,8 @@
 #include "mozilla/dom/WindowGlobalParent.h"
 #include "nsIObserverService.h"
 
+mozilla::LazyLogModule gJSActorServiceLog("JSActorService");
+
 namespace mozilla::dom {
 namespace {
 StaticRefPtr<JSActorService> gJSActorService;
@@ -51,6 +53,18 @@ already_AddRefed<JSActorService> JSActorService::GetSingleton() {
 
   RefPtr<JSActorService> service = gJSActorService.get();
   return service.forget();
+}
+
+template <typename ActorOptionsT>
+static void LogActorRegistration(const char* aActorType,
+                                 const nsACString& aName,
+                                 const ActorOptionsT& aOptions) {
+  MOZ_LOG_FMT(gJSActorServiceLog, mozilla::LogLevel::Info,
+              "registered {} '{}': {{{}{}{} }}\n", aActorType,
+              PromiseFlatCString(aName).get(),
+              aOptions.mParent.WasPassed() ? " parent," : "",
+              aOptions.mChild.WasPassed() ? " child," : "",
+              aOptions.mRemoteTypes.WasPassed() ? " remoteTypes," : "");
 }
 
 void JSActorService::RegisterWindowActor(const nsACString& aName,
@@ -104,6 +118,8 @@ void JSActorService::RegisterWindowActor(const nsACString& aName,
   for (EventTarget* target : mChromeEventTargets) {
     proto->RegisterListenersFor(target);
   }
+
+  LogActorRegistration("JSWindowActor", aName, aOptions);
 
   // Add observers to the protocol.
   proto->AddObservers();
@@ -276,6 +292,8 @@ void JSActorService::RegisterProcessActor(const nsACString& aName,
     (void)cp->SendInitJSActorInfos(contentInfos, windowInfos);
   }
 
+  LogActorRegistration("JSProcessActor", aName, aOptions);
+
   // Add observers to the protocol.
   proto->AddObservers();
 }
@@ -303,8 +321,14 @@ void JSActorService::UnregisterProcessActor(const nsACString& aName) {
         }
         managers.AppendElement(cp);
       }
-      managers.AppendElement(InProcessChild::Singleton());
-      managers.AppendElement(InProcessParent::Singleton());
+      InProcessChild* ipChild = InProcessChild::Singleton();
+      if (ipChild) {
+        managers.AppendElement(ipChild);
+      }
+      InProcessParent* ipParent = InProcessParent::Singleton();
+      if (ipParent) {
+        managers.AppendElement(ipParent);
+      }
     } else {
       managers.AppendElement(ContentChild::GetSingleton());
     }
@@ -335,15 +359,39 @@ JSActorService::GetJSWindowActorProtocol(const nsACString& aName) {
   return mWindowActorDescriptors.Get(aName);
 }
 
-bool JSActorProtocol::RemoteTypePrefixMatches(const nsACString& aRemoteType) {
+void JSActorProtocol::LogMatch(const RemoteType& aRemoteType) {
+  if (!MOZ_LOG_TEST(gJSActorServiceLog, LogLevel::Info)) {
+    return;
+  }
+
+  nsCString remoteTypeKind(aRemoteType.StringifyKind());
+  if (mLoggedRemoteTypes.Contains(remoteTypeKind)) {
+    return;
+  }
+
+  mLoggedRemoteTypes.AppendElement(remoteTypeKind);
+  MOZ_LOG_FMT(gJSActorServiceLog, LogLevel::Info,
+              "JSActor '{}' matched remoteType '{}'", mName.get(),
+              remoteTypeKind.get());
+}
+
+bool JSActorProtocol::RemoteTypeMatches(const RemoteType& aRemoteType) {
+  if (StaticPrefs::dom_jsipc_check_safeForUntrustedWebProcess() &&
+      !mSafeForUntrustedWebProcess &&
+      (aRemoteType.IsWeb() || aRemoteType.IsFile())) {
+    return false;
+  }
+
   if (mRemoteTypes.IsEmpty()) {
     return true;
   }
 
-  nsDependentCSubstring remoteTypePrefix(RemoteTypePrefix(aRemoteType));
+  // TODO: Consider using a more advanced matcher which is aware of the
+  // structure of RemoteType. See bug 2006165.
+  nsCString remoteTypeKind(aRemoteType.StringifyKind());
+
   for (auto& remoteType : mRemoteTypes) {
-    // TODO: Maybe this should use glob-style matching instead. See bug 2006165.
-    if (StringBeginsWith(remoteTypePrefix, remoteType)) {
+    if (StringBeginsWith(remoteTypeKind, remoteType)) {
       return true;
     }
   }

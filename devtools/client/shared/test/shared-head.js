@@ -202,6 +202,7 @@ const {
 } = require("resource://devtools/client/framework/devtools.js");
 const {
   CommandsFactory,
+  createLocalClientForTests,
 } = require("resource://devtools/shared/commands/commands-factory.js");
 const DevToolsUtils = require("resource://devtools/shared/DevToolsUtils.js");
 
@@ -270,23 +271,6 @@ const URL_ROOT_MOCHI_8888 = CHROME_URL_ROOT.replace(
   "chrome://mochitests/content/",
   "http://mochi.test:8888/"
 );
-
-try {
-  if (isMochitest) {
-    Services.scriptloader.loadSubScript(
-      "chrome://mochitests/content/browser/devtools/client/shared/test/telemetry-test-helpers.js",
-      this
-    );
-  }
-} catch (e) {
-  ok(
-    false,
-    "MISSING DEPENDENCY ON telemetry-test-helpers.js\n" +
-      "Please add the following line in browser.toml:\n" +
-      "  !/devtools/client/shared/test/telemetry-test-helpers.js\n"
-  );
-  throw e;
-}
 
 // Force devtools to be initialized so menu items and keyboard shortcuts get installed
 require("resource://devtools/client/framework/devtools-browser.js");
@@ -1172,7 +1156,7 @@ async function waitFor(
       : maxTries;
 
   try {
-    const value = await BrowserTestUtils.waitForCondition(
+    const value = await TestUtils.waitForCondition(
       condition,
       message,
       interval,
@@ -1265,10 +1249,41 @@ function waitForNEvents(target, eventName, numTimes, useCapture = false) {
 }
 
 /**
- * Wait for DOM change on target.
+ * Wait until the browser element is no longer loading a document. In general
+ * if you are loading an existing browser element, prefer the shared helper
+ * BrowserTestUtils.isLoaded(browser).
+ *
+ * However in cases where the browser element is dynamically created and the
+ * load might be missed because the event loop had time to spin before calling
+ * isLoaded, this helper can be used as a fallback.
+ *
+ * @param {XULBrowser} browser
+ *        The browser to wait the load for.
+ */
+async function waitForBrowserLoaded(browser) {
+  return waitFor(
+    () =>
+      !browser.webProgress.isLoadingDocument &&
+      browser.currentURI?.spec &&
+      browser.currentURI?.spec !== "about:blank",
+    {
+      toString() {
+        return (
+          `Browser element did not load as expected. ` +
+          `isLoadingDocument=${browser.webProgress.isLoadingDocument} and ` +
+          `URI.spec=${browser.currentURI?.spec}.`
+        );
+      },
+    }
+  );
+}
+
+/**
+ * Wait for DOM to be updated until the number of elements matching the provided
+ * selector correspond to the expectation.
  *
  * @param {object} target
- *        The Node on which to observe DOM mutations.
+ *        The Node on which to query the selector.
  * @param {string} selector
  *        Given a selector to watch whether the expected element is changed
  *        on target.
@@ -1276,27 +1291,25 @@ function waitForNEvents(target, eventName, numTimes, useCapture = false) {
  *        Optional, default set to 1
  *        There may be more than one element match an array match the selector,
  *        give an expected length to wait for more elements.
- * @return A promise that resolves when the event has been handled
+ * @return A promise that resolves with the NodeList of the elements matching
+ *         the selector.
  */
-function waitForDOM(target, selector, expectedLength = 1) {
-  return new Promise(resolve => {
-    const observer = new MutationObserver(mutations => {
-      mutations.forEach(mutation => {
-        const elements = mutation.target.querySelectorAll(selector);
+async function waitForDOM(target, selector, expectedLength = 1) {
+  info(`Wait for ${expectedLength} elements to match selector "${selector}"`);
+  await waitFor(
+    () => target.querySelectorAll(selector).length === expectedLength,
+    {
+      toString() {
+        return (
+          `Expected ${expectedLength} elements for selector: "${selector}", ` +
+          `got ${target.querySelectorAll(selector).length}.`
+        );
+      },
+    }
+  );
 
-        if (elements.length === expectedLength) {
-          observer.disconnect();
-          resolve(elements);
-        }
-      });
-    });
-
-    observer.observe(target, {
-      attributes: true,
-      childList: true,
-      subtree: true,
-    });
-  });
+  info(`Successfully found ${expectedLength} elements matching "${selector}"`);
+  return target.querySelectorAll(selector);
 }
 
 /**
@@ -1586,14 +1599,6 @@ function createTestHTTPServer() {
  *        Arguments to be passed to DevToolsServer.registerModule
  */
 async function registerActorInContentProcess(url, options) {
-  function convertChromeToFile(uri) {
-    return Cc["@mozilla.org/chrome/chrome-registry;1"]
-      .getService(Ci.nsIChromeRegistry)
-      .convertChromeURL(Services.io.newURI(uri)).spec;
-  }
-  // chrome://mochitests URI is registered only in the parent process, so convert these
-  // URLs to file:// one in order to work in the content processes
-  url = url.startsWith("chrome://mochitests") ? convertChromeToFile(url) : url;
   return SpecialPowers.spawn(
     gBrowser.selectedBrowser,
     [{ url, options }],
@@ -2163,7 +2168,7 @@ async function getFluentStringHelper(resourceIds) {
 async function openRDM(tab, { waitForDeviceList = true } = {}) {
   info("Opening responsive design mode");
   const manager = ResponsiveUIManager;
-  const ui = await manager.openIfNeeded(tab.ownerGlobal, tab, {
+  const ui = await manager.openIfNeeded(tab.documentGlobal, tab, {
     trigger: "test",
   });
   info("Responsive design mode opened");
@@ -2196,7 +2201,7 @@ async function waitForRDMLoaded(ui, { waitForDeviceList = true } = {}) {
 async function closeRDM(tab, options) {
   info("Closing responsive design mode");
   const manager = ResponsiveUIManager;
-  await manager.closeIfNeeded(tab.ownerGlobal, tab, options);
+  await manager.closeIfNeeded(tab.documentGlobal, tab, options);
   info("Responsive design mode closed");
 }
 
@@ -2363,31 +2368,11 @@ function simulateLinkClick(element) {
 }
 
 /**
- * Since the MDN data is updated frequently, it might happen that the properties used in
- * this test are not in the dataset anymore/now have URLs.
- * This function will return properties in the dataset that don't have MDN url so you
- * can easily find a replacement.
+ * Use mocked MDN compat data. Should be called before the toolbox starts.
+ * See devtools/shared/compatibility/dataset/mock-css-properties.json.
  */
-function logCssCompatDataPropertiesWithoutMDNUrl() {
-  const cssPropertiesCompatData = require("resource://devtools/shared/compatibility/dataset/css-properties.json");
-
-  function walk(node) {
-    for (const propertyName in node) {
-      const property = node[propertyName];
-      if (property.__compat) {
-        if (!property.__compat.mdn_url) {
-          dump(
-            `"${propertyName}" - MDN URL: ${
-              property.__compat.mdn_url || "❌"
-            } - Spec URL: ${property.__compat.spec_url || "❌"}\n`
-          );
-        }
-      } else if (typeof property == "object") {
-        walk(property);
-      }
-    }
-  }
-  walk(cssPropertiesCompatData);
+async function setMockCompatibilityDataset() {
+  await pushPref("devtools.compatibility.use-mock-dataset", true);
 }
 
 /**

@@ -52,6 +52,18 @@ pub enum FontDescriptor {
     },
 }
 
+/// Everything that distinguishes one registered font instance from another, so
+/// the cache hands the same `FontInstanceKey` back for an identical request.
+/// `render_mode` is part of it because reftests can override it per file.
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct FontInstanceDescriptor {
+    pub font_key: FontKey,
+    pub size: FontSize,
+    pub flags: FontInstanceFlags,
+    pub render_mode: Option<FontRenderMode>,
+    pub synthetic_italics: SyntheticItalics,
+}
+
 struct NotifierData {
     events_loop_proxy: Option<EventLoopProxy<()>>,
     frames_notified: u32,
@@ -215,6 +227,25 @@ pub struct Wrench {
     pub document_id: DocumentId,
     pub root_pipeline_id: PipelineId,
 
+    /// Font templates and instances, retained for the life of the process.
+    ///
+    /// Interning keys a text run on the `FontInstanceKey` the client picked, so a
+    /// client that deletes and re-registers an identical font gets a different key
+    /// and re-interns every run using it. Gecko keeps its instance keys across
+    /// paints; a per-yaml cache would not, and the mechanism would never dedup.
+    fonts: HashMap<FontDescriptor, FontKey>,
+    font_instances: HashMap<FontInstanceDescriptor, FontInstanceKey>,
+
+    /// Display list builders, retained per pipeline for the life of the process.
+    ///
+    /// A builder owns its interning state and is meant to be reused across
+    /// builds - that is what lets an unchanged item keep its handle instead of
+    /// being re-transmitted, and it is what Gecko does with its per-pipeline
+    /// `mDLBuilder`. Building each display list with a fresh builder would work,
+    /// but it restarts slot numbering and so re-sends everything every time,
+    /// leaving the whole mechanism untested.
+    dl_builders: HashMap<PipelineId, DisplayListBuilder>,
+
     window_title_to_set: Option<String>,
 
     graphics_api: webrender::GraphicsApiInfo,
@@ -224,6 +255,14 @@ pub struct Wrench {
     pub frame_start_sender: chase_lev::Worker<Instant>,
 
     pub callbacks: Arc<Mutex<blob::BlobCallbacks>>,
+
+    /// The base debug flags configured at startup. Used as the baseline when
+    /// toggling individual flags per test (e.g. DISABLE_COMPOSITOR_CLIPS).
+    debug_flags: DebugFlags,
+
+    /// Set by the `--compositor-clips` command line argument. When set it
+    /// overrides whatever each subcommand would otherwise pick.
+    compositor_clips_override: Option<bool>,
 }
 
 impl Wrench {
@@ -239,16 +278,22 @@ impl Wrench {
         verbose: bool,
         no_scissor: bool,
         no_batch: bool,
+        color_target_init: bool,
         precache_shaders: bool,
         dump_shader_source: Option<String>,
         notifier: Option<Box<dyn RenderNotifier>>,
         layer_compositor: Option<Box<dyn LayerCompositor>>,
+        compositor_clips_override: Option<bool>,
     ) -> Self {
         println!("Shader override path: {:?}", shader_override_path);
 
         let mut debug_flags = DebugFlags::ECHO_DRIVER_MESSAGES;
         debug_flags.set(DebugFlags::DISABLE_BATCHING, no_batch);
         debug_flags.set(DebugFlags::MISSING_SNAPSHOT_PINK, true);
+        debug_flags.set(DebugFlags::COLOR_TARGET_INIT, color_target_init);
+        if let Some(enabled) = compositor_clips_override {
+            debug_flags.set(DebugFlags::DISABLE_COMPOSITOR_CLIPS, !enabled);
+        }
         let callbacks = Arc::new(Mutex::new(blob::BlobCallbacks::new()));
 
         let precache_flags = if precache_shaders {
@@ -278,9 +323,9 @@ impl Wrench {
             // SWGL doesn't support the GL_ALWAYS depth comparison function used by
             // `clear_caches_with_quads`, but scissored clears work well.
             clear_caches_with_quads: !window.is_software(),
+            enable_shared_instance_buffer: !cfg!(target_os = "windows"),
             compositor_config,
             enable_debugger: true,
-            precise_linear_gradients: true,
             ..Default::default()
         };
 
@@ -319,11 +364,17 @@ impl Wrench {
             rebuild_display_lists: do_rebuild,
 
             root_pipeline_id: PipelineId(0, 0),
+            fonts: HashMap::new(),
+            font_instances: HashMap::new(),
+            dl_builders: HashMap::new(),
 
             graphics_api,
             frame_start_sender: timing_sender,
 
             callbacks,
+
+            debug_flags,
+            compositor_clips_override,
         };
 
         wrench.set_title("start");
@@ -338,6 +389,21 @@ impl Wrench {
         let mut txn = Transaction::new();
         txn.set_quality_settings(settings);
         self.api.send_transaction(self.document_id, txn);
+    }
+
+    /// Enable or disable promoting rounded-rect clips to compositor clips (the
+    /// "fast path"). Sent via set_debug_flags (not send_debug_cmd) so that it
+    /// reaches the scene builder, where the promotion decision is made. Because
+    /// this goes through the scene sender, it is ordered before any display
+    /// list submitted afterwards.
+    ///
+    /// The `--compositor-clips` command line argument, if specified, takes
+    /// precedence over `enabled`.
+    pub fn set_compositor_clips_enabled(&mut self, enabled: bool) {
+        let enabled = self.compositor_clips_override.unwrap_or(enabled);
+        let mut flags = self.debug_flags;
+        flags.set(DebugFlags::DISABLE_COMPOSITOR_CLIPS, !enabled);
+        self.api.set_debug_flags(flags);
     }
 
     pub fn layout_simple_ascii(
@@ -404,6 +470,53 @@ impl Wrench {
         (indices, positions, bounding_rect)
     }
 
+    /// A font template for this descriptor, loading it on first use. `load` is
+    /// only called on a miss, so the file read stays out of the hit path.
+    pub fn get_or_create_font(
+        &mut self,
+        desc: FontDescriptor,
+        load: impl FnOnce(&mut Self, &FontDescriptor) -> FontKey,
+    ) -> FontKey {
+        if let Some(key) = self.fonts.get(&desc) {
+            return *key;
+        }
+        let key = load(self, &desc);
+        self.fonts.insert(desc, key);
+        key
+    }
+
+    /// A font instance for this description, registering it on first use.
+    pub fn get_or_create_font_instance(
+        &mut self,
+        desc: FontInstanceDescriptor,
+    ) -> FontInstanceKey {
+        if let Some(key) = self.font_instances.get(&desc) {
+            return *key;
+        }
+        let key = self.add_font_instance(
+            desc.font_key,
+            desc.size.to_f32_px(),
+            desc.flags,
+            desc.render_mode,
+            desc.synthetic_italics,
+        );
+        self.font_instances.insert(desc, key);
+        key
+    }
+
+    /// Take this pipeline's retained display list builder, creating one on first
+    /// use. The caller must hand it back with `put_dl_builder` so the interning
+    /// state it accumulated survives into the next build.
+    pub fn take_dl_builder(&mut self, pipeline_id: PipelineId) -> DisplayListBuilder {
+        self.dl_builders
+            .remove(&pipeline_id)
+            .unwrap_or_else(|| DisplayListBuilder::new(pipeline_id))
+    }
+
+    pub fn put_dl_builder(&mut self, pipeline_id: PipelineId, builder: DisplayListBuilder) {
+        self.dl_builders.insert(pipeline_id, builder);
+    }
+
     pub fn set_title(&mut self, extra: &str) {
         self.window_title_to_set = Some(format!(
             "Wrench: {} - {} - {}",
@@ -445,6 +558,20 @@ impl Wrench {
             dwrote::FontStyle::Normal.to_u32(),
             dwrote::FontStretch::Normal.to_u32(),
         )
+    }
+
+    #[cfg(all(unix, not(target_os = "android")))]
+    pub fn font_key_from_name(&mut self, font_name: &str) -> FontKey {
+        let property = system_fonts::FontPropertyBuilder::new()
+            .family(font_name)
+            .build();
+        let (font, index) = system_fonts::get(&property).unwrap();
+        self.font_key_from_bytes(font, index as u32)
+    }
+
+    #[cfg(target_os = "android")]
+    pub fn font_key_from_name(&mut self, _font_name: &str) -> FontKey {
+        unimplemented!()
     }
 
     #[cfg(target_os = "windows")]
@@ -509,20 +636,6 @@ impl Wrench {
         unimplemented!()
     }
 
-    #[cfg(all(unix, not(target_os = "android")))]
-    pub fn font_key_from_name(&mut self, font_name: &str) -> FontKey {
-        let property = system_fonts::FontPropertyBuilder::new()
-            .family(font_name)
-            .build();
-        let (font, index) = system_fonts::get(&property).unwrap();
-        self.font_key_from_bytes(font, index as u32)
-    }
-
-    #[cfg(target_os = "android")]
-    pub fn font_key_from_name(&mut self, _font_name: &str) -> FontKey {
-        unimplemented!()
-    }
-
     pub fn font_key_from_bytes(&mut self, bytes: Vec<u8>, index: u32) -> FontKey {
         let key = self.api.generate_font_key();
         let mut txn = Transaction::new();
@@ -573,6 +686,7 @@ impl Wrench {
         frame_number: &mut u32,
         display_lists: Vec<DisplayList>,
         scroll_offsets: &HashMap<ExternalScrollId, Vec<SampledScrollOffset>>,
+        transform_properties: &[PropertyValue<LayoutTransform>],
     ) {
         let mut txn = Transaction::new();
         let mut present = false;
@@ -581,6 +695,7 @@ impl Wrench {
 
             txn.set_display_list(
                 Epoch(*frame_number),
+                self.api.get_namespace_id(),
                 (display_list.pipeline, display_list.payload),
             );
 
@@ -591,6 +706,10 @@ impl Wrench {
             if display_list.send_transaction {
                 for (id, offsets) in scroll_offsets {
                     txn.set_scroll_offsets(*id, offsets.clone());
+                }
+
+                if !transform_properties.is_empty() {
+                    txn.append_dynamic_transform_properties(transform_properties.to_vec());
                 }
 
                 let tracked = false;

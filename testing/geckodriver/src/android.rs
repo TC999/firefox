@@ -337,9 +337,6 @@ impl AndroidHandler {
                 self.profile.display().to_string(),
             ]);
 
-            if self.system_access {
-                args_yaml.push("--remote-allow-system-access".into());
-            }
             args_yaml.append(&mut args.unwrap_or_default());
             args_yaml.into_iter().map(Yaml::String).collect()
         };
@@ -365,6 +362,12 @@ impl AndroidHandler {
             Yaml::String("MOZ_CRASHREPORTER_SHUTDOWN".to_owned()),
             Yaml::String("1".to_owned()),
         );
+        if self.system_access {
+            env.insert(
+                Yaml::String("MOZ_REMOTE_ALLOW_SYSTEM_ACCESS".to_owned()),
+                Yaml::String("1".to_owned()),
+            );
+        }
 
         let config_yaml = {
             let mut config = Hash::new();
@@ -430,7 +433,7 @@ impl AndroidHandler {
         Ok(())
     }
 
-    pub fn launch(&self) -> Result<()> {
+    pub fn launch(&self) -> Result<u32> {
         // TODO: Remove the usage of intent arguments once Fennec is no longer
         // supported. Packages which are using GeckoView always read the arguments
         // via the YAML configuration file.
@@ -458,7 +461,7 @@ impl AndroidHandler {
                 &self.process.activity,
                 &intent_arguments,
             ) {
-                Ok(_) => break,
+                Ok(pid) => break Ok(pid),
                 Err(e) => {
                     n += 1;
                     if n < max_start_attempts
@@ -482,8 +485,6 @@ impl AndroidHandler {
                 }
             }
         }
-
-        Ok(())
     }
 
     pub fn force_stop(&self) -> Result<()> {

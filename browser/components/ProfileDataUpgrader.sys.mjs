@@ -979,10 +979,126 @@ export let ProfileDataUpgrader = {
       } catch (e) {}
     }
 
-    // Updating from 167 to 168 to trigger re-migrations of the Rusts store.
-    if (existingDataVersion < 168) {
+    if (existingDataVersion < 169) {
+      // Clear prefs removed by bug 2018089 and bug 2018516.
+      Services.prefs.clearUserPref("widget.macos.native-anchored-menulists");
+      Services.prefs.clearUserPref("widget.macos.native-anchored-select");
+    }
+
+    if (existingDataVersion < 172) {
+      if (Services.prefs.getBoolPref("browser.smartwindow.enabled", false)) {
+        Services.prefs.setBoolPref(
+          "places.semanticHistory.smartwindow.featureGate",
+          true
+        );
+      }
+    }
+
+    // The migration for 173 was applied in Nightly but was removed
+    // for causing failures Bug 2043185
+
+    if (existingDataVersion < 174) {
+      // Remove same-site (ABA) 3rdPartyFrameStorage permissions that were
+      // unnecessarily saved when a same-site-to-top iframe called
+      // requestStorageAccess().
+      for (let perm of Services.perms.getAllWithTypePrefix(
+        "3rdPartyFrameStorage^"
+      )) {
+        let typeSite = perm.type.substring("3rdPartyFrameStorage^".length);
+        try {
+          let originSite = Services.eTLD.getSite(perm.principal.URI);
+          if (typeSite === originSite) {
+            Services.perms.removePermission(perm);
+          }
+        } catch (e) {
+          continue;
+        }
+      }
+    }
+
+    // 170 and 171 were updated to 175 to retrigger the migrations of the Rusts store.
+    if (existingDataVersion < 175) {
       // Force all logins to be re-migrated to the rust store.
       Services.prefs.setBoolPref("signon.rustMirror.migrationNeeded", true);
+    }
+
+    if (existingDataVersion < 176) {
+      // Bug 1767271: cookie ALLOW permissions used to exempt sites from
+      // clear-on-shutdown. That exception is now its own permission type,
+      // persist-data-on-shutdown. Duplicate existing ALLOW exceptions over
+      // so users keep their shutdown protection after the split.
+      // Only migrate durable, user-set permissions. Anything that expires
+      // (session/time) or is re-applied from an enterprise policy on every
+      // startup (EXPIRE_POLICY) must not be persisted as a regular permission.
+      Services.perms.getAllByTypes(["cookie"]).forEach(p => {
+        if (p.expireType != Services.perms.EXPIRE_NEVER) {
+          return;
+        }
+        if (p.capability == Ci.nsICookiePermission.ACCESS_ALLOW) {
+          Services.perms.addFromPrincipal(
+            p.principal,
+            "persist-data-on-shutdown",
+            Ci.nsICookiePermission.ACCESS_ALLOW
+          );
+        }
+      });
+    }
+
+    if (
+      existingDataVersion < 177 &&
+      !Services.prefs.getBoolPref("sidebar.verticalTabs", false) &&
+      Services.prefs.getStringPref("sidebar.visibility", "") === "hide-sidebar"
+    ) {
+      // Bug 2047653: the legacy horizontal-tabs default was stored as
+      // "hide-sidebar", a value now reserved for vertical tabs. Horizontal tabs
+      // now have their own default value, "hide-on-close".
+      Services.prefs.setStringPref("sidebar.visibility", "hide-on-close");
+    }
+
+    if (existingDataVersion < 178) {
+      // The settings redesign promo has been removed.
+      Services.prefs.clearUserPref("browser.settings-redesign.promo.dismissed");
+    }
+
+    if (existingDataVersion < 179) {
+      // Bug 2058143: cookie banner handling has been removed. Drop the per-site
+      // exceptions it stored in content prefs. A null nsILoadContext clears
+      // both normal and private browsing data.
+      try {
+        let contentPrefs = Cc["@mozilla.org/content-pref/service;1"].getService(
+          Ci.nsIContentPrefService2
+        );
+        contentPrefs.removeByName("cookiebanner", null, null);
+        contentPrefs.removeByName("cookiebannerprivate", null, null);
+      } catch (e) {
+        console.error("Error removing cookie banner content prefs", e);
+      }
+
+      Services.prefs.clearUserBranch("cookiebanners.");
+      Services.prefs.clearUserBranch("browser.promo.cookiebanners.");
+    }
+
+    if (existingDataVersion < 180) {
+      // Bug 2056232: the IP Protection UI is now gated on the l10n coverage of
+      // browser/ipProtection.ftl, and only for users who have never seen the
+      // feature. Existing profiles are assumed to have already seen it, so the
+      // gate never takes it away from them.
+      const IPP_HAS_SEEN_FEATURE_PREF = "browser.ipProtection.hasSeenFeature";
+      if (!Services.prefs.prefHasUserValue(IPP_HAS_SEEN_FEATURE_PREF)) {
+        Services.prefs.setBoolPref(IPP_HAS_SEEN_FEATURE_PREF, true);
+      }
+    }
+
+    if (existingDataVersion < 181) {
+      // Bug 2058359 - Re-enable "update service" setting for auto-disabled installations
+      if (
+        AppConstants.MOZ_MAINTENANCE_SERVICE &&
+        Services.prefs.prefHasUserValue("app.update.service.enabled") &&
+        !Services.prefs.getBoolPref("app.update.service.enabled", true)
+      ) {
+        Services.prefs.clearUserPref("app.update.service.enabled");
+        Glean.update.autoReenableStagedUpdates.record();
+      }
     }
 
     // Update the migration version.

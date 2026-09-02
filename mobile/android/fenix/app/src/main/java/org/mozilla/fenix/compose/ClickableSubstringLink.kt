@@ -29,7 +29,7 @@ import org.mozilla.fenix.theme.FirefoxTheme
  * @param clickableEndIndex [text] index at which the URL substring ends.
  * @param onClick Callback to be invoked only when the URL substring is clicked.
  */
-@Deprecated("Use LinkText instead", ReplaceWith("LinkText", "org.mozilla.fenix.compose.LinkText"))
+@Deprecated("Use LinkText instead", ReplaceWith("LinkText", "mozilla.components.compose.base.LinkText"))
 @Composable
 fun ClickableSubstringLink(
     text: String,
@@ -78,11 +78,9 @@ fun ClickableSubstringLink(
         text = annotatedText,
         style = textStyle,
         onClick = {
-            annotatedText
-                .getStringAnnotations("link", it, it)
-                .firstOrNull()?.let {
-                    onClick()
-                }
+            annotatedText.getStringAnnotations("link", it, it).firstOrNull()?.let {
+                onClick()
+            }
         },
     )
 }

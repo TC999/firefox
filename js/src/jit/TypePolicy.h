@@ -476,6 +476,10 @@ class BoxExceptPolicy final : public TypePolicy {
   }
 };
 
+// Like BoxPolicy, but don't box Object inputs.
+template <unsigned Op>
+using BoxExceptObjectPolicy = BoxExceptPolicy<Op, MIRType::Object>;
+
 // Box if not a typical property id (string, symbol, int32).
 template <unsigned Op>
 class CacheIdPolicy final : public TypePolicy {

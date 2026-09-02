@@ -1,171 +1,32 @@
-From: Nico Grunbaum <na-g@nostrum.com>
-Date: Wed, 27 Nov 2024 03:41:00 +0000
-Subject: Bug 1921154 - libwebrtc build related changes for
- AV1;r=mjf,webrtc-reviewers
+From: Michael Froman <mfroman@mozilla.com>
+Date: Thu, 10 Jul 2025 20:03:00 +0000
+Subject: Bug 1975060 - improve build file generation regarding x11 usage.
+ r=dbaker
 
-These are most of the changes needed to get a build with AV1.
-The crypto/openssl changes are later altered in the stack adding an NSPR based implementation of the functionality that was missing.
+Upstream will be removing use_x11. We override the use_x11 settings
+from within gn_processor.py anyway, so we can remove our hack in
+third_party/libwebrtc/webrtc.gni, and then make gn_processor.py modify
+ozone_platform_x11 rather than use_x11.
 
-Differential Revision: https://phabricator.services.mozilla.com/D228540
-Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/4527c41ef71d7683c60d9c435991a0d93bc5ce4d
+Note: these changes produce identical moz.build files for libwebrtc
+and abseil-cpp.
+
+Differential Revision: https://phabricator.services.mozilla.com/D255713
+Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/c8cf67108972d5caefbfbb66146e26e5358493c2
 ---
- BUILD.gn          |  4 ++++
- media/BUILD.gn    | 24 ++++++++++++++----------
- rtc_base/BUILD.gn |  4 ++++
- webrtc.gni        |  4 ++--
- 4 files changed, 24 insertions(+), 12 deletions(-)
+ webrtc.gni | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
 
-diff --git a/BUILD.gn b/BUILD.gn
-index 92c1e32e27..46ba693161 100644
---- a/BUILD.gn
-+++ b/BUILD.gn
-@@ -511,6 +511,9 @@ if (!rtc_build_ssl) {
-       "crypto",
-       "ssl",
-     ]
-+    if (build_with_mozilla) {
-+      libs = []
-+    }
-   }
- }
- 
-@@ -602,6 +605,7 @@ if (!build_with_chromium) {
-         "api/environment:environment_factory",
-         "api/video:video_frame",
-         "api/video:video_rtp_headers",
-+        "api/video_codecs:builtin_video_decoder_factory",
-         "test:rtp_test_utils",
-       ]
-       # Added when we removed deps in other places to avoid building
-diff --git a/media/BUILD.gn b/media/BUILD.gn
-index 302a193108..ab61f22dcb 100644
---- a/media/BUILD.gn
-+++ b/media/BUILD.gn
-@@ -12,12 +12,10 @@ import("../webrtc.gni")
- 
- group("media") {
-   deps = []
--  if (!build_with_mozilla) {
--    deps += [
--      ":rtc_media",
--      ":rtc_media_base",
--    ]
--  }
-+  deps += [
-+    ":rtc_media",
-+    ":rtc_media_base",
-+  ]
- }
- 
- config("rtc_media_defines_config") {
-@@ -280,6 +278,9 @@ rtc_library("media_engine") {
-       "base/media_engine.cc",
-       "base/media_engine.h",
-     ]
-+    deps -= [
-+      ":media_channel_impl",
-+    ]
-   }
- }
- 
-@@ -431,6 +432,7 @@ rtc_library("codec_list") {
-   ]
- }
- 
-+# MOZILLA Bug 1931241 - how much of this do we need?
- rtc_library("rtp_utils") {
- if (!build_with_mozilla) {
-   sources = [
-@@ -478,7 +480,6 @@ rtc_library("media_constants") {
- }
- 
- rtc_library("turn_utils") {
--if (!build_with_mozilla) {
-   sources = [
-     "base/turn_utils.cc",
-     "base/turn_utils.h",
-@@ -489,10 +490,8 @@ if (!build_with_mozilla) {
-     "../rtc_base/system:rtc_export",
-   ]
- }
--}
- 
- rtc_library("rid_description") {
--if (!build_with_mozilla) {
-   sources = [
-     "base/rid_description.cc",
-     "base/rid_description.h",
-@@ -502,7 +501,6 @@ if (!build_with_mozilla) {
-     "//third_party/abseil-cpp/absl/strings:string_view",
-   ]
- }
--}
- 
- rtc_library("rtc_simulcast_encoder_adapter") {
-   visibility = [ "*" ]
-@@ -725,6 +723,12 @@ rtc_library("rtc_audio_video") {
-     "engine/webrtc_voice_engine.cc",
-     "engine/webrtc_voice_engine.h",
-   ]
-+  if (build_with_mozilla) {
-+    sources -= [
-+      "engine/webrtc_video_engine.cc",
-+      "engine/webrtc_voice_engine.cc",
-+    ]
-+  }
- 
-   public_configs = []
-   if (!build_with_chromium) {
-diff --git a/rtc_base/BUILD.gn b/rtc_base/BUILD.gn
-index bb214ae154..382ec4cbe3 100644
---- a/rtc_base/BUILD.gn
-+++ b/rtc_base/BUILD.gn
-@@ -1598,6 +1598,7 @@ rtc_source_set("ssl_header") {
- }
- 
- rtc_library("digest") {
-+if (!build_with_mozilla) {
-   visibility = [ "*" ]
-   sources = [
-     "message_digest.cc",
-@@ -1619,8 +1620,10 @@ rtc_library("digest") {
-     configs += [ "..:external_ssl_library" ]
-   }
- }
-+}
- 
- rtc_library("crypto_random") {
-+if (!build_with_mozilla) {
-   visibility = [ "*" ]
-   sources = [
-     "crypto_random.cc",
-@@ -1641,6 +1644,7 @@ rtc_library("crypto_random") {
-     configs += [ "..:external_ssl_library" ]
-   }
- }
-+}
- 
- rtc_library("ssl") {
- if (!build_with_mozilla) {
 diff --git a/webrtc.gni b/webrtc.gni
-index 8b835aba48..c54f33ad0c 100644
+index 950eda1204..a5b7b51b19 100644
 --- a/webrtc.gni
 +++ b/webrtc.gni
-@@ -112,7 +112,7 @@ declare_args() {
+@@ -132,7 +132,7 @@ declare_args() {
+   rtc_build_tools = false
  
-   # Used to specify an external OpenSSL include path when not compiling the
-   # library that comes with WebRTC (i.e. rtc_build_ssl == 0).
--  rtc_ssl_root = "unused"
-+  rtc_ssl_root = ""
+   # Set this to false to skip building code that requires X11.
+-  rtc_use_x11 = use_x11
++  rtc_use_x11 = ozone_platform_x11
  
-   # Enable when an external authentication mechanism is used for performing
-   # packet authentication for RTP packets instead of libsrtp.
-@@ -337,7 +337,7 @@ declare_args() {
- }
- 
- # Enable liboam only on non-mozilla builds.
--enable_libaom = !build_with_mozilla
-+enable_libaom = true
- 
- # Make it possible to provide custom locations for some libraries (move these
- # up into declare_args should we need to actually use them for the GN build).
+   # Set this to use PipeWire on the Wayland display server.
+   # By default it's only enabled on desktop Linux (excludes ChromeOS) and

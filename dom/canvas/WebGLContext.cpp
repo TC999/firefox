@@ -8,7 +8,6 @@
 #include <array>
 #include <bitset>
 #include <cctype>
-#include <queue>
 
 #include "AccessCheck.h"
 #include "CompositableHost.h"
@@ -318,10 +317,6 @@ bool WebGLContext::CreateAndInitGL(
       // Request and prefer ES2 context for WebGL1.
       flags |= gl::CreateContextFlags::PREFER_EXACT_VERSION;
     }
-
-    if (!StaticPrefs::webgl_1_allow_core_profiles()) {
-      flags |= gl::CreateContextFlags::REQUIRE_COMPAT_PROFILE;
-    }
   }
 
   {
@@ -367,6 +362,15 @@ bool WebGLContext::CreateAndInitGL(
       PR_GetEnv("MOZ_WEBGL_FORCE_OPENGL") || useEGL) {
     tryNativeGL = true;
     tryANGLE = false;
+  }
+#elif defined(XP_MACOSX)
+  if (gfx::gfxVars::AllowMetalAngleWebGL() &&
+      !StaticPrefs::webgl_disable_angle() &&
+      // Metal does not expose a software renderer. Fall back to native (CGL) if
+      // a hardware context is forbidden.
+      !(flags & gl::CreateContextFlags::FORBID_HARDWARE)) {
+    tryNativeGL = false;
+    tryANGLE = true;
   }
 #endif
 
@@ -455,7 +459,6 @@ bool WebGLContext::EnsureDefaultFB() {
     return true;
   }
 
-  const bool depthStencil = mOptions.depth || mOptions.stencil;
   auto attemptSize = gfx::IntSize{mRequestedSize.x, mRequestedSize.y};
 
   while (attemptSize.width || attemptSize.height) {
@@ -465,14 +468,15 @@ bool WebGLContext::EnsureDefaultFB() {
     [&]() {
       if (mOptions.antialias) {
         MOZ_ASSERT(!mDefaultFB);
-        mDefaultFB = gl::MozFramebuffer::Create(gl, attemptSize, mMsaaSamples,
-                                                depthStencil);
+        mDefaultFB = gl::MozFramebuffer::Create(
+            gl, attemptSize, mMsaaSamples, mOptions.depth, mOptions.stencil);
         if (mDefaultFB) return;
         if (mOptionsFrozen) return;
       }
 
       MOZ_ASSERT(!mDefaultFB);
-      mDefaultFB = gl::MozFramebuffer::Create(gl, attemptSize, 0, depthStencil);
+      mDefaultFB = gl::MozFramebuffer::Create(gl, attemptSize, 0,
+                                              mOptions.depth, mOptions.stencil);
     }();
 
     if (mDefaultFB) break;
@@ -1349,12 +1353,10 @@ bool WebGLContext::PushRemoteTexture(
   if (!ownerClient) {
     if (!mRemoteTextureOwner) {
       // Ensure we have a remote texture owner client for WebGLParent.
-      const auto* outOfProcess =
-          mHost ? mHost->mOwnerData.outOfProcess : nullptr;
-      if (!outOfProcess) {
+      if (!mHost) {
         return onFailure();
       }
-      auto pid = outOfProcess->OtherPid();
+      auto pid = mHost->mOwner->OtherPid();
       mRemoteTextureOwner = MakeRefPtr<layers::RemoteTextureOwnerClient>(pid);
     }
     ownerClient = mRemoteTextureOwner;
@@ -1391,6 +1393,15 @@ bool WebGLContext::PushRemoteTexture(
   Maybe<layers::SurfaceDescriptor> desc;
   if (surf) {
     desc = surf->ToSurfaceDescriptor();
+    // Move surface's GpuFence to the SurfaceDescriptor. Done here rather than
+    // in SharedSurface_MacIOSurface::ToSurfaceDescriptor() as we know this
+    // surface will not be sent cross process, but that's not true for all
+    // callers of SharedSurface::ToSurfaceDescriptor().
+    if (desc && desc->type() ==
+                    layers::SurfaceDescriptor::TSurfaceDescriptorMacIOSurface) {
+      auto& ioDesc = desc->get_SurfaceDescriptorMacIOSurface();
+      ioDesc.gpuFence() = surf->TakeGpuFence();
+    }
   }
   if (!desc) {
     if (surf && surf->mDesc.type != gl::SharedSurfaceType::Basic) {
@@ -1477,11 +1488,10 @@ void WebGLContext::EnsureContextLostRemoteTextureOwner(
 
   if (!mRemoteTextureOwner) {
     // Ensure we have a remote texture owner client for WebGLParent.
-    const auto* outOfProcess = mHost ? mHost->mOwnerData.outOfProcess : nullptr;
-    if (!outOfProcess) {
+    if (!mHost) {
       return;
     }
-    auto pid = outOfProcess->OtherPid();
+    auto pid = mHost->mOwner->OtherPid();
     mRemoteTextureOwner = MakeRefPtr<layers::RemoteTextureOwnerClient>(pid);
   }
 
@@ -1758,22 +1768,18 @@ void WebGLContext::DummyReadFramebufferOperation() {
 }
 
 layers::SharedSurfacesHolder* WebGLContext::GetSharedSurfacesHolder() const {
-  const auto* outOfProcess = mHost ? mHost->mOwnerData.outOfProcess : nullptr;
-  if (outOfProcess) {
-    return outOfProcess->mSharedSurfacesHolder;
+  if (mHost) {
+    return mHost->mOwner->mSharedSurfacesHolder;
   }
-  MOZ_ASSERT_UNREACHABLE("Unexpected use of SharedSurfacesHolder in process!");
+  MOZ_ASSERT_UNREACHABLE("Unexpected missing host!");
   return nullptr;
 }
 
 dom::ContentParentId WebGLContext::GetContentId() const {
-  const auto* outOfProcess = mHost ? mHost->mOwnerData.outOfProcess : nullptr;
-  if (outOfProcess) {
-    return outOfProcess->mContentId;
+  if (mHost) {
+    return mHost->mOwner->mContentId;
   }
-  if (XRE_IsContentProcess()) {
-    return dom::ContentChild::GetSingleton()->GetID();
-  }
+  MOZ_ASSERT_UNREACHABLE("Unexpected missing host!");
   return dom::ContentParentId();
 }
 
@@ -1981,7 +1987,7 @@ const gl::MozFramebuffer* WebGLContext::GetDefaultFBForRead(
 
   if (!mResolvedDefaultFB) {
     mResolvedDefaultFB =
-        gl::MozFramebuffer::Create(gl, mDefaultFB->mSize, 0, false);
+        gl::MozFramebuffer::Create(gl, mDefaultFB->mSize, 0, false, false);
     if (!mResolvedDefaultFB) {
       gfxCriticalNote << FuncName() << ": Failed to create mResolvedDefaultFB.";
       return nullptr;
@@ -2157,28 +2163,28 @@ bool Intersect(const int32_t srcSize, const int32_t read0,
 
 // --
 
-uint64_t AvailGroups(const uint64_t totalAvailItems,
+uint64_t AvailGroups(const uint64_t totalAvailItemBytes,
                      const uint64_t firstItemOffset, const uint32_t groupSize,
                      const uint32_t groupStride) {
   MOZ_ASSERT(groupSize && groupStride);
-  MOZ_ASSERT(groupSize <= groupStride);
 
-  if (totalAvailItems <= firstItemOffset) return 0;
-  const size_t availItems = totalAvailItems - firstItemOffset;
-
-  size_t availGroups = availItems / groupStride;
-  const size_t tailItems = availItems % groupStride;
-  if (tailItems >= groupSize) {
-    availGroups += 1;
+  if (totalAvailItemBytes <= firstItemOffset) {
+    return 0;
   }
-  return availGroups;
+
+  const size_t availItemBytes = totalAvailItemBytes - firstItemOffset;
+  if (availItemBytes < groupSize) {
+    return 0;
+  }
+
+  return (availItemBytes - groupSize) / groupStride + 1;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
 const char* WebGLContext::FuncName() const {
   const char* ret;
-  if (MOZ_LIKELY(mFuncScope)) {
+  if (mFuncScope) [[likely]] {
     ret = mFuncScope->mFuncName;
   } else {
     ret = "<unknown function>";
@@ -2453,7 +2459,7 @@ Maybe<webgl::IndexedName> webgl::ParseIndexed(const std::string& str) {
   const auto index =
       std::stoull(str.substr(firstDigit, closeBracket - firstDigit));
   std::string name = str.substr(0, openBracket);
-  return Some(webgl::IndexedName{name, index});
+  return Some(webgl::IndexedName{std::move(name), index});
 }
 
 // ExplodeName("foo.bar[3].x") -> ["foo", ".", "bar", "[", "3", "]", ".", "x"]
@@ -2873,6 +2879,14 @@ webgl::ExplicitPixelPackingState::ForUseWith(
     state.imageHeight = subrectSize.y;
   }
 
+  if (!std::in_range<GLint>(state.rowLength) ||
+      !std::in_range<GLint>(state.imageHeight) ||
+      !std::in_range<GLint>(state.skipPixels) ||
+      !std::in_range<GLint>(state.skipRows) ||
+      !std::in_range<GLint>(state.skipImages)) {
+    return Err("pixelStorei params must be GLint.");
+  }
+
   // -
 
   const auto mpii = PackingInfoInfo::For(pi);
@@ -2967,7 +2981,9 @@ webgl::ExplicitPixelPackingState::ForUseWith(
 
   const auto elemsPerRowStride = ElemsPerRowStride();
   const auto bytesPerRowStride = pii.bytesPerElement * elemsPerRowStride;
-  if (!bytesPerRowStride.isValid()) {
+  const auto maxBytesPerRow = StaticPrefs::webgl_max_bytes_per_row();
+  if (!bytesPerRowStride.isValid() ||
+      (maxBytesPerRow > 0 && bytesPerRowStride.value() > maxBytesPerRow)) {
     return Err("ROW_LENGTH or width too large for packing.");
   }
   metrics.bytesPerRowStride = bytesPerRowStride.value();

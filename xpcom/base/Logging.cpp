@@ -4,28 +4,27 @@
 
 #include "mozilla/Logging.h"
 
-#include "base/process_util.h"
 #include "GeckoProfiler.h"
+#include "LogCommandLineHandler.h"
+#include "MainThreadUtils.h"
+#include "NSPRLogModulesParser.h"
+#include "base/process_util.h"
+#include "fmt/format.h"
+#include "mozilla/Atomics.h"
 #include "mozilla/ClearOnShutdown.h"
 #include "mozilla/FileUtils.h"
 #include "mozilla/GeckoTrace.h"
 #include "mozilla/LateWriteChecks.h"
 #include "mozilla/Mutex.h"
-#include "mozilla/StaticPtr.h"
 #include "mozilla/Printf.h"
-#include "mozilla/Atomics.h"
 #include "mozilla/Sprintf.h"
+#include "mozilla/StaticPtr.h"
 #include "mozilla/UniquePtrExtensions.h"
-#include "MainThreadUtils.h"
 #include "nsClassHashtable.h"
 #include "nsDebug.h"
 #include "nsDebugImpl.h"
 #include "nsPrintfCString.h"
-#include "NSPRLogModulesParser.h"
 #include "nsXULAppAPI.h"
-#include "LogCommandLineHandler.h"
-#include "fmt/format.h"
-
 #include "prenv.h"
 #ifdef XP_WIN
 #  include <fcntl.h>
@@ -305,7 +304,7 @@ struct LogMarker : public BaseMarkerType<LogMarker> {
                                                MS::Location::MarkerTable};
   static constexpr MS::PayloadField PayloadFields[] = {
       {"level", MS::InputType::CString, "Level", MS::Format::UniqueString},
-      {"message", MS::InputType::CString, "Message", MS::Format::String},
+      {"message", MS::InputType::CString, "Message", MS::Format::UniqueString},
       {"color", MS::InputType::CString, nullptr, MS::Format::String,
        MS::PayloadFlags::Hidden},
   };
@@ -314,7 +313,7 @@ struct LogMarker : public BaseMarkerType<LogMarker> {
                                    const ProfilerString8View& aText,
                                    const ProfilerString8View& aColor) {
     aWriter.UniqueStringProperty("level", aLevel);
-    aWriter.StringProperty("message", aText);
+    aWriter.UniqueStringProperty("message", aText);
     aWriter.StringProperty("color", aColor);
   }
 };

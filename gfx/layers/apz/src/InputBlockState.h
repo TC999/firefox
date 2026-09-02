@@ -7,16 +7,17 @@
 
 #include "InputData.h"  // for MultiTouchInput
 #include "Units.h"
+#include "apz/src/OverscrollHandoffState.h"
 #include "mozilla/RefCounted.h"  // for RefCounted
 #include "mozilla/RefPtr.h"      // for RefPtr
 #include "mozilla/StaticPrefs_apz.h"
+#include "mozilla/TimeStamp.h"   // for TimeStamp
 #include "mozilla/gfx/Matrix.h"  // for Matrix4x4
 #include "mozilla/layers/APZUtils.h"
-#include "mozilla/layers/LayersTypes.h"  // for TouchBehaviorFlags
 #include "mozilla/layers/AsyncDragMetrics.h"
+#include "mozilla/layers/LayersTypes.h"  // for TouchBehaviorFlags
 #include "mozilla/layers/TouchCounter.h"
-#include "mozilla/TimeStamp.h"  // for TimeStamp
-#include "nsTArray.h"           // for nsTArray
+#include "nsTArray.h"  // for nsTArray
 
 namespace mozilla {
 namespace layers {
@@ -77,7 +78,8 @@ class InputBlockState : public RefCounted<InputBlockState> {
 
   virtual bool ShouldDropEvents() const;
 
-  void SetScrolledApzc(AsyncPanZoomController* aApzc);
+  void SetScrolledApzc(AsyncPanZoomController* aApzc,
+                       const OverscrollHandoffState& aOverscrollHandoffState);
   AsyncPanZoomController* GetScrolledApzc() const;
   bool IsDownchainOfScrolledApzc(AsyncPanZoomController* aApzc) const;
 
@@ -268,9 +270,15 @@ class WheelBlockState : public CancelableBlockState {
   /**
    * Called to check and possibly end the transaction due to a timeout.
    *
+   * NOTE: This is marked as MOZ_CAN_RUN_SCRIPT_BOUNDARY because this may
+   * dispatch a chrome only event for some automated tests. However, it's
+   * enabled only with a pref and the content cannot listen to the event.
+   * Therefore, this may run script, but shouldn't cause any problems except
+   * when the specific tests does something tricky.
+   *
    * @return True if the transaction ended, false otherwise.
    */
-  bool MaybeTimeout(const TimeStamp& aTimeStamp);
+  MOZ_CAN_RUN_SCRIPT_BOUNDARY bool MaybeTimeout(const TimeStamp& aTimeStamp);
 
   /**
    * Update the wheel transaction state for a new event.
@@ -531,7 +539,8 @@ class TouchBlockState : public CancelableBlockState {
    */
   bool UpdateSlopState(const MultiTouchInput& aInput,
                        bool aApzcCanConsumeEvents);
-  bool IsInSlop() const;
+  enum class InSlop : bool { No, Yes };
+  InSlop IsInSlop() const;
   bool ForLongTap() const { return mForLongTap; }
   void SetForLongTap() { mForLongTap = true; }
   bool WasLongTapProcessed() const { return mLongTapWasProcessed; }
@@ -570,6 +579,27 @@ class TouchBlockState : public CancelableBlockState {
   const char* Type() override;
   TimeDuration GetTimeSinceBlockStart() const;
   bool IsTargetOriginallyConfirmed() const;
+
+  /**
+   * Returns true iff |aEvent| is the touchmove on which this block needs
+   * to wait for a content response (again) because:
+   *   1) this is the first touchmove bailing out of slop (|aWasInSlop|
+   *      is Yes), i.e. the block was in slop before |aEvent| arrived;
+   *   2) a long-tap event was already fired (or is waiting for its content
+   *      response);
+   *   3) there are APZ-aware event listeners (i.e. the target was not
+   *      originally confirmed) and;
+   *   4) the event block has not yet been prevented.
+   *
+   * Example scenario: content has two event listeners, one for `touchstart`
+   * and one for `touchmove`, and the `touchmove` handler calls
+   * preventDefault(). If the user keeps touching at a point until a long-tap
+   * event fires and then starts moving their finger, APZ has to wait for a
+   * content response twice -- once for `touchstart` and once for the first
+   * `touchmove` after the long-tap.
+   */
+  bool NeedsContentResponseAfterLongTap(const MultiTouchInput& aEvent,
+                                        InSlop aWasInSlop) const;
 
  private:
   nsTArray<TouchBehaviorFlags> mAllowedTouchBehaviors;

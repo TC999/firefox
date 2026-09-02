@@ -21,7 +21,11 @@ using namespace mozilla::dom;
 
 // Column class that caches all the info about our column.
 nsTreeColumn::nsTreeColumn(nsTreeColumns* aColumns, dom::Element* aElement)
-    : mContent(aElement), mColumns(aColumns), mIndex(0), mPrevious(nullptr) {
+    : mContent(aElement),
+      mColumns(aColumns),
+      mIndex(0),
+      mTextAlignment(StyleTextAlign::Start),
+      mPrevious(nullptr) {
   NS_ASSERTION(aElement && aElement->NodeInfo()->Equals(nsGkAtoms::treecol,
                                                         kNameSpaceID_XUL),
                "nsTreeColumn's content must be a <xul:treecol>");
@@ -242,7 +246,7 @@ nsTreeColumns::nsTreeColumns(nsTreeBodyFrame* aTree) : mTree(aTree) {}
 
 nsTreeColumns::~nsTreeColumns() { nsTreeColumns::InvalidateColumns(); }
 
-NS_IMPL_CYCLE_COLLECTION_WRAPPERCACHE_0(nsTreeColumns)
+NS_IMPL_CYCLE_COLLECTION_WRAPPERCACHE(nsTreeColumns, mFirstColumn)
 
 // QueryInterface implementation for nsTreeColumns
 NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(nsTreeColumns)

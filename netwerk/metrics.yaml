@@ -86,17 +86,19 @@ networking:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1892158
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1922606
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1989180
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064975
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1828942#TDB
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1892158
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1922606
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1989180
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064975
     data_sensitivity:
       - technical
     notification_emails:
       - necko@mozilla.com
       - edgul@mozilla.com
-    expires: 157
+    expires: 168
 
   cookie_count_partitioned:
     type: custom_distribution
@@ -112,17 +114,19 @@ networking:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1892158
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1922606
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1989180
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064975
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1828942#TDB
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1892158
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1922606
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1989180
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064975
     data_sensitivity:
       - technical
     notification_emails:
       - necko@mozilla.com
       - edgul@mozilla.com
-    expires: 157
+    expires: 168
 
   cookie_count_unpartitioned:
     type: custom_distribution
@@ -138,17 +142,19 @@ networking:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1892158
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1922606
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1989180
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064975
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1828942#TDB
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1892158
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1922606
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1989180
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064975
     data_sensitivity:
       - technical
     notification_emails:
       - necko@mozilla.com
       - edgul@mozilla.com
-    expires: 157
+    expires: 168
 
   cookie_count_part_by_key:
     type: custom_distribution
@@ -165,17 +171,19 @@ networking:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1892158
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1922606
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1989180
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064975
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1828942#TDB
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1892158
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1922606
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1989180
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064975
     data_sensitivity:
       - technical
     notification_emails:
       - necko@mozilla.com
       - edgul@mozilla.com
-    expires: 157
+    expires: 168
 
   cookie_count_unpart_by_key:
     type: custom_distribution
@@ -192,17 +200,19 @@ networking:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1892158
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1922606
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1989180
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064975
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1828942#TDB
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1892158
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1922606
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1989180
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064975
     data_sensitivity:
       - technical
     notification_emails:
       - necko@mozilla.com
       - edgul@mozilla.com
-    expires: 157
+    expires: 168
 
   cookie_purge_max:
     type: custom_distribution
@@ -220,17 +230,19 @@ networking:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1892158
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1922606
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1989180
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064975
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1828942#TDB
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1892158
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1922606
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1989180
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064975
     data_sensitivity:
       - technical
     notification_emails:
       - necko@mozilla.com
       - edgul@mozilla.com
-    expires: 157
+    expires: 168
 
   cookie_purge_entry_max:
     type: custom_distribution
@@ -248,17 +260,19 @@ networking:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1892158
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1922606
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1989180
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064975
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1828942#TDB
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1892158
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1922606
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1989180
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064975
     data_sensitivity:
       - technical
     notification_emails:
       - necko@mozilla.com
       - edgul@mozilla.com
-    expires: 157
+    expires: 168
 
   cookie_chips_partition_limit_overflow:
     type: custom_distribution
@@ -273,16 +287,18 @@ networking:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1878391
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1922606
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1989180
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064975
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1878391
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1922606
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1989180
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064975
     data_sensitivity:
       - technical
     notification_emails:
       - necko@mozilla.com
       - edgul@mozilla.com
-    expires: 157
+    expires: 168
 
   cookie_db_validation:
     type: labeled_counter
@@ -290,13 +306,14 @@ networking:
       Counts cookies loaded from the DB grouped by validation result.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1972513
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064977
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1972513
     notification_emails:
       - necko@mozilla.com
       - edgul@mozilla.com
       - baku@mozilla.com
-    expires: 157
+    expires: 167
     labels:
       - eOK
       - eRejectedEmptyNameAndValue
@@ -319,29 +336,31 @@ networking:
     type: timing_distribution
     time_unit: millisecond
     description: >
-      Time spent on blocking main thread by startup cookie database read (in milliseconds), only for blocking case
+      Time spent blocking the main thread on startup cookie database read and connection initialization (in milliseconds), only for blocking cases.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=870460
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2033900
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2037081
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=870460
     notification_emails:
       - necko@mozilla.com
     expires: never
-    telemetry_mirror: MOZ_SQLITE_COOKIES_BLOCK_MAIN_THREAD_MS_V2
 
   sqlite_cookies_time_to_block_main_thread:
     type: timing_distribution
     time_unit: millisecond
     description: >
-      How long (in milliseconds) after we finished reading the cookie db until the first cookie request came in (0 implies we blocked the main thread)
+      How long (in milliseconds) after the cookie database connection was initialized until the first cookie request came in (0 implies we blocked the main thread).
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1413839
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2033900
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2037081
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1413839
     notification_emails:
       - necko@mozilla.com
     expires: never
-    telemetry_mirror: MOZ_SQLITE_COOKIES_TIME_TO_BLOCK_MAIN_THREAD_MS
 
   dns_lookup_time:
     type: timing_distribution
@@ -359,7 +378,6 @@ networking:
       - necko@mozilla.com
       - acreskey@mozilla.com
     expires: never
-    telemetry_mirror: DNS_LOOKUP_TIME
 
   trr_dns_start: &trr_dns_start
     type: labeled_timing_distribution
@@ -488,6 +506,7 @@ networking:
       Migrated from Firefox Telemetry's `DNS_RENEWAL_TIME`.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1838240
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2037081
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1838240#c6
     data_sensitivity:
@@ -496,7 +515,6 @@ networking:
       - necko@mozilla.com
       - acreskey@mozilla.com
     expires: never
-    telemetry_mirror: DNS_RENEWAL_TIME
 
   dns_renewal_time_for_ttl:
     type: timing_distribution
@@ -506,6 +524,7 @@ networking:
       Migrated from Firefox Telemetry's `DNS_RENEWAL_TIME_FOR_TTL`.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1838240
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2037081
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1838240#c6
     data_sensitivity:
@@ -514,7 +533,6 @@ networking:
       - necko@mozilla.com
       - acreskey@mozilla.com
     expires: never
-    telemetry_mirror: DNS_RENEWAL_TIME_FOR_TTL
 
   dns_failed_lookup_time:
     type: timing_distribution
@@ -524,6 +542,7 @@ networking:
       Migrated from Firefox Telemetry's `DNS_FAILED_LOOKUP_TIME`.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1838240
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2037081
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1838240#c6
     data_sensitivity:
@@ -532,7 +551,6 @@ networking:
       - necko@mozilla.com
       - acreskey@mozilla.com
     expires: never
-    telemetry_mirror: DNS_FAILED_LOOKUP_TIME
 
   dns_native_https_call_time:
     type: timing_distribution
@@ -574,12 +592,12 @@ networking:
   http_onstart_suspend_total_time:
     type: timing_distribution
     time_unit: millisecond
-    telemetry_mirror: HTTP_ONSTART_SUSPEND_TOTAL_TIME
     description: >
       Time in milliseconds that http channel spent suspended between AsyncOpen and OnStartRequest.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1897209
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1347948
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2037081
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1897209
     notification_emails:
@@ -597,6 +615,7 @@ networking:
      The download throughput for  http/1.0, http/1.1 requests larger than 10MB. Measured in megabits per second, Mbps.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1846798
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2037081
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1846798#c2
     data_sensitivity:
@@ -605,7 +624,6 @@ networking:
       - necko@mozilla.com
       - acreskey@mozilla.com
     expires: never
-    telemetry_mirror: NETWORKING_DOWNLOAD_THROUGHPUT_HTTP_1
 
   http_1_download_throughput_10_50: &http_1_download_throughput_10_50
     type: custom_distribution
@@ -655,7 +673,6 @@ networking:
       - necko@mozilla.com
       - acreskey@mozilla.com
     expires: never
-    telemetry_mirror: NETWORKING_DOWNLOAD_THROUGHPUT_HTTP_2
 
   http_2_download_throughput_10_50: &http_2_download_throughput_10_50
     type: custom_distribution
@@ -705,7 +722,6 @@ networking:
       - necko@mozilla.com
       - acreskey@mozilla.com
     expires: never
-    telemetry_mirror: NETWORKING_DOWNLOAD_THROUGHPUT_HTTP_3
 
   http_3_download_throughput_10_50: &http_3_download_throughput_10_50
     type: custom_distribution
@@ -747,6 +763,7 @@ networking:
      The upload throughput for http/1.0, http/1.1 requests larger than 10MB. Measured in megabits per second, Mbps.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1858256
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2037081
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1858256#c2
     data_sensitivity:
@@ -755,7 +772,6 @@ networking:
       - necko@mozilla.com
       - acreskey@mozilla.com
     expires: never
-    telemetry_mirror: HTTP_UPLOAD_THROUGHPUT_MBPS_HTTP_1
 
   http_2_upload_throughput:
     type: custom_distribution
@@ -768,6 +784,7 @@ networking:
      The upload throughput for http/2 requests larger than 10MB. Measured in megabits per second, Mbps.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1858256
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2037081
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1858256#c2
     data_sensitivity:
@@ -776,7 +793,6 @@ networking:
       - necko@mozilla.com
       - acreskey@mozilla.com
     expires: never
-    telemetry_mirror: HTTP_UPLOAD_THROUGHPUT_MBPS_HTTP_2
 
   http_3_upload_throughput:
     type: custom_distribution
@@ -789,6 +805,7 @@ networking:
      The upload throughput for http/3 requests larger than 10MB. Measured in megabits per second, Mbps.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1858256
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2037081
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1858256#c2
     data_sensitivity:
@@ -797,7 +814,6 @@ networking:
       - necko@mozilla.com
       - acreskey@mozilla.com
     expires: never
-    telemetry_mirror: HTTP_UPLOAD_THROUGHPUT_MBPS_HTTP_3
 
   http_1_upload_throughput_10_50:
     type: custom_distribution
@@ -810,6 +826,7 @@ networking:
      The upload throughput for http/1.0, http/1.1 request size between 10MB and 50MB. Measured in megabits per second, Mbps.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1866739
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2037081
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1858256#c2
     data_sensitivity:
@@ -818,7 +835,6 @@ networking:
       - necko@mozilla.com
       - kershaw@mozilla.com
     expires: never
-    telemetry_mirror: HTTP_UPLOAD_THROUGHPUT_MBPS_HTTP_1_10_50
 
   http_1_upload_throughput_50_100:
     type: custom_distribution
@@ -831,6 +847,7 @@ networking:
      The upload throughput for http/1.0, http/1.1 request size between 50MB and 100MB. Measured in megabits per second, Mbps.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1866739
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2037081
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1858256#c2
     data_sensitivity:
@@ -839,7 +856,6 @@ networking:
       - necko@mozilla.com
       - kershaw@mozilla.com
     expires: never
-    telemetry_mirror: HTTP_UPLOAD_THROUGHPUT_MBPS_HTTP_1_50_100
 
   http_1_upload_throughput_100:
     type: custom_distribution
@@ -852,6 +868,7 @@ networking:
      The upload throughput for http/1.0, http/1.1 request size larger than 100MB. Measured in megabits per second, Mbps.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1866739
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2037081
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1858256#c2
     data_sensitivity:
@@ -860,7 +877,6 @@ networking:
       - necko@mozilla.com
       - kershaw@mozilla.com
     expires: never
-    telemetry_mirror: HTTP_UPLOAD_THROUGHPUT_MBPS_HTTP_1_100
 
   http_2_upload_throughput_10_50:
     type: custom_distribution
@@ -873,6 +889,7 @@ networking:
      The upload throughput for http/2 request size between 10MB and 50MB. Measured in megabits per second, Mbps.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1866739
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2037081
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1858256#c2
     data_sensitivity:
@@ -881,7 +898,6 @@ networking:
       - necko@mozilla.com
       - kershaw@mozilla.com
     expires: never
-    telemetry_mirror: HTTP_UPLOAD_THROUGHPUT_MBPS_HTTP_2_10_50
 
   http_2_upload_throughput_50_100:
     type: custom_distribution
@@ -894,6 +910,7 @@ networking:
      The upload throughput for http/2 request size between 50MB and 100MB. Measured in megabits per second, Mbps.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1866739
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2037081
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1858256#c2
     data_sensitivity:
@@ -902,7 +919,6 @@ networking:
       - necko@mozilla.com
       - kershaw@mozilla.com
     expires: never
-    telemetry_mirror: HTTP_UPLOAD_THROUGHPUT_MBPS_HTTP_2_50_100
 
   http_2_upload_throughput_100:
     type: custom_distribution
@@ -915,6 +931,7 @@ networking:
      The upload throughput for http/2 request size larger than 100MB. Measured in megabits per second, Mbps.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1866739
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2037081
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1858256#c2
     data_sensitivity:
@@ -923,7 +940,6 @@ networking:
       - necko@mozilla.com
       - kershaw@mozilla.com
     expires: never
-    telemetry_mirror: HTTP_UPLOAD_THROUGHPUT_MBPS_HTTP_2_100
 
   http_3_upload_throughput_1_10:
     type: custom_distribution
@@ -936,6 +952,7 @@ networking:
      The upload throughput for http/3 request size between 1MB and 10MB. Measured in megabits per second, Mbps.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2003794
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064981
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2003794
     data_sensitivity:
@@ -943,7 +960,7 @@ networking:
     notification_emails:
       - necko@mozilla.com
       - omansfeld@mozilla.com
-    expires: 157
+    expires: 166
 
   http_3_upload_throughput_10_50:
     type: custom_distribution
@@ -956,6 +973,7 @@ networking:
      The upload throughput for http/3 request size between 10MB and 50MB. Measured in megabits per second, Mbps.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1866739
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2037081
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1858256#c2
     data_sensitivity:
@@ -964,7 +982,6 @@ networking:
       - necko@mozilla.com
       - kershaw@mozilla.com
     expires: never
-    telemetry_mirror: HTTP_UPLOAD_THROUGHPUT_MBPS_HTTP_3_10_50
 
   http_3_upload_throughput_50_100:
     type: custom_distribution
@@ -977,6 +994,7 @@ networking:
      The upload throughput for http/3 request size between 50MB and 100MB. Measured in megabits per second, Mbps.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1866739
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2037081
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1858256#c2
     data_sensitivity:
@@ -985,7 +1003,6 @@ networking:
       - necko@mozilla.com
       - kershaw@mozilla.com
     expires: never
-    telemetry_mirror: HTTP_UPLOAD_THROUGHPUT_MBPS_HTTP_3_50_100
 
   http_3_upload_throughput_100:
     type: custom_distribution
@@ -998,6 +1015,7 @@ networking:
      The upload throughput for http/3 request size larger than 100MB. Measured in megabits per second, Mbps.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1866739
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2037081
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1858256#c2
     data_sensitivity:
@@ -1006,7 +1024,6 @@ networking:
       - necko@mozilla.com
       - kershaw@mozilla.com
     expires: never
-    telemetry_mirror: HTTP_UPLOAD_THROUGHPUT_MBPS_HTTP_3_100
 
   http_3_ecn_ce_ect0_ratio_sent: &http_3_ecn_ce_ect0_ratio_sent
     type: custom_distribution
@@ -1031,7 +1048,43 @@ networking:
   http_3_ecn_ce_ect0_ratio_received:
     <<: *http_3_ecn_ce_ect0_ratio_sent
     description: >
-      HTTP3: ECN CE to ECT0 ratio (multiply by 10000) received.
+      HTTP3: ECN CE to ECT0 ratio (multiply by 10000) received. As of
+      https://bugzilla.mozilla.org/show_bug.cgi?id=2056075, only recorded for
+      connections that observed ECT(0) without ever observing ECT(1), since a
+      CE mark on a connection that saw both cannot be attributed to either
+      type.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1902065
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2056075
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1902065
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2056075
+
+  http_3_ecn_ect_received:
+    type: labeled_counter
+    description: >
+      HTTP3: Which ECN codepoints were observed on received (server->browser)
+      packets, recorded once per connection that completed its handshake. Used
+      to measure how many servers mark ECN on the traffic they send us and,
+      among those, the adoption of ECT(1) (L4S) versus ECT(0) (classic ECN).
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2056075
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2056075
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - necko@mozilla.com
+      - omansfeld@mozilla.com
+    expires: never
+    labels:
+      - none            # no ECT(0)/ECT(1)/CE received (server not marking)
+      - ect0            # ECT(0) present, ECT(1) absent
+      - ect1            # ECT(1) present, ECT(0) absent
+      - ect0-and-ce     # ECT(0) present, CE present
+      - ect1-and-ce     # ECT(1) present, CE present
+      - ect0-and-ect1   # both ECT(0) and ECT(1) observed
+      - ce-only         # CE present but no ECT(0)/ECT(1) (origin ambiguous)
 
   http_3_ecn_path_capability:
     type: labeled_counter
@@ -1052,6 +1105,27 @@ networking:
       - black-hole
       - bleaching
       - received-unsent-ect-1
+
+  http_3_quic_version:
+    type: labeled_counter
+    description: >
+      The QUIC version negotiated for an HTTP/3 connection, recorded once per
+      connection that completes its handshake. Used to track the effect of
+      enabling compatible version negotiation (RFC 9368/9369), i.e. how often
+      connections end up on QUIC v2 versus v1.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2040450
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2040450
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - necko@mozilla.com
+      - minden@mozilla.com
+    expires: never
+    labels:
+      - v1
+      - v2
 
   http_3_loss_ratio:
     type: custom_distribution
@@ -1104,6 +1178,7 @@ networking:
       HTTP3: spurious congestion event to loss induced congestion event ratio (10000 scaling factor).
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1992148
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064979
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1992148
     data_sensitivity:
@@ -1111,7 +1186,7 @@ networking:
     notification_emails:
       - necko@mozilla.com
       - omansfeld@mozilla.com
-    expires: 157
+    expires: 166
 
   http_3_slow_start_exited:
     type: labeled_counter
@@ -1119,6 +1194,7 @@ networking:
       Counts whether an HTTP3 connections exited slow start.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2004717
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064981
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2004717
     data_sensitivity:
@@ -1126,7 +1202,7 @@ networking:
     notification_emails:
       - necko@mozilla.com
       - omansfeld@mozilla.com
-    expires: 157
+    expires: 166
     labels:
       - exited
       - not_exited
@@ -1137,6 +1213,7 @@ networking:
       Counts whether an HTTP3 connections exited slow start. Is filtered against connections that never grew past the initial congestion window, i.e. only records those that did see growth. Co-exists with http_3_slow_start_exited which is not filtered and also records for connections that never grew the congestion window or never sent data.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2024352
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064979
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2024352
     data_sensitivity:
@@ -1144,7 +1221,7 @@ networking:
     notification_emails:
       - necko@mozilla.com
       - omansfeld@mozilla.com
-    expires: 157
+    expires: 166
     labels:
       - exited
       - not_exited
@@ -1174,6 +1251,7 @@ networking:
       Records if slow start was exited heuristically or because of a congestion event. Can be used to measure how good an algorithm is at detecting slow start exit before loss occurs. Only records for connections that ever saw congestion window growth.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2024352
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064979
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2024352
     data_sensitivity:
@@ -1181,7 +1259,7 @@ networking:
     notification_emails:
       - necko@mozilla.com
       - omansfeld@mozilla.com
-    expires: 157
+    expires: 166
     labels:
       - ce
       - heuristic
@@ -1198,6 +1276,7 @@ networking:
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2021867
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2024352
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064979
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2021867
     data_sensitivity:
@@ -1205,7 +1284,7 @@ networking:
     notification_emails:
       - necko@mozilla.com
       - omansfeld@mozilla.com
-    expires: 157
+    expires: 166
     labels:
       - ce_exit
       - heuristic_exit
@@ -1221,6 +1300,7 @@ networking:
       Only recorded for connections that exited slow start and saw congestion window growth. Is used to approximate accuracy of slow start exit per connection. The labels separate slow start exit reasons, because congestion event and heuristic based exits are fundamentally different cases that would obscure each other if mixed. Acts as an alternative measure to http_3_slow_start_exit_accuracy, which uses the final congestion window instead of w_max.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2024352
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064979
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2024352
     data_sensitivity:
@@ -1228,7 +1308,7 @@ networking:
     notification_emails:
       - necko@mozilla.com
       - omansfeld@mozilla.com
-    expires: 157
+    expires: 166
     labels:
       - ce_exit
       - heuristic_exit
@@ -1240,6 +1320,7 @@ networking:
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2021867
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2024352
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064979
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2021867
     data_sensitivity:
@@ -1247,7 +1328,7 @@ networking:
     notification_emails:
       - necko@mozilla.com
       - omansfeld@mozilla.com
-    expires: 157
+    expires: 166
     labels:
       - overshoot
       - undershoot
@@ -1259,6 +1340,7 @@ networking:
       HTTP3: Records if a heuristic-based slow start exit undershot, overshot or exactly matches the congestion window size when closing the connection. Is used to look for systematic tendencies in slow start exit algorithm accuracy direction. Only records for connections that saw congestion window growth.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2024352
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064979
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2024352
     data_sensitivity:
@@ -1266,7 +1348,7 @@ networking:
     notification_emails:
       - necko@mozilla.com
       - omansfeld@mozilla.com
-    expires: 157
+    expires: 166
     labels:
       - overshoot
       - undershoot
@@ -1282,6 +1364,7 @@ networking:
       Measures how many CSS (Conservative Slow Start) rounds were finished when using HyStart++. Only records for connections that saw congestion window growth. A count that is higher than the RFC threshold value of 5 rounds that are completed by design points at spurious CSS entries and time spent throttling congestion window growth rate during those extra CSS rounds. Values below 5 mean that slow start was not exited (heuristically) on that connection.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2024352
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064979
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2024352
     data_sensitivity:
@@ -1289,7 +1372,7 @@ networking:
     notification_emails:
       - necko@mozilla.com
       - omansfeld@mozilla.com
-    expires: 157
+    expires: 166
     labels:
       - exited_hystart
       - exited_ce
@@ -1305,6 +1388,7 @@ networking:
       Measures how often CSS (Conservative Slow Start) was entered when using HyStart++. Only records for connections that saw congestion window growth. A jitter-free connection should only see 1 CSS entry. A high value points at spurious CSS entries mid-round, i.e. CSS is entered and exited within 1 RTT, which results time spent throttling congestion window growth rate during those extra ACKs where CSS was active.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2024352
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064979
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2024352
     data_sensitivity:
@@ -1312,11 +1396,224 @@ networking:
     notification_emails:
       - necko@mozilla.com
       - omansfeld@mozilla.com
-    expires: 157
+    expires: 166
     labels:
       - exited_hystart
       - exited_ce
       - not_exited
+
+  http_3_search_empty_buffer_bdp_estimate:
+    type: memory_distribution
+    memory_unit: byte
+    description: >
+      HTTP3: Records the BDP estimate with empty buffers at slow start exit when using SEARCH. The SEARCH draft suggests a cwnd drain-phase using this as a target value; We record it for evaluation without implementing the drain-phase.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2039381
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064981
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2039381
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - necko@mozilla.com
+      - omansfeld@mozilla.com
+    expires: 166
+
+  http_3_search_full_buffer_bdp_estimate:
+    type: memory_distribution
+    memory_unit: byte
+    description: >
+      HTTP3: Records the BDP estimate with full buffers at slow start exit when using SEARCH. The SEARCH draft suggests a cwnd drain-phase using the empty-buffer version of this as a target value; We record this alternative for evaluation without implementing the drain-phase.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2039381
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064981
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2039381
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - necko@mozilla.com
+      - omansfeld@mozilla.com
+    expires: 166
+
+  http_3_search_lookback_bins:
+    type: custom_distribution
+    range_min: 0
+    range_max: 50
+    bucket_count: 50
+    histogram_type: linear
+    description: >
+      HTTP3: Tracks the per connection maximum of lookback bins needed when RTT inflation prevents SEARCH from evaluating. Helps determine if the EXTRA_BINS constant value is sufficient.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2039381
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064981
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2039381
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - necko@mozilla.com
+      - omansfeld@mozilla.com
+    expires: 166
+
+  http_3_search_rtt_inflated:
+    type: labeled_counter
+    description: >
+      HTTP3: Tracks whether a connection couldn't run the SEARCH evaluation because the RTT inflated past the point where there wasn't enough data for lookback.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2039381
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064981
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2039381
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - necko@mozilla.com
+      - omansfeld@mozilla.com
+    expires: 166
+    labels:
+      - inflated
+      - never_inflated
+
+  http_3_search_max_norm_diff:
+    type: labeled_custom_distribution
+    range_min: 0
+    range_max: 25
+    bucket_count: 25
+    histogram_type: linear
+    description: >
+      HTTP3: Records the maximum non-exiting value that the scaled, normalized difference between sent and acked bytes ever reached for a connection. Can be used to tune the exit threshold (THRESH). Is capped out at 25, since the current THRESH is 26, so any diff > 25 will exit.
+
+      The bucket with the 'exited_ce' label is of special interest, since those are connections that then ended up exiting slow start with loss.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2039381
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064981
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2039381
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - necko@mozilla.com
+      - omansfeld@mozilla.com
+    expires: 166
+    labels:
+      - exited_search
+      - exited_ce
+      - not_exited
+
+  http_3_search_reset_count:
+    type: labeled_custom_distribution
+    range_min: 0
+    range_max: 100
+    bucket_count: 30
+    histogram_type: exponential
+    description: >
+      HTTP3: Records how many resets due to stale data happened for each SEARCH connection. Is labeled by slow start outcome to help with evaluation (i.e. no resets + not_exited makes sense, since the connection might've been very short).
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2039381
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064981
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2039381
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - necko@mozilla.com
+      - omansfeld@mozilla.com
+    expires: 166
+    labels:
+      - exited_search
+      - exited_ce
+      - not_exited
+
+  http_3_search_max_passed_bins:
+    type: custom_distribution
+    range_min: 11
+    range_max: 50
+    bucket_count: 30
+    histogram_type: exponential
+    description: >
+      HTTP3: Tracks the maximum number of passed bins for SEARCH connections that had at least one reset due to stale data. Can help evaluate the aggressiveness of the reset mechanism. Starts at 11, because that is the first value that would trigger a reset.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2039381
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064981
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2039381
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - necko@mozilla.com
+      - omansfeld@mozilla.com
+    expires: 166
+
+  http_3_search_zero_bytes_sent:
+    type: labeled_custom_distribution
+    range_min: 0
+    range_max: 100
+    bucket_count: 30
+    histogram_type: exponential
+    description: >
+      HTTP3: Records how often SEARCH observes zero bytes sent in the previous RTT. Provides insight into app-limited behavior. Is labeled by slow start outcome to help reason about results.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2039381
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064981
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2039381
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - necko@mozilla.com
+      - omansfeld@mozilla.com
+    expires: 166
+    labels:
+      - exited_search
+      - exited_ce
+      - not_exited
+
+  http_3_search_first_rtt_vs_min_rtt:
+    type: custom_distribution
+    range_min: 100
+    range_max: 200
+    bucket_count: 50
+    histogram_type: exponential
+    description: >
+      HTTP3: Records the ratio of SEARCH's first RTT sample to the connection's
+      min_rtt, expressed as an integer percentage (100 = identical, 200 = 2x
+      inflated). Quantifies how much the initial RTT used to set bin_duration is
+      inflated relative to the minimum path RTT.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2039381
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064981
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2039381
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - necko@mozilla.com
+      - omansfeld@mozilla.com
+    expires: 166
+
+  http_3_search_first_rtt_vs_second_rtt:
+    type: custom_distribution
+    range_min: 100
+    range_max: 200
+    bucket_count: 50
+    histogram_type: exponential
+    description: >
+      HTTP3: Records the ratio of SEARCH's first RTT sample to the second RTT
+      sample, expressed as an integer percentage (100 = identical, 200 = first
+      was 2x the second). Helps evaluate whether using the second RTT sample
+      instead of the first would improve SEARCH initialization.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2039381
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064981
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2039381
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - necko@mozilla.com
+      - omansfeld@mozilla.com
+    expires: 166
 
   http_3_congestion_window_growth:
     type: labeled_counter
@@ -1371,6 +1668,7 @@ networking:
       HTTP3: Cubic's w_max parameter value in bytes at connection close. Only records connections that grew past the initial congestion window and set w_max. The parameter stores the congestion window prior to the last congestion event, i.e. the window size at which congestion occurred. Can be used to approximate a path's capacity.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2024352
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064979
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2024352
     data_sensitivity:
@@ -1378,7 +1676,67 @@ networking:
     notification_emails:
       - necko@mozilla.com
       - omansfeld@mozilla.com
-    expires: 157
+    expires: 166
+
+  http_3_rtt:
+    type: custom_distribution
+    range_min: 1
+    range_max: 10000
+    bucket_count: 100
+    histogram_type: exponential
+    unit: ms
+    description: >
+      HTTP3: The smoothed round-trip time estimate in milliseconds on the connection's primary path, sampled at connection close.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2050587
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2050587
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - necko@mozilla.com
+      - minden@mozilla.com
+    expires: never
+
+  http_3_rtt_var:
+    type: custom_distribution
+    range_min: 1
+    range_max: 10000
+    bucket_count: 100
+    histogram_type: exponential
+    unit: ms
+    description: >
+      HTTP3: The round-trip time variation in milliseconds on the connection's primary path, sampled at connection close.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2050587
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2050587
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - necko@mozilla.com
+      - minden@mozilla.com
+    expires: never
+
+  http_3_min_rtt:
+    type: custom_distribution
+    range_min: 1
+    range_max: 10000
+    bucket_count: 100
+    histogram_type: exponential
+    unit: ms
+    description: >
+      HTTP3: The minimum round-trip time in milliseconds observed on the connection's primary path, sampled at connection close.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2050587
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2050587
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - necko@mozilla.com
+      - minden@mozilla.com
+    expires: never
 
   http_3_congestion_event_count:
     type: custom_distribution
@@ -1390,6 +1748,7 @@ networking:
       HTTP3: Records how many congestion events a connection has, with spurious congestion events filtered out. A max range of 180 still gives high granularity in the lower buckets while letting us confirm if we ever actually see connections having very high congestion event counts.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2021867
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064979
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2021867
     data_sensitivity:
@@ -1397,7 +1756,7 @@ networking:
     notification_emails:
       - necko@mozilla.com
       - omansfeld@mozilla.com
-    expires: 157
+    expires: 166
 
   http_3_congestion_event_reason:
     type: labeled_counter
@@ -1405,6 +1764,7 @@ networking:
       The type of signal that caused a congestion event in Firefox's QUIC stack.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2004031
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2064981
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2004031
     data_sensitivity:
@@ -1412,7 +1772,7 @@ networking:
     notification_emails:
       - necko@mozilla.com
       - omansfeld@mozilla.com
-    expires: 157
+    expires: 166
     labels:
       - loss
       - ecn-ce
@@ -1486,6 +1846,32 @@ networking:
       - VersionNegotiation
       - WrongRole
 
+  http_3_max_consecutive_ptos:
+    type: custom_distribution
+    unit: integer
+    description: >
+      The longest run of consecutive probe timeouts (PTOs) an established
+      HTTP/3 connection saw over its lifetime, recorded once when the
+      connection is closed. A long run means the path went dark (a black
+      hole): this is the condition neqo's max_pto black-hole detector acts
+      on, so the distribution shows how often established connections break
+      and, once the detector is enabled, whether it closes them sooner. 0
+      means the connection saw no PTO.
+    range_min: 0
+    range_max: 16
+    bucket_count: 17
+    histogram_type: linear
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2060066
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2060066
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - necko@mozilla.com
+      - minden@mozilla.com
+    expires: never
+
   http_3_quic_frame_count:
     type: labeled_counter
     description: >
@@ -1554,18 +1940,17 @@ networking:
       Time spent to read the first part of the metadata from the cache entry file.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1908994
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2037081
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1908994
     notification_emails:
       - necko@mozilla.com
     expires: never
-    telemetry_mirror: NETWORK_CACHE_METADATA_FIRST_READ_TIME_MS
 
   cache_metadata_second_read_time:
     <<: *cache_metadata_first_read_time
     description: >
       Time spent to read the missing part of the metadata from the cache entry file.
-    telemetry_mirror: NETWORK_CACHE_METADATA_SECOND_READ_TIME_MS
 
   cache_metadata_size:
     type: memory_distribution
@@ -1591,11 +1976,13 @@ networking:
       at shutdown by a background task process.
     bugs:
       - https://bugzilla.mozilla.org/1848542
+      - https://bugzilla.mozilla.org/2057073
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1848542
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2057073
     notification_emails:
       - vgosu@mozilla.com
-    expires: 156
+    expires: 168
 
   residual_cache_folder_removal:
     type: labeled_counter
@@ -1605,12 +1992,14 @@ networking:
     bugs:
       - https://bugzilla.mozilla.org/1848542
       - https://bugzilla.mozilla.org/1989190
+      - https://bugzilla.mozilla.org/2057073
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1848542
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1989190
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2057073
     notification_emails:
       - vgosu@mozilla.com
-    expires: 156
+    expires: 168
     labels:
       - success
       - failure
@@ -1841,9 +2230,6 @@ networking:
     type: dual_labeled_counter
     description: >
       Upgrading display content Channel Disposition
-
-      This metric was generated to correspond to the Legacy Telemetry
-      categorical histogram HTTP_CHANNEL_DISPOSITION_UPGRADE.
     dual_labels:
       key:
         description: No static keys unfortunately.
@@ -1858,6 +2244,7 @@ networking:
           HTTP_CHANNEL_DISPOSITION_UPGRADE.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1440701
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2037081
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1440701
     notification_emails:
@@ -1865,7 +2252,6 @@ networking:
       - seceng-telemetry@mozilla.com
       - jkt@mozilla.com
     expires: never
-    telemetry_mirror: HTTP_CHANNEL_DISPOSITION_UPGRADE
 
   http_channel_onstart_status:
     type: labeled_counter
@@ -1888,9 +2274,6 @@ networking:
     type: dual_labeled_counter
     description: >
       Successfully started HTTP channels when HTTP3 is used
-
-      This metric was generated to correspond to the Legacy Telemetry boolean
-      histogram HTTP3_CHANNEL_ONSTART_SUCCESS.
     dual_labels:
       key:
         labels:
@@ -1904,12 +2287,12 @@ networking:
         description: Boolean
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1677987
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2037081
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1677987
     notification_emails:
       - necko@mozilla.com
     expires: never
-    telemetry_mirror: HTTP3_CHANNEL_ONSTART_SUCCESS
 
   http_channel_page_open_to_first_sent:
     type: timing_distribution
@@ -2029,13 +2412,14 @@ networking:
     bugs:
     - https://bugzilla.mozilla.org/show_bug.cgi?id=1960582
     - https://bugzilla.mozilla.org/show_bug.cgi?id=2010463
+    - https://bugzilla.mozilla.org/show_bug.cgi?id=2048455
     data_reviews:
     - https://bugzilla.mozilla.org/show_bug.cgi?id=1960582
     notification_emails:
      - smayya@mozilla.com
      - vgosu@mozilla.com
      - necko@gmail.com
-    expires: 155
+    expires: 160
     labels:
       - private_to_local_http
       - private_to_local_https
@@ -2055,13 +2439,14 @@ networking:
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1960582
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2010463
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2048459
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1960582
     notification_emails:
       - smayya@mozilla.com
       - vgosu@mozilla.com
       - necko@mozilla.com
-    expires: 155
+    expires: 160
     labels:
       - localhost
       - local_network
@@ -2089,6 +2474,7 @@ networking:
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1989916
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2010465
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2048457
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1989916#c5
     data_sensitivity:
@@ -2099,7 +2485,7 @@ networking:
       - necko@mozilla.com
     send_in_pings:
       - local-network-access
-    expires: 155
+    expires: 160
     extra_keys:
       top_level_site:
         description: The base domain (eTLD+1) of the top-level document/main window.
@@ -2208,6 +2594,23 @@ networking:
     notification_emails:
       - necko@mozilla.com
       - acreskey@mozilla.com
+    expires: never
+
+  trans_found_in_pending_queue:
+    type: counter
+    description: >
+      Counts the number of times a transaction was unexpectedly still found in
+      a connection entry's pending queue when
+      nsHttpConnectionMgr::CheckTransInPendingQueue ran.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2040246
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2040246
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - necko@mozilla.com
+      - kershaw@mozilla.com
     expires: never
 
   http_3_udp_datagram_segment_size_sent:
@@ -2349,44 +2752,35 @@ networking:
     description: >
       Time spent blocked in PR_Close when we are not shutting down and there has
       been niether a network nor an offline state change in the last 60s (ms).
-
-      This metric was generated to correspond to the Legacy Telemetry
-      exponential histogram PRCLOSE_UDP_BLOCKING_TIME_NORMAL.
     time_unit: millisecond
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1944631
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2037081
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1944631
     notification_emails:
       - necko@mozilla.com
     expires: never
-    telemetry_mirror: PRCLOSE_UDP_BLOCKING_TIME_NORMAL
 
   prclose_udp_blocking_time_shutdown:
     type: timing_distribution
     description: >
       Time spent blocked in PR_Close during a shutdown (ms).
-
-      This metric was generated to correspond to the Legacy Telemetry
-      exponential histogram PRCLOSE_UDP_BLOCKING_TIME_SHUTDOWN.
     time_unit: millisecond
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1944631
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2037081
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1944631
     notification_emails:
       - necko@mozilla.com
     expires: never
-    telemetry_mirror: PRCLOSE_UDP_BLOCKING_TIME_SHUTDOWN
 
   prclose_udp_blocking_time_connectivity_change:
     type: timing_distribution
     description: >
       Time spent blocked in PR_Close when there has been the connectivity change
       in the last 60s (ms).
-
-      This metric was generated to correspond to the Legacy Telemetry
-      exponential histogram PRCLOSE_UDP_BLOCKING_TIME_CONNECTIVITY_CHANGE.
     time_unit: millisecond
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1944631
@@ -2401,36 +2795,30 @@ networking:
     description: >
       Time spent blocked in PR_Close when there has been a link change in the
       last 60s (ms).
-
-      This metric was generated to correspond to the Legacy Telemetry
-      exponential histogram PRCLOSE_UDP_BLOCKING_TIME_LINK_CHANGE.
     time_unit: millisecond
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1944631
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2037081
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1944631
     notification_emails:
       - necko@mozilla.com
     expires: never
-    telemetry_mirror: PRCLOSE_UDP_BLOCKING_TIME_LINK_CHANGE
 
   prclose_udp_blocking_time_offline:
     type: timing_distribution
     description: >
       Time spent blocked in PR_Close when the offline state has changed in the
       last 60s (ms).
-
-      This metric was generated to correspond to the Legacy Telemetry
-      exponential histogram PRCLOSE_UDP_BLOCKING_TIME_OFFLINE.
     time_unit: millisecond
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1944631
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2037081
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1944631
     notification_emails:
       - necko@mozilla.com
     expires: never
-    telemetry_mirror: PRCLOSE_UDP_BLOCKING_TIME_OFFLINE
 
 network.dns:
   trr_confirmation_context:
@@ -2438,11 +2826,10 @@ network.dns:
     description: >
       This telemetry records the status of the TRR confirmation across.
       The value of the event is one of:   "ok"   "trying"
-      This event was generated to correspond to the Legacy Telemetry event
-      network.dns.trrConfirmation#context.
     bugs:
       - https://bugzil.la/1691408
       - https://bugzil.la/1694949
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2032398
     data_reviews:
       - https://bugzil.la/1691408
       - https://bugzil.la/1694949
@@ -2453,9 +2840,7 @@ network.dns:
     extra_keys:
       value:
         description: >
-          The `value` of the event. Mirrors to the Legacy Telemetry
-          event's `value` parameter.
-          The `ConfirmationState`.
+          The `value` of the event: `ConfirmationState`.
         type: quantity
       trigger:
         description: >
@@ -2489,7 +2874,6 @@ network.dns:
         description: >
           Time from first confirmation attempt to event being recorded
         type: string
-    telemetry_mirror: NetworkDns_Trrconfirmation_Context
 
 network.sso:
   entra_success:
@@ -2537,18 +2921,15 @@ network.cookies:
     type: timing_distribution
     description: >
       Time spent on cookie DB open with readahead (ms)
-
-      This metric was generated to correspond to the Legacy Telemetry
-      exponential histogram MOZ_SQLITE_COOKIES_OPEN_READAHEAD_MS.
     time_unit: millisecond
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1950710
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2037081
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1950710
     notification_emails:
       - necko@mozilla.com
     expires: never
-    telemetry_mirror: MOZ_SQLITE_COOKIES_OPEN_READAHEAD_MS
 
 network:
   id:
@@ -2556,9 +2937,6 @@ network:
     description: >
       Network identification (0=None, 1=New Ipv4, 2=Same, 3=New IPv6, 4=New
       dual)
-
-      This metric was generated to correspond to the Legacy Telemetry enumerated
-      histogram NETWORK_ID2.
     range_min: 0
     range_max: 6
     bucket_count: 7
@@ -2566,22 +2944,19 @@ network:
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1240932
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1395914
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2037081
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1240932
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1395914
     notification_emails:
       - necko@mozilla.com
     expires: never
-    telemetry_mirror: NETWORK_ID2
 
   id_online:
     type: labeled_counter
     description: >
       Network ID presence when the network connectivity checker reports that we
       have connectivity
-
-      This metric was generated to correspond to the Legacy Telemetry
-      categorical histogram NETWORK_ID_ONLINE.
     labels:
       - absent
       - present
@@ -2592,28 +2967,24 @@ network:
     notification_emails:
       - necko@mozilla.com
     expires: never
-    telemetry_mirror: h#NETWORK_ID_ONLINE
 
   backgroundfilesaver_thread_count:
     type: custom_distribution
     description: >
       Maximum number of concurrent threads reached during a given download
       session
-
-      This metric was generated to correspond to the Legacy Telemetry enumerated
-      histogram BACKGROUNDFILESAVER_THREAD_COUNT.
     range_min: 0
     range_max: 21
     bucket_count: 22
     histogram_type: linear
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1956726
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2037081
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1956726
     notification_emails:
       - necko@mozilla.com
     expires: never
-    telemetry_mirror: BACKGROUNDFILESAVER_THREAD_COUNT
 
   ipv4_and_ipv6_address_connectivity:
     type: custom_distribution
@@ -2621,9 +2992,6 @@ network:
       Count the number of 0) successful connections to an ipv4 address, 1)
       failed connection an ipv4 address, 2) successful connection to an ipv6
       address and 3) failed connections to an ipv6 address.
-
-      This metric was generated to correspond to the Legacy Telemetry enumerated
-      histogram IPV4_AND_IPV6_ADDRESS_CONNECTIVITY.
     range_min: 0
     range_max: 4
     bucket_count: 5
@@ -2641,9 +3009,6 @@ network:
     description: >
       Ratio of used and unused resources preloaded with link rel=preload tag or
       response header, broken down by supported resource type.
-
-      This metric was generated to correspond to the Legacy Telemetry
-      categorical histogram REL_PRELOAD_MISS_RATIO.
     labels:
       - TYPE_SCRIPT_USED
       - TYPE_SCRIPT_UNUSED
@@ -2673,7 +3038,6 @@ network:
       - necko@mozilla.com
       - kershaw@mozilla.com
     expires: never
-    telemetry_mirror: h#REL_PRELOAD_MISS_RATIO
 
   urlclassifier_harmful_addon_block:
     type: event
@@ -2765,3 +3129,105 @@ network:
         description: >
           The ETLD+1 of the top-level document site.
         type: string
+
+  ssl_token_cache_persistence_records_loaded:
+    type: counter
+    description: >
+      Number of TLS session resumption token records successfully loaded from
+      disk into the cache on startup.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2024146
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2024146
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - necko@mozilla.com
+    expires: never
+
+  ssl_token_cache_load_time:
+    type: timing_distribution
+    time_unit: millisecond
+    description: >
+      Wall-clock time from SSLTokensCache::Init() to the
+      completion of loading cached tokens from disk.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2024146
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2024146
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - necko@mozilla.com
+    expires: never
+
+  ssl_token_cache_evictions:
+    type: counter
+    description: >
+      Number of still-valid TLS session resumption tokens evicted because the
+      in-memory cache exceeded network.ssl_tokens_cache_capacity. Already-expired
+      tokens removed under capacity pressure are not counted here (those are
+      tracked by ssl_token_cache_expired). Any non-zero value indicates the
+      capacity limit was reached and may need to be increased.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2024146
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2024146
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - necko@mozilla.com
+    expires: never
+
+  ssl_token_cache_early_connections:
+    type: counter
+    description: >
+      Number of TLS connections (via Get()) that started before the background
+      disk load completed. Each occurrence is also logged as a warning.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2024146
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2024146
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - necko@mozilla.com
+    expires: never
+
+  ssl_token_cache_db_errors:
+    type: labeled_counter
+    description: >
+      Failures touching the persisted TLS token database: 'open' (unopenable,
+      so removed), 'schema' (no usable table), 'read' (unreadable row),
+      'write' (snapshot not written). Routine removal when persistence is
+      disabled is not counted.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2032036
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2032036
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - necko@mozilla.com
+    labels:
+      - open
+      - schema
+      - read
+      - write
+    expires: never
+
+  apple_fast_datapath_used:
+    type: boolean
+    description: >
+      True if the Apple fast datapath (sendmsg_x/recvmsg_x) is being used for
+      UDP I/O. This requires the APIs to be available and the probe to
+      succeed. Only recorded on Apple platforms.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2028797
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2028797
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - necko@mozilla.com
+    expires: never

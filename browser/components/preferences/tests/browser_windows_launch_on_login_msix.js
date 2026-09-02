@@ -8,8 +8,11 @@ ChromeUtils.defineESModuleGetters(this, {
   MigrationUtils: "resource:///modules/MigrationUtils.sys.mjs",
   PermissionTestUtils: "resource://testing-common/PermissionTestUtils.sys.mjs",
   TestUtils: "resource://testing-common/TestUtils.sys.mjs",
-  WindowsLaunchOnLogin: "resource://gre/modules/WindowsLaunchOnLogin.sys.mjs",
+  WindowsLaunchOnLogin:
+    "resource://gre/modules/launchonlogin/WindowsLaunchOnLogin.sys.mjs",
 });
+
+const STARTUP_PANE = SRD_PREF_VALUE ? "paneHome" : "paneGeneral";
 
 add_task(async function test_check_uncheck_checkbox() {
   await ExperimentAPI.ready();
@@ -17,31 +20,46 @@ add_task(async function test_check_uncheck_checkbox() {
     featureId: "windowsLaunchOnLogin",
     value: { enabled: true },
   });
+  // Start from a known-disabled state so the test does not depend on whether
+  // first-run default enablement ran during startup. This must happen before
+  // the preferences pane is opened, since the checkbox reads the launch-on-
+  // login state during its setup.
+  await WindowsLaunchOnLogin._disableLaunchOnLoginMSIX();
+
   // Open preferences to general pane
-  await openPreferencesViaOpenPreferencesAPI("paneGeneral", {
+  await openPreferencesViaOpenPreferencesAPI(STARTUP_PANE, {
     leaveOpen: true,
   });
+
   let doc = gBrowser.contentDocument;
+  await TestUtils.waitForCondition(
+    () => doc.getElementById("windowsLaunchOnLogin"),
+    "windowsLaunchOnLogin checkbox rendered"
+  );
 
   let launchOnLoginCheckbox = doc.getElementById("windowsLaunchOnLogin");
-  launchOnLoginCheckbox.click();
-  ok(launchOnLoginCheckbox.checked, "Autostart checkbox checked");
 
-  // Checking whether everything was enabled as expected isn't
-  // really a problem in-product but we can encounter a race condition
-  // here as both enabling and checking are asynchronous.
+  ok(!launchOnLoginCheckbox.checked, "Autostart checkbox starts unchecked");
+
+  // Click once: should enable launch-on-login.
+  synthesizeClick(launchOnLoginCheckbox);
+  ok(
+    launchOnLoginCheckbox.checked,
+    "Autostart checkbox checked after first click"
+  );
   await TestUtils.waitForCondition(async () => {
-    let enabled = await WindowsLaunchOnLogin.getLaunchOnLoginEnabledMSIX();
-    return enabled;
-  }, "Wait for async get enabled operation to return true");
+    return await WindowsLaunchOnLogin.getLaunchOnLoginEnabled();
+  }, "Launch on login is enabled after checking");
 
-  launchOnLoginCheckbox.click();
-  ok(!launchOnLoginCheckbox.checked, "Autostart checkbox unchecked");
-
+  // Click again: should disable launch-on-login.
+  synthesizeClick(launchOnLoginCheckbox);
+  ok(
+    !launchOnLoginCheckbox.checked,
+    "Autostart checkbox unchecked after second click"
+  );
   await TestUtils.waitForCondition(async () => {
-    let enabled = await WindowsLaunchOnLogin.getLaunchOnLoginEnabledMSIX();
-    return !enabled;
-  }, "Wait for async get enabled operation to return false");
+    return !(await WindowsLaunchOnLogin.getLaunchOnLoginEnabled());
+  }, "Launch on login is disabled after unchecking");
 
   gBrowser.removeCurrentTab();
   await doCleanup();
@@ -59,10 +77,14 @@ add_task(async function enable_external_startuptask() {
   ok(enabled, "Task is enabled");
 
   // Open preferences to general pane
-  await openPreferencesViaOpenPreferencesAPI("paneGeneral", {
+  await openPreferencesViaOpenPreferencesAPI(STARTUP_PANE, {
     leaveOpen: true,
   });
   let doc = gBrowser.contentDocument;
+  await TestUtils.waitForCondition(
+    () => doc.getElementById("windowsLaunchOnLogin"),
+    "windowsLaunchOnLogin checkbox rendered"
+  );
 
   let launchOnLoginCheckbox = doc.getElementById("windowsLaunchOnLogin");
   ok(launchOnLoginCheckbox.checked, "Autostart checkbox automatically checked");
@@ -81,10 +103,14 @@ add_task(async function disable_external_startuptask() {
   await WindowsLaunchOnLogin._disableLaunchOnLoginMSIX();
 
   // Open preferences to general pane
-  await openPreferencesViaOpenPreferencesAPI("paneGeneral", {
+  await openPreferencesViaOpenPreferencesAPI(STARTUP_PANE, {
     leaveOpen: true,
   });
   let doc = gBrowser.contentDocument;
+  await TestUtils.waitForCondition(
+    () => doc.getElementById("windowsLaunchOnLogin"),
+    "windowsLaunchOnLogin checkbox rendered"
+  );
 
   let launchOnLoginCheckbox = doc.getElementById("windowsLaunchOnLogin");
   ok(

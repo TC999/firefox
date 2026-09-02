@@ -6,12 +6,12 @@
 #define mozilla_a11_DocManager_h_
 
 #include "mozilla/ClearOnShutdown.h"
-#include "nsIDOMEventListener.h"
-#include "nsRefPtrHashtable.h"
-#include "nsIWebProgressListener.h"
-#include "nsWeakReference.h"
 #include "mozilla/StaticPtr.h"
+#include "nsIDOMEventListener.h"
 #include "nsINode.h"
+#include "nsIWebProgressListener.h"
+#include "nsRefPtrHashtable.h"
+#include "nsWeakReference.h"
 
 namespace mozilla::dom {
 class Document;
@@ -37,6 +37,9 @@ class DocManager : public nsIWebProgressListener,
   NS_DECL_THREADSAFE_ISUPPORTS
   NS_DECL_NSIWEBPROGRESSLISTENER
   NS_DECL_NSIDOMEVENTLISTENER
+
+  DocManager(const DocManager&) = delete;
+  DocManager& operator=(const DocManager&) = delete;
 
   /**
    * Return document accessible for the given DOM node.
@@ -109,7 +112,7 @@ class DocManager : public nsIWebProgressListener,
 #endif
 
 #ifdef MOZ_ENABLE_SKIA_PDF
-  void NotifyOfPrintDocument(dom::Document* aDoc);
+  static void NotifyOfPrintDocument(dom::Document* aDoc);
 #endif
 
  protected:
@@ -130,10 +133,6 @@ class DocManager : public nsIWebProgressListener,
     return mXPCDocumentCache.Count() > 0 ||
            (sRemoteXPCDocumentCache && sRemoteXPCDocumentCache->Count() > 0);
   }
-
- private:
-  DocManager(const DocManager&);
-  DocManager& operator=(const DocManager&);
 
  private:
   /**

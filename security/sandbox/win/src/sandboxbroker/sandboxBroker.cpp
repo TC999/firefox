@@ -9,12 +9,14 @@
 #include <aclapi.h>
 #include <sddl.h>
 #include <shlobj.h>
+
 #include <string>
 
-#include "base/win/windows_version.h"
-#include "base/win/sid.h"
 #include "ConfigHelpers.h"
 #include "GfxDriverInfo.h"
+#include "WinUtils.h"
+#include "base/win/sid.h"
+#include "base/win/windows_version.h"
 #include "mozilla/Assertions.h"
 #include "mozilla/ClearOnShutdown.h"
 #include "mozilla/Components.h"
@@ -23,16 +25,15 @@
 #include "mozilla/NSPRLogModulesParser.h"
 #include "mozilla/Omnijar.h"
 #include "mozilla/Preferences.h"
-#include "mozilla/SandboxSettings.h"
 #include "mozilla/SHA1.h"
-#include "mozilla/StaticPrefs_network.h"
+#include "mozilla/SandboxSettings.h"
+#include "mozilla/StaticPrefs_media.h"
 #include "mozilla/StaticPrefs_security.h"
-#include "mozilla/StaticPrefs_widget.h"
 #include "mozilla/StaticPtr.h"
 #include "mozilla/UniquePtr.h"
-#include "mozilla/glean/SecuritySandboxMetrics.h"
 #include "mozilla/WinDllServices.h"
 #include "mozilla/WindowsVersion.h"
+#include "mozilla/glean/SecuritySandboxMetrics.h"
 #include "mozilla/ipc/LaunchError.h"
 #include "mozilla/ipc/UtilityProcessSandboxing.h"
 #include "nsAppDirectoryServiceDefs.h"
@@ -49,7 +50,6 @@
 #include "sandbox/win/src/app_container.h"
 #include "sandbox/win/src/sandbox.h"
 #include "sandbox/win/src/security_level.h"
-#include "WinUtils.h"
 
 #define SANDBOX_SUCCEED_OR_CRASH(x)                                   \
   do {                                                                \
@@ -542,9 +542,8 @@ Result<Ok, mozilla::ipc::LaunchError> SandboxBroker::LaunchApp(
 
   // Create the sandboxed process
   PROCESS_INFORMATION targetInfo = {0};
-  sandbox::ResultCode result;
   DWORD last_error = ERROR_SUCCESS;
-  result =
+  sandbox::ResultCode result =
       sBrokerService->SpawnTarget(aPath, aArguments, aEnvironment,
                                   std::move(mPolicy), &last_error, &targetInfo);
   if (sandbox::SBOX_ALL_OK != result) {
@@ -667,7 +666,7 @@ static sandbox::ResultCode AllowProxyLoadFromBinDir(
   // mozglue.dll, nss3.dll, etc.
   nsAutoString rulePath(*sBinDir);
   rulePath.Append(u"\\*"_ns);
-  return aConfig->AllowExtraDlls(rulePath.get());
+  return aConfig->AllowExtraDll(rulePath.get());
 }
 
 static sandbox::ResultCode AddCigToConfig(
@@ -694,7 +693,7 @@ static sandbox::ResultCode AddCigToConfig(
       }
 
       for (const wchar_t* path : exceptionModules.ref()) {
-        result = aConfig->AllowExtraDlls(path);
+        result = aConfig->AllowExtraDll(path);
         if (result != sandbox::SBOX_ALL_OK) {
           return result;
         }
@@ -935,19 +934,16 @@ static sandbox::ResultCode AddAndConfigureAppContainerProfile(
     return sandbox::SBOX_ERROR_CREATE_APPCONTAINER;
   }
 
-  // The bool parameter is called create_profile, but in fact it tries to create
-  // and then opens if it already exists. So always passing true is fine.
-  bool createOrOpenProfile = true;
   nsAutoString packageName = aPackagePrefix + uniquePackageStr;
   sandbox::ResultCode result =
-      aConfig->AddAppContainerProfile(packageName.get(), createOrOpenProfile);
+      aConfig->AddAppContainerProfile(packageName.get());
   if (result != sandbox::SBOX_ALL_OK) {
     return result;
   }
 
   // This looks odd, but unfortunately holding a scoped_refptr and
   // dereferencing has DCHECKs that cause a linking problem.
-  sandbox::AppContainer* appContainer = aConfig->GetAppContainer().get();
+  sandbox::AppContainer* appContainer = aConfig->GetAppContainer();
   appContainer->SetEnableLowPrivilegeAppContainer(true);
 
   for (auto wkCap : aWellKnownCapabilites) {
@@ -966,18 +962,22 @@ void AddShaderCachesToPolicy(sandboxing::SizeTrackingConfig* aConfig,
                              int32_t aSandboxLevel) {
   // The GPU process needs to write to a shader cache for performance reasons
   if (sProfileDir) {
-    // Currently the GPU process creates the shader-cache directory if it
-    // doesn't exist, so we have to give FILES_ALLOW_ANY access.
-    // FILES_ALLOW_DIR_ANY has been seen to fail on an existing profile although
-    // the root cause hasn't been found. FILES_ALLOW_DIR_ANY has also been
-    // removed from the sandbox code upstream.
-    // It is possible that we might be able to use FILES_ALLOW_READONLY for the
-    // dir if it is already created, bug 1966157 has been filed to track.
-    AddCachedDirRule(aConfig, sandbox::FileSemantics::kAllowAny, sProfileDir,
-                     u"\\shader-cache"_ns);
+    // Create the shader-cache dir ourselves, so we only need to give read
+    // access to it.
+    static constexpr auto kShaderCacheDir = u"\\shader-cache"_ns;
+    static constexpr auto kShaderCacheDirAnyEntry = u"\\shader-cache\\*"_ns;
+    nsAutoString rulePath(*sProfileDir);
+    rulePath.Append(kShaderCacheDir);
+    if (!::CreateDirectoryW(rulePath.get(), nullptr) &&
+        ::GetLastError() != ERROR_ALREADY_EXISTS) {
+      LOG_W("Failed to create shader-cache");
+    }
+
+    AddCachedDirRule(aConfig, sandbox::FileSemantics::kAllowReadonly,
+                     sProfileDir, kShaderCacheDir);
 
     AddCachedDirRule(aConfig, sandbox::FileSemantics::kAllowAny, sProfileDir,
-                     u"\\shader-cache\\*"_ns);
+                     kShaderCacheDirAnyEntry);
   }
 
   // Add GPU specific shader cache rules.
@@ -1127,9 +1127,7 @@ void SandboxBroker::SetSecurityLevelForContentProcess(int32_t aSandboxLevel,
     isTrellixDllLoaded = !!::GetModuleHandleW(L"fcagff.dll");
 #endif
     if (!isTrellixDllLoaded) {
-      result = config->AddKernelObjectToClose(L"File", L"\\Device\\KsecDD");
-      MOZ_RELEASE_ASSERT(sandbox::SBOX_ALL_OK == result,
-                         "AddKernelObjectToClose should never fail.");
+      config->AddKernelObjectToClose(sandbox::HandleToClose::kKsecDD);
     }
   }
 
@@ -1215,12 +1213,6 @@ void SandboxBroker::SetSecurityLevelForContentProcess(int32_t aSandboxLevel,
       sandbox::SBOX_ALL_OK == result,
       "With these static arguments AddRule should never fail, what happened?");
 
-  // Allow content processes to use complex line breaking brokering.
-  result = config->AllowLineBreaking();
-  MOZ_RELEASE_ASSERT(
-      sandbox::SBOX_ALL_OK == result,
-      "With these static arguments AddRule should never fail, what happened?");
-
   if (aSandboxLevel >= 8) {
     // Content process still needs to be able to read fonts.
     AddCachedWindowsDirRule(config, sandbox::FileSemantics::kAllowReadonly,
@@ -1236,6 +1228,16 @@ void SandboxBroker::SetSecurityLevelForContentProcess(int32_t aSandboxLevel,
     // USER_RESTRCITED will also block access to the KnownDlls list, so we force
     // that path to fall-back to the normal loading path.
     config->SetForceKnownDllLoadingFallback();
+
+    // If platform video encoding is not remote it requires the KsecDD device.
+    if (!StaticPrefs::media_use_remote_encoder_video_platform()) {
+      result = config->AllowFileAccess(sandbox::FileSemantics::kAllowAny,
+                                       LR"(\Device\KsecDD)");
+      if (sandbox::SBOX_ALL_OK != result) {
+        NS_ERROR("Failed to add rule for KsecDD.");
+        LOG_E("Failed (ResultCode %d) to add read access to KsecDD", result);
+      }
+    }
 
     // We should be able to remove access to these media registry keys below
     // once encoding has moved out of the content process (bug 1972552).
@@ -1351,17 +1353,13 @@ void SandboxBroker::SetSecurityLevelForGPUProcess(int32_t aSandboxLevel) {
   sandbox::MitigationFlags initialMitigations =
       sandbox::MITIGATION_BOTTOM_UP_ASLR | sandbox::MITIGATION_HEAP_TERMINATE |
       sandbox::MITIGATION_SEHOP | sandbox::MITIGATION_DEP_NO_ATL_THUNK |
+      sandbox::MITIGATION_EXTENSION_POINT_DISABLE |
       sandbox::MITIGATION_KTM_COMPONENT | sandbox::MITIGATION_FSCTL_DISABLED |
       sandbox::MITIGATION_IMAGE_LOAD_NO_REMOTE |
       sandbox::MITIGATION_IMAGE_LOAD_NO_LOW_LABEL | sandbox::MITIGATION_DEP;
 
   if (StaticPrefs::security_sandbox_gpu_shadow_stack_enabled()) {
     initialMitigations |= sandbox::MITIGATION_CET_COMPAT_MODE;
-  }
-
-  // Bug 2008960 tracks removing the pref if we have seen no issues.
-  if (StaticPrefs::security_sandbox_gpu_extension_point_disable()) {
-    initialMitigations |= sandbox::MITIGATION_EXTENSION_POINT_DISABLE;
   }
 
   sandbox::MitigationFlags delayedMitigations =
@@ -1860,11 +1858,31 @@ bool SandboxBroker::SetSecurityLevelForUtilityProcess(
     case mozilla::ipc::SandboxingKind::UTILITY_AUDIO_DECODING_WMF:
       return BuildUtilitySandbox(config, UtilityAudioDecodingWmfSandboxProps());
 #ifdef MOZ_WMF_MEDIA_ENGINE
-    case mozilla::ipc::SandboxingKind::MF_MEDIA_ENGINE_CDM:
-      return BuildUtilitySandbox(config, UtilityMfMediaEngineCdmSandboxProps());
+    case mozilla::ipc::SandboxingKind::MF_MEDIA_ENGINE_CDM: {
+      if (!BuildUtilitySandbox(config, UtilityMfMediaEngineCdmSandboxProps())) {
+        return false;
+      }
+      // Allow MFTEnumEx to enumerate registered MFT decoders/encoders.
+      auto result = config->AllowRegistryRead(
+          L"HKEY_LOCAL_MACHINE\\Software\\Classes\\MediaFoundation\\*");
+      if (sandbox::SBOX_ALL_OK != result) {
+        NS_WARNING("Failed to add MediaFoundation registry rule for MFCDM.");
+      }
+      // MFTEnumEx reads CLSID subkeys to enumerate registered Media Foundation
+      // Transforms. The exact CLSIDs vary per system and are not known at build
+      // time, so a wildcard covering the full CLSID hive is required.
+      result = config->AllowRegistryRead(
+          L"HKEY_LOCAL_MACHINE\\Software\\Classes\\CLSID\\*");
+      if (sandbox::SBOX_ALL_OK != result) {
+        NS_WARNING("Failed to add CLSID registry rule for MFCDM.");
+      }
+      return true;
+    }
 #endif
     case mozilla::ipc::SandboxingKind::WINDOWS_UTILS:
       return BuildUtilitySandbox(config, WindowsUtilitySandboxProps());
+    case mozilla::ipc::SandboxingKind::HW_INFERENCE:
+      return BuildUtilitySandbox(config, GenericUtilitySandboxProps());
     default:
       MOZ_ASSERT_UNREACHABLE("Unknown sandboxing value");
       return false;
@@ -2054,9 +2072,6 @@ void SandboxBroker::ApplyLoggingConfig() {
 
   // Add dummy rules, so that we can log in the interception code.
   // We already have a file interception set up for the client side of pipes.
-  // Also, passing just "dummy" for file system policy causes win_utils.cc
-  // IsReparsePoint() to loop.
-  (void)config->AllowNamedPipes(L"dummy");
   (void)config->AllowRegistryRead(L"HKEY_CURRENT_USER\\dummy");
 }
 

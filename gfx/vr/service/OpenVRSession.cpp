@@ -2,17 +2,20 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include "OpenVRSession.h"
+
 #include <fstream>
-#include "mozilla/JSONStringWriteFuncs.h"
+#include <numbers>
+
 #include "mozilla/ClearOnShutdown.h"
+#include "mozilla/JSONStringWriteFuncs.h"
+#include "mozilla/StaticPrefs_dom.h"
 #include "nsIThread.h"
 #include "nsString.h"
 
-#include "OpenVRSession.h"
-#include "mozilla/StaticPrefs_dom.h"
-
 #if defined(XP_WIN)
 #  include <d3d11.h>
+
 #  include "mozilla/gfx/DeviceManagerDx.h"
 #elif defined(XP_MACOSX)
 #  include "mozilla/gfx/MacIOSurface.h"
@@ -22,15 +25,15 @@
 #  include <sys/stat.h>  // for umask()
 #endif
 
-#include "mozilla/dom/GamepadEventTypes.h"
-#include "mozilla/dom/GamepadBinding.h"
-#include "binding/OpenVRCosmosBinding.h"
-#include "binding/OpenVRKnucklesBinding.h"
-#include "binding/OpenVRViveBinding.h"
 #include "OpenVRCosmosMapper.h"
 #include "OpenVRDefaultMapper.h"
 #include "OpenVRKnucklesMapper.h"
 #include "OpenVRViveMapper.h"
+#include "binding/OpenVRCosmosBinding.h"
+#include "binding/OpenVRKnucklesBinding.h"
+#include "binding/OpenVRViveBinding.h"
+#include "mozilla/dom/GamepadBinding.h"
+#include "mozilla/dom/GamepadEventTypes.h"
 #if defined(XP_WIN)  // Windows Mixed Reality is only available in Windows.
 #  include "OpenVRWMRMapper.h"
 #  include "binding/OpenVRWMRBinding.h"
@@ -350,7 +353,7 @@ bool OpenVRSession::SetupContollerActions() {
     }
     if (vrParent->GetOpenVRControllerManifestPath(
             VRControllerType::HTCViveCosmos, &output)) {
-      cosmosManifest = output;
+      cosmosManifest = std::move(output);
     }
     if (!cosmosManifest.Length() || !FileIsExisting(cosmosManifest)) {
       if (!GenerateTempFileName(cosmosManifest)) {
@@ -559,8 +562,8 @@ bool OpenVRSession::SetupContollerActions() {
   rightContollerInfo.mActionHaptic =
       CreateControllerOutAction(R, haptic, vibration);
 
-  mControllerHand[OpenVRHand::Left] = leftContollerInfo;
-  mControllerHand[OpenVRHand::Right] = rightContollerInfo;
+  mControllerHand[OpenVRHand::Left] = std::move(leftContollerInfo);
+  mControllerHand[OpenVRHand::Right] = std::move(rightContollerInfo);
 
   if (!controllerAction.Length() || !FileIsExisting(controllerAction)) {
     if (!GenerateTempFileName(controllerAction)) {
@@ -647,8 +650,11 @@ bool OpenVRSession::SetupContollerActions() {
   if (StaticPrefs::dom_vr_process_enabled_AtStartup()) {
     NS_DispatchToMainThread(NS_NewRunnableFunction(
         "SendOpenVRControllerActionPathToParent",
-        [controllerAction, viveManifest, WMRManifest, knucklesManifest,
-         cosmosManifest]() {
+        [controllerAction = std::move(controllerAction),
+         viveManifest = std::move(viveManifest),
+         WMRManifest = std::move(WMRManifest),
+         knucklesManifest = std::move(knucklesManifest),
+         cosmosManifest = std::move(cosmosManifest)]() {
           VRParent* vrParent = VRProcessChild::GetVRParent();
           (void)vrParent->SendOpenVRControllerActionPathToParent(
               controllerAction);
@@ -817,10 +823,14 @@ void OpenVRSession::UpdateEyeParameters(VRSystemState& aState) {
     float left, right, up, down;
     mVRSystem->GetProjectionRaw(static_cast<::vr::Hmd_Eye>(eye), &left, &right,
                                 &up, &down);
-    aState.displayState.eyeFOV[eye].upDegrees = atan(-up) * 180.0 / M_PI;
-    aState.displayState.eyeFOV[eye].rightDegrees = atan(right) * 180.0 / M_PI;
-    aState.displayState.eyeFOV[eye].downDegrees = atan(down) * 180.0 / M_PI;
-    aState.displayState.eyeFOV[eye].leftDegrees = atan(-left) * 180.0 / M_PI;
+    aState.displayState.eyeFOV[eye].upDegrees =
+        atan(-up) * 180.0 / std::numbers::pi;
+    aState.displayState.eyeFOV[eye].rightDegrees =
+        atan(right) * 180.0 / std::numbers::pi;
+    aState.displayState.eyeFOV[eye].downDegrees =
+        atan(down) * 180.0 / std::numbers::pi;
+    aState.displayState.eyeFOV[eye].leftDegrees =
+        atan(-left) * 180.0 / std::numbers::pi;
 
     Matrix4x4 pose;
     // NOTE! eyeToHead.m is a 3x4 matrix, not 4x4.  But
@@ -1280,7 +1290,9 @@ bool OpenVRSession::SubmitFrame(const VRLayerTextureHandle& aTextureHandle,
   // We get aTextureHandle from get_SurfaceDescriptorMacIOSurface() at
   // VRDisplayExternal. scaleFactor and opaque are skipped because they always
   // are 1.0 and false.
-  RefPtr<MacIOSurface> surf = MacIOSurface::LookupSurface(aTextureHandle);
+  RefPtr<MacIOSurface> surf = MacIOSurface::LookupSurface(
+      aTextureHandle, gfx::YUVColorSpace::Identity, gfx::TransferFunction::SRGB,
+      MacIOSurface::AllowAlpha::No);
   if (!surf) {
     NS_WARNING("OpenVRSession::SubmitFrame failed to get a MacIOSurface");
     return false;

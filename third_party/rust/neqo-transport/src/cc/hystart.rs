@@ -7,12 +7,31 @@
 use std::{
     cmp::{max, min},
     fmt::Display,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use neqo_common::{qdebug, qtrace};
 
 use crate::{cc::classic_cc::SlowStart, packet, rtt::RttEstimate, stats::CongestionControlStats};
+
+/// Controls how the CSS baseline RTT is set when entering Conservative Slow Start (CSS).
+///
+/// The baseline determines when CSS is considered spurious: if the RTT drops below it,
+/// CSS is exited and normal slow start resumes.
+#[derive(Debug, Copy, Clone, Default, PartialEq, Eq)]
+pub enum HyStartCssBaseline {
+    /// RFC 9406 behavior: baseline = `currentRoundMinRTT` at CSS entry.
+    ///
+    /// Can cause oscillation: values slightly below the entry RTT trigger CSS exit even
+    /// though they would still have triggered CSS entry (and might do so on the next ACK).
+    #[default]
+    CurrentRoundMinRtt,
+    /// Alternative behavior: baseline = `lastRoundMinRTT + rttThresh`.
+    ///
+    /// CSS is only exited when the RTT drops below the level that would have triggered
+    /// CSS entry, avoiding oscillation between CSS entry and exit.
+    EntryThreshold,
+}
 
 #[derive(Debug)]
 pub struct HyStart {
@@ -27,9 +46,10 @@ pub struct HyStart {
     ///
     /// <https://datatracker.ietf.org/doc/html/rfc9406#section-4.3-9>
     limit: usize,
+    css_baseline_mode: HyStartCssBaseline,
     last_round_min_rtt: Option<Duration>,
     current_round_min_rtt: Option<Duration>,
-    rtt_sample_count: usize,
+    rtt_sample_count: u64,
     window_end: Option<packet::Number>,
     css_baseline_min_rtt: Option<Duration>,
     css_round_count: usize,
@@ -48,7 +68,7 @@ impl HyStart {
 
     pub const MIN_RTT_DIVISOR: u32 = 8;
 
-    pub const N_RTT_SAMPLE: usize = 8;
+    pub const N_RTT_SAMPLE: u64 = 8;
 
     pub const CSS_GROWTH_DIVISOR: usize = 4;
 
@@ -56,7 +76,7 @@ impl HyStart {
 
     pub const NON_PACED_L: usize = 8;
 
-    pub const fn new(pacing: bool) -> Self {
+    pub const fn new(pacing: bool, css_baseline_mode: HyStartCssBaseline) -> Self {
         let limit = if pacing {
             usize::MAX
         } else {
@@ -64,6 +84,7 @@ impl HyStart {
         };
         Self {
             limit,
+            css_baseline_mode,
             last_round_min_rtt: None,
             current_round_min_rtt: None,
             rtt_sample_count: 0,
@@ -148,7 +169,7 @@ impl HyStart {
     }
 
     #[cfg(test)]
-    pub const fn rtt_sample_count(&self) -> usize {
+    pub const fn rtt_sample_count(&self) -> u64 {
         self.rtt_sample_count
     }
 
@@ -169,7 +190,7 @@ impl HyStart {
 }
 
 impl SlowStart for HyStart {
-    fn on_packet_sent(&mut self, sent_pn: packet::Number) {
+    fn on_packet_sent(&mut self, sent_pn: packet::Number, _sent_bytes: usize) {
         self.maybe_set_window_end(sent_pn);
     }
 
@@ -210,6 +231,7 @@ impl SlowStart for HyStart {
         largest_acked: packet::Number,
         curr_cwnd: usize,
         cc_stats: &mut CongestionControlStats,
+        _now: Instant,
     ) -> Option<usize> {
         self.collect_rtt_sample(rtt_est.latest_rtt());
 
@@ -240,7 +262,10 @@ impl SlowStart for HyStart {
             );
             if current >= last + rtt_thresh {
                 self.rtt_sample_count = 0;
-                self.css_baseline_min_rtt = Some(current);
+                self.css_baseline_min_rtt = Some(match self.css_baseline_mode {
+                    HyStartCssBaseline::CurrentRoundMinRtt => current,
+                    HyStartCssBaseline::EntryThreshold => last + rtt_thresh,
+                });
                 cc_stats.hystart_css_entries += 1;
                 qdebug!(
                     "HyStart: on_packets_acked -> entered CSS because cur_min={current:?} >= last_min={last:?} + thresh={rtt_thresh:?}"

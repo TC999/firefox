@@ -6,19 +6,17 @@
 
 #define GTEST_HAS_RTTI 0
 #include "gtest/gtest.h"
-
 #include "nss.h"
+#include "sdp/ParsingResultComparer.h"
+#include "sdp/RsdparsaSdpParser.h"
+#include "sdp/SdpAttribute.h"
+#include "sdp/SdpMediaSection.h"
+#include "sdp/SipccSdpParser.h"
 #include "ssl.h"
 
-#include "sdp/RsdparsaSdpParser.h"
-#include "sdp/SipccSdpParser.h"
-#include "sdp/SdpMediaSection.h"
-#include "sdp/SdpAttribute.h"
-#include "sdp/ParsingResultComparer.h"
-
 extern "C" {
-#include "sipcc_sdp.h"
 #include "sdp_private.h"
+#include "sipcc_sdp.h"
 }
 
 #ifdef CRLF
@@ -2934,6 +2932,30 @@ TEST_P(NewSdpTest, CheckFormatParameters) {
       SdpAttribute::kFmtpAttribute));
 }
 
+MOZ_RUNINIT const std::string kOpusFmtpWithPtime =
+    "v=0" CRLF "o=Mozilla-SIPUA-35.0a1 5184 0 IN IP4 0.0.0.0" CRLF
+    "s=SIP Call" CRLF "c=IN IP4 224.0.0.1/100/12" CRLF "t=0 0" CRLF
+    "m=audio 9 RTP/SAVPF 109" CRLF "c=IN IP4 0.0.0.0" CRLF
+    "a=rtpmap:109 opus/48000/2" CRLF
+    "a=fmtp:109 ptime=40;minptime=10;maxptime=60;useinbandfec=1" CRLF;
+
+TEST_P(NewSdpTest, CheckOpusFmtpPtime) {
+  ParseSdp(kOpusFmtpWithPtime);
+  ASSERT_TRUE(!!Sdp())
+  << "Parse failed: " << SerializeParseErrors();
+
+  const auto* params = Sdp()->GetMediaSection(0).FindFmtp("109");
+  ASSERT_TRUE(params);
+  ASSERT_EQ(SdpRtpmapAttributeList::kOpus, params->codec_type);
+
+  const auto& opus =
+      static_cast<const SdpFmtpAttributeList::OpusParameters&>(*params);
+  ASSERT_EQ(40U, opus.frameSizeMs);
+  ASSERT_EQ(10U, opus.minFrameSizeMs);
+  ASSERT_EQ(60U, opus.maxFrameSizeMs);
+  ASSERT_EQ(1U, opus.useInBandFec);
+}
+
 TEST_P(NewSdpTest, CheckPtime) {
   ParseSdp(kBasicAudioVideoOffer);
   ASSERT_EQ(20U, Sdp()->GetMediaSection(0).GetAttributeList().GetPtime());
@@ -3378,20 +3400,20 @@ TEST_P(NewSdpTest, CheckExtmap) {
 
   ASSERT_EQ(1U, extmaps[0].entry);
   ASSERT_FALSE(extmaps[0].direction_specified);
-  ASSERT_EQ("urn:ietf:params:rtp-hdrext:ssrc-audio-level",
+  ASSERT_EQ("urn:ietf:params:rtp-hdrext:ssrc-audio-level"_ns,
             extmaps[0].extensionname);
-  ASSERT_EQ("", extmaps[0].extensionattributes);
+  ASSERT_EQ(""_ns, extmaps[0].extensionattributes);
 
   ASSERT_EQ(2U, extmaps[1].entry);
   ASSERT_TRUE(extmaps[1].direction_specified);
   ASSERT_EQ(SdpDirectionAttribute::kSendonly, extmaps[1].direction);
-  ASSERT_EQ("some_extension", extmaps[1].extensionname);
-  ASSERT_EQ("", extmaps[1].extensionattributes);
+  ASSERT_EQ("some_extension"_ns, extmaps[1].extensionname);
+  ASSERT_EQ(""_ns, extmaps[1].extensionattributes);
 
   ASSERT_EQ(3U, extmaps[2].entry);
   ASSERT_FALSE(extmaps[2].direction_specified);
-  ASSERT_EQ("some_other_extension", extmaps[2].extensionname);
-  ASSERT_EQ("some_params some more params", extmaps[2].extensionattributes);
+  ASSERT_EQ("some_other_extension"_ns, extmaps[2].extensionname);
+  ASSERT_EQ("some_params some more params"_ns, extmaps[2].extensionattributes);
 }
 
 TEST_P(NewSdpTest, CheckRtcpFb) {

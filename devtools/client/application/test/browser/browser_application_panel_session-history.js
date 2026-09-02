@@ -14,28 +14,27 @@ add_setup(async function () {
 add_task(async function () {
   await enableApplicationPanel();
 
-  const { panel, tab } = await openNewTabAndApplicationPanel(TAB_URL);
+  const {
+    panel,
+    tab,
+    commands: { resourceCommand },
+  } = await openNewTabAndApplicationPanel(TAB_URL);
+  const onAvailable = () => {};
+  let updated = 0;
+  const onUpdated = () => {
+    updated++;
+  };
+
+  resourceCommand.watchResources([resourceCommand.TYPES.SESSION_HISTORY], {
+    onAvailable,
+    onUpdated,
+  });
+
   selectPage(panel, "session-history");
 
   const doc = panel.panelWin.document;
 
   const { sessionHistory } = tab.linkedBrowser.browsingContext;
-  const { promise: onHistoryCommittedPromise, resolve: onHistoryCommitted } =
-    Promise.withResolvers();
-  let count = 0;
-  const sessionHistoryListener = {
-    QueryInterface: ChromeUtils.generateQI([
-      "nsISHistoryListener",
-      "nsISupportsWeakReference",
-    ]),
-    OnHistoryCommit: () => {
-      if (++count == 2) {
-        onHistoryCommitted();
-      }
-    },
-  };
-
-  sessionHistory.addSHistoryListener(sessionHistoryListener);
 
   info("Navigate the frames.");
   await SpecialPowers.spawn(tab.linkedBrowser, [], async function () {
@@ -49,9 +48,8 @@ add_task(async function () {
     }
   });
 
-  info("Await history commits.");
-  await onHistoryCommittedPromise;
-  sessionHistory.removeSHistoryListener(sessionHistoryListener);
+  // Wait for the updates for the frames to arrive
+  await waitFor(() => updated == 2);
 
   // We're navigating to a very specific session history setup, which should in
   // diagram form look like this:
@@ -103,6 +101,20 @@ add_task(async function () {
   Assert.ok(tBodyRows[2].cells[0].firstChild.innerText.endsWith("iframe.html"));
   Assert.ok(
     tBodyRows[2].cells[1].firstChild.innerText.endsWith("iframe.html?1")
+  );
+
+  info("The current entry header is a no-op, other entry headers navigate");
+  const currentHeaderButton = doc.querySelector("#current button");
+  Assert.ok(
+    !currentHeaderButton.hasAttribute("title"),
+    "The current entry header button does not navigate (no title)"
+  );
+  const otherHeaderButton = doc.querySelector(
+    "#diagram-container-table thead th:not(#current) button"
+  );
+  Assert.ok(
+    otherHeaderButton.hasAttribute("title"),
+    "A non-current entry header button navigates (has a title)"
   );
 
   info("Click on a button to bring up entry info");
@@ -197,6 +209,8 @@ add_task(async function () {
   // It should also be noted that column three has a borderless cell below its
   // entry.
 
+  await waitFor(() => tBodyRows[0].cells.length == 3);
+
   Assert.equal(3, tBodyRows[0].cells.length);
   Assert.equal(uri.pathname, tBodyRows[0].cells[2].innerText);
   Assert.ok(tBodyRows[0].cells[1].getAttribute("aria-hidden"));
@@ -217,10 +231,13 @@ add_task(async function () {
   tBodyRows[0].cells[2].firstChild.click();
 
   popover = doc.querySelector(":popover-open");
-  Assert.equal(
-    "title",
-    popover.firstChild.getElementsByTagName("dd")[1].innerText
-  );
+
+  // Small helper to retrieve the title.
+  const getTitle = () =>
+    popover.firstChild.getElementsByTagName("dd")[1].innerText;
+
+  await waitFor(() => getTitle() === "title");
+  Assert.equal("title", getTitle());
 
   info("Set a new title");
   await SpecialPowers.spawn(tab.linkedBrowser, [], async function () {
@@ -235,15 +252,16 @@ add_task(async function () {
     );
   });
 
-  Assert.equal(
-    "new title",
-    popover.firstChild.getElementsByTagName("dd")[1].innerText
-  );
+  await waitFor(() => getTitle() === "new title");
+  Assert.equal("new title", getTitle());
 
   info("Navigate to a fragment");
+  updated = 0;
   await SpecialPowers.spawn(tab.linkedBrowser, [], async function () {
     content.location.hash = "#1";
   });
+
+  await waitFor(() => updated == 1);
 
   table = doc.querySelector("table");
   tBodyRows = table.tBodies[0].rows;
@@ -252,6 +270,67 @@ add_task(async function () {
     tBodyRows[0].cells[3].getAttribute("class"),
     "same-document-nav"
   );
+
+  updated = 0;
+  await SpecialPowers.spawn(tab.linkedBrowser, [], async function () {
+    content.history.replaceState(null, null, "#2");
+  });
+
+  await waitFor(() => updated == 1);
+
+  table = doc.querySelector("table");
+  tBodyRows = table.tBodies[0].rows;
+  tBodyRows[0].cells[3].firstChild.click();
+  popover = doc.querySelector(":popover-open");
+  Assert.equal(
+    "#2",
+    new URL(popover.firstChild.getElementsByTagName("dd")[0].innerText).hash,
+    "hash should be updated by replaceState"
+  );
+
+  info("Click a numbered header to navigate to that session history index");
+  Assert.notEqual(
+    0,
+    tab.linkedBrowser.browsingContext.sessionHistory.index,
+    "Sanity check: we are not already at index 0"
+  );
+
+  const headerButtons = [
+    ...doc.querySelectorAll("#diagram-container-table thead button"),
+  ];
+  const firstHeaderButton = headerButtons.find(
+    button => button.innerText === "0"
+  );
+  Assert.ok(
+    HTMLButtonElement.isInstance(firstHeaderButton),
+    "Found the header button for index 0"
+  );
+
+  firstHeaderButton.click();
+
+  await waitFor(
+    () => tab.linkedBrowser.browsingContext.sessionHistory.index === 0
+  );
+  Assert.equal(
+    0,
+    tab.linkedBrowser.browsingContext.sessionHistory.index,
+    "Clicking the header navigated to session history index 0"
+  );
+
+  await waitFor(
+    () =>
+      doc.querySelector("#current")?.querySelector("button")?.innerText === "0"
+  );
+  Assert.equal(
+    "0",
+    doc.querySelector("#current").querySelector("button").innerText,
+    "The current marker moved to the header for index 0"
+  );
+
+  resourceCommand.unwatchResources([resourceCommand.TYPES.SESSION_HISTORY], {
+    onAvailable,
+    onUpdated,
+  });
 
   info("Closing the tab.");
   await BrowserTestUtils.removeTab(tab);

@@ -2,11 +2,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "mozilla/ModuleUtils.h"
-#include "mozilla/ClearOnShutdown.h"
-#include "mozilla/Omnijar.h"
-
 #include "MozSrcProtocolHandler.h"
+
+#include "mozilla/ClearOnShutdown.h"
+#include "mozilla/ModuleUtils.h"
+#include "mozilla/Omnijar.h"
+#include "nsThreadUtils.h"
 
 #define MOZSRC_SCHEME "moz-src"
 
@@ -18,16 +19,30 @@ NS_IMPL_QUERY_INTERFACE(MozSrcProtocolHandler, nsISubstitutingProtocolHandler,
 NS_IMPL_ADDREF_INHERITED(MozSrcProtocolHandler, SubstitutingProtocolHandler)
 NS_IMPL_RELEASE_INHERITED(MozSrcProtocolHandler, SubstitutingProtocolHandler)
 
+mozilla::StaticMutex MozSrcProtocolHandler::sMutex;
 mozilla::StaticRefPtr<MozSrcProtocolHandler> MozSrcProtocolHandler::sSingleton;
 
 already_AddRefed<MozSrcProtocolHandler> MozSrcProtocolHandler::GetSingleton() {
+  StaticMutexAutoLock lock(sMutex);
   if (!sSingleton) {
     RefPtr<MozSrcProtocolHandler> handler = new MozSrcProtocolHandler();
     if (NS_WARN_IF(NS_FAILED(handler->Init()))) {
       return nullptr;
     }
     sSingleton = handler;
-    ClearOnShutdown(&sSingleton);
+    auto prevent_shutdown_race = [] {
+      StaticMutexAutoLock lock(sMutex);
+      sSingleton = nullptr;
+    };
+    if (NS_IsMainThread()) {
+      RunOnShutdown(std::move(prevent_shutdown_race));
+    } else {
+      NS_DispatchToMainThread(NS_NewRunnableFunction(
+          "MozSrcProtocolHandler::RunOnShutdown",
+          [prevent_shutdown_race = std::move(prevent_shutdown_race)]() mutable {
+            RunOnShutdown(std::move(prevent_shutdown_race));
+          }));
+    }
   }
   return do_AddRef(sSingleton);
 }

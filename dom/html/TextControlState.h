@@ -212,8 +212,8 @@ class TextControlState final : public SupportsWeakPtr {
   nsresult InitializeSelection(PresShell*);
   MOZ_CAN_RUN_SCRIPT void DeinitSelection();
   MOZ_CAN_RUN_SCRIPT nsresult PrepareEditor();
-  void InitializeKeyboardEventListeners();
   MOZ_CAN_RUN_SCRIPT void UpdateEditorOnTypeChange();
+  [[nodiscard]] bool IsPreparingEditor() const;
 
   /**
    * OnEditActionHandled() is called when mTextEditor handles something
@@ -471,6 +471,7 @@ class TextControlState final : public SupportsWeakPtr {
 
   MOZ_CAN_RUN_SCRIPT void UnlinkInternal();
 
+  void EnsureTextInputListener();
   MOZ_CAN_RUN_SCRIPT void DestroyEditor();
   MOZ_CAN_RUN_SCRIPT void Clear();
 
@@ -513,9 +514,11 @@ class TextControlState final : public SupportsWeakPtr {
   // has a smaller lifetime except the owner releases the instance while it
   // does something with this.
   TextControlElement* MOZ_NON_OWNING_REF mTextCtrlElement;
-  RefPtr<TextInputSelectionController> mSelCon;
+  RefPtr<TextInputSelectionController> mSelCon;  // Alive until frame destroyed
+  // Alive until node removal (or type change if <input>)
   RefPtr<TextEditor> mTextEditor;
-  RefPtr<TextInputListener> mTextListener;
+  // Alive until node removal (or type change if <input>)
+  RefPtr<TextInputListener> mTextInputListener;
   UniquePtr<PasswordMaskData> mPasswordMaskData;
 
   nsString mValue{VoidString()};  // Void if there's no value.

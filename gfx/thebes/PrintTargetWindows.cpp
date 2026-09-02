@@ -5,9 +5,9 @@
 #include "PrintTargetWindows.h"
 
 #include "cairo-win32.h"
-#include "mozilla/gfx/HelpersCairo.h"
 #include "mozilla/StaticPrefs_browser.h"
 #include "mozilla/WidgetUtils.h"
+#include "mozilla/gfx/HelpersCairo.h"
 #include "nsCoord.h"
 #include "nsIContentAnalysis.h"
 #include "nsIWidget.h"
@@ -64,7 +64,7 @@ LazyLogModule gPrintingLog("printing");
 
 nsresult PrintTargetWindows::BeginPrinting(const nsAString& aTitle,
                                            const nsAString& aPrintToFileName,
-                                           uint64_t aBrowsingContextId,
+                                           uint64_t aInnerWindowId,
                                            int32_t aStartPage,
                                            int32_t aEndPage) {
   const uint32_t DOC_TITLE_LENGTH = MAX_PATH - 1;

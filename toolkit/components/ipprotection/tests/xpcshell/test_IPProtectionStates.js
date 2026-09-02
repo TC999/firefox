@@ -50,11 +50,10 @@ add_task(async function test_IPProtectionStates_uninitialized() {
  */
 add_task(async function test_IPProtectionStates_uninitialized() {
   let sandbox = sinon.createSandbox();
-  sandbox.stub(IPPSignInWatcher, "isSignedIn").get(() => false);
-  sandbox
-    .stub(IPPEnrollAndEntitleManager, "isLinkedToGuardian")
-    .resolves(false);
-  sandbox.stub(IPPNimbusHelper, "isEligible").get(() => false);
+  IPPDummyAuthProvider.simulateSignIn(false);
+  IPPDummyAuthProvider.setGetEntitlementResponse({});
+  let hidden = true;
+  sandbox.stub(IPPNimbusHelper, "hidesFeature").callsFake(() => hidden);
 
   await IPProtectionService.init();
 
@@ -64,7 +63,7 @@ add_task(async function test_IPProtectionStates_uninitialized() {
     "IP Protection service should be unavailable"
   );
 
-  sandbox.stub(IPPNimbusHelper, "isEligible").get(() => true);
+  hidden = false;
 
   IPProtectionService.updateState();
 
@@ -83,14 +82,10 @@ add_task(async function test_IPProtectionStates_uninitialized() {
  */
 add_task(async function test_IPProtectionStates_unauthenticated() {
   let sandbox = sinon.createSandbox();
-  sandbox.stub(IPPSignInWatcher, "isSignedIn").get(() => true);
-  sandbox
-    .stub(IPPEnrollAndEntitleManager, "isLinkedToGuardian")
-    .resolves(false);
-  sandbox
-    .stub(IPProtectionService.guardian, "enrollWithFxa")
-    .resolves({ ok: true });
-  sandbox.stub(IPPNimbusHelper, "isEligible").get(() => false);
+  IPPDummyAuthProvider.simulateSignIn(true);
+  IPPDummyAuthProvider.setGetEntitlementResponse({});
+  let hidden = true;
+  sandbox.stub(IPPNimbusHelper, "hidesFeature").callsFake(() => hidden);
 
   await IPProtectionService.init();
 
@@ -100,10 +95,10 @@ add_task(async function test_IPProtectionStates_unauthenticated() {
     "IP Protection service should be unavailable"
   );
 
-  sandbox.stub(IPPNimbusHelper, "isEligible").get(() => true);
-  sandbox
-    .stub(IPPEnrollAndEntitleManager, "isEnrolledAndEntitled")
-    .get(() => true);
+  hidden = false;
+  IPPDummyAuthProvider.setEntitlement(createTestEntitlement(), {
+    silent: true,
+  });
 
   IPProtectionService.updateState();
 
@@ -113,7 +108,7 @@ add_task(async function test_IPProtectionStates_unauthenticated() {
     "IP Protection service should no longer be unauthenticated"
   );
 
-  sandbox.stub(IPPSignInWatcher, "isSignedIn").get(() => false);
+  IPPDummyAuthProvider.simulateSignIn(false);
 
   IPProtectionService.updateState();
 
@@ -132,17 +127,11 @@ add_task(async function test_IPProtectionStates_unauthenticated() {
  */
 add_task(async function test_IPProtectionStates_enrolling() {
   let sandbox = sinon.createSandbox();
-  sandbox.stub(IPPSignInWatcher, "isSignedIn").get(() => true);
-  sandbox
-    .stub(IPPEnrollAndEntitleManager, "isLinkedToGuardian")
-    .resolves(false);
-  sandbox.stub(IPPNimbusHelper, "isEligible").get(() => true);
-  sandbox
-    .stub(IPProtectionService.guardian, "enrollWithFxa")
-    .resolves({ ok: true });
-  sandbox.stub(IPProtectionService.guardian, "fetchUserInfo").resolves({
-    status: 200,
-    error: null,
+  IPPDummyAuthProvider.simulateSignIn(true);
+  IPPDummyAuthProvider.setGetEntitlementResponse({});
+  sandbox.stub(IPPNimbusHelper, "hidesFeature").returns(false);
+  IPPDummyAuthProvider.setEnrollResponse({
+    isEnrolledAndEntitled: true,
     entitlement: createTestEntitlement(),
   });
 
@@ -154,9 +143,7 @@ add_task(async function test_IPProtectionStates_enrolling() {
     "IP Protection service should be unauthenticated"
   );
 
-  IPPEnrollAndEntitleManager.isLinkedToGuardian.resolves(true);
-
-  const enrollData = await IPPEnrollAndEntitleManager.maybeEnrollAndEntitle();
+  const enrollData = await IPPDummyAuthProvider.enroll();
   Assert.ok(enrollData.isEnrolledAndEntitled, "Fully enrolled and entitled");
 
   Assert.equal(
@@ -173,12 +160,8 @@ add_task(async function test_IPProtectionStates_enrolling() {
  * Tests the ready state.
  */
 add_task(async function test_IPProtectionStates_ready() {
-  let sandbox = sinon.createSandbox();
-  sandbox.stub(IPPSignInWatcher, "isSignedIn").get(() => true);
-  sandbox.stub(IPPEnrollAndEntitleManager, "isLinkedToGuardian").resolves(true);
-  sandbox.stub(IPProtectionService.guardian, "fetchUserInfo").resolves({
-    status: 200,
-    error: null,
+  IPPDummyAuthProvider.simulateSignIn(true);
+  IPPDummyAuthProvider.setGetEntitlementResponse({
     entitlement: createTestEntitlement(),
   });
 
@@ -190,7 +173,7 @@ add_task(async function test_IPProtectionStates_ready() {
     "IP Protection service should be ready"
   );
 
-  sandbox.stub(IPPSignInWatcher, "isSignedIn").get(() => false);
+  IPPDummyAuthProvider.simulateSignIn(false);
 
   IPProtectionService.updateState();
 
@@ -201,5 +184,4 @@ add_task(async function test_IPProtectionStates_ready() {
   );
 
   IPProtectionService.uninit();
-  sandbox.restore();
 });

@@ -3,11 +3,12 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 #include "SandboxTestingChild.h"
+
 #include "SandboxTestingChildTests.h"
 #include "SandboxTestingThread.h"
 #include "mozilla/ipc/Endpoint.h"
-#include "mozilla/ipc/UtilityProcessSandboxing.h"
 #include "mozilla/ipc/UtilityProcessChild.h"
+#include "mozilla/ipc/UtilityProcessSandboxing.h"
 
 #ifdef XP_LINUX
 #  include "mozilla/Sandbox.h"
@@ -22,7 +23,7 @@ StaticRefPtr<SandboxTestingChild> SandboxTestingChild::sInstance;
 bool SandboxTestingChild::IsTestThread() { return mThread->IsOnThread(); }
 
 void SandboxTestingChild::PostToTestThread(
-    already_AddRefed<nsIRunnable>&& runnable) {
+    already_AddRefed<nsIRunnable> runnable) {
   mThread->Dispatch(std::move(runnable));
 }
 

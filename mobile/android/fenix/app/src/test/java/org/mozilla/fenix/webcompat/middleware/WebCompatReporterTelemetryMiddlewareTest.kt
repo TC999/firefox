@@ -4,9 +4,9 @@
 
 package org.mozilla.fenix.webcompat.middleware
 
+import kotlin.test.assertNotNull
 import mozilla.components.support.test.robolectric.testContext
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Rule
 import org.junit.Test
@@ -20,8 +20,7 @@ import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
 class WebCompatReporterTelemetryMiddlewareTest {
-    @get:Rule
-    val gleanTestRule = FenixGleanTestRule(testContext)
+    @get:Rule val gleanTestRule = FenixGleanTestRule(testContext)
 
     @Test
     fun `WHEN dropdown value for reason has changed THEN record reason dropdown telemetry`() {
@@ -33,18 +32,6 @@ class WebCompatReporterTelemetryMiddlewareTest {
         assertNotNull(Webcompatreporting.reasonDropdown.testGetValue())
         val snapshot = Webcompatreporting.reasonDropdown.testGetValue()!!
         assertEquals(WebCompatReporterState.BrokenSiteReason.Media.name, snapshot)
-    }
-
-    @Test
-    fun `WHEN send more info button is clicked THEN record send more info button telemetry`() {
-        val store = createStore()
-        assertNull(Webcompatreporting.addMoreInfo.testGetValue())
-
-        store.dispatch(WebCompatReporterAction.AddMoreInfoClicked)
-
-        val snapshot = Webcompatreporting.addMoreInfo.testGetValue()!!
-        assertEquals(1, snapshot.size)
-        assertEquals("add_more_info", snapshot.single().name)
     }
 
     @Test
@@ -95,12 +82,9 @@ class WebCompatReporterTelemetryMiddlewareTest {
         assertEquals("learn_more", snapshot.single().name)
     }
 
-    private fun createStore(
-        webCompatReporterState: WebCompatReporterState = WebCompatReporterState(),
-    ) = WebCompatReporterStore(
-        initialState = webCompatReporterState,
-        middleware = listOf(
-            WebCompatReporterTelemetryMiddleware(),
-        ),
-    )
+    private fun createStore(webCompatReporterState: WebCompatReporterState = WebCompatReporterState()) =
+        WebCompatReporterStore(
+            initialState = webCompatReporterState,
+            middleware = listOf(WebCompatReporterTelemetryMiddleware()),
+        )
 }

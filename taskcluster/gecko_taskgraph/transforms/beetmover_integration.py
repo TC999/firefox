@@ -5,6 +5,7 @@
 Transform the beetmover task into an actual task description.
 """
 
+from mozilla_taskgraph.util.attributes import copy_attributes_from_dependent_job
 from taskgraph.transforms.base import TransformSequence
 from taskgraph.util.dependencies import get_primary_dependency
 from taskgraph.util.keyed_by import evaluate_keyed_by
@@ -12,7 +13,6 @@ from taskgraph.util.schema import Schema, optionally_keyed_by
 
 from gecko_taskgraph.transforms.beetmover import craft_release_properties
 from gecko_taskgraph.transforms.task import TaskDescriptionSchema
-from gecko_taskgraph.util.attributes import copy_attributes_from_dependent_job
 from gecko_taskgraph.util.scriptworker import (
     generate_beetmover_artifact_map,
     generate_beetmover_upstream_artifacts,
@@ -58,7 +58,8 @@ def make_task_description(config, tasks):
 
         treeherder = task.get("treeherder", {})
         dep_th_platform = (
-            dep_task.task.get("extra", {})
+            dep_task.task
+            .get("extra", {})
             .get("treeherder", {})
             .get("machine", {})
             .get("platform", "")
@@ -88,8 +89,13 @@ def make_task_worker(config, jobs):
     for job in jobs:
         locale = job["attributes"].get("locale")
         platform = job["attributes"]["build_platform"]
+        release_properties = craft_release_properties(config, job)
+        if platform.startswith("android"):
+            # craft_release_properties defaults to "Fennec" for android labels,
+            # but beetmoverscript's product_buckets config only has "fenix"
+            release_properties["app-name"] = "fenix"
         job["worker"] = {
-            "release-properties": craft_release_properties(config, job),
+            "release-properties": release_properties,
             "upstream-artifacts": generate_beetmover_upstream_artifacts(
                 config, job, platform, locale
             ),

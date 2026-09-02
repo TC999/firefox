@@ -38,14 +38,14 @@ class DOMSVGNumber final : public nsWrapperCache {
   template <class T>
   friend class AutoChangeNumberListNotifier;
 
-  ~DOMSVGNumber() {
-    // Our mList's weak ref to us must be nulled out when we die. If GC has
-    // unlinked us using the cycle collector code, then that has already
-    // happened, and mList is null.
-    if (mList) {
-      mList->mItems[mListIndex] = nullptr;
-    }
-  }
+  ~DOMSVGNumber() { CleanupWeakRefs(); }
+
+  /**
+   * Clears soon-to-be-invalid weak references in external objects that were
+   * set up during the creation of this object. This should be called during
+   * destruction and during cycle collection.
+   */
+  void CleanupWeakRefs();
 
  public:
   NS_INLINE_DECL_CYCLE_COLLECTING_NATIVE_REFCOUNTING(DOMSVGNumber)
@@ -68,12 +68,12 @@ class DOMSVGNumber final : public nsWrapperCache {
 
  public:
   /**
-   * Create an unowned copy. The caller is responsible for the first AddRef().
+   * Create an unowned copy.
    */
-  DOMSVGNumber* Clone() {
-    DOMSVGNumber* clone = new DOMSVGNumber(mParent);
+  already_AddRefed<DOMSVGNumber> Clone() {
+    RefPtr clone = new DOMSVGNumber(mParent);
     clone->mValue = ToSVGNumber();
-    return clone;
+    return clone.forget();
   }
 
   bool IsInList() const { return !!mList; }

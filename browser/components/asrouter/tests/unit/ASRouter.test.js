@@ -50,6 +50,8 @@ describe("ASRouter", () => {
   let fakeTargetingContext;
   let FakeToolbarBadgeHub;
   let FakeMomentsPageHub;
+  let FakeSpecialMessageActions;
+  let FakeMessagingSystemAllowlists;
   let ASRouterTargeting;
   let gBrowser;
   let screenImpressions;
@@ -102,6 +104,7 @@ describe("ASRouter", () => {
       updateAdminState: sandbox.stub().resolves(),
       dispatchCFRAction: sandbox.stub().resolves(),
     };
+    MessageLoaderUtils._recordedReachIds = new Set();
     sandbox.stub(router, "loadMessagesFromAllProviders").callThrough();
     return router.init(initParams);
   }
@@ -127,6 +130,12 @@ describe("ASRouter", () => {
     ASRouterTargeting = {
       isMatch: sandbox.stub(),
       findMatchingMessage: sandbox.stub(),
+      getMessageTriggers: message => {
+        if (Array.isArray(message.triggers)) {
+          return message.triggers;
+        }
+        return message.trigger ? [message.trigger] : [];
+      },
       Environment: {
         locale: "en-US",
         localeLanguageCode: "en",
@@ -185,7 +194,6 @@ describe("ASRouter", () => {
         platformName: "macosx",
         scores: {},
         scoreThreshold: 5000,
-        isChinaRepack: false,
         userId: "adsf",
         currentProfileId: "1",
         canCreateSelectableProfiles: false,
@@ -195,7 +203,7 @@ describe("ASRouter", () => {
     gBrowser = {
       selectedBrowser: {
         constructor: { name: "MozBrowser" },
-        get ownerGlobal() {
+        get documentGlobal() {
           return { gBrowser };
         },
       },
@@ -253,12 +261,16 @@ describe("ASRouter", () => {
       "fxms-message-15",
     ].reduce((features, featureId) => {
       features[featureId] = {
-        getEnrollmentMetadata: sandbox.stub().returns({
-          slug: "experiment-slug",
-          branch: "experiment-branch-slug",
-          isRollout: false,
-        }),
-        getAllVariables: sandbox.stub().returns(undefined),
+        getAllEnrollments: sandbox.stub().returns([
+          {
+            meta: {
+              slug: "experiment-slug",
+              branch: "experiment-branch-slug",
+              isRollout: false,
+            },
+            value: undefined,
+          },
+        ]),
         recordExposureEvent: sandbox.stub(),
       };
       return features;
@@ -290,9 +302,13 @@ describe("ASRouter", () => {
         getAllBranches: sandbox.stub().resolves([]),
         ready: sandbox.stub().resolves(),
       },
-      SpecialMessageActions: {
+      SpecialMessageActions: (FakeSpecialMessageActions = {
         handleAction: sandbox.stub(),
-      },
+      }),
+      MessagingSystemAllowlists: (FakeMessagingSystemAllowlists = {
+        ensureInit: sandbox.stub().resolves(),
+        getActionOnlyActions: sandbox.stub().returns([]),
+      }),
       TargetingContext: class {
         static combineContexts(...args) {
           return fakeTargetingContext.combineContexts.apply(sandbox, args);
@@ -884,6 +900,255 @@ describe("ASRouter", () => {
       assert.notCalled(FakeToolbarBadgeHub.registerBadgeNotificationListener);
       assert.notCalled(FakeMomentsPageHub.executeAction);
     });
+    describe("action template", () => {
+      let addImpressionStub;
+      let blockMessageByIdStub;
+      const allowedMessage = {
+        id: "TEST_ACTION",
+        template: "action_only",
+        content: { action: { type: "CONFIRM_LAUNCH_ON_LOGIN" } },
+      };
+      beforeEach(() => {
+        addImpressionStub = sandbox.stub(Router, "addImpression");
+        blockMessageByIdStub = sandbox.stub(Router, "blockMessageById");
+      });
+      it("calls handleAction and records an impression without blocking for an allowed action", async () => {
+        Router.routeCFRMessage(allowedMessage, browser, {});
+        await Promise.resolve(); // let dispatchCFRAction's async wrapper resolve
+
+        assert.calledOnceWithExactly(
+          FakeSpecialMessageActions.handleAction,
+          allowedMessage.content.action,
+          browser
+        );
+        assert.calledWithMatch(initParams.dispatchCFRAction, {
+          type: "ACTION_ONLY_TELEMETRY",
+          data: {
+            action: "action_only_user_event",
+            message_id: allowedMessage.id,
+            event: "IMPRESSION",
+          },
+        });
+        assert.calledWithMatch(initParams.dispatchCFRAction, {
+          type: "IMPRESSION",
+          data: allowedMessage,
+        });
+        assert.notCalled(addImpressionStub);
+        assert.notCalled(blockMessageByIdStub);
+      });
+      it("allowlists the SET_DEFAULT_BROWSER_OPEN_WITH action", () => {
+        assert.isTrue(
+          Router._isAllowedActionOnlyMessageAction({
+            type: "SET_DEFAULT_BROWSER_OPEN_WITH",
+          }),
+          "SET_DEFAULT_BROWSER_OPEN_WITH is an allowed action-only action"
+        );
+      });
+      it("does nothing for a non-allowlisted action", () => {
+        const badMessage = {
+          id: "BAD",
+          template: "action_only",
+          content: { action: { type: "OPEN_URL" } },
+        };
+        Router.routeCFRMessage(badMessage, browser, {});
+
+        assert.notCalled(FakeSpecialMessageActions.handleAction);
+        assert.notCalled(addImpressionStub);
+        assert.notCalled(blockMessageByIdStub);
+      });
+      it("allows MULTI_ACTION when every nested action is allowlisted", async () => {
+        const multiMessage = {
+          id: "MULTI",
+          template: "action_only",
+          content: {
+            action: {
+              type: "MULTI_ACTION",
+              data: {
+                actions: [
+                  { type: "CONFIRM_LAUNCH_ON_LOGIN" },
+                  { type: "PIN_FIREFOX_TO_TASKBAR" },
+                ],
+              },
+            },
+          },
+        };
+        Router.routeCFRMessage(multiMessage, browser, {});
+        await Promise.resolve(); // let dispatchCFRAction's async wrapper resolve
+
+        assert.calledOnce(FakeSpecialMessageActions.handleAction);
+        assert.calledWithMatch(initParams.dispatchCFRAction, {
+          type: "IMPRESSION",
+          data: multiMessage,
+        });
+        assert.notCalled(addImpressionStub);
+      });
+      it("rejects MULTI_ACTION when any nested action is not allowlisted", () => {
+        const badMulti = {
+          id: "BAD_MULTI",
+          template: "action_only",
+          content: {
+            action: {
+              type: "MULTI_ACTION",
+              data: {
+                actions: [
+                  { type: "CONFIRM_LAUNCH_ON_LOGIN" },
+                  { type: "OPEN_URL" },
+                ],
+              },
+            },
+          },
+        };
+        Router.routeCFRMessage(badMulti, browser, {});
+
+        assert.notCalled(FakeSpecialMessageActions.handleAction);
+        assert.notCalled(addImpressionStub);
+      });
+      it("rejects a nested MULTI_ACTION even if MULTI_ACTION is allowlisted", () => {
+        // MULTI_ACTION is not blocklisted, so Remote Settings can grant it. It
+        // is still only valid as the top level action.
+        FakeMessagingSystemAllowlists.getActionOnlyActions.returns([
+          "MULTI_ACTION",
+        ]);
+        const nestedMulti = {
+          id: "NESTED_MULTI",
+          template: "action_only",
+          content: {
+            action: {
+              type: "MULTI_ACTION",
+              data: {
+                actions: [
+                  {
+                    type: "MULTI_ACTION",
+                    data: { actions: [{ type: "OPEN_URL" }] },
+                  },
+                ],
+              },
+            },
+          },
+        };
+        Router.routeCFRMessage(nestedMulti, browser, {});
+
+        assert.notCalled(FakeSpecialMessageActions.handleAction);
+        assert.notCalled(addImpressionStub);
+      });
+      it("rejects a MULTI_ACTION with no nested actions", () => {
+        const emptyMulti = {
+          id: "EMPTY_MULTI",
+          template: "action_only",
+          content: {
+            action: { type: "MULTI_ACTION", data: { actions: [] } },
+          },
+        };
+        Router.routeCFRMessage(emptyMulti, browser, {});
+
+        assert.notCalled(FakeSpecialMessageActions.handleAction);
+        assert.notCalled(addImpressionStub);
+      });
+      it("does nothing when the message has no action", () => {
+        const noAction = {
+          id: "NO_ACTION",
+          template: "action_only",
+          content: {},
+        };
+        Router.routeCFRMessage(noAction, browser, {});
+
+        assert.notCalled(FakeSpecialMessageActions.handleAction);
+        assert.notCalled(addImpressionStub);
+        assert.notCalled(blockMessageByIdStub);
+      });
+      it("allows an action supplied only by the Remote Settings allowlist", async () => {
+        FakeMessagingSystemAllowlists.getActionOnlyActions.returns([
+          "FOO_ACTION",
+        ]);
+        const rsMessage = {
+          id: "RS_ACTION",
+          template: "action_only",
+          content: { action: { type: "FOO_ACTION" } },
+        };
+        Router.routeCFRMessage(rsMessage, browser, {});
+        await Promise.resolve(); // let dispatchCFRAction's async wrapper resolve
+
+        assert.calledOnceWithExactly(
+          FakeSpecialMessageActions.handleAction,
+          rsMessage.content.action,
+          browser
+        );
+        assert.notCalled(addImpressionStub);
+        assert.calledWithMatch(initParams.dispatchCFRAction, {
+          type: "IMPRESSION",
+          data: rsMessage,
+        });
+      });
+      it("rejects an action absent from both baseline and Remote Settings", () => {
+        FakeMessagingSystemAllowlists.getActionOnlyActions.returns([
+          "FOO_ACTION",
+        ]);
+        const badMessage = {
+          id: "BAR",
+          template: "action_only",
+          content: { action: { type: "BAR_ACTION" } },
+        };
+        Router.routeCFRMessage(badMessage, browser, {});
+
+        assert.notCalled(FakeSpecialMessageActions.handleAction);
+        assert.notCalled(addImpressionStub);
+      });
+      it("allows MULTI_ACTION mixing baseline and Remote Settings actions", async () => {
+        FakeMessagingSystemAllowlists.getActionOnlyActions.returns([
+          "FOO_ACTION",
+        ]);
+        const multiMessage = {
+          id: "MIXED_MULTI",
+          template: "action_only",
+          content: {
+            action: {
+              type: "MULTI_ACTION",
+              data: {
+                actions: [
+                  { type: "CONFIRM_LAUNCH_ON_LOGIN" },
+                  { type: "FOO_ACTION" },
+                ],
+              },
+            },
+          },
+        };
+        Router.routeCFRMessage(multiMessage, browser, {});
+        await Promise.resolve(); // let dispatchCFRAction's async wrapper resolve
+
+        assert.calledOnceWithExactly(
+          FakeSpecialMessageActions.handleAction,
+          multiMessage.content.action,
+          browser
+        );
+        assert.notCalled(addImpressionStub);
+        assert.calledWithMatch(initParams.dispatchCFRAction, {
+          type: "IMPRESSION",
+          data: multiMessage,
+        });
+      });
+    });
+    it("should tag the message with panel_local_testing when force is true", () => {
+      const msg = {
+        template: "feature_callout",
+        provider: "cfr",
+        targeting: "true",
+      };
+      const { message } = Router.routeCFRMessage(msg, browser, {}, true);
+      assert.equal(message.provider, "panel_local_testing");
+      assert.include(
+        message.targeting,
+        'providerCohorts.panel_local_testing == "SHOW_TEST"'
+      );
+    });
+    it("should not modify the message provider when force is false", () => {
+      const msg = {
+        template: "feature_callout",
+        provider: "cfr",
+        targeting: "true",
+      };
+      const { message } = Router.routeCFRMessage(msg, browser, {}, false);
+      assert.equal(message.provider, "cfr");
+    });
   });
 
   describe("#loadMessagesFromAllProviders", () => {
@@ -1007,6 +1272,44 @@ describe("ASRouter", () => {
       );
       assert.calledWithExactly(
         ASRouterTriggerListeners.get("openURL").init,
+        Router._triggerHandler,
+        ["www.example.com"],
+        undefined, // patterns
+        undefined // regexPatterns
+      );
+    });
+    it("should register a listener for each trigger of a multi-trigger message", async () => {
+      sandbox.spy(ASRouterTriggerListeners.get("openURL"), "init");
+      sandbox.spy(ASRouterTriggerListeners.get("frequentVisits"), "init");
+
+      await createRouterAndInit([
+        {
+          id: "foo",
+          type: "local",
+          enabled: true,
+          messages: [
+            {
+              id: "multi",
+              template: "simple_template",
+              triggers: [
+                { id: "openURL", params: ["www.mozilla.org"] },
+                { id: "frequentVisits", params: ["www.example.com"] },
+              ],
+              content: { title: "Multi", body: "Multi123" },
+            },
+          ],
+        },
+      ]);
+
+      assert.calledWithExactly(
+        ASRouterTriggerListeners.get("openURL").init,
+        Router._triggerHandler,
+        ["www.mozilla.org"],
+        undefined, // patterns
+        undefined // regexPatterns
+      );
+      assert.calledWithExactly(
+        ASRouterTriggerListeners.get("frequentVisits").init,
         Router._triggerHandler,
         ["www.example.com"],
         undefined, // patterns
@@ -1406,6 +1709,45 @@ describe("ASRouter", () => {
 
       assert.deepEqual(result, message1);
     });
+    it("should match a message with multiple triggers against any of its trigger ids", async () => {
+      const message = {
+        id: "MULTI",
+        campaign: "foocampaign",
+        triggers: [{ id: "foo" }, { id: "bar" }],
+        groups: ["cfr"],
+        provider: "cfr",
+      };
+      await Router.setState({ messages: [message] });
+      ASRouterTargeting.findMatchingMessage.callsFake(
+        ({ messages }) => messages[0] || null
+      );
+
+      assert.deepEqual(
+        await Router.handleMessageRequest({ triggerId: "foo" }),
+        message
+      );
+      assert.deepEqual(
+        await Router.handleMessageRequest({ triggerId: "bar" }),
+        message
+      );
+    });
+    it("should filter out a multi-trigger message when no trigger id matches", async () => {
+      const message = {
+        id: "MULTI",
+        campaign: "foocampaign",
+        triggers: [{ id: "foo" }, { id: "bar" }],
+        groups: ["cfr"],
+        provider: "cfr",
+      };
+      await Router.setState({ messages: [message] });
+      ASRouterTargeting.findMatchingMessage.callsFake(
+        ({ messages }) => messages[0] || null
+      );
+
+      const result = await Router.handleMessageRequest({ triggerId: "baz" });
+
+      assert.isNull(result);
+    });
     it("should have messageImpressions in the message context", () => {
       assert.propertyVal(
         Router._getMessagesContext(),
@@ -1624,6 +1966,97 @@ describe("ASRouter", () => {
 
       assert.isFalse(Router.isUnblockedMessage(msg));
     });
+    it("should not exclude a message with no provider", async () => {
+      const msg = { id: "msg1", groups: [] };
+      await Router.setState({ messages: [msg], providers: [] });
+      assert.isTrue(Router.isUnblockedMessage(msg));
+    });
+  });
+
+  describe("#hasMessageForTrigger", () => {
+    const provider = { id: "unit-test" };
+
+    it("should return true for a loaded message that matches the trigger, is unblocked, and is below its frequency cap", async () => {
+      const msg = {
+        id: "msg1",
+        groups: [],
+        provider: "unit-test",
+        trigger: { id: "lastWindowClose" },
+      };
+      await Router.setState({ messages: [msg], providers: [provider] });
+
+      assert.isTrue(Router.hasMessageForTrigger("lastWindowClose"));
+    });
+
+    it("should return false if no loaded message has a matching trigger", async () => {
+      const msg = {
+        id: "msg1",
+        groups: [],
+        provider: "unit-test",
+        trigger: { id: "openURL" },
+      };
+      await Router.setState({ messages: [msg], providers: [provider] });
+
+      assert.isFalse(Router.hasMessageForTrigger("lastWindowClose"));
+    });
+
+    it("should return false if the only matching message is blocked by its group", async () => {
+      const msg = {
+        id: "msg1",
+        groups: ["foo"],
+        provider: "unit-test",
+        trigger: { id: "lastWindowClose" },
+      };
+      await Router.setState({
+        messages: [msg],
+        providers: [provider],
+        groups: [{ id: "foo", enabled: false }],
+      });
+
+      assert.isFalse(Router.hasMessageForTrigger("lastWindowClose"));
+    });
+
+    it("should return false if the only matching message is over its frequency cap", async () => {
+      const msg = {
+        id: "msg1",
+        groups: [],
+        provider: "unit-test",
+        trigger: { id: "lastWindowClose" },
+        frequency: { lifetime: 1 },
+      };
+      await Router.setState(state => ({
+        messages: [msg],
+        providers: [provider],
+        messageImpressions: {
+          ...state.messageImpressions,
+          msg1: [0],
+        },
+      }));
+
+      assert.isFalse(Router.hasMessageForTrigger("lastWindowClose"));
+    });
+
+    it("should return true if at least one matching message is eligible, even if another matching one is blocked", async () => {
+      const blockedMsg = {
+        id: "blocked",
+        groups: ["foo"],
+        provider: "unit-test",
+        trigger: { id: "lastWindowClose" },
+      };
+      const eligibleMsg = {
+        id: "eligible",
+        groups: [],
+        provider: "unit-test",
+        trigger: { id: "lastWindowClose" },
+      };
+      await Router.setState({
+        messages: [blockedMsg, eligibleMsg],
+        providers: [provider],
+        groups: [{ id: "foo", enabled: false }],
+      });
+
+      assert.isTrue(Router.hasMessageForTrigger("lastWindowClose"));
+    });
   });
 
   describe("#blockMessageById", () => {
@@ -1730,18 +2163,20 @@ describe("ASRouter", () => {
     beforeEach(() => {
       let getAllBranchesStub = sandbox.stub();
       featureIds.forEach(feature => {
-        global.NimbusFeatures[feature].getAllVariables.returns({
-          id: `message-${feature}`,
-        });
-        global.NimbusFeatures[feature].getEnrollmentMetadata.returns({
-          slug: `slug-${feature}`,
-          branch: `branch-${feature}`,
-          isRollout: false,
-        });
+        global.NimbusFeatures[feature].getAllEnrollments.returns([
+          {
+            meta: {
+              slug: `slug-${feature}`,
+              branch: `branch-${feature}`,
+              isRollout: false,
+            },
+            value: { id: `message-${feature}`, recordReach: true },
+          },
+        ]);
         getAllBranchesStub.withArgs(`slug-${feature}`).resolves([
           {
             slug: `other-branch-${feature}`,
-            [feature]: { value: { trigger: "unit-test" } },
+            [feature]: { value: { trigger: "unit-test", recordReach: true } },
           },
         ]);
       });
@@ -1753,7 +2188,7 @@ describe("ASRouter", () => {
     afterEach(() => {
       sandbox.restore();
     });
-    it("should tag `forReachEvent` for all the expected message types", async () => {
+    it("should tag `_reachId` for all the expected message types", async () => {
       // This should match the `providers.messaging-experiments`
       let response = await MessageLoaderUtils.loadMessagesForProvider({
         type: "remote-experiments",
@@ -1764,7 +2199,7 @@ describe("ASRouter", () => {
       assert.property(response, "messages");
       assert.lengthOf(response.messages, featureIds.length * 2);
       assert.lengthOf(
-        response.messages.filter(m => m.forReachEvent),
+        response.messages.filter(m => m._reachId),
         featureIds.length
       );
     });
@@ -1832,9 +2267,9 @@ describe("ASRouter", () => {
         id: "firstRun",
       });
 
-      assert.calledTwice(start);
+      assert.calledOnce(start);
       assert.calledWithExactly(start);
-      assert.calledTwice(stopAndAccumulate);
+      assert.calledOnce(stopAndAccumulate);
       assert.calledWithExactly(stopAndAccumulate, fakeTimerId);
     });
     it("should have previousSessionEnd in the message context", () => {
@@ -1848,9 +2283,11 @@ describe("ASRouter", () => {
       let messages = [
         {
           id: "foo1",
-          forReachEvent: { sent: false, group: "cfr" },
-          experimentSlug: "exp01",
-          branchSlug: "branch01",
+          recordReach: true,
+          _reachId: "foo1",
+          _nimbusFeature: "cfr",
+          _nimbusSlug: "exp01",
+          _branchSlug: "branch01",
           template: "simple_template",
           trigger: { id: "foo" },
           content: { title: "Foo1", body: "Foo123-1" },
@@ -1864,9 +2301,11 @@ describe("ASRouter", () => {
         },
         {
           id: "foo3",
-          forReachEvent: { sent: false, group: "cfr" },
-          experimentSlug: "exp02",
-          branchSlug: "branch02",
+          recordReach: true,
+          _reachId: "foo3",
+          _nimbusFeature: "cfr",
+          _nimbusSlug: "exp02",
+          _branchSlug: "branch02",
           template: "simple_template",
           trigger: { id: "foo" },
           content: { title: "Foo1", body: "Foo123-1" },
@@ -1886,14 +2325,17 @@ describe("ASRouter", () => {
       let messages = [
         {
           id: "foo1",
-          forReachEvent: { sent: true, group: "cfr" },
-          experimentSlug: "exp01",
-          branchSlug: "branch01",
+          recordReach: true,
+          _reachId: "foo1",
+          _nimbusFeature: "cfr",
+          _nimbusSlug: "exp01",
+          _branchSlug: "branch01",
           template: "simple_template",
           trigger: { id: "foo" },
           content: { title: "Foo1", body: "Foo123-1" },
         },
       ];
+      MessageLoaderUtils._recordedReachIds.add("foo1");
       sandbox.stub(Router, "handleMessageRequest").resolves(messages);
       sandbox.spy(Glean.messagingExperiments.reachCfr, "record");
 
@@ -1944,21 +2386,19 @@ describe("ASRouter", () => {
     it("should send Exposure and route messages if recording reach fails", async () => {
       const template = "feature_callout";
       const featureId = "fxms-message-15";
-      const featureIdReachGroup = "FxmsMessage15";
+      const invalidFeatureIdForReach = "FxmsMessage15";
       let messages = [
         {
-          _nimbusFeature: [featureId], // from _experimentsAPILoader
-          forReachEvent: {
-            sent: false,
-            group: featureIdReachGroup,
-          },
+          _nimbusFeature: invalidFeatureIdForReach,
+          recordReach: true,
+          _reachId: "foo1",
           id: "foo1",
           template,
           trigger: { id: "fakeTrigger" },
           content: { title: "Foo1", body: "Foo123-1" },
         },
         {
-          _nimbusFeature: [featureId], // from _experimentsAPILoader
+          _nimbusFeature: featureId,
           id: "foo2",
           template,
           trigger: { id: "fakeTrigger" },
@@ -1969,17 +2409,14 @@ describe("ASRouter", () => {
       sandbox.spy(Router, "routeCFRMessage");
       sandbox
         .stub(
-          Glean.messagingExperiments[`reach${featureIdReachGroup}`],
+          Glean.messagingExperiments[`reach${invalidFeatureIdForReach}`],
           "record"
         )
         .throws(new Error("stuff"));
       assert.notCalled(global.NimbusFeatures[featureId].recordExposureEvent);
 
       await Router.sendTriggerMessage(
-        {
-          browser: {},
-          id: "foo",
-        },
+        { browser: {}, id: "fakeTrigger" },
         true // skipMessagesLoaded to avoid irrelevant calls spy/stub calls
       );
 
@@ -2435,15 +2872,6 @@ describe("ASRouter", () => {
   });
 
   describe("#_onLocaleChanged", () => {
-    it("should call _maybeUpdateL10nAttachment in the handler", async () => {
-      sandbox.spy(Router, "_maybeUpdateL10nAttachment");
-      await Router._onLocaleChanged();
-
-      assert.calledOnce(Router._maybeUpdateL10nAttachment);
-    });
-  });
-
-  describe("#_maybeUpdateL10nAttachment", () => {
     it("should update the l10n attachment if the locale was changed", async () => {
       const getter = sandbox.stub();
       getter.onFirstCall().returns("en-US");
@@ -2459,7 +2887,7 @@ describe("ASRouter", () => {
       sandbox.spy(Router, "setState");
       Router.loadMessagesFromAllProviders.resetHistory();
 
-      await Router._maybeUpdateL10nAttachment();
+      await Router._onLocaleChanged();
 
       assert.calledWith(Router.setState, {
         localeInUse: "fr",
@@ -2490,7 +2918,7 @@ describe("ASRouter", () => {
       Router.loadMessagesFromAllProviders.resetHistory();
       sandbox.spy(Router, "setState");
 
-      await Router._maybeUpdateL10nAttachment();
+      await Router._onLocaleChanged();
 
       assert.notCalled(Router.setState);
       assert.notCalled(Router.loadMessagesFromAllProviders);
@@ -2667,8 +3095,7 @@ describe("ASRouter", () => {
 
       await MessageLoaderUtils.loadMessagesForProvider(args);
 
-      assert.calledOnce(global.NimbusFeatures.spotlight.getEnrollmentMetadata);
-      assert.calledOnce(global.NimbusFeatures.spotlight.getAllVariables);
+      assert.calledOnce(global.NimbusFeatures.spotlight.getAllEnrollments);
     });
     it("should handle the case of no experiments in the ExperimentAPI", async () => {
       const args = {
@@ -2696,14 +3123,16 @@ describe("ASRouter", () => {
         },
       };
 
-      global.NimbusFeatures.infobar.getAllVariables.returns(
-        enrollment.branch.infobar.value
-      );
-      global.NimbusFeatures.infobar.getEnrollmentMetadata.returns({
-        slug: enrollment.slug,
-        branch: enrollment.branch.slug,
-        isRollout: false,
-      });
+      global.NimbusFeatures.infobar.getAllEnrollments.returns([
+        {
+          meta: {
+            slug: enrollment.slug,
+            branch: enrollment.branch.slug,
+            isRollout: false,
+          },
+          value: enrollment.branch.infobar.value,
+        },
+      ]);
       global.ExperimentAPI.getAllBranches.returns([
         enrollment.branch,
         {
@@ -2719,19 +3148,7 @@ describe("ASRouter", () => {
 
       assert.lengthOf(result.messages, 1);
     });
-    it("should skip disabled features and not load the messages", async () => {
-      const args = {
-        type: "remote-experiments",
-        featureIds: ["cfr"],
-      };
-
-      global.NimbusFeatures.cfr.getAllVariables.returns(null);
-
-      const result = await MessageLoaderUtils.loadMessagesForProvider(args);
-
-      assert.lengthOf(result.messages, 0);
-    });
-    it("should fetch branches with trigger", async () => {
+    it("should load branches for reach", async () => {
       const args = {
         type: "remote-experiments",
         featureIds: ["cfr"],
@@ -2747,29 +3164,43 @@ describe("ASRouter", () => {
         },
       };
 
-      global.NimbusFeatures.cfr.getAllVariables.returns(
-        enrollment.branch.cfr.value
-      );
-      global.NimbusFeatures.cfr.getEnrollmentMetadata.returns({
-        slug: enrollment.slug,
-        branch: enrollment.branch.slug,
-        isRollout: false,
-      });
+      global.NimbusFeatures.cfr.getAllEnrollments.returns([
+        {
+          meta: {
+            slug: enrollment.slug,
+            branch: enrollment.branch.slug,
+            isRollout: false,
+          },
+          value: enrollment.branch.cfr.value,
+        },
+      ]);
       global.ExperimentAPI.getAllBranches.resolves([
         enrollment.branch,
         {
           slug: "branch02",
           cfr: {
             featureId: "cfr",
-            value: { id: "id02", trigger: { id: "openURL" } },
+            value: {
+              id: "id02",
+              trigger: { id: "openURL" },
+              recordReach: true,
+            },
           },
         },
         {
-          // This branch should not be loaded as it doesn't have the trigger
+          // This branch should not be loaded as it doesn't have a trigger
           slug: "branch03",
           cfr: {
             featureId: "cfr",
-            value: { id: "id03" },
+            value: { id: "id03", recordReach: true },
+          },
+        },
+        {
+          // This branch should not be loaded as it doesn't have recordReach
+          slug: "branch03",
+          cfr: {
+            featureId: "cfr",
+            value: { id: "id04" },
           },
         },
       ]);
@@ -2779,68 +3210,9 @@ describe("ASRouter", () => {
       assert.equal(result.messages.length, 2);
       assert.equal(result.messages[0].id, "id01");
       assert.equal(result.messages[1].id, "id02");
-      assert.equal(result.messages[1].experimentSlug, "exp01");
-      assert.equal(result.messages[1].branchSlug, "branch02");
-      assert.deepEqual(result.messages[1].forReachEvent, {
-        sent: false,
-        group: "cfr",
-      });
-    });
-    it("should fetch branches with trigger even if enrolled branch is disabled", async () => {
-      const args = {
-        type: "remote-experiments",
-        featureIds: ["cfr"],
-      };
-      const enrollment = {
-        slug: "exp01",
-        branch: {
-          slug: "branch01",
-          cfr: {
-            featureId: "cfr",
-            value: {},
-          },
-        },
-      };
-
-      // Needs to match the `featureIds` value to return an enrollment
-      // for that feature
-      global.NimbusFeatures.cfr.getAllVariables.returns(
-        enrollment.branch.cfr.value
-      );
-      global.NimbusFeatures.cfr.getEnrollmentMetadata.returns({
-        slug: enrollment.slug,
-        branch: enrollment.branch.slug,
-        isRollout: false,
-      });
-      global.ExperimentAPI.getAllBranches.resolves([
-        enrollment.branch,
-        {
-          slug: "branch02",
-          cfr: {
-            featureId: "cfr",
-            value: { id: "id02", trigger: { id: "openURL" } },
-          },
-        },
-        {
-          // This branch should not be loaded as it doesn't have the trigger
-          slug: "branch03",
-          cfr: {
-            featureId: "cfr",
-            value: { id: "id03" },
-          },
-        },
-      ]);
-
-      const result = await MessageLoaderUtils.loadMessagesForProvider(args);
-
-      assert.equal(result.messages.length, 1);
-      assert.equal(result.messages[0].id, "id02");
-      assert.equal(result.messages[0].experimentSlug, "exp01");
-      assert.equal(result.messages[0].branchSlug, "branch02");
-      assert.deepEqual(result.messages[0].forReachEvent, {
-        sent: false,
-        group: "cfr",
-      });
+      assert.equal(result.messages[1]._nimbusSlug, "exp01");
+      assert.equal(result.messages[1]._branchSlug, "branch02");
+      assert.equal(result.messages[1]._nimbusFeature, "cfr");
     });
   });
   describe("#_remoteSettingsLoader", () => {
@@ -3025,6 +3397,56 @@ describe("ASRouter", () => {
         2: [],
         3: [0, 1, 2],
       });
+    });
+    it("should update multiprofile message impressions in shared storage", async () => {
+      sandbox.stub(ASRouterPreferences, "devtoolsEnabled").get(() => true);
+      await Router.setState({
+        multiProfileMessageImpressions: { 1: [0, 1, 2], 2: [0, 1, 2] },
+      });
+
+      await Router.editState("multiProfileMessageImpressions", {
+        1: [3, 4],
+        3: [0, 1, 2],
+      });
+
+      // State reflects the edited value
+      assert.deepEqual(Router.state.multiProfileMessageImpressions, {
+        1: [3, 4],
+        3: [0, 1, 2],
+      });
+      // Added/changed entries are persisted to shared storage
+      assert.calledWithExactly(
+        Router._storage.setSharedMessageImpressions,
+        "1",
+        [3, 4]
+      );
+      assert.calledWithExactly(
+        Router._storage.setSharedMessageImpressions,
+        "3",
+        [0, 1, 2]
+      );
+      // Removed entry is deleted from shared storage
+      assert.calledWithExactly(
+        Router._storage.setSharedMessageImpressions,
+        "2",
+        undefined
+      );
+      // Regular storage is not used for multiprofile impressions
+      assert.neverCalledWith(
+        Router._storage.set,
+        "multiProfileMessageImpressions"
+      );
+    });
+    it("should throw for invalid state key", async () => {
+      sandbox.stub(ASRouterPreferences, "devtoolsEnabled").get(() => true);
+      let error;
+      try {
+        await Router.editState("notARealKey", {});
+      } catch (e) {
+        error = e;
+      }
+      assert.instanceOf(error, Error);
+      assert.equal(error.message, "Invalid state key");
     });
   });
 

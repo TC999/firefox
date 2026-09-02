@@ -1,4 +1,3 @@
-/* vim: set ts=2 sw=2 sts=2 et tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -6,7 +5,7 @@
 import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
 import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
 import { PrivateBrowsingUtils } from "resource://gre/modules/PrivateBrowsingUtils.sys.mjs";
-import { RemotePageChild } from "resource://gre/actors/RemotePageChild.sys.mjs";
+import { RemotePageChild } from "moz-src:///toolkit/actors/RemotePageChild.sys.mjs";
 
 const lazy = {};
 
@@ -18,14 +17,6 @@ XPCOMUtils.defineLazyPreferenceGetter(
   lazy,
   "ACTIVITY_STREAM_DEBUG",
   "browser.newtabpage.activity-stream.debug",
-  false
-);
-
-// @nova-cleanup(remove-pref): Remove NOVA_ENABLED pref getter
-XPCOMUtils.defineLazyPreferenceGetter(
-  lazy,
-  "NOVA_ENABLED",
-  "browser.newtabpage.activity-stream.nova.enabled",
   false
 );
 
@@ -108,21 +99,6 @@ export class AboutNewTabChild extends RemotePageChild {
         return;
       }
 
-      // @nova-cleanup(remove-conditional): Remove Nova CSS swapping logic
-      if (lazy.NOVA_ENABLED) {
-        const doc = this.contentWindow.document;
-        const styleLinks = doc.querySelectorAll('link[rel="stylesheet"]');
-        for (const link of styleLinks) {
-          if (link.href.includes("activity-stream.css")) {
-            link.href = link.href.replace(
-              "activity-stream.css",
-              "nova/activity-stream.css"
-            );
-            break;
-          }
-        }
-      }
-
       if (!lazy.NEWTAB_SELF_LOADING) {
         const debug =
           !AppConstants.RELEASE_OR_BETA && lazy.ACTIVITY_STREAM_DEBUG;
@@ -181,5 +157,21 @@ export class AboutNewTabChild extends RemotePageChild {
         }
       }
     }
+  }
+
+  observe(subject, topic) {
+    if (topic !== "intl:l10n-sources-changed") {
+      return;
+    }
+    // Bug 2046945 - this is a bit of a targeted, low-risk kludge fix which lets
+    // us notice when L10nRegistry sources have changed, and perform a
+    // retranslation of newtab when that occurs. This lets us avoid issues where
+    // the newtab XPI may have registered new sources, but the page has already
+    // finished being translated with the built-in version of newtab.ftl.
+    const doc = this.document;
+    if (!doc?.l10n) {
+      return;
+    }
+    doc.l10n.translateRoots();
   }
 }

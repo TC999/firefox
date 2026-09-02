@@ -7,10 +7,7 @@
  * global actions for a query.
  */
 
-import {
-  UrlbarProvider,
-  UrlbarUtils,
-} from "moz-src:///browser/components/urlbar/UrlbarUtils.sys.mjs";
+import { UrlbarProvider } from "moz-src:///browser/components/urlbar/UrlbarUtils.sys.mjs";
 
 const lazy = {};
 
@@ -33,7 +30,8 @@ const TIMES_SHOWN_PREF = "quickactions.timesShownOnboardingLabel";
 
 ChromeUtils.defineESModuleGetters(lazy, {
   UrlbarPrefs: "moz-src:///browser/components/urlbar/UrlbarPrefs.sys.mjs",
-  UrlbarResult: "moz-src:///browser/components/urlbar/UrlbarResult.sys.mjs",
+  UrlbarResult: "chrome://browser/content/urlbar/UrlbarResult.mjs",
+  UrlbarShared: "chrome://browser/content/urlbar/UrlbarShared.mjs",
 });
 
 import { ActionsProviderQuickActions } from "moz-src:///browser/components/urlbar/ActionsProviderQuickActions.sys.mjs";
@@ -51,10 +49,10 @@ let globalActionsProviders = [
  */
 export class UrlbarProviderGlobalActions extends UrlbarProvider {
   /**
-   * @returns {Values<typeof UrlbarUtils.PROVIDER_TYPE>}
+   * @returns {Values<typeof lazy.UrlbarShared.PROVIDER_TYPE>}
    */
   get type() {
-    return UrlbarUtils.PROVIDER_TYPE.PROFILE;
+    return lazy.UrlbarShared.PROVIDER_TYPE.PROFILE;
   }
 
   /**
@@ -85,10 +83,9 @@ export class UrlbarProviderGlobalActions extends UrlbarProvider {
 
     for (let provider of globalActionsProviders) {
       if (provider.isActive(queryContext)) {
-        for (let action of (await provider.queryActions(queryContext)) || []) {
-          action.providerName = provider.name;
-          actionsResults.push(action);
-        }
+        actionsResults.push(
+          ...((await provider.queryActions(queryContext)) || [])
+        );
       }
     }
 
@@ -118,10 +115,10 @@ export class UrlbarProviderGlobalActions extends UrlbarProvider {
     };
 
     let result = new lazy.UrlbarResult({
-      type: UrlbarUtils.RESULT_TYPE.DYNAMIC,
-      source: UrlbarUtils.RESULT_SOURCE.ACTIONS,
+      type: lazy.UrlbarShared.RESULT_TYPE.DYNAMIC,
+      source: lazy.UrlbarShared.RESULT_SOURCE.ACTIONS,
       suggestedIndex:
-        queryContext.restrictSource == UrlbarUtils.RESULT_SOURCE.TABS
+        queryContext.restrictSource == lazy.UrlbarShared.RESULT_SOURCE.TABS
           ? SUGGESTED_INDEX_TABS_MODE
           : SUGGESTED_INDEX,
       payload,
@@ -129,14 +126,18 @@ export class UrlbarProviderGlobalActions extends UrlbarProvider {
     addCallback(this, result);
   }
 
+  /**
+   * @param {UrlbarQueryContext} queryContext
+   * @param {UrlbarParentController} controller
+   * @param {object} details
+   */
   async onEngagement(queryContext, controller, details) {
-    let key = details.element.dataset.action;
+    let key = details.pickedActionKey;
     let action = details.result.payload.actionsResults.find(a => a.key == key);
     let provider = globalActionsProviders.find(
       p => p.name == action.providerName
     );
-    provider.onPick(queryContext, controller, action);
-    controller.view.close();
+    provider.onPick(queryContext, controller, action, details);
   }
 
   onSearchSessionEnd(queryContext, controller, details) {
@@ -191,6 +192,10 @@ export class UrlbarProviderGlobalActions extends UrlbarProvider {
       if (action.dataset?.providesSearchMode) {
         btn.attributes["data-provides-searchmode"] = "true";
         btn.attributes["data-engine"] = action.engine;
+      }
+
+      if (action.dataset?.immediateSearch) {
+        btn.attributes["data-immediate-search"] = "true";
       }
 
       return btn;

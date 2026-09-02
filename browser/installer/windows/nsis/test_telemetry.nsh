@@ -4,16 +4,20 @@
 Function TelemetryTests
   ${UnitTest} TestGenerateUUID
   ${UnitTest} TestCommonPingHttpDetails
-  ${UnitTest} TestSilentTelemetryField
+  ${UnitTest} Test64BitBuildTelemetryField
+  ${UnitTest} TestManualDownloadTelemetryField
+  ${UnitTest} TestLaunchStatusTelemetryFields
+  ${UnitTest} TestExistingInstallationTelemetryFields
+  ${UnitTest} TestWindowsUBR
 FunctionEnd
 
 Function FakePingInfo
   nsJSON::Set /tree ping "Data" "another_ping_for_testing" /value '"it works"'
 FunctionEnd
 
-!macro PrepareTestTelemetryPing
+!macro MakeTelemetryPing Callback
   Push "~~ sentinel ~~"
-  GetFunctionAddress $0 FakePingInfo
+  GetFunctionAddress $0 ${Callback}
   Push $0
   Call PrepareTelemetryPing
 
@@ -65,7 +69,7 @@ FunctionEnd
 Function TestCommonPingHttpDetails
   Push $0
 
-  !insertmacro PrepareTestTelemetryPing
+  !insertmacro MakeTelemetryPing FakePingInfo
 
   nsJSON::Get /tree ping "Url" /end
   Pop $0
@@ -93,30 +97,97 @@ Function TestCommonPingHttpDetails
   Pop $0
 FunctionEnd
 
-Function TestSilentTelemetryField
+Function Test64BitBuildTelemetryField
+  ; This currently only runs for the stub installer, so the full-installer part
+  ; isn't tested.
+  Push $ArchToInstall
+
+  StrCpy $ArchToInstall ${ARCH_X86}
+  !insertmacro MakeTelemetryPing PrepareStubInstallPing
+  ${AssertTelemetryData} "64bit_build" "value" "false"
+
+  StrCpy $ArchToInstall ${ARCH_AMD64}
+  !insertmacro MakeTelemetryPing PrepareStubInstallPing
+  ${AssertTelemetryData} "64bit_build" "value" "true"
+
+  StrCpy $ArchToInstall ${ARCH_AARCH64}
+  !insertmacro MakeTelemetryPing PrepareStubInstallPing
+  ${AssertTelemetryData} "64bit_build" "value" "true"
+
+  Pop $ArchToInstall
+FunctionEnd
+
+Function TestManualDownloadTelemetryField
+  Push $OpenedDownloadPage
+
+  StrCpy $OpenedDownloadPage "1"
+  !insertmacro MakeTelemetryPing PrepareStubInstallPing
+  ${AssertTelemetryData} "manual_download" "value" "true"
+
+  StrCpy $OpenedDownloadPage "0"
+  !insertmacro MakeTelemetryPing PrepareStubInstallPing
+  ${AssertTelemetryData} "manual_download" "value" "false"
+
+  StrCpy $OpenedDownloadPage "1239" ; unknown
+  !insertmacro MakeTelemetryPing PrepareStubInstallPing
+  ${AssertTelemetryData} "manual_download" "value" "false"
+
+  Pop $OpenedDownloadPage
+FunctionEnd
+
+Function TestLaunchStatusTelemetryFields
+  Push $FirefoxLaunchCode
+
+  StrCpy $FirefoxLaunchCode "0"
+  !insertmacro MakeTelemetryPing PrepareStubInstallPing
+  ${AssertTelemetryData} "old_running" "value" "false"
+  ${AssertTelemetryData} "new_launched" "value" "false"
+
+  StrCpy $FirefoxLaunchCode "2"
+  !insertmacro MakeTelemetryPing PrepareStubInstallPing
+  ${AssertTelemetryData} "old_running" "value" "false"
+  ${AssertTelemetryData} "new_launched" "value" "true"
+
+  StrCpy $FirefoxLaunchCode "98475" ; unknown
+  !insertmacro MakeTelemetryPing PrepareStubInstallPing
+  ${AssertTelemetryData} "old_running" "value" "false"
+  ${AssertTelemetryData} "new_launched" "value" "false"
+
+  Pop $FirefoxLaunchCode
+FunctionEnd
+
+Function TestExistingInstallationTelemetryFields
+  Push $ExistingVersion
+  Push $ExistingBuildID
+
+  ; On error, these are set to '0' (see createInstall in stub.nsh)
+  StrCpy $ExistingVersion "0"
+  StrCpy $ExistingBuildID "0"
+  !insertmacro MakeTelemetryPing PrepareStubInstallPing
+  ${AssertTelemetryData} "old_version" "string" "0"
+  ${AssertTelemetryData} "old_build_id" "string" "0"
+
+  StrCpy $ExistingVersion "qwerty"
+  StrCpy $ExistingBuildID "uiop"
+  !insertmacro MakeTelemetryPing PrepareStubInstallPing
+  ${AssertTelemetryData} "old_version" "string" "qwerty"
+  ${AssertTelemetryData} "old_build_id" "string" "uiop"
+
+  Pop $ExistingBuildID
+  Pop $ExistingVersion
+FunctionEnd
+
+Function TestWindowsUBR
   Push $0
-  Push $1
 
-  ${If} ${Silent}
-    StrCpy $1 "silent"
+  !insertmacro MakeTelemetryPing FakePingInfo
+  ClearErrors
+  ReadRegDWORD $0 HKLM "SOFTWARE\Microsoft\Windows NT\CurrentVersion" "UBR"
+  ${If} ${Errors}
+    ${AssertTelemetryData} "windows_ubr" "value" "-1"
   ${Else}
-    StrCpy $1 "normal"
+    ${AssertTelemetryData} "windows_ubr" "value" "$0"
   ${EndIf}
 
-  SetSilent silent
-  !insertmacro PrepareTestTelemetryPing
-  ${AssertTelemetryData} "silent" "value" "true"
-
-  SetSilent normal
-  !insertmacro PrepareTestTelemetryPing
-  ${AssertTelemetryData} "silent" "value" "false"
-
-  ${If} $1 == "silent"
-    SetSilent silent
-  ${Else}
-    SetSilent normal
-  ${EndIf}
-
-  Pop $1
   Pop $0
 FunctionEnd

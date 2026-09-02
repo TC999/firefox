@@ -25,7 +25,6 @@ av_xiphlacing
 avcodec_align_dimensions
 avcodec_align_dimensions2
 avcodec_alloc_context3
-avcodec_close
 avcodec_configuration
 avcodec_decode_subtitle2
 avcodec_default_execute
@@ -44,6 +43,7 @@ avcodec_flush_buffers
 avcodec_free_context
 avcodec_get_class
 avcodec_get_hw_config
+avcodec_get_hw_frames_parameters
 avcodec_get_name
 avcodec_get_subtitle_rect_class
 avcodec_get_type

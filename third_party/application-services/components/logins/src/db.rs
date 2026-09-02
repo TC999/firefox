@@ -167,7 +167,7 @@ impl LoginDb {
     }
 
     pub fn count_by_form_action_origin(&self, form_action_origin: &str) -> Result<i64> {
-        match LoginEntry::validate_and_fixup_origin(form_action_origin) {
+        match LoginEntry::validate_and_normalize_form_action_origin(form_action_origin) {
             Ok(result) => {
                 let form_action_origin = result.unwrap_or(form_action_origin.to_string());
                 let mut stmt = self.db.prepare_cached(&COUNT_BY_FORM_ACTION_ORIGIN_SQL)?;
@@ -179,7 +179,10 @@ impl LoginDb {
             }
             Err(e) => {
                 // don't log the input string as it's PII.
-                warn!("count_by_origin was passed an invalid origin: {}", e);
+                warn!(
+                    "count_by_form_action_origin was passed an invalid origin: {}",
+                    e
+                );
                 Ok(0)
             }
         }
@@ -189,6 +192,27 @@ impl LoginDb {
         let mut stmt = self.db.prepare_cached(&GET_ALL_SQL)?;
         let rows = stmt.query_and_then([], EncryptedLogin::from_row)?;
         rows.collect::<Result<_>>()
+    }
+
+    /// Like `get_all()`, but only the logins with the given guids.  Guids we don't have a login
+    /// for are simply absent from the result, so this can return fewer rows than it was given
+    /// ids.  As with `get_all()` the order of the rows is whatever the query gives us - in
+    /// particular it is not the order of `ids`.
+    pub fn get_many(&self, ids: &[String]) -> Result<Vec<EncryptedLogin>> {
+        let mut logins = Vec::with_capacity(ids.len());
+        sql_support::each_chunk(ids, |chunk, _| -> Result<()> {
+            logins.extend(self.db.query_rows_and_then(
+                &format!(
+                    "SELECT * FROM ({}) WHERE guid IN ({})",
+                    &*GET_ALL_SQL,
+                    sql_support::repeat_sql_values(chunk.len())
+                ),
+                rusqlite::params_from_iter(chunk),
+                EncryptedLogin::from_row,
+            )?);
+            Ok(())
+        })?;
+        Ok(logins)
     }
 
     pub fn get_by_base_domain(&self, base_domain: &str) -> Result<Vec<EncryptedLogin>> {
@@ -262,16 +286,12 @@ impl LoginDb {
     //    with a blank username.
     //
     //  Returns an Err if the new login is not valid and could not be fixed up
-    pub fn find_login_to_update(
-        &self,
-        look: LoginEntry,
-        encdec: &dyn EncryptorDecryptor,
-    ) -> Result<Option<Login>> {
+    pub fn find_login_to_update(&self, look: LoginEntry) -> Result<Option<Login>> {
         let look = look.fixup()?;
         let logins = self
             .get_by_entry_target(&look)?
             .into_iter()
-            .map(|enc_login| enc_login.decrypt(encdec))
+            .map(|enc_login| enc_login.decrypt(self.encdec.as_ref()))
             .collect::<Result<Vec<Login>>>()?;
         Ok(logins
             // First, try to match the username
@@ -310,22 +330,14 @@ impl LoginDb {
     ///
     /// Encrypts and stores passwords, automatically filtering out duplicates.
     /// Used by `add_many_with_meta()` to populate the breach database during import.
-    pub fn record_potentially_vulnerable_passwords(
-        &self,
-        passwords: Vec<String>,
-        encdec: &dyn EncryptorDecryptor,
-    ) -> Result<()> {
+    pub fn record_potentially_vulnerable_passwords(&self, passwords: Vec<String>) -> Result<()> {
         let tx = self.unchecked_transaction()?;
-        self.insert_potentially_vulnerable_passwords(passwords, encdec)?;
+        self.insert_potentially_vulnerable_passwords(passwords)?;
         tx.commit()?;
         Ok(())
     }
 
-    fn insert_potentially_vulnerable_passwords(
-        &self,
-        passwords: Vec<String>,
-        encdec: &dyn EncryptorDecryptor,
-    ) -> Result<()> {
+    fn insert_potentially_vulnerable_passwords(&self, passwords: Vec<String>) -> Result<()> {
         let encrypted_existing_potentially_vulnerable_passwords: Vec<String> = self
             .db
             .query_rows_and_then_cached("SELECT encryptedPassword FROM breachesL", [], |row| {
@@ -335,8 +347,10 @@ impl LoginDb {
             encrypted_existing_potentially_vulnerable_passwords
                 .iter()
                 .map(|ciphertext| {
-                    let decrypted_bytes =
-                        encdec.decrypt(ciphertext.as_bytes().into()).map_err(|e| {
+                    let decrypted_bytes = self
+                        .encdec
+                        .decrypt(ciphertext.as_bytes().into())
+                        .map_err(|e| {
                             Error::DecryptionFailed(format!(
                                 "Failed to decrypt password from breachesL: {}",
                                 e
@@ -364,7 +378,8 @@ impl LoginDb {
             .collect();
 
         for password in difference {
-            let encrypted_password_bytes = encdec
+            let encrypted_password_bytes = self
+                .encdec
                 .encrypt(password.as_bytes().into())
                 .map_err(|e| Error::EncryptionFailed(format!("{e} (encrypting password)")))?;
             let encrypted_password =
@@ -392,11 +407,7 @@ impl LoginDb {
     /// Performance: O(M + N) where M = breached passwords, N = logins to check
     /// - Single check: Use `is_potentially_vulnerable_password()` (simpler)
     /// - Multiple checks: Use this method (faster)
-    pub fn are_potentially_vulnerable_passwords(
-        &self,
-        guids: &[&str],
-        encdec: &dyn EncryptorDecryptor,
-    ) -> Result<Vec<String>> {
+    pub fn are_potentially_vulnerable_passwords(&self, guids: &[&str]) -> Result<Vec<String>> {
         if guids.is_empty() {
             return Ok(Vec::new());
         }
@@ -410,9 +421,15 @@ impl LoginDb {
 
         let mut breached_passwords = std::collections::HashSet::new();
         for ciphertext in &all_encrypted_passwords {
-            let decrypted_bytes = encdec.decrypt(ciphertext.as_bytes().into()).map_err(|e| {
-                Error::DecryptionFailed(format!("Failed to decrypt password from breachesL: {}", e))
-            })?;
+            let decrypted_bytes =
+                self.encdec
+                    .decrypt(ciphertext.as_bytes().into())
+                    .map_err(|e| {
+                        Error::DecryptionFailed(format!(
+                            "Failed to decrypt password from breachesL: {}",
+                            e
+                        ))
+                    })?;
 
             let decrypted_password = std::str::from_utf8(&decrypted_bytes).map_err(|e| {
                 Error::DecryptionFailed(format!(
@@ -428,7 +445,7 @@ impl LoginDb {
         let mut vulnerable_guids = Vec::new();
         for guid in guids {
             if let Some(login) = self.get_by_id(guid)? {
-                let decrypted_login = login.decrypt(encdec)?;
+                let decrypted_login = login.decrypt(self.encdec.as_ref())?;
                 if breached_passwords.contains(&decrypted_login.password) {
                     vulnerable_guids.push(guid.to_string());
                 }
@@ -438,13 +455,9 @@ impl LoginDb {
         Ok(vulnerable_guids)
     }
 
-    pub fn is_potentially_vulnerable_password(
-        &self,
-        guid: &str,
-        encdec: &dyn EncryptorDecryptor,
-    ) -> Result<bool> {
+    pub fn is_potentially_vulnerable_password(&self, guid: &str) -> Result<bool> {
         // Delegate to batch method for code reuse
-        let vulnerable = self.are_potentially_vulnerable_passwords(&[guid], encdec)?;
+        let vulnerable = self.are_potentially_vulnerable_passwords(&[guid])?;
         Ok(!vulnerable.is_empty())
     }
 
@@ -549,6 +562,7 @@ impl LoginDb {
 
     fn update_existing_login(&self, login: &EncryptedLogin) -> Result<()> {
         // assumes the "local overlay" exists, so the guid must too.
+        let now_ms = util::system_time_ms_i64(SystemTime::now());
         let sql = format!(
             "UPDATE loginsL
              SET local_modified                           = :now_millis,
@@ -580,19 +594,14 @@ impl LoginDb {
                 ":time_password_changed": login.meta.time_password_changed,
                 ":sec_fields": login.sec_fields,
                 ":guid": &login.meta.id,
-                // time_last_used has been set to now.
-                ":now_millis": login.meta.time_last_used,
+                ":now_millis": now_ms,
             },
         )?;
         Ok(())
     }
 
     /// Adds multiple logins within a single transaction and returns the successfully saved logins.
-    pub fn add_many(
-        &self,
-        entries: Vec<LoginEntry>,
-        encdec: &dyn EncryptorDecryptor,
-    ) -> Result<Vec<Result<EncryptedLogin>>> {
+    pub fn add_many(&self, entries: Vec<LoginEntry>) -> Result<Vec<Result<EncryptedLogin>>> {
         let now_ms = util::system_time_ms_i64(SystemTime::now());
 
         let entries_with_meta = entries
@@ -613,7 +622,7 @@ impl LoginDb {
             })
             .collect();
 
-        self.add_many_with_meta(entries_with_meta, encdec)
+        self.add_many_with_meta(entries_with_meta)
     }
 
     /// Adds multiple logins **including metadata** within a single transaction and returns the successfully saved logins.
@@ -623,19 +632,29 @@ impl LoginDb {
     pub fn add_many_with_meta(
         &self,
         entries_with_meta: Vec<LoginEntryWithMeta>,
-        encdec: &dyn EncryptorDecryptor,
     ) -> Result<Vec<Result<EncryptedLogin>>> {
         let tx = self.unchecked_transaction()?;
         let mut results = vec![];
-        for entry_with_meta in entries_with_meta {
-            let guid = Guid::from_string(entry_with_meta.meta.id.clone());
-            match self.fixup_and_check_for_dupes(&guid, entry_with_meta.entry, encdec) {
+        for mut entry_with_meta in entries_with_meta {
+            let guid = match Self::validate_or_fixup_guid(Guid::from_string(
+                entry_with_meta.meta.id.clone(),
+            )) {
+                Ok(guid) => guid,
+                Err(err) => {
+                    results.push(Err(err));
+                    continue;
+                }
+            };
+            // Keep `meta.id` in sync with the (possibly regenerated) guid; it is used
+            // as the stored/envelope id and when encrypting `sec_fields` below.
+            entry_with_meta.meta.id = guid.to_string();
+            match self.fixup_and_check_for_dupes(&guid, entry_with_meta.entry) {
                 Ok(new_entry) => {
                     let sec_fields = SecureLoginFields {
                         username: new_entry.username,
                         password: new_entry.password,
                     }
-                    .encrypt(encdec, &entry_with_meta.meta.id)?;
+                    .encrypt(self.encdec.as_ref(), &entry_with_meta.meta.id)?;
                     let encrypted_login = EncryptedLogin {
                         meta: entry_with_meta.meta,
                         fields: LoginFields {
@@ -662,11 +681,34 @@ impl LoginDb {
         Ok(results)
     }
 
-    pub fn add(
-        &self,
-        entry: LoginEntry,
-        encdec: &dyn EncryptorDecryptor,
-    ) -> Result<EncryptedLogin> {
+    /// Validates a caller-supplied guid from the "with meta" import path against the
+    /// sync server's rules (see `Guid::is_valid_for_sync_server`). A guid that is
+    /// invalid for the sync server can never have existed on the server, so
+    /// regenerating it loses no sync identity.
+    ///
+    /// With the `fixup_invalid_guids` feature (enabled on Desktop during migration),
+    /// an invalid guid is silently replaced with a fresh random one. Without it, an
+    /// invalid guid is rejected so the problem surfaces at write time instead of being
+    /// persisted and later crashing the sync uploader (bug 2056116).
+    fn validate_or_fixup_guid(guid: Guid) -> Result<Guid> {
+        if guid.is_valid_for_sync_server() {
+            return Ok(guid);
+        }
+        #[cfg(feature = "fixup_invalid_guids")]
+        {
+            warn!("regenerating a login guid that is invalid for the sync server");
+            Ok(Guid::random())
+        }
+        #[cfg(not(feature = "fixup_invalid_guids"))]
+        {
+            Err(InvalidLogin::IllegalFieldValue {
+                field_info: "guid is not valid for the sync server".into(),
+            }
+            .into())
+        }
+    }
+
+    pub fn add(&self, entry: LoginEntry) -> Result<EncryptedLogin> {
         let guid = Guid::random();
         let now_ms = util::system_time_ms_i64(SystemTime::now());
 
@@ -682,27 +724,18 @@ impl LoginDb {
             },
         };
 
-        self.add_with_meta(entry_with_meta, encdec)
+        self.add_with_meta(entry_with_meta)
     }
 
     /// Adds a login **including metadata**.
     /// Normally, you will use `add` instead, and AS Logins will take care of the metadata (setting timestamps, generating an ID) itself.
     /// However, in some cases, this method is necessary, for example when migrating data from another store that already contains the metadata.
-    pub fn add_with_meta(
-        &self,
-        entry_with_meta: LoginEntryWithMeta,
-        encdec: &dyn EncryptorDecryptor,
-    ) -> Result<EncryptedLogin> {
-        let mut results = self.add_many_with_meta(vec![entry_with_meta], encdec)?;
+    pub fn add_with_meta(&self, entry_with_meta: LoginEntryWithMeta) -> Result<EncryptedLogin> {
+        let mut results = self.add_many_with_meta(vec![entry_with_meta])?;
         results.pop().expect("there should be a single result")
     }
 
-    pub fn update(
-        &self,
-        sguid: &str,
-        entry: LoginEntry,
-        encdec: &dyn EncryptorDecryptor,
-    ) -> Result<EncryptedLogin> {
+    pub fn update(&self, sguid: &str, entry: LoginEntry) -> Result<EncryptedLogin> {
         let guid = Guid::new(sguid);
         let now_ms = util::system_time_ms_i64(SystemTime::now());
         let tx = self.unchecked_transaction()?;
@@ -714,7 +747,7 @@ impl LoginDb {
         // just log an error and continue.  This avoids a crash on android-components
         // (mozilla-mobile/android-components#11251).
 
-        if self.check_for_dupes(&guid, &entry, encdec).is_err() {
+        if self.check_for_dupes(&guid, &entry).is_err() {
             // Try to detect if sync is enabled by checking if there are any mirror logins
             let has_mirror_row: bool = self
                 .db
@@ -732,7 +765,7 @@ impl LoginDb {
 
         // We must read the existing record so we can correctly manage timePasswordChanged.
         let existing = match self.get_by_id(sguid)? {
-            Some(e) => e.decrypt(encdec)?,
+            Some(e) => e.decrypt(self.encdec.as_ref())?,
             None => return Err(Error::NoSuchRecord(sguid.to_owned())),
         };
         let time_password_changed = if existing.password == entry.password {
@@ -746,14 +779,15 @@ impl LoginDb {
             username: entry.username,
             password: entry.password,
         }
-        .encrypt(encdec, &existing.id)?;
+        .encrypt(self.encdec.as_ref(), &existing.id)?;
         let result = EncryptedLogin {
             meta: LoginMeta {
                 id: existing.id,
                 time_created: existing.time_created,
                 time_password_changed,
-                time_last_used: now_ms,
-                times_used: existing.times_used + 1,
+                // An edit is not a use (see bug 2045032)
+                time_last_used: existing.time_last_used,
+                times_used: existing.times_used,
                 time_last_breach_alert_dismissed: None,
             },
             fields: LoginFields {
@@ -771,60 +805,36 @@ impl LoginDb {
         Ok(result)
     }
 
-    pub fn add_or_update(
-        &self,
-        entry: LoginEntry,
-        encdec: &dyn EncryptorDecryptor,
-    ) -> Result<EncryptedLogin> {
+    pub fn add_or_update(&self, entry: LoginEntry) -> Result<EncryptedLogin> {
         // Make sure to fixup the entry first, in case that changes the username
         let entry = entry.fixup()?;
-        match self.find_login_to_update(entry.clone(), encdec)? {
-            Some(login) => self.update(&login.id, entry, encdec),
-            None => self.add(entry, encdec),
+        match self.find_login_to_update(entry.clone())? {
+            Some(login) => self.update(&login.id, entry),
+            None => self.add(entry),
         }
     }
 
-    pub fn fixup_and_check_for_dupes(
-        &self,
-        guid: &Guid,
-        entry: LoginEntry,
-        encdec: &dyn EncryptorDecryptor,
-    ) -> Result<LoginEntry> {
+    pub fn fixup_and_check_for_dupes(&self, guid: &Guid, entry: LoginEntry) -> Result<LoginEntry> {
         let entry = entry.fixup()?;
-        self.check_for_dupes(guid, &entry, encdec)?;
+        self.check_for_dupes(guid, &entry)?;
         Ok(entry)
     }
 
-    pub fn check_for_dupes(
-        &self,
-        guid: &Guid,
-        entry: &LoginEntry,
-        encdec: &dyn EncryptorDecryptor,
-    ) -> Result<()> {
-        if self.dupe_exists(guid, entry, encdec)? {
+    pub fn check_for_dupes(&self, guid: &Guid, entry: &LoginEntry) -> Result<()> {
+        if self.dupe_exists(guid, entry)? {
             return Err(InvalidLogin::DuplicateLogin.into());
         }
         Ok(())
     }
 
-    pub fn dupe_exists(
-        &self,
-        guid: &Guid,
-        entry: &LoginEntry,
-        encdec: &dyn EncryptorDecryptor,
-    ) -> Result<bool> {
-        Ok(self.find_dupe(guid, entry, encdec)?.is_some())
+    pub fn dupe_exists(&self, guid: &Guid, entry: &LoginEntry) -> Result<bool> {
+        Ok(self.find_dupe(guid, entry)?.is_some())
     }
 
-    pub fn find_dupe(
-        &self,
-        guid: &Guid,
-        entry: &LoginEntry,
-        encdec: &dyn EncryptorDecryptor,
-    ) -> Result<Option<Guid>> {
+    pub fn find_dupe(&self, guid: &Guid, entry: &LoginEntry) -> Result<Option<Guid>> {
         for possible in self.get_by_entry_target(entry)? {
             if possible.guid() != *guid {
-                let pos_sec_fields = possible.decrypt_fields(encdec)?;
+                let pos_sec_fields = possible.decrypt_fields(self.encdec.as_ref())?;
                 if pos_sec_fields.username == entry.username {
                     return Ok(Some(possible.guid()));
                 }
@@ -923,6 +933,33 @@ impl LoginDb {
         Ok(results.pop().expect("there should be a single result"))
     }
 
+    // Delete all records. Return an array with the ids of the deleted logins
+    pub fn delete_all(&self) -> Result<Vec<String>> {
+        let ids: Vec<String> = self.db.query_rows_and_then_cached(
+            "SELECT guid FROM loginsL WHERE is_deleted = 0
+             UNION ALL
+             SELECT guid FROM loginsM WHERE is_overridden = 0",
+            [],
+            |row| row.get(0),
+        )?;
+        self.delete_many(ids.iter().map(String::as_str).collect())?;
+        Ok(ids)
+    }
+
+    // Delete all records, except the FxA login. Return an array with the ids of
+    // the deleted logins
+    pub fn delete_all_except_fxa(&self) -> Result<Vec<String>> {
+        let ids: Vec<String> = self.db.query_rows_and_then_cached(
+            "SELECT guid FROM loginsL WHERE is_deleted = 0 AND origin != :fxa_origin
+             UNION ALL
+             SELECT guid FROM loginsM WHERE is_overridden = 0 AND origin != :fxa_origin",
+            named_params! { ":fxa_origin": FXA_CREDENTIALS_ORIGIN },
+            |row| row.get(0),
+        )?;
+        self.delete_many(ids.iter().map(String::as_str).collect())?;
+        Ok(ids)
+    }
+
     /// Delete the records with the specified IDs. Returns a list of Boolean values
     /// indicating whether the respective records already existed.
     pub fn delete_many(&self, ids: Vec<&str>) -> Result<Vec<bool>> {
@@ -980,13 +1017,12 @@ impl LoginDb {
 
     pub fn delete_undecryptable_records_for_remote_replacement(
         &self,
-        encdec: &dyn EncryptorDecryptor,
     ) -> Result<LoginsDeletionMetrics> {
         // Retrieve a list of guids for logins that cannot be decrypted
         let corrupted_logins = self
             .get_all()?
             .into_iter()
-            .filter(|login| login.clone().decrypt(encdec).is_err())
+            .filter(|login| login.clone().decrypt(self.encdec.as_ref()).is_err())
             .collect::<Vec<_>>();
         let ids = corrupted_logins
             .iter()
@@ -1077,6 +1113,25 @@ impl LoginDb {
         let mut row_count = 0;
         row_count += self.execute("DELETE FROM loginsL", [])?;
         row_count += self.execute("DELETE FROM loginsM", [])?;
+        row_count += self.execute("DELETE FROM loginsSyncMeta", [])?;
+        row_count += self.execute("DELETE FROM breachesL", [])?;
+        tx.commit()?;
+        Ok(row_count)
+    }
+
+    /// Wipe all local data except the FxA login, returns the number of rows deleted
+    pub fn wipe_local_except_fxa(&self) -> Result<usize> {
+        info!("Executing wipe_local_except_fxa on password engine!");
+        let tx = self.unchecked_transaction()?;
+        let mut row_count = 0;
+        row_count += self.execute(
+            "DELETE FROM loginsL WHERE origin != :fxa_origin",
+            named_params! { ":fxa_origin": FXA_CREDENTIALS_ORIGIN },
+        )?;
+        row_count += self.execute(
+            "DELETE FROM loginsM WHERE origin != :fxa_origin",
+            named_params! { ":fxa_origin": FXA_CREDENTIALS_ORIGIN },
+        )?;
         row_count += self.execute("DELETE FROM loginsSyncMeta", [])?;
         row_count += self.execute("DELETE FROM breachesL", [])?;
         tx.commit()?;
@@ -1321,7 +1376,7 @@ mod tests {
     use crate::db::test_utils::{get_local_guids, get_mirror_guids};
     use crate::encryption::test_utils::TEST_ENCDEC;
     use crate::sync::merge::LocalLogin;
-    use nss::ensure_initialized;
+    use nss_as::ensure_initialized;
     use std::{thread, time};
 
     #[test]
@@ -1336,30 +1391,66 @@ mod tests {
         };
 
         let db = LoginDb::open_in_memory();
-        db.add(login.clone(), &*TEST_ENCDEC)
+        db.add(login.clone())
             .expect("should be able to add first login");
 
         // We will reject new logins with the same username value...
         let exp_err = "Invalid login: Login already exists";
-        assert_eq!(
-            db.add(login.clone(), &*TEST_ENCDEC)
-                .unwrap_err()
-                .to_string(),
-            exp_err
-        );
+        assert_eq!(db.add(login.clone()).unwrap_err().to_string(), exp_err);
 
         // Add one with an empty username - not a dupe.
         login.username = "".to_string();
-        db.add(login.clone(), &*TEST_ENCDEC)
-            .expect("empty login isn't a dupe");
+        db.add(login.clone()).expect("empty login isn't a dupe");
 
-        assert_eq!(
-            db.add(login, &*TEST_ENCDEC).unwrap_err().to_string(),
-            exp_err
-        );
+        assert_eq!(db.add(login).unwrap_err().to_string(), exp_err);
 
         // one with a username, 1 without.
         assert_eq!(db.get_all().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn test_get_many() {
+        ensure_initialized();
+
+        let db = LoginDb::open_in_memory();
+        let mut added = Vec::new();
+        for origin in ["https://a.example.com", "https://b.example.com"] {
+            added.push(
+                db.add(LoginEntry {
+                    origin: origin.into(),
+                    http_realm: Some("https://www.example.com".into()),
+                    username: "test".into(),
+                    password: "sekret".into(),
+                    ..LoginEntry::default()
+                })
+                .expect("should be able to add login"),
+            );
+        }
+        let ids = added.iter().map(|l| l.meta.id.clone()).collect::<Vec<_>>();
+
+        // Neither `get_many()` nor `get_all()` promises an order, so compare them sorted.
+        let by_origin = |logins: Vec<EncryptedLogin>| {
+            let mut logins = logins;
+            logins.sort_by(|l, r| l.fields.origin.cmp(&r.fields.origin));
+            logins
+        };
+
+        // Asking for every id gives us exactly what `get_all()` does.
+        assert_eq!(
+            by_origin(db.get_many(&ids).unwrap()),
+            by_origin(db.get_all().unwrap())
+        );
+
+        // A subset gives us just that subset...
+        assert_eq!(db.get_many(&ids[1..]).unwrap(), added[1..]);
+
+        // ...and ids we don't have a login for are absent rather than an error.
+        assert_eq!(
+            db.get_many(&[ids[0].clone(), "no-such-guid".to_string()])
+                .unwrap(),
+            added[..1]
+        );
+        assert_eq!(db.get_many(&[]).unwrap(), Vec::new());
     }
 
     #[test]
@@ -1384,7 +1475,7 @@ mod tests {
 
         let db = LoginDb::open_in_memory();
         let added = db
-            .add_many(vec![login_a.clone(), login_b.clone()], &*TEST_ENCDEC)
+            .add_many(vec![login_a.clone(), login_b.clone()])
             .expect("should be able to add logins");
 
         let [added_a, added_b] = added.as_slice() else {
@@ -1439,11 +1530,8 @@ mod tests {
         };
 
         let db = LoginDb::open_in_memory();
-        db.add_many(
-            vec![login_a.clone(), login_b.clone(), login_umlaut.clone()],
-            &*TEST_ENCDEC,
-        )
-        .expect("should be able to add logins");
+        db.add_many(vec![login_a.clone(), login_b.clone(), login_umlaut.clone()])
+            .expect("should be able to add logins");
 
         assert_eq!(db.count_by_origin(origin_a).unwrap(), 1);
         assert_eq!(db.count_by_origin(origin_umlaut).unwrap(), 1);
@@ -1483,14 +1571,30 @@ mod tests {
         };
 
         let db = LoginDb::open_in_memory();
-        db.add_many(
-            vec![login_a.clone(), login_b.clone(), login_umlaut.clone()],
-            &*TEST_ENCDEC,
-        )
-        .expect("should be able to add logins");
+        db.add_many(vec![login_a.clone(), login_b.clone(), login_umlaut.clone()])
+            .expect("should be able to add logins");
 
         assert_eq!(db.count_by_form_action_origin(origin_a).unwrap(), 1);
         assert_eq!(db.count_by_form_action_origin(origin_umlaut).unwrap(), 1);
+    }
+
+    #[test]
+    #[cfg(feature = "ignore_form_action_origin_validation_errors")]
+    fn test_count_by_invalid_form_action_origin() {
+        ensure_initialized();
+
+        let login = LoginEntry {
+            origin: "https://example.com".into(),
+            form_action_origin: Some("email".into()),
+            username: "test".into(),
+            password: "sekret".into(),
+            ..LoginEntry::default()
+        };
+
+        let db = LoginDb::open_in_memory();
+        db.add(login)
+            .expect("should be able to add login with invalid form_action_origin");
+        assert_eq!(db.count_by_form_action_origin("email").unwrap(), 1);
     }
 
     #[test]
@@ -1516,7 +1620,7 @@ mod tests {
 
         let db = LoginDb::open_in_memory();
         let added = db
-            .add_many(vec![login_a.clone(), login_b.clone()], &*TEST_ENCDEC)
+            .add_many(vec![login_a.clone(), login_b.clone()])
             .expect("should be able to add logins");
 
         let [added_a, added_b] = added.as_slice() else {
@@ -1563,7 +1667,7 @@ mod tests {
             meta: meta.clone(),
         };
 
-        db.add_with_meta(entry_with_meta, &*TEST_ENCDEC)
+        db.add_with_meta(entry_with_meta)
             .expect("should be able to add login with record");
 
         let fetched = db
@@ -1572,6 +1676,93 @@ mod tests {
             .expect("should get a record");
 
         assert_eq!(fetched.meta, meta);
+    }
+
+    #[test]
+    fn test_add_with_meta_invalid_guid() {
+        ensure_initialized();
+
+        let now_ms = util::system_time_ms_i64(SystemTime::now());
+        // A guid containing a comma is invalid for the sync server.
+        let meta = LoginMeta {
+            id: "invalid,guid".to_string(),
+            time_created: now_ms,
+            time_password_changed: now_ms,
+            time_last_used: now_ms,
+            times_used: 1,
+            time_last_breach_alert_dismissed: None,
+        };
+        let db = LoginDb::open_in_memory();
+        let result = db.add_with_meta(LoginEntryWithMeta {
+            entry: LoginEntry {
+                origin: "https://www.example.com".into(),
+                http_realm: Some("https://www.example.com".into()),
+                username: "test".into(),
+                password: "sekret".into(),
+                ..LoginEntry::default()
+            },
+            meta,
+        });
+
+        // Without the fixup feature the invalid guid is rejected; with it, the guid
+        // is regenerated to one that is valid for the sync server.
+        #[cfg(not(feature = "fixup_invalid_guids"))]
+        assert!(result.is_err());
+
+        #[cfg(feature = "fixup_invalid_guids")]
+        {
+            let login = result.expect("invalid guid should be repaired");
+            assert!(Guid::new(&login.meta.id).is_valid_for_sync_server());
+        }
+    }
+
+    #[test]
+    fn test_add_with_meta_duplicate_id() {
+        ensure_initialized();
+
+        let guid = Guid::random();
+        let now_ms = util::system_time_ms_i64(SystemTime::now());
+        let meta = LoginMeta {
+            id: guid.to_string(),
+            time_created: now_ms,
+            time_password_changed: now_ms,
+            time_last_used: now_ms,
+            times_used: 1,
+            time_last_breach_alert_dismissed: None,
+        };
+
+        let db = LoginDb::open_in_memory();
+        db.add_with_meta(LoginEntryWithMeta {
+            entry: LoginEntry {
+                origin: "https://www.example.com".into(),
+                http_realm: Some("https://www.example.com".into()),
+                username: "test".into(),
+                password: "sekret".into(),
+                ..LoginEntry::default()
+            },
+            meta: meta.clone(),
+        })
+        .expect("should be able to add login with record");
+
+        // Adding a second login that reuses the same id (different origin so the
+        // dupe-check passes) succeeds and replaces the existing record.
+        db.add_with_meta(LoginEntryWithMeta {
+            entry: LoginEntry {
+                origin: "https://www.other.com".into(),
+                http_realm: Some("https://www.other.com".into()),
+                username: "test".into(),
+                password: "sekret".into(),
+                ..LoginEntry::default()
+            },
+            meta,
+        })
+        .expect("should be able to re-add a login with the same id");
+
+        let fetched = db
+            .get_by_id(&guid)
+            .expect("should work")
+            .expect("should get a record");
+        assert_eq!(fetched.fields.origin, "https://www.other.com");
     }
 
     #[test]
@@ -1587,10 +1778,11 @@ mod tests {
         assert_eq!(count, 0);
 
         // Record some passwords
-        db.record_potentially_vulnerable_passwords(
-            vec!["password1".into(), "password2".into(), "password3".into()],
-            &*TEST_ENCDEC,
-        )
+        db.record_potentially_vulnerable_passwords(vec![
+            "password1".into(),
+            "password2".into(),
+            "password3".into(),
+        ])
         .unwrap();
 
         // Verify they were inserted
@@ -1601,11 +1793,8 @@ mod tests {
         assert_eq!(count, 3);
 
         // Try to insert duplicates - should be filtered out
-        db.record_potentially_vulnerable_passwords(
-            vec!["password1".into(), "password4".into()],
-            &*TEST_ENCDEC,
-        )
-        .unwrap();
+        db.record_potentially_vulnerable_passwords(vec!["password1".into(), "password4".into()])
+            .unwrap();
 
         // Only password4 should have been added
         let count: i64 = db
@@ -1615,11 +1804,8 @@ mod tests {
         assert_eq!(count, 4);
 
         // Try to insert only duplicates - should be a no-op
-        db.record_potentially_vulnerable_passwords(
-            vec!["password1".into(), "password2".into()],
-            &*TEST_ENCDEC,
-        )
-        .unwrap();
+        db.record_potentially_vulnerable_passwords(vec!["password1".into(), "password2".into()])
+            .unwrap();
 
         let count: i64 = db
             .db
@@ -1656,7 +1842,7 @@ mod tests {
             meta: meta.clone(),
         };
 
-        db.add_with_meta(entry_with_meta, &*TEST_ENCDEC)
+        db.add_with_meta(entry_with_meta)
             .expect("should be able to add login with record");
 
         db.delete(&guid).expect("should be able to delete login");
@@ -1666,7 +1852,7 @@ mod tests {
             meta: meta.clone(),
         };
 
-        db.add_with_meta(entry_with_meta2, &*TEST_ENCDEC)
+        db.add_with_meta(entry_with_meta2)
             .expect("should be able to re-add login with record");
 
         let fetched = db
@@ -1682,18 +1868,15 @@ mod tests {
         ensure_initialized();
         let db = LoginDb::open_in_memory();
         let added = db
-            .add(
-                LoginEntry {
-                    form_action_origin: Some("http://😍.com".into()),
-                    origin: "http://😍.com".into(),
-                    http_realm: None,
-                    username_field: "😍".into(),
-                    password_field: "😍".into(),
-                    username: "😍".into(),
-                    password: "😍".into(),
-                },
-                &*TEST_ENCDEC,
-            )
+            .add(LoginEntry {
+                form_action_origin: Some("http://😍.com".into()),
+                origin: "http://😍.com".into(),
+                http_realm: None,
+                username_field: "😍".into(),
+                password_field: "😍".into(),
+                username: "😍".into(),
+                password: "😍".into(),
+            })
             .unwrap();
         let fetched = db
             .get_by_id(&added.meta.id)
@@ -1707,7 +1890,7 @@ mod tests {
         );
         assert_eq!(fetched.fields.username_field, "😍");
         assert_eq!(fetched.fields.password_field, "😍");
-        let sec_fields = fetched.decrypt_fields(&*TEST_ENCDEC).unwrap();
+        let sec_fields = fetched.decrypt_fields(db.encdec.as_ref()).unwrap();
         assert_eq!(sec_fields.username, "😍");
         assert_eq!(sec_fields.password, "😍");
     }
@@ -1717,17 +1900,14 @@ mod tests {
         ensure_initialized();
         let db = LoginDb::open_in_memory();
         let added = db
-            .add(
-                LoginEntry {
-                    form_action_origin: None,
-                    origin: "http://😍.com".into(),
-                    http_realm: Some("😍😍".into()),
-                    username: "😍".into(),
-                    password: "😍".into(),
-                    ..Default::default()
-                },
-                &*TEST_ENCDEC,
-            )
+            .add(LoginEntry {
+                form_action_origin: None,
+                origin: "http://😍.com".into(),
+                http_realm: Some("😍😍".into()),
+                username: "😍".into(),
+                password: "😍".into(),
+                ..Default::default()
+            })
             .unwrap();
         let fetched = db
             .get_by_id(&added.meta.id)
@@ -1759,15 +1939,12 @@ mod tests {
     ) {
         let db = LoginDb::open_in_memory();
         for h in good.iter().chain(bad.iter()) {
-            db.add(
-                LoginEntry {
-                    origin: (*h).into(),
-                    http_realm: Some((*h).into()),
-                    password: "test".into(),
-                    ..Default::default()
-                },
-                &*TEST_ENCDEC,
-            )
+            db.add(LoginEntry {
+                origin: (*h).into(),
+                http_realm: Some((*h).into()),
+                password: "test".into(),
+                ..Default::default()
+            })
             .unwrap();
         }
         for query in good_queries {
@@ -1861,7 +2038,7 @@ mod tests {
             password: "test_password".into(),
             ..Default::default()
         };
-        let login = db.add(to_add, &*TEST_ENCDEC).unwrap();
+        let login = db.add(to_add).unwrap();
         let login2 = db.get_by_id(&login.meta.id).unwrap().unwrap();
 
         assert_eq!(login.fields.origin, login2.fields.origin);
@@ -1874,16 +2051,13 @@ mod tests {
         ensure_initialized();
         let db = LoginDb::open_in_memory();
         let login = db
-            .add(
-                LoginEntry {
-                    origin: "https://www.example.com".into(),
-                    http_realm: Some("https://www.example.com".into()),
-                    username: "user1".into(),
-                    password: "password1".into(),
-                    ..Default::default()
-                },
-                &*TEST_ENCDEC,
-            )
+            .add(LoginEntry {
+                origin: "https://www.example.com".into(),
+                http_realm: Some("https://www.example.com".into()),
+                username: "user1".into(),
+                password: "password1".into(),
+                ..Default::default()
+            })
             .unwrap();
         db.update(
             &login.meta.id,
@@ -1894,7 +2068,6 @@ mod tests {
                 password: "password2".into(),
                 ..Default::default() // TODO: check and fix if needed
             },
-            &*TEST_ENCDEC,
         )
         .unwrap();
 
@@ -1905,7 +2078,7 @@ mod tests {
             login2.fields.http_realm,
             Some("https://www.example2.com".into())
         );
-        let sec_fields = login2.decrypt_fields(&*TEST_ENCDEC).unwrap();
+        let sec_fields = login2.decrypt_fields(db.encdec.as_ref()).unwrap();
         assert_eq!(sec_fields.username, "user2");
         assert_eq!(sec_fields.password, "password2");
     }
@@ -1915,16 +2088,13 @@ mod tests {
         ensure_initialized();
         let db = LoginDb::open_in_memory();
         let login = db
-            .add(
-                LoginEntry {
-                    origin: "https://www.example.com".into(),
-                    http_realm: Some("https://www.example.com".into()),
-                    username: "user1".into(),
-                    password: "password1".into(),
-                    ..Default::default()
-                },
-                &*TEST_ENCDEC,
-            )
+            .add(LoginEntry {
+                origin: "https://www.example.com".into(),
+                http_realm: Some("https://www.example.com".into()),
+                username: "user1".into(),
+                password: "password1".into(),
+                ..Default::default()
+            })
             .unwrap();
         // Simulate touch happening at another "time"
         thread::sleep(time::Duration::from_millis(50));
@@ -1935,20 +2105,53 @@ mod tests {
     }
 
     #[test]
+    fn test_update_does_not_count_as_use() {
+        // A plain update is not a password use.
+        // It must not bump `times_used` or `time_last_used`. Only `touch()` is
+        // allowed to do that.
+        ensure_initialized();
+        let db = LoginDb::open_in_memory();
+        let login = db
+            .add(LoginEntry {
+                origin: "https://www.example.com".into(),
+                http_realm: Some("https://www.example.com".into()),
+                username: "user1".into(),
+                password: "password1".into(),
+                ..Default::default()
+            })
+            .unwrap();
+        // Make sure the "now" an update would use differs from the add time.
+        thread::sleep(time::Duration::from_millis(50));
+        db.update(
+            &login.meta.id,
+            LoginEntry {
+                origin: "https://www.example.com".into(),
+                http_realm: Some("https://www.example.com".into()),
+                username: "user1".into(),
+                password: "password2".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let updated = db.get_by_id(&login.meta.id).unwrap().unwrap();
+        // An edit is not a use: times_used must stay unchanged.
+        assert_eq!(updated.meta.times_used, login.meta.times_used);
+        // An edit is not a use: time_last_used must stay unchanged.
+        assert_eq!(updated.meta.time_last_used, login.meta.time_last_used);
+    }
+
+    #[test]
     fn test_breach_alert_dismissal() {
         ensure_initialized();
         let db = LoginDb::open_in_memory();
         let login = db
-            .add(
-                LoginEntry {
-                    origin: "https://www.example.com".into(),
-                    http_realm: Some("https://www.example.com".into()),
-                    username: "user1".into(),
-                    password: "password1".into(),
-                    ..Default::default()
-                },
-                &*TEST_ENCDEC,
-            )
+            .add(LoginEntry {
+                origin: "https://www.example.com".into(),
+                http_realm: Some("https://www.example.com".into()),
+                username: "user1".into(),
+                password: "password1".into(),
+                ..Default::default()
+            })
             .unwrap();
         // initial state
         assert!(login.meta.time_last_breach_alert_dismissed.is_none());
@@ -1964,16 +2167,13 @@ mod tests {
         ensure_initialized();
         let db = LoginDb::open_in_memory();
         let login = db
-            .add(
-                LoginEntry {
-                    origin: "https://www.example.com".into(),
-                    http_realm: Some("https://www.example.com".into()),
-                    username: "user1".into(),
-                    password: "password1".into(),
-                    ..Default::default()
-                },
-                &*TEST_ENCDEC,
-            )
+            .add(LoginEntry {
+                origin: "https://www.example.com".into(),
+                http_realm: Some("https://www.example.com".into()),
+                username: "user1".into(),
+                password: "password1".into(),
+                ..Default::default()
+            })
             .unwrap();
 
         let dismiss_time = login.meta.time_password_changed + 1000;
@@ -1984,7 +2184,7 @@ mod tests {
             .get_by_id(&login.meta.id)
             .unwrap()
             .unwrap()
-            .decrypt(&*TEST_ENCDEC)
+            .decrypt(db.encdec.as_ref())
             .unwrap();
         assert_eq!(
             retrieved.time_last_breach_alert_dismissed,
@@ -1997,16 +2197,13 @@ mod tests {
         ensure_initialized();
         let db = LoginDb::open_in_memory();
         let login = db
-            .add(
-                LoginEntry {
-                    origin: "https://www.example.com".into(),
-                    http_realm: Some("https://www.example.com".into()),
-                    username: "test_user".into(),
-                    password: "test_password".into(),
-                    ..Default::default()
-                },
-                &*TEST_ENCDEC,
-            )
+            .add(LoginEntry {
+                origin: "https://www.example.com".into(),
+                http_realm: Some("https://www.example.com".into()),
+                username: "test_user".into(),
+                password: "test_password".into(),
+                ..Default::default()
+            })
             .unwrap();
 
         assert!(db.delete(login.guid_str()).unwrap());
@@ -2030,29 +2227,23 @@ mod tests {
         let db = LoginDb::open_in_memory();
 
         let login_a = db
-            .add(
-                LoginEntry {
-                    origin: "https://a.example.com".into(),
-                    http_realm: Some("https://www.example.com".into()),
-                    username: "test_user".into(),
-                    password: "test_password".into(),
-                    ..Default::default()
-                },
-                &*TEST_ENCDEC,
-            )
+            .add(LoginEntry {
+                origin: "https://a.example.com".into(),
+                http_realm: Some("https://www.example.com".into()),
+                username: "test_user".into(),
+                password: "test_password".into(),
+                ..Default::default()
+            })
             .unwrap();
 
         let login_b = db
-            .add(
-                LoginEntry {
-                    origin: "https://b.example.com".into(),
-                    http_realm: Some("https://www.example.com".into()),
-                    username: "test_user".into(),
-                    password: "test_password".into(),
-                    ..Default::default()
-                },
-                &*TEST_ENCDEC,
-            )
+            .add(LoginEntry {
+                origin: "https://b.example.com".into(),
+                http_realm: Some("https://www.example.com".into()),
+                username: "test_user".into(),
+                password: "test_password".into(),
+                ..Default::default()
+            })
             .unwrap();
 
         let result = db
@@ -2070,16 +2261,13 @@ mod tests {
         let db = LoginDb::open_in_memory();
 
         let login = db
-            .add(
-                LoginEntry {
-                    origin: "https://a.example.com".into(),
-                    http_realm: Some("https://www.example.com".into()),
-                    username: "test_user".into(),
-                    password: "test_password".into(),
-                    ..Default::default()
-                },
-                &*TEST_ENCDEC,
-            )
+            .add(LoginEntry {
+                origin: "https://a.example.com".into(),
+                http_realm: Some("https://www.example.com".into()),
+                username: "test_user".into(),
+                password: "test_password".into(),
+                ..Default::default()
+            })
             .unwrap();
 
         let result = db.delete_many(vec![login.guid_str()]).unwrap();
@@ -2100,20 +2288,113 @@ mod tests {
     }
 
     #[test]
+    fn test_delete_all() {
+        ensure_initialized();
+        let db = LoginDb::open_in_memory();
+        let login_a = db
+            .add(LoginEntry {
+                origin: "https://a.example.com".into(),
+                http_realm: Some("https://www.example.com".into()),
+                username: "test_user".into(),
+                password: "test_password".into(),
+                ..Default::default()
+            })
+            .unwrap();
+        let login_b = db
+            .add(LoginEntry {
+                origin: "https://b.example.com".into(),
+                http_realm: Some("https://www.example.com".into()),
+                username: "test_user".into(),
+                password: "test_password".into(),
+                ..Default::default()
+            })
+            .unwrap();
+
+        let mut deleted = db.delete_all().unwrap();
+        deleted.sort();
+        let mut expected = vec![login_a.meta.id.clone(), login_b.meta.id.clone()];
+        expected.sort();
+        assert_eq!(deleted, expected);
+        assert!(!db.exists(login_a.guid_str()).unwrap());
+        assert!(!db.exists(login_b.guid_str()).unwrap());
+
+        // On an empty database it's a no-op returning no ids.
+        assert_eq!(db.delete_all().unwrap(), Vec::<String>::new());
+    }
+
+    #[test]
+    fn test_delete_all_except_fxa() {
+        ensure_initialized();
+        let db = LoginDb::open_in_memory();
+        let login = db
+            .add(LoginEntry {
+                origin: "https://a.example.com".into(),
+                http_realm: Some("https://www.example.com".into()),
+                username: "test_user".into(),
+                password: "test_password".into(),
+                ..Default::default()
+            })
+            .unwrap();
+        let fxa_login = db
+            .add(LoginEntry {
+                origin: FXA_CREDENTIALS_ORIGIN.into(),
+                http_realm: Some("https://www.example.com".into()),
+                username: "test_user".into(),
+                password: "test_password".into(),
+                ..Default::default()
+            })
+            .unwrap();
+
+        let deleted = db.delete_all_except_fxa().unwrap();
+        assert_eq!(deleted, vec![login.meta.id.clone()]);
+
+        // Only the FxA login remains.
+        assert!(!db.exists(login.guid_str()).unwrap());
+        assert!(db.exists(fxa_login.guid_str()).unwrap());
+    }
+
+    #[test]
+    fn test_wipe_local_except_fxa() {
+        ensure_initialized();
+        let db = LoginDb::open_in_memory();
+        let login = db
+            .add(LoginEntry {
+                origin: "https://a.example.com".into(),
+                http_realm: Some("https://www.example.com".into()),
+                username: "test_user".into(),
+                password: "test_password".into(),
+                ..Default::default()
+            })
+            .unwrap();
+        let fxa_login = db
+            .add(LoginEntry {
+                origin: FXA_CREDENTIALS_ORIGIN.into(),
+                http_realm: Some("https://www.example.com".into()),
+                username: "test_user".into(),
+                password: "test_password".into(),
+                ..Default::default()
+            })
+            .unwrap();
+
+        db.wipe_local_except_fxa().unwrap();
+
+        // Only the FxA login remains.
+        assert!(!db.exists(login.guid_str()).unwrap());
+        assert!(db.exists(fxa_login.guid_str()).unwrap());
+    }
+
+    #[test]
     fn test_delete_local_for_remote_replacement() {
         ensure_initialized();
         let db = LoginDb::open_in_memory();
         let login = db
-            .add(
-                LoginEntry {
-                    origin: "https://www.example.com".into(),
-                    http_realm: Some("https://www.example.com".into()),
-                    username: "test_user".into(),
-                    password: "test_password".into(),
-                    ..Default::default()
-                },
-                &*TEST_ENCDEC,
-            )
+            .add(LoginEntry {
+                origin: "https://www.example.com".into(),
+                http_realm: Some("https://www.example.com".into()),
+                username: "test_user".into(),
+                password: "test_password".into(),
+                ..Default::default()
+            })
             .unwrap();
 
         let result = db
@@ -2143,9 +2424,9 @@ mod tests {
         }
 
         fn make_saved_login(db: &LoginDb, username: &str, password: &str) -> Login {
-            db.add(make_entry(username, password), &*TEST_ENCDEC)
+            db.add(make_entry(username, password))
                 .unwrap()
-                .decrypt(&*TEST_ENCDEC)
+                .decrypt(db.encdec.as_ref())
                 .unwrap()
         }
 
@@ -2156,8 +2437,7 @@ mod tests {
             let login = make_saved_login(&db, "user", "pass");
             assert_eq!(
                 Some(login),
-                db.find_login_to_update(make_entry("user", "pass"), &*TEST_ENCDEC)
-                    .unwrap(),
+                db.find_login_to_update(make_entry("user", "pass")).unwrap(),
             );
         }
 
@@ -2168,33 +2448,26 @@ mod tests {
             // Non-match because the username is different
             make_saved_login(&db, "other-user", "pass");
             // Non-match because the http_realm is different
-            db.add(
-                LoginEntry {
-                    origin: "https://www.example.com".into(),
-                    http_realm: Some("the other website".into()),
-                    username: "user".into(),
-                    password: "pass".into(),
-                    ..Default::default()
-                },
-                &*TEST_ENCDEC,
-            )
+            db.add(LoginEntry {
+                origin: "https://www.example.com".into(),
+                http_realm: Some("the other website".into()),
+                username: "user".into(),
+                password: "pass".into(),
+                ..Default::default()
+            })
             .unwrap();
             // Non-match because it uses form_action_origin instead of http_realm
-            db.add(
-                LoginEntry {
-                    origin: "https://www.example.com".into(),
-                    form_action_origin: Some("https://www.example.com/".into()),
-                    username: "user".into(),
-                    password: "pass".into(),
-                    ..Default::default()
-                },
-                &*TEST_ENCDEC,
-            )
+            db.add(LoginEntry {
+                origin: "https://www.example.com".into(),
+                form_action_origin: Some("https://www.example.com/".into()),
+                username: "user".into(),
+                password: "pass".into(),
+                ..Default::default()
+            })
             .unwrap();
             assert_eq!(
                 None,
-                db.find_login_to_update(make_entry("user", "pass"), &*TEST_ENCDEC)
-                    .unwrap(),
+                db.find_login_to_update(make_entry("user", "pass")).unwrap(),
             );
         }
 
@@ -2205,8 +2478,7 @@ mod tests {
             let login = make_saved_login(&db, "", "pass");
             assert_eq!(
                 Some(login),
-                db.find_login_to_update(make_entry("user", "pass"), &*TEST_ENCDEC)
-                    .unwrap(),
+                db.find_login_to_update(make_entry("user", "pass")).unwrap(),
             );
         }
 
@@ -2218,8 +2490,7 @@ mod tests {
             let username_match = make_saved_login(&db, "user", "pass");
             assert_eq!(
                 Some(username_match),
-                db.find_login_to_update(make_entry("user", "pass"), &*TEST_ENCDEC)
-                    .unwrap(),
+                db.find_login_to_update(make_entry("user", "pass")).unwrap(),
             );
         }
 
@@ -2228,14 +2499,11 @@ mod tests {
             ensure_initialized();
             let db = LoginDb::open_in_memory();
             assert!(db
-                .find_login_to_update(
-                    LoginEntry {
-                        http_realm: None,
-                        form_action_origin: None,
-                        ..LoginEntry::default()
-                    },
-                    &*TEST_ENCDEC
-                )
+                .find_login_to_update(LoginEntry {
+                    http_realm: None,
+                    form_action_origin: None,
+                    ..LoginEntry::default()
+                })
                 .is_err());
         }
 
@@ -2252,11 +2520,11 @@ mod tests {
 
             let mut entry = login.entry();
             entry.password = "pass2".to_string();
-            db.update(&login.id, entry, &*TEST_ENCDEC).unwrap();
+            db.update(&login.id, entry).unwrap();
 
             let mut entry = login.entry();
             entry.password = "pass3".to_string();
-            db.add_or_update(entry, &*TEST_ENCDEC).unwrap();
+            db.add_or_update(entry).unwrap();
         }
 
         #[test]
@@ -2266,64 +2534,49 @@ mod tests {
 
             // Create two logins with the same password
             let login1 = db
-                .add(
-                    LoginEntry {
-                        origin: "https://site1.com".into(),
-                        http_realm: Some("realm".into()),
-                        username: "user1".into(),
-                        password: "shared_password".into(),
-                        ..Default::default()
-                    },
-                    &*TEST_ENCDEC,
-                )
+                .add(LoginEntry {
+                    origin: "https://site1.com".into(),
+                    http_realm: Some("realm".into()),
+                    username: "user1".into(),
+                    password: "shared_password".into(),
+                    ..Default::default()
+                })
                 .unwrap();
 
             let login2 = db
-                .add(
-                    LoginEntry {
-                        origin: "https://site2.com".into(),
-                        http_realm: Some("realm".into()),
-                        username: "user2".into(),
-                        password: "shared_password".into(),
-                        ..Default::default()
-                    },
-                    &*TEST_ENCDEC,
-                )
+                .add(LoginEntry {
+                    origin: "https://site2.com".into(),
+                    http_realm: Some("realm".into()),
+                    username: "user2".into(),
+                    password: "shared_password".into(),
+                    ..Default::default()
+                })
                 .unwrap();
 
             // Initially, neither login is vulnerable
             assert!(!db
-                .is_potentially_vulnerable_password(&login1.meta.id, &*TEST_ENCDEC)
+                .is_potentially_vulnerable_password(&login1.meta.id)
                 .unwrap());
             assert!(!db
-                .is_potentially_vulnerable_password(&login2.meta.id, &*TEST_ENCDEC)
+                .is_potentially_vulnerable_password(&login2.meta.id)
                 .unwrap());
             // And checking both logins should return empty (none are vulnerable yet)
             let vulnerable = db
-                .are_potentially_vulnerable_passwords(
-                    &[&login1.meta.id, &login2.meta.id],
-                    &*TEST_ENCDEC,
-                )
+                .are_potentially_vulnerable_passwords(&[&login1.meta.id, &login2.meta.id])
                 .unwrap();
             assert_eq!(vulnerable.len(), 0);
 
             // Record "shared_password" as a vulnerable password
-            db.record_potentially_vulnerable_passwords(
-                vec!["shared_password".into()],
-                &*TEST_ENCDEC,
-            )
-            .unwrap();
+            db.record_potentially_vulnerable_passwords(vec!["shared_password".into()])
+                .unwrap();
 
             // login2 should be recognized as vulnerable (same password as breached login1)
             assert!(db
-                .is_potentially_vulnerable_password(&login2.meta.id, &*TEST_ENCDEC)
+                .is_potentially_vulnerable_password(&login2.meta.id)
                 .unwrap());
             // Batch check: both logins should be vulnerable (they share the same password)
             let vulnerable = db
-                .are_potentially_vulnerable_passwords(
-                    &[&login1.meta.id, &login2.meta.id],
-                    &*TEST_ENCDEC,
-                )
+                .are_potentially_vulnerable_passwords(&[&login1.meta.id, &login2.meta.id])
                 .unwrap();
             assert_eq!(vulnerable.len(), 2);
             assert!(vulnerable.contains(&login1.meta.id));
@@ -2339,12 +2592,11 @@ mod tests {
                     password: "different_password".into(),
                     ..Default::default()
                 },
-                &*TEST_ENCDEC,
             )
             .unwrap();
 
             assert!(!db
-                .is_potentially_vulnerable_password(&login2.meta.id, &*TEST_ENCDEC)
+                .is_potentially_vulnerable_password(&login2.meta.id)
                 .unwrap());
         }
 
@@ -2354,19 +2606,16 @@ mod tests {
             let db = LoginDb::open_in_memory();
 
             let login = db
-                .add(
-                    LoginEntry {
-                        origin: "https://example.com".into(),
-                        http_realm: Some("realm".into()),
-                        username: "user".into(),
-                        password: "password123".into(),
-                        ..Default::default()
-                    },
-                    &*TEST_ENCDEC,
-                )
+                .add(LoginEntry {
+                    origin: "https://example.com".into(),
+                    http_realm: Some("realm".into()),
+                    username: "user".into(),
+                    password: "password123".into(),
+                    ..Default::default()
+                })
                 .unwrap();
 
-            db.record_potentially_vulnerable_passwords(vec!["password123".into()], &*TEST_ENCDEC)
+            db.record_potentially_vulnerable_passwords(vec!["password123".into()])
                 .unwrap();
 
             // Verify that breachesL has an entry
@@ -2377,7 +2626,7 @@ mod tests {
             assert_eq!(count, 1);
             // And verify via the API that this login is vulnerable
             let vulnerable = db
-                .are_potentially_vulnerable_passwords(&[&login.meta.id], &*TEST_ENCDEC)
+                .are_potentially_vulnerable_passwords(&[&login.meta.id])
                 .unwrap();
             assert_eq!(vulnerable.len(), 1);
             assert_eq!(vulnerable[0], login.meta.id);
@@ -2393,7 +2642,7 @@ mod tests {
             assert_eq!(count, 0);
             // And verify via the API that no logins are vulnerable anymore
             let vulnerable = db
-                .are_potentially_vulnerable_passwords(&[&login.meta.id], &*TEST_ENCDEC)
+                .are_potentially_vulnerable_passwords(&[&login.meta.id])
                 .unwrap();
             assert_eq!(vulnerable.len(), 0);
         }
@@ -2404,45 +2653,36 @@ mod tests {
             let db = LoginDb::open_in_memory();
 
             let login1 = db
-                .add(
-                    LoginEntry {
-                        origin: "https://site1.com".into(),
-                        http_realm: Some("realm".into()),
-                        username: "user".into(),
-                        password: "password_A".into(),
-                        ..Default::default()
-                    },
-                    &*TEST_ENCDEC,
-                )
+                .add(LoginEntry {
+                    origin: "https://site1.com".into(),
+                    http_realm: Some("realm".into()),
+                    username: "user".into(),
+                    password: "password_A".into(),
+                    ..Default::default()
+                })
                 .unwrap();
 
             let login2 = db
-                .add(
-                    LoginEntry {
-                        origin: "https://site2.com".into(),
-                        http_realm: Some("realm".into()),
-                        username: "user".into(),
-                        password: "password_B".into(),
-                        ..Default::default()
-                    },
-                    &*TEST_ENCDEC,
-                )
+                .add(LoginEntry {
+                    origin: "https://site2.com".into(),
+                    http_realm: Some("realm".into()),
+                    username: "user".into(),
+                    password: "password_B".into(),
+                    ..Default::default()
+                })
                 .unwrap();
 
-            db.record_potentially_vulnerable_passwords(vec!["password_A".into()], &*TEST_ENCDEC)
+            db.record_potentially_vulnerable_passwords(vec!["password_A".into()])
                 .unwrap();
 
             // login2 has a different password → not vulnerable
             assert!(!db
-                .is_potentially_vulnerable_password(&login2.meta.id, &*TEST_ENCDEC)
+                .is_potentially_vulnerable_password(&login2.meta.id)
                 .unwrap());
             // Batch check: login1 should be vulnerable (its password is in breachesL)
             // login2 has a different password, so it's not vulnerable
             let vulnerable = db
-                .are_potentially_vulnerable_passwords(
-                    &[&login1.meta.id, &login2.meta.id],
-                    &*TEST_ENCDEC,
-                )
+                .are_potentially_vulnerable_passwords(&[&login1.meta.id, &login2.meta.id])
                 .unwrap();
             assert_eq!(vulnerable.len(), 1);
             assert!(vulnerable.contains(&login1.meta.id));

@@ -5,6 +5,7 @@
 package org.mozilla.fenix.browser.applinks
 
 import android.app.Dialog
+import android.content.DialogInterface
 import android.content.pm.PackageManager
 import android.graphics.drawable.Drawable
 import android.os.Bundle
@@ -14,6 +15,7 @@ import android.widget.FrameLayout
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -24,8 +26,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -49,31 +49,27 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.tooling.preview.PreviewParameter
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat.Type.systemBars
 import androidx.fragment.compose.content
 import com.google.accompanist.drawablepainter.rememberDrawablePainter
+import com.google.android.material.R as materialR
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
-import mozilla.components.feature.app.links.RedirectDialogFragment
-import mozilla.components.support.ktx.android.view.setNavigationBarColorCompat
-import org.mozilla.fenix.HomeActivity
-import org.mozilla.fenix.R
-import org.mozilla.fenix.browser.browsingmode.BrowsingModeManager
-import org.mozilla.fenix.components.menu.compose.ExpandableMenuItemAnimation
-import org.mozilla.fenix.theme.FirefoxTheme
-import org.mozilla.fenix.theme.PreviewThemeProvider
-import org.mozilla.fenix.theme.Theme
-import com.google.android.material.R as materialR
+import mozilla.components.compose.base.button.FilledButton
+import mozilla.components.compose.base.theme.PreviewThemeProvider
+import mozilla.components.compose.base.theme.Theme
 import mozilla.components.feature.app.links.R as AppLinksR
+import mozilla.components.feature.app.links.RedirectDialogFragment
 import mozilla.components.ui.icons.R as iconsR
+import org.mozilla.fenix.R
+import org.mozilla.fenix.components.menu.compose.ExpandableMenuItemAnimation
+import org.mozilla.fenix.ext.runIfFragmentIsAttached
+import org.mozilla.fenix.theme.FirefoxTheme
 
-/**
- * Dialog fragment that prompts the user to confirm opening a link in an external app.
- */
+/** Dialog fragment that prompts the user to confirm opening a link in an external app. */
 class AppLinksPromptFragment : RedirectDialogFragment() {
-
-    private lateinit var browsingModeManager: BrowsingModeManager
 
     private val appName: String
         get() = requireArguments().getString(KEY_APP_NAME, "")
@@ -114,23 +110,27 @@ class AppLinksPromptFragment : RedirectDialogFragment() {
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog =
         (super.onCreateDialog(savedInstanceState) as BottomSheetDialog).apply {
             setOnShowListener {
-                val safeActivity = activity ?: return@setOnShowListener
-                browsingModeManager = (safeActivity as HomeActivity).browsingModeManager
+                runIfFragmentIsAttached {
+                    val bottomSheet = findViewById<FrameLayout>(materialR.id.design_bottom_sheet)
+                    bottomSheet?.let {
+                        ViewCompat.setOnApplyWindowInsetsListener(it) { view, insets ->
+                            val systemBarInsets = insets.getInsets(systemBars())
+                            view.setPadding(0, systemBarInsets.top, 0, systemBarInsets.bottom)
+                            insets
+                        }
+                    }
+                    bottomSheet?.setBackgroundResource(R.drawable.bottom_sheet_with_top_rounded_corners)
 
-                val navigationBarColor = if (browsingModeManager.mode.isPrivate) {
-                    ContextCompat.getColor(context, R.color.fx_mobile_private_layer_color_3)
-                } else {
-                    ContextCompat.getColor(context, R.color.fx_mobile_layer_color_3)
+                    behavior.peekHeight = context.resources.displayMetrics.heightPixels
+                    behavior.state = BottomSheetBehavior.STATE_EXPANDED
                 }
-                window?.setNavigationBarColorCompat(navigationBarColor)
-
-                findViewById<FrameLayout>(materialR.id.design_bottom_sheet)
-                    ?.setBackgroundResource(android.R.color.transparent)
-
-                behavior.peekHeight = resources.displayMetrics.heightPixels
-                behavior.state = BottomSheetBehavior.STATE_EXPANDED
             }
         }
+
+    override fun onCancel(dialog: DialogInterface) {
+        onDismissRedirect()
+        super.onCancel(dialog)
+    }
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -139,17 +139,18 @@ class AppLinksPromptFragment : RedirectDialogFragment() {
     ) = content {
         val appIcon = loadAppIcon(packageName)
         FirefoxTheme {
-            val config = AppLinkRedirectConfig(
-                appName = appName,
-                title = dialogTitle,
-                message = dialogMessage,
-                appIcon = appIcon,
-                sourceUrl = sourceUrl,
-                destinationUrl = destinationUrl,
-                firefoxUrl = firefoxUrl,
-                packageName = packageName,
-                showCheckbox = showCheckbox,
-            )
+            val config =
+                AppLinkRedirectConfig(
+                    appName = appName,
+                    title = dialogTitle,
+                    message = dialogMessage,
+                    appIcon = appIcon,
+                    sourceUrl = sourceUrl,
+                    destinationUrl = destinationUrl,
+                    firefoxUrl = firefoxUrl,
+                    packageName = packageName,
+                    showCheckbox = showCheckbox,
+                )
             AppLinkRedirectBottomSheetContent(
                 config = config,
                 onConfirm = { isChecked ->
@@ -175,9 +176,7 @@ class AppLinksPromptFragment : RedirectDialogFragment() {
         private const val KEY_UNIQUE_IDENTIFIER = "unique_identifier"
         private const val KEY_PACKAGE_NAME = "package_name"
 
-        /**
-         * Creates a new instance of [AppLinksPromptFragment] with the given parameters.
-         */
+        /** Creates a new instance of [AppLinksPromptFragment] with the given parameters. */
         fun create(
             appName: String,
             title: String,
@@ -190,21 +189,24 @@ class AppLinksPromptFragment : RedirectDialogFragment() {
             packageName: String = "",
         ): AppLinksPromptFragment {
             return AppLinksPromptFragment().apply {
-                arguments = Bundle().apply {
-                    putString(KEY_APP_NAME, appName)
-                    putString(KEY_TITLE, title)
-                    putString(KEY_MESSAGE, message)
-                    putBoolean(KEY_SHOW_CHECKBOX, showCheckbox)
-                    putString(KEY_SOURCE_URL, sourceUrl)
-                    putString(KEY_DESTINATION_URL, destinationUrl)
-                    putString(KEY_FIREFOX_URL, firefoxUrl)
-                    putString(KEY_UNIQUE_IDENTIFIER, uniqueIdentifier)
-                    putString(KEY_PACKAGE_NAME, packageName)
-                }
+                arguments =
+                    Bundle().apply {
+                        putString(KEY_APP_NAME, appName)
+                        putString(KEY_TITLE, title)
+                        putString(KEY_MESSAGE, message)
+                        putBoolean(KEY_SHOW_CHECKBOX, showCheckbox)
+                        putString(KEY_SOURCE_URL, sourceUrl)
+                        putString(KEY_DESTINATION_URL, destinationUrl)
+                        putString(KEY_FIREFOX_URL, firefoxUrl)
+                        putString(KEY_UNIQUE_IDENTIFIER, uniqueIdentifier)
+                        putString(KEY_PACKAGE_NAME, packageName)
+                    }
             }
         }
     }
 }
+
+private const val WWW_PREFIX = "www."
 
 private data class AppLinkRedirectConfig(
     val appName: String,
@@ -227,24 +229,27 @@ private fun AppLinkRedirectBottomSheetContent(
 ) {
     var isCheckboxChecked by remember { mutableStateOf(false) }
 
-    val sourceDomain = if (config.sourceUrl.isNotEmpty()) {
-        config.sourceUrl.toUri().host ?: ""
-    } else {
-        ""
-    }
+    val sourceDomain =
+        if (config.sourceUrl.isNotEmpty()) {
+            // Strip "www." per design. Other prefixes are kept as they carry meaningful context.
+            config.sourceUrl.toUri().host?.removePrefix(WWW_PREFIX) ?: ""
+        } else {
+            ""
+        }
 
-    val maxScrollableHeight = with(LocalDensity.current) {
-        (LocalWindowInfo.current.containerSize.height * 0.6f).toDp()
-    }
+    val maxScrollableHeight =
+        with(LocalDensity.current) {
+            (LocalWindowInfo.current.containerSize.height * 0.6f).toDp()
+        }
 
     Column(
-        modifier = Modifier
-            .background(
-                color = MaterialTheme.colorScheme.surface,
-                shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
-            )
-            .padding(top = 8.dp)
-            .fillMaxWidth(),
+        modifier =
+            Modifier.background(
+                    color = MaterialTheme.colorScheme.surface,
+                    shape = MaterialTheme.shapes.large,
+                )
+                .padding(top = 8.dp)
+                .fillMaxWidth()
     ) {
         AppHeader(
             title = config.title,
@@ -253,23 +258,17 @@ private fun AppLinkRedirectBottomSheetContent(
         )
 
         Column(
-            modifier = Modifier
-                .heightIn(max = maxScrollableHeight)
-                .verticalScroll(rememberScrollState())
-                .padding(
-                    start = 16.dp,
-                    top = 8.dp,
-                    end = 16.dp,
-                    bottom = 16.dp,
-                ),
+            modifier =
+                Modifier.heightIn(max = maxScrollableHeight)
+                    .verticalScroll(rememberScrollState())
+                    .padding(
+                        start = 16.dp,
+                        top = 8.dp,
+                        end = 16.dp,
+                        bottom = 16.dp,
+                    ),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Text(
-                text = config.message,
-                style = FirefoxTheme.typography.subtitle1,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-
             AppLinkDetailsSection(config, initialExpanded = initialDetailsExpanded)
         }
 
@@ -281,6 +280,7 @@ private fun AppLinkRedirectBottomSheetContent(
         }
 
         AppLinkActionButtons(
+            appName = config.appName,
             onConfirm = { onConfirm(isCheckboxChecked) },
             onCancel = onCancel,
         )
@@ -294,11 +294,11 @@ private fun AppLinkItem(
     onClick: () -> Unit,
 ) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(color = MaterialTheme.colorScheme.surfaceContainerHigh)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+        modifier =
+            Modifier.fillMaxWidth()
+                .background(color = MaterialTheme.colorScheme.surfaceContainerHigh)
+                .clickable(onClick = onClick)
+                .padding(horizontal = 16.dp, vertical = 14.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -317,33 +317,34 @@ private fun AppLinkItem(
 
 @Composable
 private fun AppLinkDetailsSection(config: AppLinkRedirectConfig, initialExpanded: Boolean = false) {
-    val hasDetails = config.sourceUrl.isNotEmpty() ||
-        config.destinationUrl.isNotEmpty() ||
-        config.packageName.isNotEmpty()
+    val hasDetails =
+        config.sourceUrl.isNotEmpty() || config.destinationUrl.isNotEmpty() || config.packageName.isNotEmpty()
 
     if (!hasDetails) return
 
     var isExpanded by remember { mutableStateOf(initialExpanded) }
 
     Column(
-        modifier = Modifier.clip(shape = RoundedCornerShape(24.dp)),
+        modifier = Modifier.clip(shape = RoundedCornerShape(28.dp)),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         AppLinkItem(
-            label = stringResource(
-                if (isExpanded) {
-                    AppLinksR.string.mozac_feature_applinks_hide_details
-                } else {
-                    AppLinksR.string.mozac_feature_applinks_view_details
-                },
-            ),
-            afterIconPainter = painterResource(
-                if (isExpanded) {
-                    iconsR.drawable.mozac_ic_chevron_up_24
-                } else {
-                    iconsR.drawable.mozac_ic_chevron_down_24
-                },
-            ),
+            label =
+                stringResource(
+                    if (isExpanded) {
+                        AppLinksR.string.mozac_feature_applinks_hide_details
+                    } else {
+                        AppLinksR.string.mozac_feature_applinks_view_details
+                    }
+                ),
+            afterIconPainter =
+                painterResource(
+                    if (isExpanded) {
+                        iconsR.drawable.mozac_ic_chevron_up_24
+                    } else {
+                        iconsR.drawable.mozac_ic_chevron_down_24
+                    }
+                ),
             onClick = { isExpanded = !isExpanded },
         )
 
@@ -373,10 +374,11 @@ private fun AppLinkDetailItems(config: AppLinkRedirectConfig) {
         }
 
         AppLinkDetailItem(
-            label = stringResource(
-                AppLinksR.string.mozac_feature_applinks_firefox_url,
-                config.appName,
-            ),
+            label =
+                stringResource(
+                    AppLinksR.string.mozac_feature_applinks_firefox_url,
+                    config.appName,
+                ),
             description = config.firefoxUrl ?: stringResource(AppLinksR.string.mozac_feature_applinks_none),
             maxDescriptionLines = 3,
         )
@@ -397,14 +399,14 @@ private fun AppLinkDetailItem(
     maxDescriptionLines: Int = 1,
 ) {
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(shape = RoundedCornerShape(4.dp))
-            .background(color = MaterialTheme.colorScheme.surfaceContainerHigh)
-            .padding(
-                horizontal = 16.dp,
-                vertical = 8.dp,
-            ),
+        modifier =
+            Modifier.fillMaxWidth()
+                .clip(shape = MaterialTheme.shapes.extraSmall)
+                .background(color = MaterialTheme.colorScheme.surfaceContainerHigh)
+                .padding(
+                    horizontal = 16.dp,
+                    vertical = 8.dp,
+                )
     ) {
         Text(
             text = label,
@@ -427,9 +429,7 @@ private fun AppLinkCheckboxSection(
     onCheckedChange: (Boolean) -> Unit,
 ) {
     Row(
-        modifier = Modifier.padding(
-            horizontal = FirefoxTheme.layout.space.dynamic200,
-        ),
+        modifier = Modifier.padding(horizontal = FirefoxTheme.layout.space.dynamic200),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Checkbox(
@@ -447,6 +447,7 @@ private fun AppLinkCheckboxSection(
 
 @Composable
 private fun AppLinkActionButtons(
+    appName: String,
     onConfirm: () -> Unit,
     onCancel: () -> Unit,
 ) {
@@ -457,7 +458,7 @@ private fun AppLinkActionButtons(
     ) {
         TextButton(onClick = onCancel) {
             Text(
-                text = stringResource(AppLinksR.string.mozac_feature_applinks_confirm_dialog_deny),
+                text = stringResource(R.string.applinks_prompt_negative_button, appName),
                 style = FirefoxTheme.typography.button,
                 color = MaterialTheme.colorScheme.secondary,
             )
@@ -465,18 +466,10 @@ private fun AppLinkActionButtons(
 
         Spacer(modifier = Modifier.size(8.dp))
 
-        Button(
+        FilledButton(
+            text = stringResource(AppLinksR.string.mozac_feature_applinks_confirm_dialog_confirm_2),
             onClick = onConfirm,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.primary,
-            ),
-        ) {
-            Text(
-                text = stringResource(AppLinksR.string.mozac_feature_applinks_confirm_dialog_confirm),
-                style = FirefoxTheme.typography.button,
-                color = MaterialTheme.colorScheme.onPrimary,
-            )
-        }
+        )
     }
 }
 
@@ -487,30 +480,32 @@ private fun AppHeader(
     appIcon: Drawable?,
 ) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 8.dp)
-            .semantics(mergeDescendants = true) {},
+        modifier =
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp).semantics(mergeDescendants = true) {},
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (appIcon != null) {
-            Icon(
-                painter = rememberDrawablePainter(appIcon),
-                contentDescription = null,
-                modifier = Modifier
-                    .size(40.dp)
-                    .padding(all = 4.dp),
-                tint = null,
-            )
-        } else {
-            Icon(
-                painter = painterResource(iconsR.drawable.mozac_ic_android_robot_fill_24),
-                contentDescription = null,
-                modifier = Modifier
-                    .size(40.dp)
-                    .padding(all = 4.dp),
-                tint = MaterialTheme.colorScheme.onSurface,
-            )
+        Box(
+            modifier =
+                Modifier.size(32.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (appIcon != null) {
+                Icon(
+                    painter = rememberDrawablePainter(appIcon),
+                    contentDescription = null,
+                    modifier = Modifier.size(24.dp),
+                    tint = null,
+                )
+            } else {
+                Icon(
+                    painter = painterResource(iconsR.drawable.mozac_ic_globe_24),
+                    contentDescription = null,
+                    modifier = Modifier.size(24.dp),
+                    tint = MaterialTheme.colorScheme.onSurface,
+                )
+            }
         }
 
         Spacer(modifier = Modifier.size(8.dp))
@@ -521,33 +516,34 @@ private fun AppHeader(
                 style = FirefoxTheme.typography.headline7,
                 color = MaterialTheme.colorScheme.onSurface,
             )
-            Text(
-                text = url,
-                style = FirefoxTheme.typography.caption,
-                color = MaterialTheme.colorScheme.secondary,
-            )
+            if (url.isNotEmpty()) {
+                Text(
+                    text = stringResource(AppLinksR.string.mozac_feature_applinks_link_from, url),
+                    style = FirefoxTheme.typography.caption,
+                    color = MaterialTheme.colorScheme.secondary,
+                )
+            }
         }
     }
 }
 
 @Preview
 @Composable
-private fun AppLinkRedirectBottomSheetPreview(
-    @PreviewParameter(PreviewThemeProvider::class) theme: Theme,
-) {
+private fun AppLinkRedirectBottomSheetPreview(@PreviewParameter(PreviewThemeProvider::class) theme: Theme) {
     FirefoxTheme(theme) {
         AppLinkRedirectBottomSheetContent(
-            config = AppLinkRedirectConfig(
-                appName = "Firefox",
-                title = "Open in YouTube",
-                message = "Would you like to leave Firefox to view this content?",
-                appIcon = null,
-                sourceUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-                destinationUrl = "youtube://watch?v=dQw4w9WgXcQ",
-                firefoxUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-                packageName = "com.google.android.youtube",
-                showCheckbox = false,
-            ),
+            config =
+                AppLinkRedirectConfig(
+                    appName = "Firefox",
+                    title = "Open in YouTube",
+                    message = "Would you like to leave Firefox to view this content?",
+                    appIcon = null,
+                    sourceUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                    destinationUrl = "youtube://watch?v=dQw4w9WgXcQ",
+                    firefoxUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                    packageName = "com.google.android.youtube",
+                    showCheckbox = false,
+                ),
             onConfirm = {},
             onCancel = {},
         )
@@ -556,22 +552,21 @@ private fun AppLinkRedirectBottomSheetPreview(
 
 @Preview
 @Composable
-private fun AppLinkRedirectBottomSheetWithCheckboxPreview(
-    @PreviewParameter(PreviewThemeProvider::class) theme: Theme,
-) {
+private fun AppLinkRedirectBottomSheetWithCheckboxPreview(@PreviewParameter(PreviewThemeProvider::class) theme: Theme) {
     FirefoxTheme(theme) {
         AppLinkRedirectBottomSheetContent(
-            config = AppLinkRedirectConfig(
-                appName = "Firefox",
-                title = "Open in YouTube",
-                message = "Would you like to leave Firefox to view this content?",
-                appIcon = null,
-                sourceUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-                destinationUrl = "youtube://watch?v=dQw4w9WgXcQ",
-                firefoxUrl = null,
-                packageName = "com.google.android.youtube",
-                showCheckbox = true,
-            ),
+            config =
+                AppLinkRedirectConfig(
+                    appName = "Firefox",
+                    title = "Open in YouTube",
+                    message = "Would you like to leave Firefox to view this content?",
+                    appIcon = null,
+                    sourceUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                    destinationUrl = "youtube://watch?v=dQw4w9WgXcQ",
+                    firefoxUrl = null,
+                    packageName = "com.google.android.youtube",
+                    showCheckbox = true,
+                ),
             onConfirm = {},
             onCancel = {},
         )
@@ -580,22 +575,21 @@ private fun AppLinkRedirectBottomSheetWithCheckboxPreview(
 
 @Preview
 @Composable
-private fun AppLinkRedirectBottomSheetExpandedPreview(
-    @PreviewParameter(PreviewThemeProvider::class) theme: Theme,
-) {
+private fun AppLinkRedirectBottomSheetExpandedPreview(@PreviewParameter(PreviewThemeProvider::class) theme: Theme) {
     FirefoxTheme(theme) {
         AppLinkRedirectBottomSheetContent(
-            config = AppLinkRedirectConfig(
-                appName = "Firefox",
-                title = "Open in YouTube",
-                message = "Would you like to leave Firefox to view this content?",
-                appIcon = null,
-                sourceUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-                destinationUrl = "youtube://watch?v=dQw4w9WgXcQ",
-                firefoxUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-                packageName = "com.google.android.youtube",
-                showCheckbox = true,
-            ),
+            config =
+                AppLinkRedirectConfig(
+                    appName = "Firefox",
+                    title = "Open in YouTube",
+                    message = "Would you like to leave Firefox to view this content?",
+                    appIcon = null,
+                    sourceUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                    destinationUrl = "youtube://watch?v=dQw4w9WgXcQ",
+                    firefoxUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                    packageName = "com.google.android.youtube",
+                    showCheckbox = true,
+                ),
             onConfirm = {},
             onCancel = {},
             initialDetailsExpanded = true,

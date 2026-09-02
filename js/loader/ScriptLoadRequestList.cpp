@@ -4,6 +4,8 @@
 
 #include "ScriptLoadRequestList.h"
 
+#include <mozilla/FlowMarkers.h>
+
 #include "ScriptLoadRequest.h"
 
 namespace JS::loader {
@@ -35,6 +37,9 @@ bool ScriptLoadRequestList::Contains(ScriptLoadRequest* aElem) const {
 #endif  // DEBUG
 
 void ScriptLoadRequestList::AppendElement(ScriptLoadRequest* aElem) {
+  PROFILER_MARKER("ScriptLoadRequestList::AppendElement", JS,
+                  {mozilla::MarkerStack::Capture()}, FlowMarker,
+                  Flow::FromPointer(aElem));
   MOZ_ASSERT(!aElem->isInList());
   NS_ADDREF(aElem);
   insertBack(aElem);

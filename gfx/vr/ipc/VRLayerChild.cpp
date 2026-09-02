@@ -4,19 +4,18 @@
 
 #include "VRLayerChild.h"
 
-#include "mozilla/dom/HTMLCanvasElement.h"
-#include "mozilla/layers/ImageBridgeChild.h"
-#include "mozilla/layers/LayersMessages.h"  // for TimedTexture
-#include "mozilla/layers/SyncObject.h"      // for SyncObjectClient
-#include "mozilla/StaticPrefs_dom.h"
-#include "mozilla/StaticPrefs_webgl.h"
-
 #include "ClientWebGLContext.h"
-#include "gfxPlatform.h"
 #include "GLContext.h"
 #include "GLScreenBuffer.h"
 #include "SharedSurface.h"    // for SharedSurface
 #include "SharedSurfaceGL.h"  // for SharedSurface
+#include "gfxPlatform.h"
+#include "mozilla/StaticPrefs_dom.h"
+#include "mozilla/StaticPrefs_webgl.h"
+#include "mozilla/dom/HTMLCanvasElement.h"
+#include "mozilla/layers/ImageBridgeChild.h"
+#include "mozilla/layers/LayersMessages.h"  // for TimedTexture
+#include "mozilla/layers/SyncObject.h"      // for SyncObjectClient
 
 namespace mozilla::gfx {
 
@@ -106,8 +105,6 @@ void VRLayerChild::SubmitFrame(const VRDisplayInfo& aDisplayInfo) {
   SendSubmitFrame(*mThisFrameTextureDesc, frameId, mLeftEyeRect, mRightEyeRect);
 }
 
-bool VRLayerChild::IsIPCOpen() { return mIPCOpen; }
-
 void VRLayerChild::ClearSurfaces() {
   mThisFrameTextureDesc = Nothing();
   mLastFrameTextureDesc = Nothing();
@@ -117,33 +114,13 @@ void VRLayerChild::ClearSurfaces() {
   }
 }
 
-void VRLayerChild::ActorDestroy(ActorDestroyReason aWhy) { mIPCOpen = false; }
-
 // static
-PVRLayerChild* VRLayerChild::CreateIPDLActor() {
+already_AddRefed<VRLayerChild> VRLayerChild::CreateIPDLActor() {
   if (!StaticPrefs::dom_vr_enabled() && !StaticPrefs::dom_vr_webxr_enabled()) {
     return nullptr;
   }
 
-  VRLayerChild* c = new VRLayerChild();
-  c->AddIPDLReference();
-  return c;
-}
-
-// static
-bool VRLayerChild::DestroyIPDLActor(PVRLayerChild* actor) {
-  static_cast<VRLayerChild*>(actor)->ReleaseIPDLReference();
-  return true;
-}
-
-void VRLayerChild::AddIPDLReference() {
-  MOZ_ASSERT(mIPCOpen == false);
-  mIPCOpen = true;
-  AddRef();
-}
-void VRLayerChild::ReleaseIPDLReference() {
-  MOZ_ASSERT(mIPCOpen == false);
-  Release();
+  return MakeAndAddRef<VRLayerChild>();
 }
 
 }  // namespace mozilla::gfx

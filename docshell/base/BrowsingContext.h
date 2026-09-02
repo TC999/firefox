@@ -34,7 +34,6 @@
 #include "nsIDOMGeoPosition.h"
 
 class nsDocShellLoadState;
-class nsGeolocationService;
 class nsGlobalWindowInner;
 class nsGlobalWindowOuter;
 class nsIPrincipal;
@@ -53,6 +52,7 @@ struct ParamTraits;
 namespace mozilla {
 
 class ErrorResult;
+class GeolocationService;
 class LogModule;
 
 namespace ipc {
@@ -94,21 +94,15 @@ struct EmbedderColorSchemes {
   PrefersColorSchemeOverride mUsed{};
   PrefersColorSchemeOverride mPreferred{};
 
-  bool operator==(const EmbedderColorSchemes& aOther) const {
-    return mUsed == aOther.mUsed && mPreferred == aOther.mPreferred;
-  }
-
-  bool operator!=(const EmbedderColorSchemes& aOther) const {
-    return !(*this == aOther);
-  }
+  bool operator==(const EmbedderColorSchemes& aOther) const = default;
 };
 
 // Fields are, by default, settable by any process and readable by any process.
 // Racy sets will be resolved as-if they occurred in the order the parent
 // process finds out about them.
 //
-// The `DidSet` and `CanSet` methods may be overloaded to provide different
-// behavior for a specific field.
+// The `DidSet` method may, and the `CanSet` method must, be overloaded to
+// provide different behavior for a specific field.
 //  * `DidSet` is called to run code in every process whenever the value is
 //    updated (This currently occurs even if the value didn't change, though
 //    this may change in the future).
@@ -245,11 +239,14 @@ struct EmbedderColorSchemes {
    * top BCs. */                                                              \
   FIELD(AuthorStyleDisabledDefault, bool)                                     \
   FIELD(ServiceWorkersTestingEnabled, bool)                                   \
+  FIELD(ServiceWorkersDisabledByPolicy, bool)                                 \
   FIELD(MediumOverride, nsString)                                             \
   /* DevTools override for prefers-color-scheme */                            \
   FIELD(PrefersColorSchemeOverride, dom::PrefersColorSchemeOverride)          \
   FIELD(LanguageOverride, nsCString)                                          \
   FIELD(TimezoneOverride, nsString)                                           \
+  /* DevTools override for prefers-reduced-motion */                          \
+  FIELD(PrefersReducedMotionOverride, dom::PrefersReducedMotionOverride)      \
   /* DevTools override for forced-colors */                                   \
   FIELD(ForcedColorsOverride, dom::ForcedColorsOverride)                      \
   /* DevTools multiplier for animations playback rate */                      \
@@ -300,6 +297,9 @@ struct EmbedderColorSchemes {
      Document Picture-in-Picture window */                                    \
   FIELD(ControlsDocumentPiP, bool)
 
+#define NS_DOM_BROWSINGCONTEXT_IID \
+  {0x5059a6aa, 0xf09, 0x415c, {0x89, 0xbd, 0x63, 0xfd, 0xe5, 0xab, 0x1a, 0x66}};
+
 // BrowsingContext, in this context, is the cross process replicated
 // environment in which information about documents is stored. In
 // particular the tree structure of nested browsing contexts is
@@ -318,6 +318,7 @@ struct EmbedderColorSchemes {
 // BrowsingContext::Create* methods.
 class BrowsingContext : public nsILoadContext, public nsWrapperCache {
   MOZ_DECL_SYNCED_CONTEXT(BrowsingContext, MOZ_EACH_BC_FIELD)
+  NS_INLINE_DECL_STATIC_IID(NS_DOM_BROWSINGCONTEXT_IID)
 
  public:
   enum class Type { Chrome, Content };
@@ -496,18 +497,9 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
   // the source BrowsingContext is allowed to perform the navigation.
   nsresult CheckFramebusting(nsDocShellLoadState* aLoadState);
 
-  // Determines if the current BrowsingContext is allowed to navigate the
-  // target BrowsingContext (which should be top-level).
-  bool IsFramebustingAllowed(BrowsingContext* aTarget);
-
-  // A BrowsingContext is allowed to perform a top-level navigation if one
-  // of the following conditions is met:
-  // 1. It is top-level (implied by same-origin).
-  // 2. It is same-origin with the top-level.
-  // 3. Its associated document has been interacted with by the user.
-  // 4. Its associated document has explicit `allow-top-navigation`
-  //    sandbox flags.
-  bool IsFramebustingAllowedInner();
+  // Compute whether this browsing context is allowed to navigate the
+  // top-level without user interaction. Must be called in-process.
+  bool ComputeIsFramebustingAllowed();
 
   void DisplayLoadError(const nsAString& aURI);
 
@@ -535,7 +527,7 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
 
   bool IsContentSubframe() const { return IsContent() && IsSubframe(); }
 
-  RefPtr<nsGeolocationService> GetGeolocationServiceOverride();
+  RefPtr<GeolocationService> GetGeolocationServiceOverride();
 
   // non-zero
   uint64_t Id() const { return mBrowsingContextId; }
@@ -870,7 +862,7 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
   BrowsingContext* Self() { return this; }
   void Location(JSContext* aCx, JS::MutableHandle<JSObject*> aLocation,
                 ErrorResult& aError);
-  void Close(CallerType aCallerType, ErrorResult& aError);
+  MOZ_CAN_RUN_SCRIPT void Close(CallerType aCallerType, ErrorResult& aError);
   bool GetClosed(ErrorResult&) { return GetClosed(); }
   void Focus(CallerType aCallerType, ErrorResult& aError);
   void Blur(CallerType aCallerType, ErrorResult& aError);
@@ -1093,6 +1085,10 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
     return GetServiceWorkersTestingEnabled();
   }
 
+  bool ServiceWorkersDisabledByPolicy() const {
+    return GetServiceWorkersDisabledByPolicy();
+  }
+
   void GetMediumOverride(nsAString& aOverride) const {
     aOverride = GetMediumOverride();
   }
@@ -1111,6 +1107,10 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
 
   dom::ForcedColorsOverride ForcedColorsOverride() const {
     return GetForcedColorsOverride();
+  }
+
+  dom::PrefersReducedMotionOverride PrefersReducedMotionOverride() const {
+    return GetPrefersReducedMotionOverride();
   }
 
   double AnimationsPlayBackRateMultiplier() const {
@@ -1268,14 +1268,27 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
   // Update dependents if the activeness of this BC was explicitly changed.
   void ActivenessChanged(bool aIsActive);
 
+  using CanSetResult = syncedcontext::CanSetResult;
+
+  // Deleted catch-all overload: every field must provide a `CanSet` whose value
+  // parameter exactly matches the field's type.
+  template <size_t I, typename T>
+  bool CanSet(FieldIndex<I>, const T&, ContentParent*) = delete;
+
+  // Overload `DidSet` to get notifications for a particular field being set.
+  //
+  // You can also overload the variant that gets the old value if you need it.
+  template <size_t I>
+  void DidSet(FieldIndex<I>) {}
+  template <size_t I, typename T>
+  void DidSet(FieldIndex<I>, T&& aOldValue) {}
+
   bool CanSet(FieldIndex<IDX_SessionStoreEpoch>, uint32_t aEpoch,
               ContentParent* aSource) {
     return IsTop() && !aSource;
   }
 
   void DidSet(FieldIndex<IDX_SessionStoreEpoch>, uint32_t aOldValue);
-
-  using CanSetResult = syncedcontext::CanSetResult;
 
   // Ensure that opener is in the same BrowsingContextGroup.
   bool CanSet(FieldIndex<IDX_OpenerId>, const uint64_t& aValue,
@@ -1291,6 +1304,11 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
               nsILoadInfo::CrossOriginOpenerPolicy, ContentParent*);
 
   bool CanSet(FieldIndex<IDX_ServiceWorkersTestingEnabled>, bool,
+              ContentParent*) {
+    return IsTop();
+  }
+
+  bool CanSet(FieldIndex<IDX_ServiceWorkersDisabledByPolicy>, bool,
               ContentParent*) {
     return IsTop();
   }
@@ -1324,6 +1342,11 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
     return IsTop();
   }
 
+  bool CanSet(FieldIndex<IDX_PrefersReducedMotionOverride>,
+              dom::PrefersReducedMotionOverride, ContentParent*) {
+    return IsTop();
+  }
+
   bool CanSet(FieldIndex<IDX_AnimationsPlayBackRateMultiplier>, double&,
               ContentParent*) {
     return IsTop();
@@ -1331,6 +1354,10 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
 
   bool CanSet(FieldIndex<IDX_InRDMPane>, const bool&, ContentParent* aSource);
   void DidSet(FieldIndex<IDX_InRDMPane>, bool aOldValue);
+  bool CanSet(FieldIndex<IDX_HasOrientationOverride>, const bool&,
+              ContentParent*) {
+    return true;
+  }
   void DidSet(FieldIndex<IDX_HasOrientationOverride>, bool aOldValue);
   MOZ_CAN_RUN_SCRIPT_BOUNDARY void DidSet(FieldIndex<IDX_ForceDesktopViewport>,
                                           bool aOldValue);
@@ -1343,6 +1370,9 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
 
   void DidSet(FieldIndex<IDX_ForcedColorsOverride>,
               dom::ForcedColorsOverride aOldValue);
+
+  void DidSet(FieldIndex<IDX_PrefersReducedMotionOverride>,
+              dom::PrefersReducedMotionOverride aOldValue);
 
   void DidSet(FieldIndex<IDX_AnimationsPlayBackRateMultiplier>,
               double aOldValue);
@@ -1389,6 +1419,9 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
   // Ensure that we only set the flag on the top level browsingContext.
   // And then, we do a pre-order walk in the tree to refresh the
   // volume of all media elements.
+  bool CanSet(FieldIndex<IDX_Muted>, const bool&, ContentParent*) {
+    return true;
+  }
   void DidSet(FieldIndex<IDX_Muted>);
 
   bool CanSet(FieldIndex<IDX_IsAppTab>, const bool& aValue,
@@ -1426,11 +1459,25 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
 
   void DidSet(FieldIndex<IDX_IsPopupSpam>);
 
+  bool CanSet(FieldIndex<IDX_GVAudibleAutoplayRequestStatus>,
+              const GVAutoplayRequestStatus&, ContentParent*) {
+    return true;
+  }
   void DidSet(FieldIndex<IDX_GVAudibleAutoplayRequestStatus>);
+  bool CanSet(FieldIndex<IDX_GVInaudibleAutoplayRequestStatus>,
+              const GVAutoplayRequestStatus&, ContentParent*) {
+    return true;
+  }
   void DidSet(FieldIndex<IDX_GVInaudibleAutoplayRequestStatus>);
 
+  bool CanSet(FieldIndex<IDX_Loading>, const bool&, ContentParent*) {
+    return true;
+  }
   void DidSet(FieldIndex<IDX_Loading>);
 
+  bool CanSet(FieldIndex<IDX_AncestorLoading>, const bool&, ContentParent*) {
+    return true;
+  }
   void DidSet(FieldIndex<IDX_AncestorLoading>);
 
   void DidSet(FieldIndex<IDX_PlatformOverride>);
@@ -1474,9 +1521,12 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
               const bool& aTargetTopLevelLinkClicksToBlankInternal,
               ContentParent* aSource);
 
+  bool CanSet(FieldIndex<IDX_HasSessionHistory>, const bool&, ContentParent*) {
+    return true;
+  }
   void DidSet(FieldIndex<IDX_HasSessionHistory>, bool aOldValue);
 
-  bool CanSet(FieldIndex<IDX_BrowserId>, const uint32_t& aValue,
+  bool CanSet(FieldIndex<IDX_BrowserId>, const uint64_t& aValue,
               ContentParent* aSource);
 
   bool CanSet(FieldIndex<IDX_UseErrorPages>, const bool& aUseErrorPages,
@@ -1516,18 +1566,14 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
   bool CanSet(FieldIndex<IDX_ForceOffline>, bool aNewValue,
               ContentParent* aSource);
 
-  bool CanSet(FieldIndex<IDX_InnerSizeSpoofedForRFP>, bool, ContentParent*) {
+  bool CanSet(FieldIndex<IDX_InnerSizeSpoofedForRFP>, const CSSIntSize&,
+              ContentParent*) {
     return IsTop();
   }
 
   bool CanSet(FieldIndex<IDX_EmbeddedInContentDocument>, bool,
               ContentParent* aSource) {
     return CheckOnlyEmbedderCanSet(aSource);
-  }
-
-  template <size_t I, typename T>
-  bool CanSet(FieldIndex<I>, const T&, ContentParent*) {
-    return true;
   }
 
   bool CanSet(FieldIndex<IDX_IPAddressSpace>, nsILoadInfo::IPAddressSpace,
@@ -1543,18 +1589,98 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
     return IsTop();
   }
 
-  // Overload `DidSet` to get notifications for a particular field being set.
-  //
-  // You can also overload the variant that gets the old value if you need it.
-  template <size_t I>
-  void DidSet(FieldIndex<I>) {}
-  template <size_t I, typename T>
-  void DidSet(FieldIndex<I>, T&& aOldValue) {}
+  bool CanSet(FieldIndex<IDX_Name>, const nsString&, ContentParent*) {
+    return true;
+  }
+  bool CanSet(FieldIndex<IDX_Closed>, const bool&, ContentParent*) {
+    return true;
+  }
+  bool CanSet(FieldIndex<IDX_OnePermittedSandboxedNavigatorId>, const uint64_t&,
+              ContentParent*) {
+    return true;
+  }
+  bool CanSet(FieldIndex<IDX_HadOriginalOpener>, const bool&, ContentParent*) {
+    return true;
+  }
+  bool CanSet(FieldIndex<IDX_SandboxFlags>, const uint32_t&, ContentParent*) {
+    return true;
+  }
+  bool CanSet(FieldIndex<IDX_InitialSandboxFlags>, const uint32_t&,
+              ContentParent*) {
+    return true;
+  }
+  bool CanSet(FieldIndex<IDX_HistoryID>, const nsID&, ContentParent*) {
+    return true;
+  }
+  bool CanSet(FieldIndex<IDX_IsPrinting>, const bool&, ContentParent*) {
+    return true;
+  }
+  bool CanSet(FieldIndex<IDX_ForceEnableTrackingProtection>, const bool&,
+              ContentParent*) {
+    return true;
+  }
+  bool CanSet(FieldIndex<IDX_IsPopupRequested>, const bool&, ContentParent*) {
+    return true;
+  }
+  bool CanSet(FieldIndex<IDX_ScreenHeightOverride>, const uint64_t&,
+              ContentParent*) {
+    return true;
+  }
+  bool CanSet(FieldIndex<IDX_ScreenWidthOverride>, const uint64_t&,
+              ContentParent*) {
+    return true;
+  }
+  bool CanSet(FieldIndex<IDX_HasScreenAreaOverride>, const bool&,
+              ContentParent*) {
+    return true;
+  }
+  bool CanSet(FieldIndex<IDX_CurrentOrientationAngle>, const float&,
+              ContentParent*) {
+    return true;
+  }
+  bool CanSet(FieldIndex<IDX_CurrentOrientationType>,
+              const mozilla::dom::OrientationType&, ContentParent*) {
+    return true;
+  }
+  bool CanSet(FieldIndex<IDX_MaxTouchPointsOverride>, const uint8_t&,
+              ContentParent*) {
+    return true;
+  }
+  bool CanSet(FieldIndex<IDX_CurrentLoadIdentifier>, const Maybe<uint64_t>&,
+              ContentParent*) {
+    return true;
+  }
+  bool CanSet(FieldIndex<IDX_AndroidAppLinkLoadIdentifier>,
+              const Maybe<uint64_t>&, ContentParent*) {
+    return true;
+  }
+  bool CanSet(FieldIndex<IDX_HasLoadedNonInitialDocument>, const bool&,
+              ContentParent*) {
+    return true;
+  }
+  bool CanSet(FieldIndex<IDX_HistoryEntryCount>, const uint32_t&,
+              ContentParent*) {
+    return true;
+  }
 
+  bool CanSet(FieldIndex<IDX_FullZoom>, const float&, ContentParent*) {
+    return true;
+  }
   void DidSet(FieldIndex<IDX_FullZoom>, float aOldValue);
+  bool CanSet(FieldIndex<IDX_TextZoom>, const float&, ContentParent*) {
+    return true;
+  }
   void DidSet(FieldIndex<IDX_TextZoom>, float aOldValue);
+  bool CanSet(FieldIndex<IDX_AuthorStyleDisabledDefault>, const bool&,
+              ContentParent*) {
+    return true;
+  }
   void DidSet(FieldIndex<IDX_AuthorStyleDisabledDefault>);
 
+  bool CanSet(FieldIndex<IDX_IsSyntheticDocumentContainer>, const bool&,
+              ContentParent*) {
+    return true;
+  }
   void DidSet(FieldIndex<IDX_IsSyntheticDocumentContainer>);
 
   void DidSet(FieldIndex<IDX_IsUnderHiddenEmbedderElement>, bool aOldValue);
@@ -1601,9 +1727,7 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
   nsTArray<RefPtr<WindowContext>> mWindowContexts;
   RefPtr<WindowContext> mCurrentWindowContext;
 
-  RefPtr<nsGeolocationService> mGeolocationServiceOverride;
-
-  JS::UniqueChars mDefaultLocale;
+  RefPtr<GeolocationService> mGeolocationServiceOverride;
 
   // This is a weak reference. It will be updated automatically during sweeping
   // by SweepWindowProxies.

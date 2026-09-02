@@ -93,14 +93,14 @@ impl CompilerContainer {
     }
 
     pub(super) fn max_shader_model(&self) -> Option<wgt::DxcShaderModel> {
-        match self {
+        match *self {
             CompilerContainer::Fxc(..) => None,
             CompilerContainer::DynamicDxc(CompilerDynamicDxc {
                 max_shader_model, ..
             })
             | CompilerContainer::StaticDxc(CompilerStaticDxc {
                 max_shader_model, ..
-            }) => Some(max_shader_model.clone()),
+            }) => Some(max_shader_model),
         }
     }
 
@@ -411,7 +411,10 @@ fn compile_dxc(
         compile_args.push(Dxc::DXC_ARG_SKIP_OPTIMIZATIONS);
     }
 
-    if device.features.contains(wgt::Features::SHADER_F16) {
+    if device
+        .features
+        .intersects(wgt::Features::SHADER_F16 | wgt::Features::SHADER_I16)
+    {
         compile_args.push(windows::core::w!("-enable-16bit-types"));
     }
 

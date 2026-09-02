@@ -16,12 +16,12 @@ namespace mozilla {
 #define INIT_CANONICAL(name, val) \
   name(mTaskQueue, val, "MediaDecoderStateMachineBase::" #name " (Canonical)")
 #define FMT(x, ...) "Decoder=%p " x, mDecoderID, ##__VA_ARGS__
-#define LOG(x, ...)                                                         \
-  DDMOZ_LOG(gMediaDecoderLog, LogLevel::Debug, "Decoder=%p " x, mDecoderID, \
-            ##__VA_ARGS__)
-#define LOGV(x, ...)                                                          \
-  DDMOZ_LOG(gMediaDecoderLog, LogLevel::Verbose, "Decoder=%p " x, mDecoderID, \
-            ##__VA_ARGS__)
+#define LOG(x, ...)                                                 \
+  DDMOZ_LOG_FMT(gMediaDecoderLog, LogLevel::Debug, "Decoder={} " x, \
+                fmt::ptr(mDecoderID), ##__VA_ARGS__)
+#define LOGV(x, ...)                                                  \
+  DDMOZ_LOG_FMT(gMediaDecoderLog, LogLevel::Verbose, "Decoder={} " x, \
+                fmt::ptr(mDecoderID), ##__VA_ARGS__)
 #define LOGW(x, ...) NS_WARNING(nsPrintfCString(FMT(x, ##__VA_ARGS__)).get())
 #define LOGE(x, ...)                                                   \
   NS_DebugBreak(NS_DEBUG_WARNING,                                      \
@@ -36,7 +36,7 @@ MediaDecoderStateMachineBase::MediaDecoderStateMachineBase(
       mVideoFrameContainer(aDecoder->GetVideoFrameContainer()),
       mTaskQueue(TaskQueue::Create(GetMediaThreadPool(MediaThreadType::MDSM),
                                    "MDSM::mTaskQueue",
-                                   /* aSupportsTailDispatch = */ true)),
+                                   TailDispatchPolicy::ConsistentOrdering)),
       mReader(new ReaderProxy(mTaskQueue, aReader)),
       mPlaybackRate(1.0),
       INIT_MIRROR(mBuffered, media::TimeIntervals()),

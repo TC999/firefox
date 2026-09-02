@@ -31,13 +31,11 @@ plugins {
     id 'ApkSizePlugin'
     id "mozac.ConfigPlugin"
     id 'org.mozilla.conventions.mach-tasks'
+    id 'com.diffplug.spotless'
     alias(libs.plugins.android.library) apply false
     alias(libs.plugins.dependency.analysis)
-    alias(libs.plugins.detekt)
-    alias(libs.plugins.kotlin.android) apply false
     alias(libs.plugins.kotlin.compose) apply false
     alias(libs.plugins.ksp)
-    alias(libs.plugins.spotless)
 }
 
 def tryInt = { string ->
@@ -208,7 +206,16 @@ def getVersionName() {
 
 // Mimic Python: open(os.path.join(buildconfig.topobjdir, 'buildid.h')).readline().split()[2]
 def getBuildId() {
-    return file("${topobjdir}/buildid.h").getText('utf-8').split()[2]
+    def buildidFile = file("${topobjdir}/buildid.h")
+    if (!buildidFile.exists()) {
+        throw new GradleException(
+            "A required build file is missing from the object directory:\n" +
+                "  - ${buildidFile}\n\n" +
+                "This file is produced by a full build, not by Gradle.\n" +
+                "Run `./mach build` from the source directory first, then retry your Gradle build."
+        )
+    }
+    return buildidFile.getText('utf-8').split()[2]
 }
 
 def getVersionNumber() {
@@ -255,7 +262,6 @@ afterEvaluate {
             def projectName = project.getName()
             if (projectName.startsWith('geckoview')
                 || projectName == 'annotations'
-                || projectName == 'exoplayer2'
                 || projectName == 'messaging_example'
                 || projectName == 'port_messaging_example'
                 || projectName == 'test_runner'
@@ -297,16 +303,18 @@ afterEvaluate {
 
 subprojects { project ->
     // Perform spotless lint in GeckoView projects only.
-    // Sync with spotless_projects in mobile/android/geckoview/gradle.configure.
+    // Sync with spotless_projects in mobile/android/gradle.configure.
     def projectName = project.getName()
     if (projectName.startsWith('geckoview')
             || projectName == 'annotations'
-            || projectName == 'exoplayer2'
             || projectName == 'messaging_example'
             || projectName == 'port_messaging_example'
             || projectName == 'test_runner'
     ) {
         apply plugin: "com.diffplug.spotless"
+        mozilla {
+            ktfmtSourcePaths = ["**/*.kt", "!**/thirdparty/**"]
+        }
 
         spotless {
             lineEndings = com.diffplug.spotless.LineEnding.UNIX
@@ -316,13 +324,6 @@ subprojects { project ->
                     exclude '**/thirdparty/**'
                 }
                 googleJavaFormat(libs.versions.google.java.format.get())
-            }
-            kotlin {
-                target project.fileTree(project.projectDir) {
-                    include '**/*.kt'
-                    exclude '**/thirdparty/**'
-                }
-                ktlint("${libs.versions.ktlint.get()}").setEditorConfigPath("${topsrcdir}/mobile/android/geckoview/.editorconfig")
             }
         }
 
@@ -338,9 +339,7 @@ subprojects { project ->
     }
 
     afterEvaluate {
-        // Our vendored copy of exoplayer2 hits build failures when targeting Java 17.
-        // Given our intent to remove it in the near future, just leave it alone here.
-        if (it.hasProperty('android') && projectName != 'exoplayer2') {
+        if (it.hasProperty('android')) {
             kotlin {
                 jvmToolchain(config.jvmTargetCompatibility)
             }
@@ -384,18 +383,18 @@ tasks.register("lint") {
     description = "Runs lint on all mobile projects."
     mobileProjects.each { dependsOn "${it}:lint" }
 }
-tasks.register("ktlint") {
+tasks.named("ktfmtCheck").configure {
     group = "verification"
-    description = "Runs ktlint on all mobile projects."
-    mobileProjects.each { dependsOn "${it}:ktlint" }
+    description = "Runs ktfmtCheck on all mobile projects."
+    mobileProjects.each { dependsOn "${it}:ktfmtCheck" }
 }
-tasks.register("ktlintFormat") {
+tasks.named("ktfmtFormat").configure {
     group = "formatting"
-    description = "Runs ktlintFormat on all mobile projects."
-    mobileProjects.each { dependsOn "${it}:ktlintFormat" }
+    description = "Runs ktfmtFormat on all mobile projects."
+    mobileProjects.each { dependsOn "${it}:ktfmtFormat" }
 }
 tasks.named("detekt").configure {
-    // NOTE: We are replacing the default 'detekt' task.
+    group = "verification"
     description = "Runs detekt on all mobile projects."
     mobileProjects.each { dependsOn "${it}:detekt" }
 }

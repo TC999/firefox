@@ -23,7 +23,7 @@ void FopenUsageChecker::registerMatchers(MatchFinder *AstMatcher) {
   AstMatcher->addMatcher(
       callExpr(
           isFirstParty(),
-          callee(functionDecl(allOf(
+          callee(functionDecl(
               isInSystemHeader(),
               anyOf(
                   allOf(anyOf(allOf(hasName("fopen"), hasConstCharPtrParam(0)),
@@ -46,7 +46,7 @@ void FopenUsageChecker::registerMatchers(MatchFinder *AstMatcher) {
                         hasIntegerParam(1), hasIntegerParam(2),
                         hasParamOfType(3, "LPSECURITY_ATTRIBUTES"),
                         hasIntegerParam(4), hasIntegerParam(5),
-                        hasParamOfType(6, "HANDLE")))))),
+                        hasParamOfType(6, "HANDLE"))))),
           unless(isInWhitelistForFopenUsage()))
           .bind("funcCall"),
       this);
@@ -59,9 +59,9 @@ void FopenUsageChecker::check(const MatchFinder::MatchResult &Result) {
       "_sopen_s, OpenFile, CreateFileA should never be used due to lossy "
       "conversion from UTF8 to ANSI.";
 
-    diag(FuncCall->getBeginLoc(),
-         "Usage of ASCII file functions (here %0) is forbidden on Windows.",
-         DiagnosticIDs::Warning)
-        << FuncCall->getDirectCallee()->getName();
-    diag(FuncCall->getBeginLoc(), ExtraInfo, DiagnosticIDs::Note);
+  diag(FuncCall->getBeginLoc(),
+       "Usage of ASCII file functions (here %0) is forbidden on Windows.",
+       DiagnosticIDs::Warning)
+      << FuncCall->getDirectCallee()->getName();
+  diag(FuncCall->getBeginLoc(), ExtraInfo, DiagnosticIDs::Note);
 }

@@ -18,7 +18,7 @@ using namespace mozilla::dom;
 //----------------------------------------------------------------------
 
 nsGenericHTMLElement* NS_NewHTMLNOTUSEDElement(
-    already_AddRefed<mozilla::dom::NodeInfo>&& aNodeInfo,
+    already_AddRefed<mozilla::dom::NodeInfo> aNodeInfo,
     FromParser aFromParser) {
   MOZ_ASSERT_UNREACHABLE("The element ctor should never be called");
   return nullptr;
@@ -35,9 +35,18 @@ static const HTMLContentCreatorFunction sHTMLContentCreatorFunctions[] = {
     NS_NewHTMLUnknownElement};
 
 nsresult NS_NewHTMLElement(Element** aResult,
-                           already_AddRefed<mozilla::dom::NodeInfo>&& aNodeInfo,
+                           already_AddRefed<mozilla::dom::NodeInfo> aNodeInfo,
                            FromParser aFromParser, nsAtom* aIsAtom,
                            mozilla::dom::CustomElementDefinition* aDefinition) {
+  return NS_NewHTMLElement(aResult, std::move(aNodeInfo), aFromParser, aIsAtom,
+                           aDefinition, Nothing());
+}
+
+nsresult NS_NewHTMLElement(
+    Element** aResult, already_AddRefed<mozilla::dom::NodeInfo> aNodeInfo,
+    FromParser aFromParser, nsAtom* aIsAtom,
+    mozilla::dom::CustomElementDefinition* aDefinition,
+    Maybe<RefPtr<CustomElementRegistry>> aCustomElementRegistry) {
   RefPtr<mozilla::dom::NodeInfo> nodeInfo = aNodeInfo;
 
   MOZ_ASSERT(
@@ -45,11 +54,12 @@ nsresult NS_NewHTMLElement(Element** aResult,
       "Trying to create HTML elements that don't have the XHTML namespace");
 
   return nsContentUtils::NewXULOrHTMLElement(aResult, nodeInfo, aFromParser,
-                                             aIsAtom, aDefinition);
+                                             aIsAtom, aDefinition,
+                                             std::move(aCustomElementRegistry));
 }
 
 already_AddRefed<nsGenericHTMLElement> CreateHTMLElement(
-    uint32_t aNodeType, already_AddRefed<mozilla::dom::NodeInfo>&& aNodeInfo,
+    uint32_t aNodeType, already_AddRefed<mozilla::dom::NodeInfo> aNodeInfo,
     FromParser aFromParser) {
   MOZ_ASSERT(aNodeType <= NS_HTML_TAG_MAX || aNodeType == eHTMLTag_userdefined,
              "aNodeType is out of bounds");

@@ -23,6 +23,16 @@ class CrossCompartmentWrapperObject : public WrapperObject {
   static const unsigned GrayLinkReservedSlot = 1;
 };
 
+extern void NukeCrossCompartmentWrapper(JSContext* cx, JSObject* wrapper);
+extern void RemapWrapper(JSContext* cx, JSObject* wobj, JSObject* newTarget);
+extern void RemapDeadWrapper(JSContext* cx, JS::HandleObject wobj,
+                             JS::HandleObject newTarget);
+
+// This is a variant of js::NukeNonCCWProxy() for CCWs. It should only be called
+// on CCWs that have been removed from CCW tables.
+extern void NukeRemovedCrossCompartmentWrapper(JSContext* cx,
+                                               JSObject* wrapper);
+
 }  // namespace js
 
 template <>

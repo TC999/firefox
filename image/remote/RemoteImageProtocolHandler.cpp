@@ -4,10 +4,15 @@
 
 #include "RemoteImageProtocolHandler.h"
 
+#include "ImageRegion.h"
 #include "gfxContext.h"
 #include "gfxUtils.h"
-#include "ImageRegion.h"
 #include "imgITools.h"
+#include "mozilla/SVGImageContext.h"
+#include "mozilla/dom/ContentParent.h"
+#include "mozilla/dom/ContentProcessManager.h"
+#include "mozilla/dom/ipc/IdType.h"
+#include "mozilla/gfx/2D.h"
 #include "nsContentUtils.h"
 #include "nsIPipe.h"
 #include "nsIURI.h"
@@ -15,11 +20,6 @@
 #include "nsNetUtil.h"
 #include "nsStreamUtils.h"
 #include "nsURLHelper.h"
-#include "mozilla/dom/ContentParent.h"
-#include "mozilla/dom/ContentProcessManager.h"
-#include "mozilla/dom/ipc/IdType.h"
-#include "mozilla/gfx/2D.h"
-#include "mozilla/SVGImageContext.h"
 
 namespace mozilla::image {
 
@@ -57,7 +57,7 @@ static UniqueContentParentKeepAlive GetLaunchingContentParentForDecode(
   // We use the extension process as a fallback, because
   // it is usually running, and should be OK to parse images.
   return ContentParent::GetNewOrUsedLaunchingBrowserProcess(
-      EXTENSION_REMOTE_TYPE,
+      dom::RemoteType(dom::RemoteType::Kind::Extension),
       /* aGroup */ nullptr,
       /* aPriority */ hal::PROCESS_PRIORITY_FOREGROUND,
       /* aPreferUsed */ true);
@@ -213,6 +213,10 @@ NS_IMETHODIMP RemoteImageProtocolHandler::NewChannel(nsIURI* aURI,
     return NS_ERROR_UNEXPECTED;
   }
 
+  if (!nsContentUtils::IsImageType(aLoadInfo->GetExternalContentPolicyType())) {
+    return NS_ERROR_CONTENT_BLOCKED;
+  }
+
   nsCOMPtr<nsIURI> remoteURI;
   ImageIntSize size;
   Maybe<ContentParentId> contentParentId;
@@ -269,7 +273,7 @@ RemoteImageProtocolHandler::GetImageSurface(imgIContainer* aContainer,
     gfxContext context(drawTarget);
 
     SVGImageContext svgContext;
-    svgContext.SetViewportSize(Some(CSSIntSize(size.width, size.height)));
+    svgContext.SetViewportSize(Some(CSSSize(size.width, size.height)));
     svgContext.SetColorScheme(Some(aColorScheme));
 
     ImgDrawResult res = aContainer->Draw(

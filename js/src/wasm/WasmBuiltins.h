@@ -48,15 +48,6 @@ enum class SymbolicAddress {
   aeabi_uidivmod,
 #endif
   ModD,
-  SinNativeD,
-  SinFdlibmD,
-  CosNativeD,
-  CosFdlibmD,
-  TanNativeD,
-  TanFdlibmD,
-  ASinD,
-  ACosD,
-  ATanD,
   CeilD,
   CeilF,
   FloorD,
@@ -65,10 +56,6 @@ enum class SymbolicAddress {
   TruncF,
   NearbyIntD,
   NearbyIntF,
-  ExpD,
-  LogD,
-  PowD,
-  ATan2D,
   AddSubI128,
   MulI64Wide,
   ArrayMemMove,
@@ -135,6 +122,9 @@ enum class SymbolicAddress {
   PostBarrierEdge,
   PostBarrierEdgePrecise,
   PostBarrierWholeCell,
+#ifdef ENABLE_WASM_JSPI
+  ResumeBarrier,
+#endif
   ExceptionNew,
   ThrowException,
   StructNewIL_true,
@@ -149,18 +139,21 @@ enum class SymbolicAddress {
   ArrayInitElem,
   ArrayCopy,
   SlotsToAllocKindBytesTable,
+#ifdef ENABLE_WASM_JSPI
+  ContNew,
+  ContNewEmpty,
+  ContUnwind,
+#endif
 #define VISIT_BUILTIN_FUNC(op, export, sa_name, ...) sa_name,
   FOR_EACH_BUILTIN_MODULE_FUNC(VISIT_BUILTIN_FUNC)
 #undef VISIT_BUILTIN_FUNC
-#ifdef ENABLE_WASM_JSPI
-      UpdateSuspenderState,
-#endif
 #ifdef WASM_CODEGEN_DEBUG
-  PrintI32,
+      PrintI32,
   PrintPtr,
   PrintF32,
   PrintF64,
   PrintText,
+  Printf,
 #endif
   Limit
 };
@@ -219,15 +212,6 @@ static_assert(sizeof(SymbolicAddressSignature) <= 32,
 // These provide argument type information for a subset of the SymbolicAddress
 // targets, for which type info is needed to generate correct stackmaps.
 
-extern const SymbolicAddressSignature SASigSinNativeD;
-extern const SymbolicAddressSignature SASigSinFdlibmD;
-extern const SymbolicAddressSignature SASigCosNativeD;
-extern const SymbolicAddressSignature SASigCosFdlibmD;
-extern const SymbolicAddressSignature SASigTanNativeD;
-extern const SymbolicAddressSignature SASigTanFdlibmD;
-extern const SymbolicAddressSignature SASigASinD;
-extern const SymbolicAddressSignature SASigACosD;
-extern const SymbolicAddressSignature SASigATanD;
 extern const SymbolicAddressSignature SASigCeilD;
 extern const SymbolicAddressSignature SASigCeilF;
 extern const SymbolicAddressSignature SASigFloorD;
@@ -236,10 +220,6 @@ extern const SymbolicAddressSignature SASigTruncD;
 extern const SymbolicAddressSignature SASigTruncF;
 extern const SymbolicAddressSignature SASigNearbyIntD;
 extern const SymbolicAddressSignature SASigNearbyIntF;
-extern const SymbolicAddressSignature SASigExpD;
-extern const SymbolicAddressSignature SASigLogD;
-extern const SymbolicAddressSignature SASigPowD;
-extern const SymbolicAddressSignature SASigATan2D;
 extern const SymbolicAddressSignature SASigAddSubI128;
 extern const SymbolicAddressSignature SASigMulI64Wide;
 extern const SymbolicAddressSignature SASigArrayMemMove;
@@ -295,7 +275,11 @@ extern const SymbolicAddressSignature SASigArrayNewElem;
 extern const SymbolicAddressSignature SASigArrayInitData;
 extern const SymbolicAddressSignature SASigArrayInitElem;
 extern const SymbolicAddressSignature SASigArrayCopy;
-extern const SymbolicAddressSignature SASigUpdateSuspenderState;
+#ifdef ENABLE_WASM_JSPI
+extern const SymbolicAddressSignature SASigContNew;
+extern const SymbolicAddressSignature SASigContNewEmpty;
+extern const SymbolicAddressSignature SASigContUnwind;
+#endif
 #define VISIT_BUILTIN_FUNC(op, export, sa_name, ...) \
   extern const SymbolicAddressSignature SASig##sa_name;
 FOR_EACH_BUILTIN_MODULE_FUNC(VISIT_BUILTIN_FUNC)
@@ -358,6 +342,7 @@ void PrintF32(float val);
 void PrintF64(double val);
 void PrintPtr(uint8_t* val);
 void PrintText(const char* out);
+void Printf(const char* out, uintptr_t value);
 #endif
 
 }  // namespace wasm

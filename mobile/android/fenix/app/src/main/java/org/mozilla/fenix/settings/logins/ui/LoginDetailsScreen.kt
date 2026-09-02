@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -53,18 +55,19 @@ import mozilla.components.compose.base.snackbar.Snackbar
 import mozilla.components.compose.base.snackbar.displaySnackbar
 import mozilla.components.compose.base.text.Text
 import mozilla.components.compose.base.textfield.TextField
+import mozilla.components.compose.base.theme.PreviewThemeProvider
+import mozilla.components.compose.base.theme.Theme
+import mozilla.components.ui.icons.R as iconsR
 import org.mozilla.fenix.R
 import org.mozilla.fenix.ext.simplifiedUrl
 import org.mozilla.fenix.theme.FirefoxTheme
-import org.mozilla.fenix.theme.PreviewThemeProvider
-import org.mozilla.fenix.theme.Theme
-import mozilla.components.ui.icons.R as iconsR
 
 @Composable
 internal fun LoginDetailsScreen(store: LoginsStore) {
     val state by store.stateFlow.collectAsState()
     val detailState = state.loginsLoginDetailState ?: return
     val snackbarHostState = remember { SnackbarHostState() }
+    val scrollState = rememberScrollState()
     val deletionDialogState = state.loginDeletionDialogState
     if (deletionDialogState is LoginDeletionDialogState.Presenting) {
         LoginDeletionDialog(
@@ -91,9 +94,7 @@ internal fun LoginDetailsScreen(store: LoginsStore) {
         },
     ) { paddingValues ->
         Column(
-            modifier = Modifier
-                .padding(paddingValues)
-                .fillMaxWidth(),
+            modifier = Modifier.padding(paddingValues).fillMaxWidth().verticalScroll(scrollState),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Spacer(modifier = Modifier.height(FirefoxTheme.layout.space.static200))
@@ -124,10 +125,11 @@ private fun LoginDetailTopBar(
     var showMenu by remember { mutableStateOf(false) }
 
     TopAppBar(
-        windowInsets = WindowInsets(
-            top = 0.dp,
-            bottom = 0.dp,
-        ),
+        windowInsets =
+            WindowInsets(
+                top = 0.dp,
+                bottom = 0.dp,
+            ),
         title = {
             Text(
                 text = loginItem.url.simplifiedUrl(),
@@ -137,9 +139,7 @@ private fun LoginDetailTopBar(
         navigationIcon = {
             IconButton(
                 onClick = onBackClick,
-                contentDescription = stringResource(
-                    R.string.login_details_navigate_back_button_content_description,
-                ),
+                contentDescription = stringResource(R.string.login_details_navigate_back_button_content_description),
             ) {
                 Icon(
                     painter = painterResource(iconsR.drawable.mozac_ic_back_24),
@@ -151,9 +151,7 @@ private fun LoginDetailTopBar(
             Box {
                 IconButton(
                     onClick = { showMenu = true },
-                    contentDescription = stringResource(
-                        R.string.login_detail_menu_button_content_description,
-                    ),
+                    contentDescription = stringResource(R.string.login_detail_menu_button_content_description),
                 ) {
                     Icon(
                         painter = painterResource(iconsR.drawable.mozac_ic_ellipsis_vertical_24),
@@ -180,22 +178,19 @@ private fun LoginDetailMenu(
     store: LoginsStore,
 ) {
     DropdownMenu(
-        menuItems = listOf(
-            MenuItem.TextItem(
-                text = Text.Resource(R.string.login_detail_menu_edit_button),
-                onClick = { store.dispatch(DetailLoginMenuAction.EditLoginMenuItemClicked(loginItem)) },
+        menuItems =
+            listOf(
+                MenuItem.TextItem(
+                    text = Text.Resource(R.string.login_detail_menu_edit_button),
+                    onClick = { store.dispatch(DetailLoginMenuAction.EditLoginMenuItemClicked(loginItem)) },
+                ),
+                MenuItem.TextItem(
+                    text = Text.Resource(R.string.login_detail_menu_delete_button),
+                    onClick = {
+                        store.dispatch(DetailLoginMenuAction.DeleteLoginMenuItemClicked(loginItem))
+                    },
+                ),
             ),
-            MenuItem.TextItem(
-                text = Text.Resource(R.string.login_detail_menu_delete_button),
-                onClick = {
-                    store.dispatch(
-                        DetailLoginMenuAction.DeleteLoginMenuItemClicked(
-                            loginItem,
-                        ),
-                    )
-                },
-            ),
-        ),
         expanded = showMenu,
         onDismissRequest = onDismissRequest,
     )
@@ -210,10 +205,10 @@ private fun LoginDetailsUrl(store: LoginsStore, url: String) {
         placeholder = "",
         errorText = "",
         label = stringResource(R.string.preferences_passwords_saved_logins_site),
-        modifier = Modifier
-            .padding(horizontal = FirefoxTheme.layout.space.static200)
-            .wrapContentHeight()
-            .width(FirefoxTheme.layout.size.containerMaxWidth),
+        modifier =
+            Modifier.padding(horizontal = FirefoxTheme.layout.space.static200)
+                .wrapContentHeight()
+                .width(FirefoxTheme.layout.size.containerMaxWidth),
         trailingIcon = {
             IconButton(
                 onClick = {
@@ -246,10 +241,10 @@ private fun LoginDetailsUsername(
         placeholder = "",
         errorText = "",
         label = stringResource(R.string.preferences_passwords_saved_logins_username),
-        modifier = Modifier
-            .padding(horizontal = FirefoxTheme.layout.space.static200)
-            .wrapContentHeight()
-            .width(FirefoxTheme.layout.size.containerMaxWidth),
+        modifier =
+            Modifier.padding(horizontal = FirefoxTheme.layout.space.static200)
+                .wrapContentHeight()
+                .width(FirefoxTheme.layout.size.containerMaxWidth),
         trailingIcon = {
             IconButton(
                 onClick = {
@@ -283,34 +278,29 @@ private fun LoginDetailsPassword(
     val coroutineScope = rememberCoroutineScope()
     val passwordSnackbarText = stringResource(R.string.logins_password_copied)
 
-    Text(
-        text = stringResource(R.string.preferences_passwords_saved_logins_password),
-        modifier = Modifier
-            .padding(horizontal = FirefoxTheme.layout.space.static200)
-            .width(FirefoxTheme.layout.size.containerMaxWidth),
-    )
-
     TextField(
         value = password,
         onValueChange = {},
         isEnabled = false,
         placeholder = "",
         errorText = "",
-        modifier = Modifier
-            .padding(horizontal = FirefoxTheme.layout.space.static200)
-            .wrapContentHeight()
-            .width(FirefoxTheme.layout.size.containerMaxWidth)
-            .semantics {
-                testTagsAsResourceId = true
-                testTag = LoginsTestingTags.LOGIN_DETAILS_PASSWORD_TEXT_FIELD
-            },
+        label = stringResource(R.string.preferences_passwords_saved_logins_password),
+        modifier =
+            Modifier.padding(horizontal = FirefoxTheme.layout.space.static200)
+                .wrapContentHeight()
+                .width(FirefoxTheme.layout.size.containerMaxWidth)
+                .semantics {
+                    testTagsAsResourceId = true
+                    testTag = LoginsTestingTags.LOGIN_DETAILS_PASSWORD_TEXT_FIELD
+                },
         trailingIcon = {
             EyePasswordIconButton(
-                contentDescription = if (isPasswordVisible) {
-                    Text.Resource(R.string.saved_login_hide_password)
-                } else {
-                    Text.Resource(R.string.saved_login_reveal_password)
-                },
+                contentDescription =
+                    if (isPasswordVisible) {
+                        Text.Resource(R.string.saved_login_hide_password)
+                    } else {
+                        Text.Resource(R.string.saved_login_reveal_password)
+                    },
                 isPasswordVisible = isPasswordVisible,
                 onTrailingIconClick = {
                     isPasswordVisible = !isPasswordVisible
@@ -337,11 +327,12 @@ private fun LoginDetailsPassword(
                 )
             }
         },
-        visualTransformation = if (isPasswordVisible) {
-            VisualTransformation.None
-        } else {
-            PasswordVisualTransformation()
-        },
+        visualTransformation =
+            if (isPasswordVisible) {
+                VisualTransformation.None
+            } else {
+                PasswordVisualTransformation()
+            },
     )
 }
 
@@ -379,30 +370,30 @@ private fun showTextCopiedSnackbar(
     snackbarHostState: SnackbarHostState,
 ) {
     coroutineScope.launch {
-        snackbarHostState.displaySnackbar(
-            message = message,
-        )
+        snackbarHostState.displaySnackbar(message = message)
     }
 }
 
-private fun createStore() = LoginsStore(
-    initialState = LoginsState.default.copy(
-        loginsLoginDetailState = LoginsLoginDetailState(
-            login = LoginItem(
-                guid = "123",
-                url = "https://www.justanothersite123.com",
-                username = "username 123",
-                password = "password 123",
-            ),
-        ),
-    ),
-)
+private fun createStore() =
+    LoginsStore(
+        initialState =
+            LoginsState.default.copy(
+                loginsLoginDetailState =
+                    LoginsLoginDetailState(
+                        login =
+                            LoginItem(
+                                guid = "123",
+                                url = "https://www.justanothersite123.com",
+                                username = "username 123",
+                                password = "password 123",
+                            )
+                    )
+            )
+    )
 
 @FlexibleWindowPreview
 @Composable
-private fun LoginDetailsScreenPreview(
-    @PreviewParameter(PreviewThemeProvider::class) theme: Theme,
-) {
+private fun LoginDetailsScreenPreview(@PreviewParameter(PreviewThemeProvider::class) theme: Theme) {
     FirefoxTheme(theme) {
         LoginDetailsScreen(store = createStore())
     }
@@ -410,9 +401,7 @@ private fun LoginDetailsScreenPreview(
 
 @Preview
 @Composable
-private fun LoginDeletionDialogPreview(
-    @PreviewParameter(PreviewThemeProvider::class) theme: Theme,
-) {
+private fun LoginDeletionDialogPreview(@PreviewParameter(PreviewThemeProvider::class) theme: Theme) {
     FirefoxTheme(theme) {
         LoginDeletionDialog(
             onCancelTapped = {},

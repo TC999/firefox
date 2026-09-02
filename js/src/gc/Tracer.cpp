@@ -39,6 +39,14 @@ template void RuntimeScopeData<WasmFunctionScope::SlotInfo>::trace(
 void JS::TracingContext::getEdgeName(const char* name, char* buffer,
                                      size_t bufferSize) {
   MOZ_ASSERT(bufferSize > 0);
+  if (weak_) {
+    snprintf(buffer, bufferSize, "[weak] %s", name);
+    return;
+  }
+  if (nesting_ != 0) {
+    snprintf(buffer, bufferSize, "[nesting=%zu] %s", nesting_, name);
+    return;
+  }
   if (functor_) {
     (*functor_)(this, name, buffer, bufferSize);
     return;
@@ -92,7 +100,7 @@ void js::gc::TraceIncomingCCWs(JSTracer* trc,
 // CC parlance, traverse -- a Shape. The CC does not care about Shapes,
 // BaseShapes or PropMaps themselves, only things held live by them that can
 // participate in cycles.
-void gc::TraceCycleCollectorChildren(JS::CallbackTracer* trc, Shape* shape) {
+void gc::TraceCycleCollectorChildren(JSTracer* trc, Shape* shape) {
   shape->base()->traceChildren(trc);
 
   // TODO: Trace symbols reachable from |shape|. Shapes can entrain symbols via
@@ -231,6 +239,21 @@ void js::gc::GetTraceThingInfo(char* buf, size_t bufsize, void* thing,
             *buf++ = ' ';
             bufsize--;
             PutEscapedString(buf, bufsize, fun->maybePartialDisplayAtom(), 0);
+          }
+        } else if (obj->is<NativeObject>()) {
+          uint32_t nslots = JSCLASS_RESERVED_SLOTS(obj->getClass());
+          if (nslots > 0) {
+            for (uint32_t ix = 0; ix < nslots; ix++) {
+              JS::Value slot = obj->as<NativeObject>().getReservedSlot(0);
+              // PrivateValues are aliased with doubles
+              if (!slot.isDouble()) continue;
+              int written = snprintf(buf, bufsize, " %u:Private(%p)", ix,
+                                     slot.toPrivateUnchecked());
+              buf += written;
+              bufsize -= written;
+            }
+          } else {
+            snprintf(buf, bufsize, " <unknown object>");
           }
         } else {
           snprintf(buf, bufsize, " <unknown object>");

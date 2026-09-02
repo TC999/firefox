@@ -4,13 +4,9 @@
 
 package mozilla.components.feature.top.sites
 
-/**
- * Contains use cases related to the top sites feature.
- */
+/** Contains use cases related to the top sites feature. */
 class TopSitesUseCases(topSitesStorage: TopSitesStorage) {
-    /**
-     * Add a pinned site use case.
-     */
+    /** Add a pinned site use case. */
     class AddPinnedSiteUseCase internal constructor(private val storage: TopSitesStorage) {
         /**
          * Adds a new [PinnedSite].
@@ -18,28 +14,21 @@ class TopSitesUseCases(topSitesStorage: TopSitesStorage) {
          * @param title The title string.
          * @param url The URL string.
          */
-        operator fun invoke(title: String, url: String, isDefault: Boolean = false) {
+        suspend operator fun invoke(title: String, url: String, isDefault: Boolean = false) =
             storage.addTopSite(title, url, isDefault)
-        }
     }
 
-    /**
-     * Remove a top site use case.
-     */
+    /** Remove a top site use case. */
     class RemoveTopSiteUseCase internal constructor(private val storage: TopSitesStorage) {
         /**
          * Removes the given [TopSite].
          *
          * @param topSite The top site.
          */
-        operator fun invoke(topSite: TopSite) {
-            storage.removeTopSite(topSite)
-        }
+        suspend operator fun invoke(topSite: TopSite) = storage.removeTopSite(topSite)
     }
 
-    /**
-     * Update a top site use case.
-     */
+    /** Update a top site use case. */
     class UpdateTopSiteUseCase internal constructor(private val storage: TopSitesStorage) {
         /**
          * Updates the given [TopSite].
@@ -48,9 +37,8 @@ class TopSitesUseCases(topSitesStorage: TopSitesStorage) {
          * @param title The new title for the top site.
          * @param url The new url for the top site.
          */
-        operator fun invoke(topSite: TopSite, title: String, url: String) {
+        suspend operator fun invoke(topSite: TopSite, title: String, url: String) =
             storage.updateTopSite(topSite, title, url)
-        }
     }
 
     val addPinnedSites: AddPinnedSiteUseCase by lazy {

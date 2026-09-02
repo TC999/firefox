@@ -10,6 +10,7 @@
 
 #include "gc/Barrier.h"
 #include "gc/Cell.h"
+#include "gc/WeakMap.h"
 #include "js/HashTable.h"
 #include "js/TracingAPI.h"
 #include "js/TypeDecls.h"
@@ -49,6 +50,7 @@ class AutoUpdateMarkStackRanges;
 class Cell;
 class MarkStackIter;
 class ParallelMarkTask;
+template <uint32_t markingOptions>
 class UnmarkGrayTracer;
 
 // Ephemerons are edges from a source to a target that are only materialized
@@ -193,6 +195,13 @@ class MarkStack {
   [[nodiscard]] bool init();
   [[nodiscard]] bool resetStackCapacity();
 
+  // The maximum capacity reached since the last call to resetHighWaterMark().
+  size_t highWaterMark() const;
+
+  // Reset the high-water mark to the current capacity, ready to track the
+  // next GC.
+  void resetHighWaterMark();
+
   template <typename T>
   [[nodiscard]] bool push(T* ptr);
   void infalliblePush(const SlotsOrElementsRange& range);
@@ -256,6 +265,9 @@ class MarkStack {
   // Size of the stack in words.
   MainThreadOrGCTaskData<size_t> capacity_;
 
+  // The maximum value of capacity_ seen since the last reset.
+  MainThreadOrGCTaskData<size_t> highWaterMark_;
+
   // Index of the top of the stack.
   MainThreadOrGCTaskData<size_t> topIndex_;
 
@@ -265,8 +277,8 @@ class MarkStack {
 #endif
 
 #ifdef DEBUG
+ public:
   MainThreadOrGCTaskData<bool> elementsRangesAreValid;
-  friend class js::GCMarker;
 #endif
 
   friend class MarkStackIter;
@@ -327,6 +339,11 @@ constexpr uint32_t NormalMarkingOptions = MarkingOptions::MarkImplicitEdges;
 constexpr uint32_t ConcurrentMarkingOptions =
     MarkingOptions::AtomicMarking | MarkingOptions::ConcurrentMarking;
 
+enum ShouldReportMarkTime : bool {
+  ReportMarkTime = true,
+  DontReportMarkTime = false
+};
+
 template <uint32_t markingOptions>
 class MarkingTracerT
     : public GenericTracerImpl<MarkingTracerT<markingOptions>> {
@@ -335,10 +352,97 @@ class MarkingTracerT
   virtual ~MarkingTracerT() = default;
 
   template <typename T>
-  void onEdge(T** thingp, const char* name);
+  bool onEdge(T** thingp, const char* name);
   friend class GenericTracerImpl<MarkingTracerT<markingOptions>>;
 
-  GCMarker* getMarker();
+  GCMarker* gcMarker();
+  const GCMarker* gcMarker() const;
+
+  // If |thing| is unmarked, mark it and then traverse its children.
+  template <typename T>
+  void markAndTraverse(T* thing);
+
+  bool doMarking(JS::SliceBudget& budget, gc::ShouldReportMarkTime reportTime);
+
+  bool processMarkStackTop(JS::SliceBudget& budget);
+
+  template <typename T>
+  void maybeMarkImplicitEdges(T* markedThing);
+  template <typename T>
+  void markImplicitEdges(T* markedThing);
+
+  void markEphemeronEdges(gc::EphemeronEdgeVector& edges,
+                          gc::MarkColor srcColor);
+
+  static constexpr bool hasOption(uint32_t option) {
+    return markingOptions & option;
+  }
+
+ private:
+  gc::MarkColor markColor() const { return gcMarker()->markColor(); }
+  Zone* tracingZone() const { return gcMarker()->tracingZone; }
+
+  template <gc::MarkColor color>
+  bool markOneColor(JS::SliceBudget& budget);
+
+  bool markCurrentColor(JS::SliceBudget& budget);
+  friend class GCRuntime;
+
+  bool callOrDelayTraceHook(JSObject* obj, const JSClass* clasp,
+                            JS::SliceBudget& budget);
+
+  // Helper methods that coerce their second argument to the base pointer
+  // type.
+  template <typename S>
+  void markAndTraverseObjectEdge(S source, JSObject* target) {
+    markAndTraverseEdge(source, target);
+  }
+  template <typename S>
+  void markAndTraverseStringEdge(S source, JSString* target) {
+    markAndTraverseEdge(source, target);
+  }
+
+  template <typename S, typename T>
+  void markAndTraverseEdge(S* source, T* target);
+  template <typename S, typename T>
+  void markAndTraverseEdge(S* source, const T& target);
+
+  bool markAndTraversePrivateGCThing(JSObject* source, gc::Cell* target);
+
+  bool markAndTraverseSymbol(JSObject* source, JS::Symbol* target);
+
+  // Mark the given GC thing, but do not trace its children. Return true
+  // if the thing became marked.
+  template <typename T>
+  [[nodiscard]] bool mark(T* thing);
+
+  // Traverse a GC thing's children, using a strategy depending on the type.
+  // This can either processing them immediately or push them onto the mark
+  // stack for later.
+#define DEFINE_TRAVERSE_METHOD(_1, Type, _2, _3) void traverse(Type* thing);
+  JS_FOR_EACH_TRACEKIND(DEFINE_TRAVERSE_METHOD)
+#undef DEFINE_TRAVERSE_METHOD
+
+  // Process a marked thing's children by calling T::traceChildren().
+  template <typename T>
+  void traceChildren(T* thing);
+
+  // Process a marked thing's children recursively using an iterative loop and
+  // manual dispatch, for kinds where this is possible.
+  template <typename T>
+  void scanChildren(T* thing);
+
+  // Push a marked thing onto the mark stack. Its children will be marked later.
+  template <typename T>
+  void pushThing(T* thing);
+
+  void eagerlyMarkChildren(JSString* str);
+  void eagerlyMarkChildren(JSLinearString* str, uint32_t flags);
+  void eagerlyMarkChildren(JSRope* rope);
+  void eagerlyMarkChildren(Shape* shape);
+  void eagerlyMarkChildren(BaseShape* shape);
+  void eagerlyMarkChildren(PropMap* map);
+  void eagerlyMarkChildren(Scope* scope);
 };
 
 using MarkingTracer = MarkingTracerT<MarkingOptions::None>;
@@ -347,14 +451,12 @@ using WeakMarkingTracer = MarkingTracerT<MarkingOptions::MarkImplicitEdges>;
 using ParallelMarkingTracer = MarkingTracerT<MarkingOptions::AtomicMarking>;
 using ConcurrentMarkingTracer = MarkingTracerT<ConcurrentMarkingOptions>;
 
-enum ShouldReportMarkTime : bool {
-  ReportMarkTime = true,
-  DontReportMarkTime = false
-};
-
 } /* namespace gc */
 
 class GCMarker {
+  template <uint32_t>
+  friend class gc::MarkingTracerT;
+
   enum MarkingState : uint8_t {
     // Have not yet started marking.
     NotActive,
@@ -371,6 +473,10 @@ class GCMarker {
 
     // Like RegularMarking but with multiple threads running in parallel.
     ParallelMarking,
+
+    // Same as above, but there is a single thread running (possibly not the
+    // main marker thread).
+    ParallelMarkingSingleThread,
 
     // Like RegularMarking but with a single thread running in the background.
     ConcurrentMarking,
@@ -391,13 +497,42 @@ class GCMarker {
     return tracer_.match([](auto& t) -> JSTracer* { return &t; });
   }
 
+  gc::MarkingTracer* getRegularTracer() {
+    MOZ_ASSERT(isRegularMarking());
+    return &tracer_.as<gc::MarkingTracer>();
+  }
+
+  gc::WeakMarkingTracer* getWeakMarkingTracer() {
+    MOZ_ASSERT(isWeakMarking());
+    return &tracer_.as<gc::WeakMarkingTracer>();
+  }
+
+  template <typename F>
+  decltype(auto) matchTracer(F&& f) {
+    return tracer_.match(std::forward<F>(f));
+  }
+
+  template <typename F>
+  decltype(auto) matchRegularOrParallelTracer(F&& f) {
+    if (isRegularMarking()) {
+      return f(tracer_.as<gc::MarkingTracer>());
+    }
+    MOZ_ASSERT(isParallelMarking());
+    return f(tracer_.as<gc::ParallelMarkingTracer>());
+  }
+
 #ifdef JS_GC_ZEAL
   void setMaxCapacity(size_t maxCap) { stack.setMaxCapacity(maxCap); }
 #endif
 
   bool isActive() const { return state != NotActive; }
   bool isRegularMarking() const { return state == RegularMarking; }
-  bool isParallelMarking() const { return state == ParallelMarking; }
+  bool isParallelMarking() const {
+    return state == ParallelMarking || state == ParallelMarkingSingleThread;
+  }
+  bool isParallelMarkingMultipleThreads() const {
+    return state == ParallelMarking;
+  }
   bool isWeakMarking() const { return state == WeakMarking; }
   bool isConcurrentMarking() const { return state == ConcurrentMarking; }
 
@@ -435,6 +570,11 @@ class GCMarker {
   void enterConcurrentMarkingMode();
   void leaveConcurrentMarkingMode();
 
+  // Only relevant when parallel marking: transition to a mode where it is known
+  // that a single thread is running.
+  void enterSingleThreadedMode();
+  void leaveSingleThreadedMode();
+
   // Do not use linear-time weak marking for the rest of this collection.
   // Currently, this will only be triggered by an OOM when updating needed data
   // structures.
@@ -447,14 +587,17 @@ class GCMarker {
 
   bool shouldCheckCompartments() { return strictCompartmentChecking; }
 
-  bool markOneObjectForTest(JSObject* obj);
+  void markOneObjectForTest(JSObject* obj);
+
+  bool isRootMarking() const { return state == RootMarking; }
 #endif
 
   bool markCurrentColorInParallel(gc::ParallelMarkTask* task,
                                   JS::SliceBudget& budget);
 
-  template <uint32_t markingOptions, gc::MarkColor>
-  bool markOneColor(JS::SliceBudget& budget);
+  // Trace the children of WeakMaps that were marked while draining the mark
+  // stack (on any thread).
+  void markDeferredWeakMapChildren(WeakMapList& deferred);
 
   static void moveAllWork(GCMarker* dst, GCMarker* src);
   static size_t moveSomeWork(GCMarker* dst, GCMarker* src,
@@ -463,6 +606,9 @@ class GCMarker {
   [[nodiscard]] bool initStack();
   void resetStackCapacity();
   void freeStack();
+
+  size_t stackHighWaterMark() const;
+  void resetStackHighWaterMark();
 
   size_t sizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf) const;
 
@@ -475,13 +621,6 @@ class GCMarker {
   }
 
   // Internal public methods, for ease of use by the rest of the GC:
-
-  // If |thing| is unmarked, mark it and then traverse its children.
-  template <uint32_t, typename T>
-  void markAndTraverse(T* thing);
-
-  template <typename T>
-  void markImplicitEdges(T* markedThing);
 
 #ifdef JS_GC_CONCURRENT_MARKING
 
@@ -522,81 +661,10 @@ class GCMarker {
   void updateRangesAtStartOfSlice();
   void updateRangesAtEndOfSlice();
   friend class gc::AutoUpdateMarkStackRanges;
-
-  template <uint32_t markingOptions>
-  bool processMarkStackTop(JS::SliceBudget& budget);
   friend class gc::GCRuntime;
-
-  template <uint32_t markingOptions>
-  bool callOrDelayTraceHook(JSObject* obj, const JSClass* clasp,
-                            JS::SliceBudget& budget);
-
-  // Helper methods that coerce their second argument to the base pointer
-  // type.
-  template <uint32_t markingOptions, typename S>
-  void markAndTraverseObjectEdge(S source, JSObject* target) {
-    markAndTraverseEdge<markingOptions>(source, target);
-  }
-  template <uint32_t markingOptions, typename S>
-  void markAndTraverseStringEdge(S source, JSString* target) {
-    markAndTraverseEdge<markingOptions>(source, target);
-  }
-
-  template <uint32_t markingOptions, typename S, typename T>
-  void markAndTraverseEdge(S* source, T* target);
-  template <uint32_t markingOptions, typename S, typename T>
-  void markAndTraverseEdge(S* source, const T& target);
-
-  template <uint32_t markingOptions>
-  bool markAndTraversePrivateGCThing(JSObject* source, gc::Cell* target);
-
-  template <uint32_t markingOptions>
-  bool markAndTraverseSymbol(JSObject* source, JS::Symbol* target);
 
   template <typename S, typename T>
   void checkTraversedEdge(S source, T* target);
-
-  // Mark the given GC thing, but do not trace its children. Return true
-  // if the thing became marked.
-  template <uint32_t markingOptions, typename T>
-  [[nodiscard]] bool mark(T* thing);
-
-  // Traverse a GC thing's children, using a strategy depending on the type.
-  // This can either processing them immediately or push them onto the mark
-  // stack for later.
-#define DEFINE_TRAVERSE_METHOD(_1, Type, _2, _3) \
-  template <uint32_t>                            \
-  void traverse(Type* thing);
-  JS_FOR_EACH_TRACEKIND(DEFINE_TRAVERSE_METHOD)
-#undef DEFINE_TRAVERSE_METHOD
-
-  // Process a marked thing's children by calling T::traceChildren().
-  template <uint32_t markingOptions, typename T>
-  void traceChildren(T* thing);
-
-  // Process a marked thing's children recursively using an iterative loop and
-  // manual dispatch, for kinds where this is possible.
-  template <uint32_t markingOptions, typename T>
-  void scanChildren(T* thing);
-
-  // Push a marked thing onto the mark stack. Its children will be marked later.
-  template <uint32_t markingOptions, typename T>
-  void pushThing(T* thing);
-
-  template <uint32_t markingOptions>
-  void eagerlyMarkChildren(JSString* str);
-  template <uint32_t markingOptions>
-  void eagerlyMarkChildren(JSLinearString* str);
-  template <uint32_t markingOptions>
-  void eagerlyMarkChildren(JSRope* rope);
-  template <uint32_t markingOptions>
-  void eagerlyMarkChildren(Shape* shape);
-  template <uint32_t markingOptions>
-  void eagerlyMarkChildren(BaseShape* shape);
-  template <uint32_t markingOptions>
-  void eagerlyMarkChildren(PropMap* map);
-  template <uint32_t markingOptions>
-  void eagerlyMarkChildren(Scope* scope);
 
   template <typename T>
   inline void pushTaggedPtr(T* ptr);
@@ -604,23 +672,16 @@ class GCMarker {
   inline void pushValueRange(JSObject* obj, SlotsOrElementsKind kind,
                              size_t start, size_t end);
 
-  // Mark through edges whose target color depends on the colors of two source
-  // entities (eg a WeakMap and one of its keys), and push the target onto the
-  // mark stack.
-  void markEphemeronEdges(gc::EphemeronEdgeVector& edges,
-                          gc::MarkColor srcColor);
-  friend class JS::Zone;
-
 #ifdef DEBUG
   void checkZone(gc::Cell* cell);
 #else
   void checkZone(gc::Cell* cell) {}
 #endif
 
-  template <uint32_t markingOptions>
-  bool doMarking(JS::SliceBudget& budget, gc::ShouldReportMarkTime reportTime);
-
   void delayMarkingChildrenOnOOM(gc::Cell* cell);
+
+  // Called by stop() and reset().
+  void deactivate();
 
   /*
    * The JSTracer used for marking. This can change depending on the current
@@ -653,13 +714,11 @@ class GCMarker {
 #endif
 
   Vector<JS::GCCellPtr, 0, SystemAllocPolicy> unmarkGrayStack;
+  template <uint32_t markingOptions>
   friend class gc::UnmarkGrayTracer;
 
   /* Track the state of marking. */
   MainThreadOrGCTaskData<MarkingState> state;
-
-  /* Whether we successfully added all edges to the implicit edges table. */
-  MainThreadOrGCTaskData<bool> haveAllImplicitEdges;
 
  public:
   /*
@@ -673,13 +732,24 @@ class GCMarker {
   /* Random number generator state. */
   MainThreadOrGCTaskData<mozilla::non_crypto::XorShift128PlusRNG> random;
 
+  /*
+   * The zone of the object whose trace hook is currently being called, if any.
+   * Set with AutoSetTracingSource.
+   *
+   * This is required so that MarkingTracerT::onEdge can keep the source zone's
+   * atom reference bitmap entry for Symbol edges in sync. It's also used in
+   * debug builds to catch cross-compartment edges traced without
+   * TraceCrossCompartmentEdge.
+   */
+  MainThreadOrGCTaskData<Zone*> tracingZone;
+
 #ifdef DEBUG
  private:
   /* Assert that start and stop are called with correct ordering. */
   MainThreadOrGCTaskData<bool> started;
 
   /*
-   * Whether to check that atoms traversed are present in atom marking
+   * Whether to check that atoms traversed are present in the atom reference
    * bitmap.
    */
   MainThreadOrGCTaskData<bool> checkAtomMarking;
@@ -692,12 +762,11 @@ class GCMarker {
 
  public:
   /*
-   * The compartment and zone of the object whose trace hook is currently being
-   * called, if any. Used to catch cross-compartment edges traced without use of
+   * The compartment of the object whose trace hook is currently being called,
+   * if any. Used to catch cross-compartment edges traced without use of
    * TraceCrossCompartmentEdge.
    */
   MainThreadOrGCTaskData<Compartment*> tracingCompartment;
-  MainThreadOrGCTaskData<Zone*> tracingZone;
 #endif  // DEBUG
 };
 
@@ -705,6 +774,24 @@ inline bool IsConcurrentMarkingTracer(JSTracer* trc) {
   return trc->isMarkingTracer() &&
          GCMarker::fromTracer(trc)->isConcurrentMarking();
 }
+
+// Records the source zone for marking in situations where it might not
+// otherwise bet set, for example root marking.
+//
+// See also AutoSetTracingSource.
+class MOZ_RAII AutoSetMarkingZone {
+  GCMarker* marker = nullptr;
+  Zone* prevZone = nullptr;
+
+ public:
+  AutoSetMarkingZone(GCMarker* marker, Zone* zone)
+      : marker(marker), prevZone(marker->tracingZone) {
+    MOZ_ASSERT_IF(prevZone, prevZone == zone);
+    marker->tracingZone = zone;
+  }
+
+  ~AutoSetMarkingZone() { marker->tracingZone = prevZone; }
+};
 
 namespace gc {
 
@@ -740,8 +827,7 @@ class MOZ_RAII AutoSetMarkColor {
   ~AutoSetMarkColor() { marker_.setMarkColor(initialColor_); }
 };
 
-inline AutoMarkingLock::AutoMarkingLock(JSTracer* trc,
-                                        MarkingLock& markingLock) {
+inline AutoMarkingLock::AutoMarkingLock(JSTracer* trc, LightLock& markingLock) {
 #ifdef JS_GC_CONCURRENT_MARKING
   if (IsConcurrentMarkingTracer(trc)) {
     lock = &markingLock;

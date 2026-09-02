@@ -1,39 +1,31 @@
 From: Michael Froman <mfroman@mozilla.com>
-Date: Thu, 18 Sep 2025 22:33:00 -0500
-Subject: Bug 1985396 - (fix-38c5a66082) fix windows build failure caused by a
- macro expansion
+Date: Mon, 29 Dec 2025 13:18:00 -0600
+Subject: Bug 2006933 - (fix-932f274e86) don't include rtc_error.h, forward
+ declare RTCError
 
-Commit 38c5a66082 adds the include rtc_base/strings/string_builder.h to
-third_party/libwebrtc/modules/desktop_capture/desktop_geometry.h, but we
-pick this up through a chain of includes in CamerasParent.cpp.  On Windows
-builds we then get a failure because Shlwapi.h has a macro that expands
-StrCat to StrCatW, which means we're changing absl::StrCat to
-absl::StrCatW which doesn't exist.
-
-We can avoid the desktop_geometry.h include and forward declare
-"class DesktopVector" to work around this issue.
-Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/9541460d001e1a62ae567a18d810e35e50ac791c
+Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/fb61f91d422c3d77545d0d10778314eb958fc8c6
 ---
- modules/desktop_capture/desktop_capturer.h | 2 +-
- 1 file changed, 1 insertion(+), 1 deletion(-)
+ api/rtp_parameters.h | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
 
-diff --git a/modules/desktop_capture/desktop_capturer.h b/modules/desktop_capture/desktop_capturer.h
-index c85d0eba7a..8219358e1e 100644
---- a/modules/desktop_capture/desktop_capturer.h
-+++ b/modules/desktop_capture/desktop_capturer.h
-@@ -23,7 +23,6 @@
- #include "modules/desktop_capture/delegated_source_list_controller.h"
- #include "modules/desktop_capture/desktop_capture_metadata.h"
- #include "modules/desktop_capture/desktop_capture_types.h"
--#include "modules/desktop_capture/desktop_frame.h"
- #include "modules/desktop_capture/desktop_geometry.h"
- #include "modules/desktop_capture/shared_memory.h"
+diff --git a/api/rtp_parameters.h b/api/rtp_parameters.h
+index 08cbb43597..1d044d341e 100644
+--- a/api/rtp_parameters.h
++++ b/api/rtp_parameters.h
+@@ -35,7 +35,6 @@
+ #include "absl/strings/string_view.h"
+ #include "api/media_types.h"
+ #include "api/priority.h"
+-#include "api/rtc_error.h"
+ #include "api/rtp_header_extension_id.h"
+ #include "api/rtp_transceiver_direction.h"
+ #include "api/video/resolution.h"
+@@ -45,7 +44,7 @@
  #include "rtc_base/system/rtc_export.h"
-@@ -34,6 +33,7 @@ void RTC_EXPORT LogDesktopCapturerFullscreenDetectorUsage();
  
- class DesktopCaptureOptions;
- class DesktopFrame;
-+class DesktopVector;
+ namespace webrtc {
+-
++class RTCError;
+ class StringBuilder;
  
- // Abstract interface for screen and window capturers.
- class RTC_EXPORT DesktopCapturer {
+ struct RTC_EXPORT CodecParameterMap

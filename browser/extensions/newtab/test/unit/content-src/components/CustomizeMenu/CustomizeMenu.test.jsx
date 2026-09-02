@@ -2,6 +2,7 @@ import React from "react";
 import { mount } from "enzyme";
 import { Provider } from "react-redux";
 import { INITIAL_STATE, reducers } from "common/Reducers.sys.mjs";
+import { actionTypes as at } from "common/Actions.mjs";
 import { combineReducers, createStore } from "redux";
 
 import { CustomizeMenu } from "content-src/components/CustomizeMenu/CustomizeMenu";
@@ -14,6 +15,17 @@ const DEFAULT_STATE = {
     values: {
       ...INITIAL_STATE.Prefs.values,
       "newtabWallpapers.wallpaper": "",
+    },
+  },
+};
+
+const NOVA_STATE = {
+  ...DEFAULT_STATE,
+  Prefs: {
+    ...DEFAULT_STATE.Prefs,
+    values: {
+      ...DEFAULT_STATE.Prefs.values,
+      "nova.enabled": true,
     },
   },
 };
@@ -48,6 +60,7 @@ describe("<CustomizeMenu>", () => {
       },
       enabledWidgets: { timerEnabled: false, listsEnabled: false },
       wallpapersEnabled: false,
+      wallpapersUserEnabled: false,
       activeWallpaper: null,
       pocketRegion: "US",
       mayHaveTopicSections: false,
@@ -65,6 +78,54 @@ describe("<CustomizeMenu>", () => {
       wrapper = null;
     }
     sandbox.restore();
+  });
+
+  it("renders the legacy personalize button when nova is not enabled", () => {
+    wrapper = mount(
+      <WrapWithProvider>
+        <CustomizeMenu {...DEFAULT_PROPS} />
+      </WrapWithProvider>
+    );
+    assert.isFalse(
+      wrapper.find("moz-button.open-customization-button").exists(),
+      "nova moz-button is not rendered"
+    );
+    assert.isTrue(
+      wrapper.find("button.personalize-button").exists(),
+      "legacy button is rendered"
+    );
+  });
+
+  it("renders a moz-button when nova is enabled", () => {
+    wrapper = mount(
+      <WrapWithProvider state={NOVA_STATE}>
+        <CustomizeMenu {...DEFAULT_PROPS} />
+      </WrapWithProvider>
+    );
+    const btn = wrapper.find("moz-button.open-customization-button");
+    assert.isTrue(btn.exists(), "nova moz-button renders");
+    assert.equal(
+      btn.prop("data-l10n-id"),
+      "newtab-customize-panel-label",
+      "correct l10n id"
+    );
+    assert.equal(
+      btn.prop("iconsrc"),
+      "chrome://global/skin/icons/edit-outline.svg",
+      "correct icon src"
+    );
+    assert.equal(btn.prop("iconposition"), "end", "icon at end position");
+    assert.equal(btn.prop("aria-haspopup"), "dialog", "aria-haspopup dialog");
+  });
+
+  it("calls onOpen when the nova moz-button is clicked", () => {
+    wrapper = mount(
+      <WrapWithProvider state={NOVA_STATE}>
+        <CustomizeMenu {...DEFAULT_PROPS} />
+      </WrapWithProvider>
+    );
+    wrapper.find("moz-button.open-customization-button").simulate("click");
+    assert.calledOnce(DEFAULT_PROPS.onOpen);
   });
 
   it("renders the personalize button when not showing and calls onOpen on click", () => {
@@ -87,8 +148,20 @@ describe("<CustomizeMenu>", () => {
       </WrapWithProvider>
     );
 
-    wrapper.find(".personalize-button").simulate("keydown", { key: "Enter" });
+    wrapper.find(".personalize-button").simulate("click");
     assert.calledOnce(DEFAULT_PROPS.onOpen);
+  });
+
+  it("renders the customize menu as a dialog element", () => {
+    wrapper = mount(
+      <WrapWithProvider>
+        <CustomizeMenu {...DEFAULT_PROPS} showing={true} />
+      </WrapWithProvider>
+    );
+
+    const menu = wrapper.find(".customize-menu");
+    assert.isTrue(menu.exists(), "customize menu renders");
+    assert.equal(menu.type(), "dialog", "customize menu is a dialog element");
   });
 
   it("renders the menu when showing = true and calls onClose from the close button", () => {
@@ -116,6 +189,7 @@ describe("<CustomizeMenu>", () => {
       mayHaveTimerWidget: true,
       mayHaveListsWidget: true,
       wallpapersEnabled: true,
+      wallpapersUserEnabled: true,
       enabledWidgets: { timerEnabled: true, listsEnabled: true },
     };
 
@@ -130,6 +204,7 @@ describe("<CustomizeMenu>", () => {
     assert.strictEqual(child.prop("mayHaveTimerWidget"), true);
     assert.strictEqual(child.prop("mayHaveListsWidget"), true);
     assert.strictEqual(child.prop("wallpapersEnabled"), true);
+    assert.strictEqual(child.prop("wallpapersUserEnabled"), true);
     assert.deepEqual(child.prop("enabledWidgets"), {
       timerEnabled: true,
       listsEnabled: true,
@@ -158,11 +233,62 @@ describe("<CustomizeMenu>", () => {
     const instance = wrapper.find("_CustomizeMenu").instance();
     const mockFocus = sandbox.stub();
     instance.personalizeButtonRef.current = { focus: mockFocus };
+    instance.dialogRef.current = { open: false };
     instance.onExited();
     assert.calledOnce(mockFocus);
   });
 
-  it("adds subpanel-open class when onSubpanelToggle is called", () => {
+  it("calls close() on the dialog when onExited is called and dialog is open", () => {
+    wrapper = mount(
+      <WrapWithProvider>
+        <CustomizeMenu {...DEFAULT_PROPS} showing={false} />
+      </WrapWithProvider>
+    );
+    const instance = wrapper.find("_CustomizeMenu").instance();
+    const mockClose = sandbox.stub();
+    instance.dialogRef.current = { open: true, close: mockClose };
+    instance.personalizeButtonRef.current = { focus: sandbox.stub() };
+    instance.onExited();
+    assert.calledOnce(mockClose);
+  });
+
+  it("calls toggleWidgetsManagementPanel when onExited is called and widgets panel is open", () => {
+    const toggleWidgetsManagementPanel = sandbox.stub();
+    wrapper = mount(
+      <WrapWithProvider>
+        <CustomizeMenu
+          {...DEFAULT_PROPS}
+          showWidgetsManagementPanel={true}
+          toggleWidgetsManagementPanel={toggleWidgetsManagementPanel}
+        />
+      </WrapWithProvider>
+    );
+    const instance = wrapper.find("_CustomizeMenu").instance();
+    instance.dialogRef.current = { open: false };
+    instance.personalizeButtonRef.current = { focus: sandbox.stub() };
+    instance.onExited();
+    assert.calledOnce(toggleWidgetsManagementPanel);
+  });
+
+  it("calls toggleSectionsMgmtPanel when onExited is called and sections panel is open", () => {
+    const toggleSectionsMgmtPanel = sandbox.stub();
+    wrapper = mount(
+      <WrapWithProvider>
+        <CustomizeMenu
+          {...DEFAULT_PROPS}
+          showSectionsMgmtPanel={true}
+          toggleSectionsMgmtPanel={toggleSectionsMgmtPanel}
+        />
+      </WrapWithProvider>
+    );
+    const instance = wrapper.find("_CustomizeMenu").instance();
+    instance.dialogRef.current = { open: false };
+    instance.personalizeButtonRef.current = { focus: sandbox.stub() };
+    instance.onExited();
+    assert.calledOnce(toggleSectionsMgmtPanel);
+  });
+
+  it("adds subpanel-open class to customize-menu-content when onSubpanelToggle is called", () => {
     wrapper = mount(
       <WrapWithProvider>
         <CustomizeMenu {...DEFAULT_PROPS} showing={true} />
@@ -174,13 +300,152 @@ describe("<CustomizeMenu>", () => {
     instance.onSubpanelToggle(true);
     wrapper.update();
 
-    const menu = wrapper.find(".customize-menu").hostNodes();
-    assert.isTrue(menu.hasClass("subpanel-open"));
+    const content = wrapper.find(".customize-menu-content").hostNodes();
+    assert.isTrue(content.hasClass("subpanel-open"));
 
     instance.onSubpanelToggle(false);
     wrapper.update();
 
-    const menuAfter = wrapper.find(".customize-menu").hostNodes();
-    assert.isFalse(menuAfter.hasClass("subpanel-open"));
+    const contentAfter = wrapper.find(".customize-menu-content").hostNodes();
+    assert.isFalse(contentAfter.hasClass("subpanel-open"));
+  });
+
+  it("calls showModal when showing transitions from false to true", () => {
+    wrapper = mount(
+      <WrapWithProvider>
+        <CustomizeMenu {...DEFAULT_PROPS} showing={true} />
+      </WrapWithProvider>
+    );
+    const instance = wrapper.find("_CustomizeMenu").instance();
+    const mockShowModal = sandbox.stub();
+    instance.dialogRef.current = { open: false, showModal: mockShowModal };
+
+    // Simulate the transition: prevProps.showing was false, now it's true
+    instance.componentDidUpdate({ ...DEFAULT_PROPS, showing: false });
+
+    assert.calledOnce(mockShowModal);
+  });
+
+  it("calls onClose when onCancel is fired (e.g. Escape key)", () => {
+    wrapper = mount(
+      <WrapWithProvider>
+        <CustomizeMenu {...DEFAULT_PROPS} showing={true} />
+      </WrapWithProvider>
+    );
+    const instance = wrapper.find("_CustomizeMenu").instance();
+    const mockPreventDefault = sandbox.stub();
+    instance.onCancel({ preventDefault: mockPreventDefault });
+    assert.calledOnce(mockPreventDefault);
+    assert.calledOnce(DEFAULT_PROPS.onClose);
+  });
+
+  it("calls onClose when clicking the backdrop (dialog element itself)", () => {
+    wrapper = mount(
+      <WrapWithProvider>
+        <CustomizeMenu {...DEFAULT_PROPS} showing={true} />
+      </WrapWithProvider>
+    );
+    const instance = wrapper.find("_CustomizeMenu").instance();
+    const dialogNode = instance.dialogRef.current;
+    instance.onDialogClick({ target: dialogNode });
+    assert.calledOnce(DEFAULT_PROPS.onClose);
+  });
+
+  it("disables controls whose pref is locked and leaves the others alone", () => {
+    const state = {
+      ...DEFAULT_STATE,
+      Prefs: {
+        ...DEFAULT_STATE.Prefs,
+        values: {
+          ...DEFAULT_STATE.Prefs.values,
+          lockedPrefs: ["feeds.topsites"],
+        },
+      },
+    };
+
+    wrapper = mount(
+      <WrapWithProvider state={state}>
+        <CustomizeMenu {...DEFAULT_PROPS} showing={true} />
+      </WrapWithProvider>
+    );
+
+    assert.isTrue(
+      wrapper.find("#shortcuts-toggle").getDOMNode().disabled,
+      "the locked pref's toggle is disabled"
+    );
+    assert.notOk(
+      wrapper.find("#pocket-toggle").getDOMNode().disabled,
+      "an unlocked pref's toggle is left enabled"
+    );
+  });
+
+  it("re-enables a control when its pref is unlocked", () => {
+    const store = createStore(combineReducers(reducers), {
+      ...DEFAULT_STATE,
+      Prefs: {
+        ...DEFAULT_STATE.Prefs,
+        values: {
+          ...DEFAULT_STATE.Prefs.values,
+          lockedPrefs: ["feeds.topsites"],
+        },
+      },
+    });
+
+    wrapper = mount(
+      <Provider store={store}>
+        <CustomizeMenu {...DEFAULT_PROPS} showing={true} />
+      </Provider>
+    );
+    const toggle = wrapper.find("#shortcuts-toggle").getDOMNode();
+    assert.isTrue(toggle.disabled, "the locked pref's toggle starts disabled");
+
+    store.dispatch({
+      type: at.PREF_CHANGED,
+      data: { name: "lockedPrefs", value: [] },
+    });
+
+    assert.isFalse(toggle.disabled, "unlocking re-enables the toggle");
+  });
+
+  it("disables a lock-managed control when only its pref is locked", () => {
+    const state = {
+      ...DEFAULT_STATE,
+      Prefs: {
+        ...DEFAULT_STATE.Prefs,
+        values: {
+          ...DEFAULT_STATE.Prefs.values,
+          lockedPrefs: [
+            "discoverystream.sections.personalization.inferred.user.enabled",
+          ],
+        },
+      },
+    };
+
+    wrapper = mount(
+      <WrapWithProvider state={state}>
+        <CustomizeMenu
+          {...DEFAULT_PROPS}
+          showing={true}
+          mayHaveInferredPersonalization={true}
+        />
+      </WrapWithProvider>
+    );
+
+    assert.isTrue(
+      wrapper.find("#inferred-personalization").prop("disabled"),
+      "the lock alone disables it while Pocket is on"
+    );
+  });
+
+  it("does not call onClose when clicking inside the dialog content", () => {
+    wrapper = mount(
+      <WrapWithProvider>
+        <CustomizeMenu {...DEFAULT_PROPS} showing={true} />
+      </WrapWithProvider>
+    );
+    const instance = wrapper.find("_CustomizeMenu").instance();
+    const innerNode = wrapper.find(".customize-menu-content").getDOMNode();
+    instance.onDialogClick({ target: innerNode });
+    assert.notCalled(DEFAULT_PROPS.onClose);
   });
 });

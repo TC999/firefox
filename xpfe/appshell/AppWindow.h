@@ -102,8 +102,6 @@ class AppWindow final : public nsIBaseWindow,
     MOZ_CAN_RUN_SCRIPT_BOUNDARY
     void OcclusionStateChanged(bool aIsFullyOccluded) override;
     MOZ_CAN_RUN_SCRIPT_BOUNDARY
-    void OSToolbarButtonPressed() override;
-    MOZ_CAN_RUN_SCRIPT_BOUNDARY
     void WindowActivated() override;
     MOZ_CAN_RUN_SCRIPT_BOUNDARY
     void WindowDeactivated() override;
@@ -158,7 +156,6 @@ class AppWindow final : public nsIBaseWindow,
       mozilla::DesktopCoord aOverlapAmount);
   MOZ_CAN_RUN_SCRIPT void OcclusionStateChanged(bool aIsFullyOccluded);
   void RecomputeBrowsingContextVisibility();
-  MOZ_CAN_RUN_SCRIPT void OSToolbarButtonPressed();
   MOZ_CAN_RUN_SCRIPT void WindowActivated();
   MOZ_CAN_RUN_SCRIPT void WindowDeactivated();
 
@@ -195,7 +192,7 @@ class AppWindow final : public nsIBaseWindow,
   NS_IMETHOD ForceRoundedDimensions();
   NS_IMETHOD GetAvailScreenSize(int32_t* aAvailWidth, int32_t* aAvailHeight);
 
-  void FinishFullscreenChange(bool aInFullscreen);
+  MOZ_CAN_RUN_SCRIPT void FinishFullscreenChange(bool aInFullscreen);
 
   void ApplyChromeFlags();
   MOZ_CAN_RUN_SCRIPT_BOUNDARY void SizeShell();
@@ -205,7 +202,7 @@ class AppWindow final : public nsIBaseWindow,
   bool LoadPositionFromXUL(int32_t aSpecWidth, int32_t aSpecHeight);
   bool LoadSizeFromXUL(int32_t& aSpecWidth, int32_t& aSpecHeight);
   void SetSpecifiedSize(int32_t aSpecWidth, int32_t aSpecHeight);
-  bool UpdateWindowStateFromMiscXULAttributes();
+  MOZ_CAN_RUN_SCRIPT bool UpdateWindowStateFromMiscXULAttributes();
   void SyncAttributesToWidget();
   void SavePersistentAttributes(PersistentAttributes);
   void MaybeSavePersistentPositionAndSize(PersistentAttributes,
@@ -248,7 +245,6 @@ class AppWindow final : public nsIBaseWindow,
   void EnableParent(bool aEnable);
   void PlaceWindowLayersBehind(uint32_t aLowLevel, uint32_t aHighLevel,
                                nsIAppWindow* aBehind);
-  void SetContentScrollbarVisibility(bool aVisible);
 
   enum PersistentAttributeUpdate { Sync, Async };
   void PersistentAttributesDirty(PersistentAttributes,
@@ -333,7 +329,6 @@ class AppWindow final : public nsIBaseWindow,
   bool mLockedUntilChromeLoad;
   bool mIgnoreXULSize;
   bool mIgnoreXULPosition;
-  bool mChromeFlagsFrozen;
   bool mIgnoreXULSizeMode;
   // mDestroying is used to prevent reentry into into Destroy(), which can
   // otherwise happen due to script running as we tear down various things.

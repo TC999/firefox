@@ -53,7 +53,7 @@ class BuildConfig:
             mod.__file__ = path
             sys.modules["config.status"] = mod
 
-            with open(path) as fh:
+            with open(path, encoding="utf-8") as fh:
                 source = fh.read()
                 code_cache[path] = (
                     mtime,
@@ -214,7 +214,7 @@ class PartialConfigDict:
     def _load_config_track(self):
         existing_files = set()
         try:
-            with open(self._config_track) as fh:
+            with open(self._config_track, encoding="utf-8") as fh:
                 existing_files.update(fh.read().splitlines())
         except OSError:
             pass
@@ -256,7 +256,9 @@ class PartialConfigDict:
 
     def __getitem__(self, key):
         if self._environ_override:
-            if (key not in ("CPP", "CXXCPP", "SHELL")) and (key in os.environ):
+            if (key not in ("CC", "CPP", "CXX", "CXXCPP", "SHELL")) and (
+                key in os.environ
+            ):
                 return os.environ[key]
 
         if key not in self._dict:

@@ -5,15 +5,12 @@
 #ifndef nsCategoryCache_h_
 #define nsCategoryCache_h_
 
-#include "nsIObserver.h"
-
-#include "nsServiceManagerUtils.h"
-
-#include "nsCOMArray.h"
-#include "nsInterfaceHashtable.h"
-
-#include "nsXPCOM.h"
 #include "MainThreadUtils.h"
+#include "nsCOMArray.h"
+#include "nsIObserver.h"
+#include "nsInterfaceHashtable.h"
+#include "nsServiceManagerUtils.h"
+#include "nsXPCOM.h"
 
 class nsCategoryObserver final : public nsIObserver {
   ~nsCategoryObserver();
@@ -58,6 +55,8 @@ class nsCategoryCache final {
       mObserver->ListenerDied();
     }
   }
+
+  nsCategoryCache(const nsCategoryCache<T>&) = delete;
 
   void GetEntries(nsCOMArray<T>& aResult) {
     MOZ_ASSERT(NS_IsMainThread());
@@ -108,9 +107,6 @@ class nsCategoryCache final {
   }
 
  private:
-  // Not to be implemented
-  nsCategoryCache(const nsCategoryCache<T>&);
-
   nsCString mCategoryName;
   RefPtr<nsCategoryObserver> mObserver;
   nsCOMArray<T> mCachedEntries;

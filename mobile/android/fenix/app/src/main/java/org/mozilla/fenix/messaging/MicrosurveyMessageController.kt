@@ -5,8 +5,6 @@
 package org.mozilla.fenix.messaging
 
 import mozilla.components.service.nimbus.messaging.Message
-import org.mozilla.fenix.BrowserDirection
-import org.mozilla.fenix.HomeActivity
 import org.mozilla.fenix.components.AppStore
 import org.mozilla.fenix.components.appstate.AppAction.MessagingAction.MessageClicked
 import org.mozilla.fenix.components.appstate.AppAction.MessagingAction.MessageDismissed
@@ -22,10 +20,13 @@ private val PRIVACY_POLICY_URL =
 
 /**
  * Handles interactions with a microsurvey.
+ *
+ * @param appStore The [AppStore] for dispatching actions.
+ * @param openUrlInBrowser Callback to open a URL in the browser.
  */
 class MicrosurveyMessageController(
     private val appStore: AppStore,
-    private val homeActivity: HomeActivity,
+    private val openUrlInBrowser: (String) -> Unit,
 ) : MessageController {
 
     override fun onMessagePressed(message: Message) {
@@ -38,6 +39,7 @@ class MicrosurveyMessageController(
 
     /**
      * Handles the click event on the privacy link within a message.
+     *
      * @param id The id of message containing the survey.
      * @param utmContent Optional utm parameter to add to the privacy policy URL.
      */
@@ -45,16 +47,12 @@ class MicrosurveyMessageController(
         val url = getPrivacyPolicyUrlFor(utmContent)
 
         appStore.dispatch(OnPrivacyNoticeTapped(id))
-        @Suppress("DEPRECATION")
-        homeActivity.openToBrowserAndLoad(
-            searchTermOrURL = url,
-            newTab = true,
-            from = BrowserDirection.FromGlobal,
-        )
+        openUrlInBrowser(url)
     }
 
     /**
      * Handles the click event on the survey dismissal.
+     *
      * @param id The id of the survey.
      */
     fun onMicrosurveyDismissed(id: String) {
@@ -63,20 +61,23 @@ class MicrosurveyMessageController(
 
     /**
      * Handles the click event when survey is shown.
+     *
      * @param id The id of the survey.
      */
     fun onMicrosurveyShown(id: String) {
         appStore.dispatch(MicrosurveyAction.Shown(id))
     }
 
-    private fun getPrivacyPolicyUrlFor(utmContent: String?) = if (utmContent == null) {
-        PRIVACY_POLICY_URL
-    } else {
-        "$PRIVACY_POLICY_URL&utm_content=$utmContent"
-    }
+    private fun getPrivacyPolicyUrlFor(utmContent: String?) =
+        if (utmContent == null) {
+            PRIVACY_POLICY_URL
+        } else {
+            "$PRIVACY_POLICY_URL&utm_content=$utmContent"
+        }
 
     /**
      * Dispatches an action when a survey is completed.
+     *
      * @param id The id of message containing the completed survey.
      * @param answer The answer provided in the survey.
      */

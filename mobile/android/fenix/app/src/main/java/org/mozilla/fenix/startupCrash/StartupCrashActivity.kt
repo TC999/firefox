@@ -9,18 +9,16 @@ import android.os.Process
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.ui.platform.ComposeView
-import androidx.compose.ui.platform.LocalContext
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import mozilla.components.lib.crash.CrashReporter
 import org.mozilla.fenix.R
 import org.mozilla.fenix.ext.components
-import org.mozilla.fenix.ext.settings
 import org.mozilla.fenix.theme.FirefoxTheme
 
 /**
- * The [StartupCrashActivity] is the app activity launched when the ExceptionHandler is invoked
- * before the visualCompletenessQueue is ready. It will handle the crash report and app restart.
+ * The [StartupCrashActivity] is the app activity launched when the ExceptionHandler is invoked before the
+ * visualCompletenessQueue is ready. It will handle the crash report and app restart.
  */
 class StartupCrashActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -31,16 +29,18 @@ class StartupCrashActivity : AppCompatActivity() {
         findViewById<ComposeView>(R.id.startupCrashActivity).setContent {
             FirefoxTheme {
                 StartupCrashScreen(
-                    store = StartupCrashStore(
-                        initialState = StartupCrashState(UiState.Idle),
-                        middleware = listOf(
-                            StartupCrashMiddleware(
-                                settings = LocalContext.current.settings(),
-                                crashReporter = installCrashReporter(),
-                                restartHandler = ::restartFenix,
-                            ),
-                        ),
-                    ),
+                    store =
+                        StartupCrashStore(
+                            initialState = StartupCrashState(UiState.Idle),
+                            middleware =
+                                listOf(
+                                    StartupCrashMiddleware(
+                                        settings = components.settings,
+                                        crashReporter = installCrashReporter(),
+                                        restartHandler = ::restartFenix,
+                                    )
+                                ),
+                        )
                 )
             }
         }

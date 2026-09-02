@@ -3,8 +3,9 @@
 
 "use strict";
 
-add_setup(() => {
+add_setup(async () => {
   Services.fog.initializeFOG();
+  await resetTelemetry();
 });
 
 registerCleanupFunction(async () => {
@@ -49,7 +50,7 @@ add_task(async function test_tabNoteAddedTabContextMenu() {
   tabNotePanel.querySelector("#tab-note-editor-button-save").click();
   await Promise.all([menuHidden, tabNoteCreated]);
 
-  await BrowserTestUtils.waitForCondition(
+  await TestUtils.waitForCondition(
     () => Glean.tabNotes.added.testGetValue()?.length,
     "wait for event to be recorded"
   );

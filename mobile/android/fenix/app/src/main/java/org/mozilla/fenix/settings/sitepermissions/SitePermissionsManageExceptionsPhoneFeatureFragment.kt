@@ -30,7 +30,6 @@ import mozilla.components.ui.widgets.withCenterAlignedButtons
 import org.mozilla.fenix.R
 import org.mozilla.fenix.e2e.SystemInsetsPaddedFragment
 import org.mozilla.fenix.ext.requireComponents
-import org.mozilla.fenix.ext.settings
 import org.mozilla.fenix.ext.showToolbar
 import org.mozilla.fenix.settings.PhoneFeature
 import org.mozilla.fenix.settings.quicksettings.AutoplayValue
@@ -38,9 +37,7 @@ import org.mozilla.fenix.settings.setStartCheckedIndicator
 import org.mozilla.fenix.settings.update
 import org.mozilla.fenix.utils.Settings
 
-/**
- * Settings screen allowing users to configure exceptions from the general behavior of the browser phone permission.
- */
+/** Settings screen allowing users to configure exceptions from the general behavior of the browser phone permission. */
 @SuppressWarnings("TooManyFunctions")
 class SitePermissionsManageExceptionsPhoneFeatureFragment : Fragment(), SystemInsetsPaddedFragment {
 
@@ -48,8 +45,7 @@ class SitePermissionsManageExceptionsPhoneFeatureFragment : Fragment(), SystemIn
     private lateinit var radioBlock: RadioButton
     private lateinit var blockedByAndroidView: View
 
-    @VisibleForTesting
-    internal lateinit var rootView: View
+    @VisibleForTesting internal lateinit var rootView: View
     private val args by navArgs<SitePermissionsManageExceptionsPhoneFeatureFragmentArgs>()
 
     override fun onCreateView(
@@ -71,20 +67,16 @@ class SitePermissionsManageExceptionsPhoneFeatureFragment : Fragment(), SystemIn
         return rootView
     }
 
-    @VisibleForTesting
-    internal fun getFeature(): PhoneFeature = args.phoneFeature
+    @VisibleForTesting internal fun getFeature(): PhoneFeature = args.phoneFeature
 
-    @VisibleForTesting
-    internal fun getSitePermission(): SitePermissions = args.sitePermissions
+    @VisibleForTesting internal fun getSitePermission(): SitePermissions = args.sitePermissions
 
-    @VisibleForTesting
-    internal fun getSettings(): Settings = requireContext().settings()
+    @VisibleForTesting internal fun getSettings(): Settings = requireComponents.settings
 
     fun initAutoplay(sitePermissions: SitePermissions? = null) {
         val context = requireContext()
         val autoplayValues = AutoplayValue.values(context, getSettings(), sitePermissions)
-        val allowAudioAndVideo =
-            requireNotNull(autoplayValues.find { it is AutoplayValue.AllowAll })
+        val allowAudioAndVideo = requireNotNull(autoplayValues.find { it is AutoplayValue.AllowAll })
         val blockAll = requireNotNull(autoplayValues.find { it is AutoplayValue.BlockAll })
         val blockAudible = requireNotNull(autoplayValues.find { it is AutoplayValue.BlockAudible })
 
@@ -160,17 +152,20 @@ class SitePermissionsManageExceptionsPhoneFeatureFragment : Fragment(), SystemIn
         val button = rootView.findViewById<Button>(R.id.reset_permission)
         button.setText(R.string.clear_permission)
         button.setOnClickListener {
-            MaterialAlertDialogBuilder(requireContext()).apply {
-                setMessage(R.string.confirm_clear_permission_site)
-                setTitle(R.string.clear_permission)
-                setPositiveButton(R.string.clear_permission_positive) { dialog: DialogInterface, _ ->
-                    clearPermissions()
-                    dialog.dismiss()
+            MaterialAlertDialogBuilder(requireContext())
+                .apply {
+                    setMessage(R.string.confirm_clear_permission_site)
+                    setTitle(R.string.clear_permission)
+                    setPositiveButton(R.string.clear_permission_positive) { dialog: DialogInterface, _ ->
+                        clearPermissions()
+                        dialog.dismiss()
+                    }
+                    setNegativeButton(R.string.clear_permission_negative) { dialog: DialogInterface, _ ->
+                        dialog.cancel()
+                    }
                 }
-                setNegativeButton(R.string.clear_permission_negative) { dialog: DialogInterface, _ ->
-                    dialog.cancel()
-                }
-            }.show().withCenterAlignedButtons()
+                .show()
+                .withCenterAlignedButtons()
         }
     }
 
@@ -184,7 +179,7 @@ class SitePermissionsManageExceptionsPhoneFeatureFragment : Fragment(), SystemIn
 
     private fun clearAutoplayPermissions() {
         val context = requireContext()
-        val settings = context.settings()
+        val settings = getSettings()
         val defaultValue =
             AutoplayValue.values(context, settings, null).firstOrNull { it.isSelected() }
                 ?: AutoplayValue.getFallbackValue(

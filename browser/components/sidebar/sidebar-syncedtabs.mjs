@@ -151,7 +151,8 @@ class SyncedTabsInSidebar extends SidebarPage {
     }
   }
 
-  handleCommandEvent(e) {
+  async handleCommandEvent(e) {
+    let label;
     switch (e.target.id) {
       case "sidebar-context-menu-close-remote-tab":
         this.requestOrRemoveTabToClose(
@@ -159,6 +160,27 @@ class SyncedTabsInSidebar extends SidebarPage {
           this.triggerNode.fxaDeviceId,
           this.triggerNode.secondaryActionClass
         );
+        label = "close_tab_on_connected_device";
+        break;
+      case "sidebar-synced-tabs-context-open-in-window":
+        super.handleCommandEvent(e);
+        label = "open_in_new_window";
+        break;
+      case "sidebar-synced-tabs-context-open-in-private-window":
+        super.handleCommandEvent(e);
+        label = "open_in_private_window";
+        break;
+      case "sidebar-synced-tabs-context-bookmark-tab": {
+        const guid = await super.handleCommandEvent(e);
+        const outcome = guid ? "confirmed" : "cancelled";
+        Glean.browserUiInteraction.sidebarSyncedTabs[
+          `bookmark_tab_${outcome}`
+        ].add(1);
+        break;
+      }
+      case "sidebar-synced-tabs-context-copy-link":
+        super.handleCommandEvent(e);
+        label = "copy_link";
         break;
       case "sidebar-synced-tabs-context-open-all-in-tabs":
         this.openAllSyncedTabs(e);
@@ -172,6 +194,9 @@ class SyncedTabsInSidebar extends SidebarPage {
       default:
         super.handleCommandEvent(e);
         break;
+    }
+    if (label) {
+      Glean.browserUiInteraction.sidebarSyncedTabs[label].add(1);
     }
   }
 
@@ -192,11 +217,15 @@ class SyncedTabsInSidebar extends SidebarPage {
     this.searchTextbox?.focus();
   }
 
+  #onCardToggle() {
+    this.dispatchEvent(new CustomEvent("folder-toggle"));
+  }
+
   handleNavigateToLink(e) {
-    navigateToLink(e);
+    navigateToLink(e, undefined, { forceNewTab: false });
     // TO DO: update the below to handle multiple links opened at once. Bug 2024639
     Glean.sidebar.link.synced_tabs.add(1);
-    this.treeView.clearSelection();
+    this.treeView.resetSelection();
   }
 
   onSecondaryAction(e) {
@@ -273,7 +302,8 @@ class SyncedTabsInSidebar extends SidebarPage {
       .heading=${deviceName}
       .iconSrc=${this.getDeviceIconSrc(deviceType)}
       class=${deviceType}
-      @keydown=${e => this.treeView.handleCardKeydown(e)}
+      @keydown=${this.keydownHandler}
+      @toggle=${this.#onCardToggle}
     >
       <sidebar-tab-list
         compactRows
@@ -424,7 +454,7 @@ class SyncedTabsInSidebar extends SidebarPage {
             @MozInputSearch:search=${this.onSearchQuery}
           ></moz-input-search>
         </sidebar-panel-header>
-        <div class="sidebar-panel-scrollable-content">
+        <div class="sidebar-panel-scrollable-content" tabindex="-1">
           ${when(
             messageCard,
             () => this.messageCardTemplate(messageCard),
@@ -438,6 +468,8 @@ class SyncedTabsInSidebar extends SidebarPage {
   onSearchQuery(e) {
     this.controller.searchQuery = e.detail.query;
     this.requestUpdate();
+    Glean.browserUiInteraction.sidebarSyncedTabs.search.add(1);
+    this.treeView.resetActiveNode();
   }
 }
 

@@ -4,6 +4,7 @@
 
 @import url("chrome://browser/content/firefoxview/fxview-tab-list.css");
 
+/* stylelint-disable-next-line stylelint-plugin-mozilla/no-has-selector */
 .fxview-tab-row-main:has(.fxview-tab-row-snippet) {
   grid-template-rows: auto auto;
   row-gap: var(--space-xsmall);
@@ -24,9 +25,9 @@
 
 .fxview-tab-row-favicon.chat-overlay {
   /* stylelint-disable-next-line stylelint-plugin-mozilla/use-design-tokens */
-  background-size: 50%, 100%;
+  background-size: 60%, 100%;
   background-position:
-    center calc(50% - 2px),
-    center;
+    right calc(100% + 1px),
+    0;
   background-repeat: no-repeat, no-repeat;
 }

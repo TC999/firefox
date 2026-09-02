@@ -3,19 +3,20 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 // Moz headers (alphabetical)
+#include "nsINIParser.h"
+
+#include "mozilla/Try.h"
+#include "mozilla/URLPreloader.h"
 #include "nsCRTGlue.h"
 #include "nsError.h"
 #include "nsIFile.h"
-#include "nsINIParser.h"
-#include "mozilla/Try.h"
-#include "mozilla/URLPreloader.h"
 
 using namespace mozilla;
 
-nsresult nsINIParser::Init(nsIFile* aFile) {
+nsresult nsINIParser::Init(nsIFile* aFile, bool* aContainedErrors) {
   nsCString result = MOZ_TRY(URLPreloader::ReadFile(aFile));
 
-  return InitFromString(result);
+  return InitFromString(result, aContainedErrors);
 }
 
 static const char kNL[] = "\r\n";
@@ -23,9 +24,14 @@ static const char kEquals[] = "=";
 static const char kWhitespace[] = " \t";
 static const char kRBracket[] = "]";
 
-nsresult nsINIParser::InitFromString(const nsCString& aStr) {
+nsresult nsINIParser::InitFromString(const nsCString& aStr,
+                                     bool* aContainedErrors) {
   nsCString fileContents;
   char* buffer;
+
+  if (aContainedErrors) {
+    *aContainedErrors = false;
+  }
 
   if (StringHead(aStr, 3) == "\xEF\xBB\xBF") {
     // Someone set us up the Utf-8 BOM
@@ -71,6 +77,9 @@ nsresult nsINIParser::InitFromString(const nsCString& aStr) {
         // here and stop, but we won't... keep going, looking for
         // a well-formed [section] to continue working with
         currSection = nullptr;
+        if (aContainedErrors) {
+          *aContainedErrors = true;
+        }
       }
 
       continue;
@@ -79,16 +88,27 @@ nsresult nsINIParser::InitFromString(const nsCString& aStr) {
     if (!currSection) {
       // If we haven't found a section header (or we found a malformed
       // section header), don't bother parsing this line.
+
+      if (aContainedErrors) {
+        *aContainedErrors = true;
+      }
+
       continue;
     }
 
     char* key = token;
     char* e = NS_strtok(kEquals, &token);
     if (!e || !token) {
+      if (aContainedErrors) {
+        *aContainedErrors = true;
+      }
+
       continue;
     }
 
-    SetString(currSection, key, token);
+    if (NS_FAILED(SetString(currSection, key, token)) && aContainedErrors) {
+      *aContainedErrors = true;
+    }
   }
 
   return NS_OK;

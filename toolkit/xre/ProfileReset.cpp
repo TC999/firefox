@@ -1,4 +1,3 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -115,9 +114,10 @@ nsresult ProfileResetCleanup(nsToolkitProfileService* aService,
   if (!appStartup) return NS_ERROR_FAILURE;
 
   nsCOMPtr<mozIDOMWindowProxy> progressWindow;
-  rv = windowWatcher->OpenWindow(nullptr, nsDependentCString(kResetProgressURL),
-                                 "_blank"_ns, "centerscreen,chrome,titlebar"_ns,
-                                 nullptr, getter_AddRefs(progressWindow));
+  rv =
+      windowWatcher->OpenWindow(nullptr, nsDependentCString(kResetProgressURL),
+                                u"_blank"_ns, "centerscreen,chrome,titlebar"_ns,
+                                nullptr, getter_AddRefs(progressWindow));
   if (NS_FAILED(rv)) return rv;
 
   // Create a new thread to do the bulk of profile cleanup to stay responsive.
@@ -139,7 +139,7 @@ nsresult ProfileResetCleanup(nsToolkitProfileService* aService,
   }
   // Close the progress window now that the cleanup thread is done.
   auto* piWindow = nsPIDOMWindowOuter::From(progressWindow);
-  piWindow->Close();
+  MOZ_KnownLive(piWindow)->Close();
 
   return aService->ApplyResetProfile(aOldProfile);
 }

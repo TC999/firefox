@@ -8,13 +8,13 @@
 #include "mozilla/PresShell.h"
 #include "mozilla/StaticPrefs_intl.h"
 #include "mozilla/css/Loader.h"
+#include "mozilla/dom/ContentList.h"
 #include "mozilla/dom/PrototypeDocumentContentSink.h"
 #include "mozilla/parser/PrototypeDocumentParser.h"
 #include "nsArrayUtils.h"
 #include "nsAttrName.h"
 #include "nsCOMPtr.h"
 #include "nsCommandManager.h"
-#include "nsContentList.h"
 #include "nsContentUtils.h"
 #include "nsDOMString.h"
 #include "nsDocShell.h"
@@ -185,11 +185,11 @@ void nsHTMLDocument::TryReloadCharset(nsIDocumentViewer* aViewer,
       aViewer->ForgetReloadEncoding();
 
       if (reloadEncodingSource <= aCharsetSource ||
-          !aEncoding->IsAsciiCompatible()) {
+          !IsAsciiCompatible(aEncoding)) {
         return;
       }
 
-      if (reloadEncoding && reloadEncoding->IsAsciiCompatible()) {
+      if (reloadEncoding && IsAsciiCompatible(reloadEncoding)) {
         aCharsetSource = reloadEncodingSource;
         aEncoding = WrapNotNull(reloadEncoding);
       }
@@ -213,7 +213,7 @@ void nsHTMLDocument::TryUserForcedCharset(nsIDocumentViewer* aViewer,
   }
 
   // mCharacterSet not updated yet for channel, so check aEncoding, too.
-  if (WillIgnoreCharsetOverride() || !aEncoding->IsAsciiCompatible()) {
+  if (WillIgnoreCharsetOverride() || !IsAsciiCompatible(aEncoding)) {
     return;
   }
 
@@ -541,15 +541,6 @@ void nsHTMLDocument::NamedGetter(JSContext* aCx, const nsAString& aName,
                                  bool& aFound,
                                  JS::MutableHandle<JSObject*> aRetVal,
                                  mozilla::ErrorResult& aRv) {
-  if (!StaticPrefs::dom_document_name_getter_follow_spec_enabled()) {
-    JS::Rooted<JS::Value> v(aCx);
-    if ((aFound = ResolveNameForWindow(aCx, aName, &v, aRv))) {
-      SetUseCounter(mozilla::eUseCounter_custom_HTMLDocumentNamedGetterHit);
-      aRetVal.set(v.toObjectOrNull());
-    }
-    return;
-  }
-
   aFound = false;
   aRetVal.set(nullptr);
 
@@ -560,15 +551,9 @@ void nsHTMLDocument::NamedGetter(JSContext* aCx, const nsAString& aName,
     return;
   }
 
-  nsBaseContentList* list = entry->GetDocumentNameContentList();
-  if (!list || list->Length() == 0) {
-    return;
-  }
-
   JS::Rooted<JS::Value> v(aCx);
-  if (list->Length() == 1) {
-    nsIContent* element = list->Item(0);
-    if (auto iframe = HTMLIFrameElement::FromNode(element)) {
+  auto OnlyOneElement = [&](Element* aElement) {
+    if (auto iframe = HTMLIFrameElement::FromNode(aElement)) {
       // Step 2. If elements has only one element, and that element is an iframe
       // element, and that iframe element's content navigable is not null, then
       // return the active WindowProxy of the element's content navigable.
@@ -581,25 +566,51 @@ void nsHTMLDocument::NamedGetter(JSContext* aCx, const nsAString& aName,
         aRv.NoteJSContextException(aCx);
         return;
       }
-
-      if (v.isNullOrUndefined()) {
-        return;
-      }
     } else {
       // Step 3. Otherwise, if elements has only one element, return that
       // element.
-      if (!ToJSValue(aCx, element, &v)) {
+      if (!ToJSValue(aCx, aElement, &v)) {
         aRv.NoteJSContextException(aCx);
         return;
       }
     }
-  } else {
+  };
+
+  // Get the return value first. We might avoid returning it or warn below.
+  [&] {
+    HTMLCollection* list = entry->GetDocumentNameContentList();
+    if (!list) {
+      // Try to avoid creating the list if we can get away with it.
+      AutoTArray<Element*, 8> elements;
+      entry->GetDocumentNameElements(elements);
+      if (elements.IsEmpty()) {
+        return;
+      }
+      if (elements.Length() == 1) {
+        return OnlyOneElement(elements[0]);
+      }
+      list = &entry->CreateDocumentNameContentList(this, elements);
+    }
+
+    uint32_t len = list->Length();
+    if (len == 0) {
+      return;
+    }
+
+    if (len == 1) {
+      return OnlyOneElement(list->Item(0));
+    }
+
     // Step 4. Otherwise, return an HTMLCollection rooted at the Document node,
     // whose filter matches only named elements with the name name.
     if (!ToJSValue(aCx, list, &v)) {
       aRv.NoteJSContextException(aCx);
       return;
     }
+  }();
+
+  if (v.isUndefined() || aRv.Failed()) {
+    return;
   }
 
   bool collect = false;
@@ -642,11 +653,6 @@ void nsHTMLDocument::NamedGetter(JSContext* aCx, const nsAString& aName,
 }
 
 void nsHTMLDocument::GetSupportedNames(nsTArray<nsString>& aNames) {
-  if (!StaticPrefs::dom_document_name_getter_follow_spec_enabled()) {
-    GetSupportedNamesForWindow(aNames);
-    return;
-  }
-
   for (const auto& entry : mIdentifierMap) {
     if (entry.HasDocumentNameElement()) {
       aNames.AppendElement(entry.GetKeyAsString());
@@ -663,12 +669,20 @@ bool nsHTMLDocument::ResolveNameForWindow(JSContext* aCx,
     return false;
   }
 
-  nsBaseContentList* list = entry->GetNameContentList();
-  uint32_t length = list ? list->Length() : 0;
-
-  nsIContent* node;
-  if (length > 0) {
-    if (length > 1) {
+  Element* singleElement = nullptr;
+  HTMLCollection* list = entry->GetWindowNameContentList();
+  if (!list) {
+    // Try to avoid creating the list if we can get away with it.
+    AutoTArray<Element*, 8> elements;
+    entry->GetWindowNameElements(elements);
+    if (elements.Length() > 1) {
+      list = &entry->CreateWindowNameContentList(this, elements);
+    } else {
+      singleElement = elements.SafeElementAt(0);
+    }
+  }
+  if (list) {
+    if (list->Length() > 1) {
       // The list contains more than one element, return the whole list.
       if (!ToJSValue(aCx, list, aRetval)) {
         aError.NoteJSContextException(aCx);
@@ -676,32 +690,26 @@ bool nsHTMLDocument::ResolveNameForWindow(JSContext* aCx,
       }
       return true;
     }
-
-    // Only one element in the list, return the element instead of returning
-    // the list.
-    node = list->Item(0);
-  } else {
+    singleElement = list->Item(0);
+  }
+  if (!singleElement) {
     // No named items were found, see if there's one registerd by id for aName.
     Element* e = entry->GetIdElement();
-
     if (!e || !nsGenericHTMLElement::ShouldExposeIdAsHTMLDocumentProperty(e)) {
       return false;
     }
-
-    node = e;
+    singleElement = e;
   }
-
-  if (!ToJSValue(aCx, node, aRetval)) {
+  if (!ToJSValue(aCx, singleElement, aRetval)) {
     aError.NoteJSContextException(aCx);
     return false;
   }
-
   return true;
 }
 
 void nsHTMLDocument::GetSupportedNamesForWindow(nsTArray<nsString>& aNames) {
   for (const auto& entry : mIdentifierMap) {
-    if (entry.HasNameElement() ||
+    if (entry.HasWindowNameElement() ||
         entry.HasIdElementExposedAsHTMLDocumentProperty()) {
       aNames.AppendElement(entry.GetKeyAsString());
     }
@@ -744,6 +752,12 @@ void nsHTMLDocument::DocAddSizeOfExcludingThis(
   // - mAnchors
 }
 
+bool nsHTMLDocument::IsAsciiCompatible(const Encoding* aEncoding) {
+  return aEncoding->IsAsciiCompatible() ||
+         (aEncoding == ISO_2022_JP_ENCODING &&
+          !GetContentTypeInternal().EqualsLiteral("text/html"));
+}
+
 bool nsHTMLDocument::WillIgnoreCharsetOverride() {
   if (mEncodingMenuDisabled) {
     return true;
@@ -755,8 +769,15 @@ bool nsHTMLDocument::WillIgnoreCharsetOverride() {
   if (mCharacterSetSource >= kCharsetFromByteOrderMark) {
     return true;
   }
-  if (!mCharacterSet->IsAsciiCompatible()) {
+  if (!mCharacterSet->IsAsciiCompatible() &&
+      mCharacterSet != ISO_2022_JP_ENCODING) {
     return true;
+  }
+  if (mCharacterSet == ISO_2022_JP_ENCODING) {
+    // This, unfortunately, isn't exactly the same check as in the parser.
+    if (GetContentTypeInternal().EqualsLiteral("text/html")) {
+      return true;
+    }
   }
   nsIURI* uri = GetOriginalURI();
   if (uri) {
@@ -802,8 +823,29 @@ bool nsHTMLDocument::WillIgnoreCharsetOverride() {
   return !potentialEffect;
 }
 
-void nsHTMLDocument::GetFormsAndFormControls(nsContentList** aFormList,
-                                             nsContentList** aFormControlList) {
+class nsHTMLDocument::ContentListHolder : public mozilla::Runnable {
+ public:
+  ContentListHolder(nsHTMLDocument* aDocument,
+                    mozilla::dom::ContentList* aFormList,
+                    mozilla::dom::ContentList* aFormControlList)
+      : mozilla::Runnable("ContentListHolder"),
+        mDocument(aDocument),
+        mFormList(aFormList),
+        mFormControlList(aFormControlList) {}
+
+  ~ContentListHolder() {
+    MOZ_ASSERT(!mDocument->mContentListHolder ||
+               mDocument->mContentListHolder == this);
+    mDocument->mContentListHolder = nullptr;
+  }
+
+  RefPtr<nsHTMLDocument> mDocument;
+  RefPtr<mozilla::dom::ContentList> mFormList;
+  RefPtr<mozilla::dom::ContentList> mFormControlList;
+};
+
+void nsHTMLDocument::GetFormsAndFormControls(ContentList** aFormList,
+                                             ContentList** aFormControlList) {
   RefPtr<ContentListHolder> holder = mContentListHolder;
   if (!holder) {
     // Flush our content model so it'll be up to date
@@ -814,7 +856,7 @@ void nsHTMLDocument::GetFormsAndFormControls(nsContentList** aFormList,
     //         anymore.
     FlushPendingNotifications(FlushType::Content);
 
-    RefPtr<nsContentList> htmlForms = GetExistingForms();
+    RefPtr<ContentList> htmlForms = GetExistingForms();
     if (!htmlForms) {
       // If the document doesn't have an existing forms content list, create a
       // new one which will be released soon by ContentListHolder.  The idea is
@@ -822,13 +864,13 @@ void nsHTMLDocument::GetFormsAndFormControls(nsContentList** aFormList,
       // down future DOM mutations.
       //
       // Please keep this in sync with Document::Forms().
-      htmlForms = new nsContentList(this, kNameSpaceID_XHTML, nsGkAtoms::form,
-                                    nsGkAtoms::form,
-                                    /* aDeep = */ true,
-                                    /* aLiveList = */ true);
+      htmlForms = new ContentList(this, kNameSpaceID_XHTML, nsGkAtoms::form,
+                                  nsGkAtoms::form,
+                                  /* aDeep = */ true,
+                                  /* aLiveList = */ true);
     }
 
-    RefPtr<nsContentList> htmlFormControls = new nsContentList(
+    RefPtr htmlFormControls = new ContentList(
         this, nsHTMLDocument::MatchFormControls, nullptr, nullptr,
         /* aDeep = */ true,
         /* aMatchAtom = */ nullptr,

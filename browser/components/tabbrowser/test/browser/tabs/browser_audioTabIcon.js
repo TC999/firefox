@@ -21,12 +21,14 @@ async function pause(tab, options) {
 
   try {
     let browser = tab.linkedBrowser;
-    let awaitDOMAudioPlaybackStopped;
+    let awaitAudibleChange;
     if (!browser.audioMuted) {
-      awaitDOMAudioPlaybackStopped = BrowserTestUtils.waitForEvent(
-        browser,
-        "DOMAudioPlaybackStopped",
-        "DOMAudioPlaybackStopped event should get fired after pause"
+      let mc = browser.browsingContext?.mediaController;
+      awaitAudibleChange = BrowserTestUtils.waitForEvent(
+        mc,
+        "audiblechange",
+        false,
+        () => !mc.isAudible
       );
     }
     await SpecialPowers.spawn(browser, [], async function () {
@@ -46,10 +48,10 @@ async function pause(tab, options) {
         "The tab should still have the soundplaying attribute immediately after pausing"
       );
 
-      await awaitDOMAudioPlaybackStopped;
+      await awaitAudibleChange;
       ok(
         tab.hasAttribute("soundplaying"),
-        "The tab should still have the soundplaying attribute immediately after DOMAudioPlaybackStopped"
+        "The tab should still have the soundplaying attribute immediately after audiblechange (isAudible=false)"
       );
     }
 
@@ -112,6 +114,32 @@ async function test_tooltip(icon, expectedTooltip, isActiveTab) {
     );
   }
   leave_icon(icon);
+}
+
+async function hover_icon(icon, tooltip) {
+  disable_non_test_mouse(true);
+
+  let popupShownPromise = BrowserTestUtils.waitForEvent(tooltip, "popupshown");
+  EventUtils.synthesizeMouse(icon, 1, 1, { type: "mouseover" });
+  EventUtils.synthesizeMouse(icon, 2, 2, { type: "mousemove" });
+  EventUtils.synthesizeMouse(icon, 3, 3, { type: "mousemove" });
+  EventUtils.synthesizeMouse(icon, 4, 4, { type: "mousemove" });
+  await popupShownPromise;
+}
+
+function leave_icon(icon) {
+  EventUtils.synthesizeMouse(icon, 0, 0, { type: "mouseout" });
+  EventUtils.synthesizeMouseAtCenter(document.documentElement, {
+    type: "mousemove",
+  });
+  EventUtils.synthesizeMouseAtCenter(document.documentElement, {
+    type: "mousemove",
+  });
+  EventUtils.synthesizeMouseAtCenter(document.documentElement, {
+    type: "mousemove",
+  });
+
+  disable_non_test_mouse(false);
 }
 
 function get_tab_state(tab) {

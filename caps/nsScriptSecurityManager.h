@@ -5,16 +5,15 @@
 #ifndef nsScriptSecurityManager_h_
 #define nsScriptSecurityManager_h_
 
-#include "nsIScriptSecurityManager.h"
+#include <stdint.h>
 
+#include "js/TypeDecls.h"
 #include "mozilla/Maybe.h"
-#include "nsIPrincipal.h"
 #include "nsCOMPtr.h"
+#include "nsIPrincipal.h"
+#include "nsIScriptSecurityManager.h"
 #include "nsServiceManagerUtils.h"
 #include "nsStringFwd.h"
-#include "js/TypeDecls.h"
-
-#include <stdint.h>
 
 class nsIIOService;
 class nsIStringBundle;
@@ -64,7 +63,6 @@ class nsScriptSecurityManager final : public nsIScriptSecurityManager {
    * false otherwise.
    */
   static bool SecurityCompareURIs(nsIURI* aSourceURI, nsIURI* aTargetURI);
-  static uint32_t SecurityHashURI(nsIURI* aURI);
   static bool IsHttpOrHttpsAndCrossOrigin(nsIURI* aUriA, nsIURI* aUriB);
 
   static nsresult ReportError(const char* aMessageTag, nsIURI* aSource,

@@ -9,6 +9,7 @@
 #include "celldata.h"
 #include "gfxContext.h"
 #include "mozilla/PresShell.h"
+#include "mozilla/ReflowInput.h"
 #include "mozilla/RestyleManager.h"
 #include "mozilla/dom/MathMLElement.h"
 #include "nsCRT.h"
@@ -301,13 +302,13 @@ class nsDisplaymtdBorder final : public nsDisplayBorder {
         bounds, styleBorder, mFrame->Style(), flags, mFrame->GetSkipSides());
   }
 
-  bool CreateWebRenderCommands(
+  WebRenderCommandsResult CreateWebRenderCommands(
       mozilla::wr::DisplayListBuilder& aBuilder,
       mozilla::wr::IpcResourceUpdateQueue& aResources,
       const StackingContextHelper& aSc,
       mozilla::layers::RenderRootStateManager* aManager,
       nsDisplayListBuilder* aDisplayListBuilder) override {
-    return false;
+    return Err("mtd border needs the fallback border painting path");
   }
 
   bool IsInvisibleInRect(const nsRect& aRect) const override { return false; }

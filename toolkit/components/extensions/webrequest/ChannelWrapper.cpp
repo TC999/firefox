@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -19,7 +17,10 @@
 #include "mozilla/ClearOnShutdown.h"
 #include "mozilla/Components.h"
 #include "mozilla/ErrorNames.h"
+#include "mozilla/ExtensionPolicyService.h"
 #include "mozilla/Try.h"
+#include "mozilla/dom/ContentParent.h"
+#include "mozilla/dom/RemoteType.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/Event.h"
 #include "mozilla/dom/EventBinding.h"
@@ -657,7 +658,9 @@ bool ChannelWrapper::Matches(
 
     // The third parameter (aCheckRestricted) is false because we already check
     // restricted URLs below as part of CanModify().
-    if (!aExtension->CanAccessURI(urlInfo, false, false, true)) {
+    // The fourth parameter (aAllowFilePermission, default false) does not
+    // matter because file:-channels are never wrapped by ChannelWrapper.
+    if (!aExtension->CanAccessURI(urlInfo, false, false)) {
       return false;
     }
 
@@ -670,9 +673,10 @@ bool ChannelWrapper::Matches(
       }
 
       auto origin = DocumentURLInfo();
-      // Extensions with the file:-permission may observe requests from file:
-      // origins, because such documents can already be modified by content
-      // scripts anyway.
+      // The fourth parameter (aAllowFilePermission) is true instead of gated
+      // on aExtension->FileSchemeAllowed(), because we want extensions to have
+      // the ability to block http(s) requests from file origins (bug 1621935),
+      // without the user being required to grant access to all local files.
       if (origin && !aExtension->CanAccessURI(*origin, false, false, true)) {
         return false;
       }
@@ -691,7 +695,10 @@ int64_t NormalizeFrameID(nsILoadInfo* aLoadInfo, uint64_t bcID) {
     bc = aLoadInfo->GetBrowsingContext();
   }
 
-  if (!bc || bcID == bc->Top()->Id()) {
+  if (!bc) {
+    return -1;
+  }
+  if (bcID == bc->Top()->Id()) {
     return 0;
   }
   return bcID;
@@ -712,7 +719,7 @@ int64_t ChannelWrapper::FrameId() const {
   if (nsCOMPtr<nsILoadInfo> loadInfo = GetLoadInfo()) {
     return NormalizeFrameID(loadInfo, BrowsingContextId(loadInfo));
   }
-  return 0;
+  return -1;
 }
 
 int64_t ChannelWrapper::ParentFrameId() const {
@@ -736,6 +743,46 @@ int64_t ChannelWrapper::ParentFrameId() const {
     }
   }
   return -1;
+}
+
+uint64_t ChannelWrapper::DocumentInnerWindowId() const {
+  if (nsCOMPtr<nsILoadInfo> loadInfo = GetLoadInfo()) {
+    auto type = loadInfo->GetExternalContentPolicyType();
+    // Exclude document requests: innerWindowId is used to compute documentId,
+    // which reflects the document for which the request is made. When a
+    // navigation request is initiated, the target document is unknown. There
+    // is not even a guarantee for the received document to be rendering when
+    // webRequest.onCompleted is received!
+    if (type == ExtContentPolicy::TYPE_DOCUMENT ||
+        type == ExtContentPolicy::TYPE_SUBDOCUMENT) {
+      return 0;
+    }
+    // Note: we are intentionally not checking the associated browsing context,
+    // because requests from web workers are not made by documents.
+    return loadInfo->GetInnerWindowID();
+  }
+  return 0;
+}
+
+uint64_t ChannelWrapper::ParentDocumentInnerWindowId() const {
+  if (nsCOMPtr<nsILoadInfo> loadInfo = GetLoadInfo()) {
+    RefPtr<BrowsingContext> parentBC;
+    if (loadInfo->GetFrameBrowsingContextID()) {
+      parentBC = loadInfo->GetBrowsingContext();
+    } else {
+      RefPtr<BrowsingContext> bc = loadInfo->GetBrowsingContext();
+      if (bc) {
+        parentBC = bc->GetParent();
+      }
+    }
+    if (parentBC) {
+      // This is a live read that could race against a parent navigation, but
+      // Cached+Constant in the WebIDL ensures a consistent value across all
+      // events for the same channel.
+      return parentBC->GetCurrentInnerWindowId();
+    }
+  }
+  return 0;
 }
 
 void ChannelWrapper::GetFrameAncestors(
@@ -796,8 +843,8 @@ nsresult ChannelWrapper::GetFrameAncestors(
  * Response filtering
  *****************************************************************************/
 
-void ChannelWrapper::RegisterTraceableChannel(const WebExtensionPolicy& aAddon,
-                                              nsIRemoteTab* aBrowserParent) {
+void ChannelWrapper::RegisterTraceableChannel(
+    const WebExtensionPolicy& aAddon) {
   // We can't attach new listeners after the response has started, so don't
   // bother registering anything.
   // NOTE: It is possible for mResponseStarted to be false despite the response
@@ -806,18 +853,29 @@ void ChannelWrapper::RegisterTraceableChannel(const WebExtensionPolicy& aAddon,
     return;
   }
 
-  mAddonEntries.InsertOrUpdate(aAddon.Id(), aBrowserParent);
+  if (!mAddonEntries.Contains(aAddon.Id())) {
+    mAddonEntries.AppendElement(aAddon.Id());
+  }
   if (!mChannelEntry) {
     mChannelEntry = WebRequestService::GetSingleton().RegisterChannel(this);
     CheckEventListeners();
+    if (!mAddedStreamListener) {
+      // If the stream listener was not connected before, and still fails to be
+      // added, then we know that ChannelWrapper::RequestListener::Init() has
+      // failed to register itself as a stream listener with the channel.
+      // There can be various reasons (channel not opened, or response already
+      // started before we started tracing). In any case, RequestListener will
+      // be unable to detect when it should clear mChannelEntry, so the safest
+      // thing to do here is to drop mChannelEntry now, to prevent bug 2044517.
+      mChannelEntry = nullptr;
+    }
   }
 }
 
 already_AddRefed<nsITraceableChannel> ChannelWrapper::GetTraceableChannel(
     const WebExtensionPolicy& aAddon,
     dom::ContentParent* aContentParent) const {
-  nsCOMPtr<nsIRemoteTab> remoteTab;
-  if (mAddonEntries.Get(aAddon.Id(), getter_AddRefs(remoteTab))) {
+  if (mAddonEntries.Contains(aAddon.Id())) {
     // aAddon existing in mAddonEntries implies that RegisterTraceableChannel
     // was called before (in WebRequest.sys.mjs), which implies that
     // ChannelWrapper::Matches() returned true before. That implies that
@@ -826,20 +884,31 @@ already_AddRefed<nsITraceableChannel> ChannelWrapper::GetTraceableChannel(
     // the duration of the request. We need to revalidate FinalURLInfo() in
     // case it changed, e.g. due to a redirect or permission change.
     if (!HaveChannel() ||
-        !aAddon.CanAccessURI(FinalURLInfo(), false, true, true)) {
+        // The fourth parameter (aAllowFilePermission, default false) does not
+        // matter because file:-channels are never wrapped by ChannelWrapper.
+        !aAddon.CanAccessURI(FinalURLInfo())) {
       return nullptr;
     }
 
-    ContentParent* contentParent = nullptr;
-    if (remoteTab) {
-      contentParent =
-          BrowserHost::GetFrom(remoteTab.get())->GetActor()->Manager();
+    if (aContentParent) {
+      RefPtr<BrowsingContextGroup> group =
+          BrowsingContextGroup::GetExisting(aAddon.GetBrowsingContextGroupId());
+      if (!group || group->GetHostProcess(RemoteType(
+                        RemoteType::Kind::Extension)) != aContentParent) {
+        return nullptr;
+      }
+    } else {
+      // aContentParent must be set to the process of the extension on whose
+      // behalf we are handling the request for a traceable channel.
+      // It can only be nullptr (=not from a content process) when extensions
+      // are running in-process.
+      if (ExtensionPolicyService::GetSingleton().UseRemoteExtensions()) {
+        return nullptr;
+      }
     }
 
-    if (contentParent == aContentParent) {
-      nsCOMPtr<nsITraceableChannel> chan = QueryChannel();
-      return chan.forget();
-    }
+    nsCOMPtr<nsITraceableChannel> chan = QueryChannel();
+    return chan.forget();
   }
   return nullptr;
 }
@@ -894,6 +963,7 @@ MozContentPolicyType GetContentPolicyType(ExtContentPolicyType aType) {
       return MozContentPolicyType::Speculative;
     case ExtContentPolicy::TYPE_JSON:
       return MozContentPolicyType::Json;
+    case ExtContentPolicy::TYPE_TEXT:
     case ExtContentPolicy::TYPE_PROXIED_WEBRTC_MEDIA:
     case ExtContentPolicy::TYPE_INVALID:
     case ExtContentPolicy::TYPE_OTHER:
@@ -1205,7 +1275,8 @@ ChannelWrapper::RequestListener::OnStartRequest(nsIRequest* request) {
   mChannelWrapper->ErrorCheck();
   mChannelWrapper->FireEvent(u"start"_ns);
 
-  return mOrigStreamListener->OnStartRequest(request);
+  nsCOMPtr<nsIStreamListener> origStreamListener = mOrigStreamListener;
+  return origStreamListener->OnStartRequest(request);
 }
 
 NS_IMETHODIMP
@@ -1218,7 +1289,8 @@ ChannelWrapper::RequestListener::OnStopRequest(nsIRequest* request,
   mChannelWrapper->ActivityErrorFallbackCheck();
   mChannelWrapper->FireEvent(u"stop"_ns);
 
-  return mOrigStreamListener->OnStopRequest(request, aStatus);
+  nsCOMPtr<nsIStreamListener> origStreamListener = mOrigStreamListener;
+  return origStreamListener->OnStopRequest(request, aStatus);
 }
 
 NS_IMETHODIMP
@@ -1227,8 +1299,9 @@ ChannelWrapper::RequestListener::OnDataAvailable(nsIRequest* request,
                                                  uint64_t sourceOffset,
                                                  uint32_t count) {
   MOZ_ASSERT(mOrigStreamListener, "Should have mOrigStreamListener");
-  return mOrigStreamListener->OnDataAvailable(request, inStr, sourceOffset,
-                                              count);
+  nsCOMPtr<nsIStreamListener> origStreamListener = mOrigStreamListener;
+  return origStreamListener->OnDataAvailable(request, inStr, sourceOffset,
+                                             count);
 }
 
 NS_IMETHODIMP
@@ -1287,6 +1360,10 @@ void ChannelWrapper::CheckEventListeners() {
        HasListenersFor(nsGkAtoms::onstop) || mChannelEntry)) {
     auto listener = MakeRefPtr<RequestListener>(this);
     if (!NS_WARN_IF(NS_FAILED(listener->Init()))) {
+      // Once registered, the listener sticks to the channel. When redirected,
+      // AsyncOpen on the new channel receives the listener of the original
+      // (pre-redirect) channel, which is the listener we just added, or
+      // another stream listener that eventually calls our listener.
       mAddedStreamListener = true;
     }
   }

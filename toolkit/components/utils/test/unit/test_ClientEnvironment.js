@@ -52,6 +52,10 @@ add_task(async function test_OS_data() {
       "number",
       "Windows build number should be a number"
     );
+    Assert.ok(
+      os.windowsUBR === null || typeof os.windowsUBR == "number",
+      "Windows UBR should be a number or null"
+    );
     equal(os.macVersion, null, "Mac version should not be set");
     equal(os.darwinVersion, null, "Darwin version should not be set");
   }
@@ -70,6 +74,7 @@ add_task(async function test_OS_data() {
       null,
       "Windows build number version should not be set"
     );
+    equal(os.windowsUBR, null, "Windows UBR should not be set");
   }
 
   // if on Linux, no versions should be set
@@ -82,20 +87,29 @@ add_task(async function test_OS_data() {
       null,
       "Windows build number version should not be set"
     );
+    equal(os.windowsUBR, null, "Windows UBR should not be set");
   }
 });
 
-add_task(async function test_attributionData() {
-  try {
-    await ClientEnvironmentBase.attribution;
-  } catch (ex) {
-    equal(
-      ex.result,
-      Cr.NS_ERROR_FILE_NOT_FOUND,
-      "Test environment does not have attribution data"
-    );
+add_task(
+  {
+    // Getting `ClientEnvironmentBase.attribution` lazy-imports
+    // `AttributionCode.sys.mjs`, which lives in `browser/`. See
+    // bug 2066393.
+    skip_if: () => AppConstants.MOZ_BUILD_APP != "browser",
+  },
+  async function test_attributionData() {
+    try {
+      await ClientEnvironmentBase.attribution;
+    } catch (ex) {
+      equal(
+        ex.result,
+        Cr.NS_ERROR_FILE_NOT_FOUND,
+        "Test environment does not have attribution data"
+      );
+    }
   }
-});
+);
 
 add_task(async function testLiveTelemetry() {
   // Setup telemetry so we can read from it

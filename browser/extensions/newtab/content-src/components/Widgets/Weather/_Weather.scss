@@ -4,8 +4,11 @@
 
 @import 'weather-icons';
 
-.weather-widget {
+.nova-enabled .weather-widget {
   @include widget-base-style;
+
+  z-index: 1;
+  height: 100%;
 
   .weather-anchor {
     position: absolute;
@@ -37,16 +40,15 @@
     }
   }
 
-  .forecast-footer {
-    position: absolute;
-    inset-block-end: calc(var(--space-xlarge) * -1);
-    inset-inline-end: 0;
-    font-size: var(--font-size-xsmall);
+  .sponsored-text {
+    visibility: hidden;
+    text-wrap-mode: nowrap;
+    font-size: var(--newtab-font-size-xsmall);
+    color: var(--text-color-deemphasized);
+  }
 
-    .sponsored-text {
-      visibility: hidden;
-      text-wrap-mode: nowrap;
-    }
+  .forecast-footer {
+    margin-block-start: var(--space-small);
 
     .full-forecast {
       display: none;
@@ -55,7 +57,7 @@
       background: url('chrome://global/skin/icons/arrow-right.svg') no-repeat right center;
       -moz-context-properties: fill;
       fill: currentColor;
-      font-size: var(--font-size-xsmall);
+      font-size: var(--newtab-font-size-xsmall);
 
       &:dir(rtl) {
         background-image: url('chrome://global/skin/icons/arrow-left.svg');
@@ -67,7 +69,7 @@
   // Hover Rules
   &:hover,
   &:focus-within {
-    .forecast-footer .sponsored-text {
+    .sponsored-text {
       visibility: visible;
     }
 
@@ -122,7 +124,7 @@
       align-self: flex-start;
       margin-inline-start: auto;
       color: var(--text-color-deemphasized);
-      font-size: var(--font-size-xsmall);
+      font-size: var(--newtab-font-size-xsmall);
       gap: var(--space-small);
 
       .high-temperature,
@@ -168,7 +170,8 @@
   --weather-hot-background-color: light-dark(var(--color-orange-0), var(--color-orange-90));
 
   .weather-conditions-view .weather-icon-column,
-  &.small-widget .forecast-row-items > li:first-of-type {
+  .weather-opt-in-container .weather-icon-column,
+  &.small-widget .forecast-row-items>li:first-of-type {
     &:has(.iconId1, .iconId2, .iconId3, .iconId4, .iconId5, .iconId6, .iconId33) {
       background-color: var(--weather-sunny-background-color);
     }
@@ -242,20 +245,36 @@
   &.small-widget {
     grid-column: span 2;
     grid-row: span 2;
+
+    // The small layout has no room to show the conditions summary, but it is the
+    // weather icon's only text alternative, so it is visually hidden rather than
+    // display: none to keep it in the accessibility tree.
+    .weather-info-description {
+      clip-path: inset(50%);
+      display: block;
+      height: 1px;
+      overflow: hidden;
+      position: absolute;
+      white-space: nowrap;
+      width: 1px;
+    }
   }
 
   &.medium-widget {
-    grid-column: span 4;
-    grid-row: span 2;
-
     .weather-container {
-      align-items: center;
+      align-items: stretch;
       justify-content: space-between;
       gap: var(--space-medium);
     }
 
     .weather-conditions-view {
       flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .weather-conditions-view .sponsored-text {
+      margin-block-start: auto;
     }
 
     .weather-info-link {
@@ -270,6 +289,10 @@
 
     .weather-info-row {
       flex-direction: row;
+    }
+
+    .high-low-row {
+      align-self: center;
     }
 
     .weather-icon-column {
@@ -287,17 +310,9 @@
     .forecast-row-items li:nth-child(n+3) {
       display: none;
     }
-
-    .forecast-footer {
-      inset-inline-end: auto;
-      inset-inline-start: 0;
-    }
   }
 
   &.large-widget {
-    grid-column: span 4;
-    grid-row: span 4;
-
     .weather-container {
       flex: 1;
       flex-direction: column;
@@ -334,6 +349,10 @@
       }
     }
 
+    .high-low-row {
+      align-self: center;
+    }
+
     .weather-info-description {
       display: block;
       font-size: var(--font-size-small);
@@ -341,11 +360,10 @@
     }
 
     .forecast-footer {
+      margin-block-start: 0;
       padding-block-start: var(--space-large);
       // Bug 2030130 - When warning is visible, reduce padding:
       // padding-block-start: var(--space-small);
-      position: relative;
-      inset: unset;
       display: flex;
       justify-content: space-between;
 
@@ -357,6 +375,272 @@
     .today-forecast {
       display: block;
       margin: 0;
+    }
+  }
+
+  // Weather Opt-in
+  &.weather-opt-in {
+    position: relative;
+    padding-inline: 0;
+
+    // Custom layout for the context menu to still be visible without the city-title set
+    .widget-title-bar {
+      justify-content: flex-end;
+      position: absolute;
+      inset-block-start: var(--space-medium);
+      inset-inline-end: var(--space-medium);
+      z-index: 1;
+    }
+
+    .weather-icon {
+      display: none;
+    }
+
+    .weather-icon-column {
+      width: max-content;
+      border-radius: var(--border-radius-medium);
+    }
+
+    .weather-opt-in-container {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: var(--space-small);
+      height: 100%;
+    }
+
+    .weather-opt-in-container-title-bar {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: var(--space-medium);
+
+    }
+
+    .weather-opt-in-container-title {
+      font-size: var(--font-size-small);
+      margin: 0;
+      padding-inline-end: var(--space-xlarge);
+      font-weight: var(--font-weight-heading);
+    }
+
+    .weather-opt-in-container-buttons {
+      display: flex;
+      align-items: center;
+      flex-direction: column;
+      justify-content: center;
+      gap: var(--space-xsmall);
+    }
+
+    .weather-text-link {
+      border: 1px solid transparent;
+      border-radius: var(--border-radius-small);
+      color: var(--link-color);
+      font-size: var(--font-size-small);
+      appearance: none;
+
+      &:hover {
+        color: var(--link-color-hover);
+        text-decoration: underline;
+      }
+
+      &:active {
+        color: var(--link-color-active);
+      }
+
+      @media (forced-colors: active) {
+        padding: var(--space-small) var(--space-medium);
+        padding-inline-start: var(--space-xlarge);
+      }
+
+      &:dir(rtl) {
+        background-position-x: right;
+      }
+
+      &:focus-visible {
+        border: 1px solid var(--focus-outline-color);
+        outline: 0;
+      }
+    }
+
+    &.small-widget {
+      .weather-opt-in-container-title {
+        padding-block-start: var(--space-medium);
+        font-size: var(--newtab-font-size-xsmall);
+        line-height: 1.25;
+      }
+
+      // Float a spacer into the top-inline-end corner so the heading wraps
+      // around the context menu button, then reclaims full width below it.
+      .weather-opt-in-container-title::before {
+        content: '';
+        float: inline-end;
+        width: calc(var(--space-xlarge) + var(--space-large));
+        height: var(--space-medium);
+      }
+
+      .weather-opt-in-container-buttons {
+        padding-inline: var(--space-medium);
+      }
+
+      .weather-text-link {
+        font-size: var(--newtab-font-size-xsmall);
+      }
+    }
+
+    &.medium-widget {
+      padding-inline: var(--space-medium);
+
+      .weather-icon {
+        display: block;
+      }
+
+      .weather-icon-column .weather-icon {
+        width: calc(var(--icon-size-medium) * 2);
+      }
+
+      .weather-opt-in-container-title {
+        font-size: var(--font-size-root);
+        padding-inline-end: var(--space-xxlarge);
+      }
+
+      .weather-opt-in-container-buttons {
+        gap: var(--space-medium);
+      }
+
+    }
+
+    &.large-widget {
+      .weather-icon {
+        display: block;
+      }
+
+      .weather-opt-in-container {
+        justify-content: center;
+        gap: var(--space-xxlarge);
+      }
+
+      .weather-opt-in-container-title-bar {
+        margin-block-start: var(--space-large);
+        flex-direction: column;
+        justify-content: center;
+      }
+
+      .weather-opt-in-container-title {
+        font-size: var(--font-size-large);
+        text-align: center;
+        padding-inline-end: 0;
+      }
+
+      .weather-opt-in-container-buttons {
+        gap: var(--space-medium);
+      }
+    }
+
+  }
+
+  // Search Active
+  &.weather-search-active {
+    .weather-search-container {
+      position: relative;
+    }
+
+    .location-input {
+      padding: var(--space-small);
+      outline: 1px solid var(--border-color-selected);
+      border-radius: var(--border-radius-circle);
+      padding-inline-start: calc(var(--space-medium) * 4);
+      border: 0;
+      width: 100%;
+    }
+
+    .location-input-wrapper {
+      margin-block-end: var(--space-small);
+      position: relative;
+    }
+
+    .search-icon {
+      content: url('chrome://global/skin/icons/search-glass.svg');
+      -moz-context-properties: fill;
+      fill: var(--icon-color);
+      position: absolute;
+      inset-block-start: 50%;
+      transform: translateY(-50%);
+      inset-inline-start: var(--space-large);
+    }
+
+    .close-icon {
+      position: absolute;
+      inset-block-start: 50%;
+      transform: translateY(-50%);
+      inset-inline-end: var(--space-medium);
+
+      &:focus-visible {
+        outline: var(--focus-outline);
+      }
+    }
+
+    // Hide other UI when search is active
+    .weather-anchor, .weather-container, .forecast-footer, .widget-title-bar {
+      display: none;
+    }
+
+    &.small-widget {
+      position: absolute;
+      inset-inline-end: 0;
+      width: calc(4 * var(--col-width) + 3 * var(--space-medium));
+      height: calc(2 * var(--row-height) + var(--space-medium));
+    }
+  }
+
+  // Error State
+  &.weather-error-state {
+    justify-content: flex-start;
+
+    .weather-error {
+      display: flex;
+      align-items: flex-start;
+      flex-direction: column;
+      justify-content: space-evenly;
+      gap: var(--space-small);
+    }
+
+    p {
+      margin: 0;
+      font-size: var(--font-size-small);
+      color: var(--text-color-deemphasized);
+    }
+
+    &.small-widget {
+      .weather-error {
+        margin-block-start: auto;
+        gap: var(--space-xsmall);
+      }
+    }
+
+    &.medium-widget {
+      .weather-error {
+        flex-direction: row;
+        justify-content: flex-start;
+        margin-block: auto;
+      }
+
+      .widget-title-bar {
+        margin-block-end: 0;
+      }
+    }
+
+    &.large-widget {
+      .weather-error {
+        height: 100%;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .widget-title-bar {
+        margin-block-end: 0;
+      }
     }
   }
 }

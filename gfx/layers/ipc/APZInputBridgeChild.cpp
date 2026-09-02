@@ -4,16 +4,15 @@
 
 #include "mozilla/layers/APZInputBridgeChild.h"
 
-#include "InputData.h"  // for InputData, etc
+#include "InputData.h"                  // for InputData, etc
+#include "mozilla/dom/BrowserParent.h"  // for BrowserParent
 #include "mozilla/gfx/GPUProcessManager.h"
 #include "mozilla/ipc/Endpoint.h"
 #include "mozilla/layers/APZThreadUtils.h"
-#include "mozilla/layers/SynchronousTask.h"
-
-#include "mozilla/layers/GeckoContentController.h"  // for GeckoContentController
 #include "mozilla/layers/DoubleTapToZoom.h"  // for DoubleTapToZoomMetrics
+#include "mozilla/layers/GeckoContentController.h"  // for GeckoContentController
 #include "mozilla/layers/RemoteCompositorSession.h"  // for RemoteCompositorSession
-#include "mozilla/dom/BrowserParent.h"               // for BrowserParent
+#include "mozilla/layers/SynchronousTask.h"
 #ifdef MOZ_WIDGET_ANDROID
 #  include "mozilla/jni/Utils.h"  // for DispatchToGeckoPriorityQueue
 #endif
@@ -114,7 +113,7 @@ APZEventResult APZInputBridgeChild::ReceiveInputEvent(
       SendReceiveMultiTouchInputEvent(event, !!aCallback, &res,
                                       &processedEvent);
 
-      event = processedEvent;
+      event = std::move(processedEvent);
       break;
     }
     case MOUSE_INPUT: {
@@ -123,7 +122,7 @@ APZEventResult APZInputBridgeChild::ReceiveInputEvent(
 
       SendReceiveMouseInputEvent(event, !!aCallback, &res, &processedEvent);
 
-      event = processedEvent;
+      event = std::move(processedEvent);
       break;
     }
     case PANGESTURE_INPUT: {
@@ -133,7 +132,7 @@ APZEventResult APZInputBridgeChild::ReceiveInputEvent(
       SendReceivePanGestureInputEvent(event, !!aCallback, &res,
                                       &processedEvent);
 
-      event = processedEvent;
+      event = std::move(processedEvent);
       break;
     }
     case PINCHGESTURE_INPUT: {
@@ -143,7 +142,7 @@ APZEventResult APZInputBridgeChild::ReceiveInputEvent(
       SendReceivePinchGestureInputEvent(event, !!aCallback, &res,
                                         &processedEvent);
 
-      event = processedEvent;
+      event = std::move(processedEvent);
       break;
     }
     case TAPGESTURE_INPUT: {
@@ -153,7 +152,7 @@ APZEventResult APZInputBridgeChild::ReceiveInputEvent(
       SendReceiveTapGestureInputEvent(event, !!aCallback, &res,
                                       &processedEvent);
 
-      event = processedEvent;
+      event = std::move(processedEvent);
       break;
     }
     case SCROLLWHEEL_INPUT: {
@@ -163,7 +162,7 @@ APZEventResult APZInputBridgeChild::ReceiveInputEvent(
       SendReceiveScrollWheelInputEvent(event, !!aCallback, &res,
                                        &processedEvent);
 
-      event = processedEvent;
+      event = std::move(processedEvent);
       break;
     }
     case KEYBOARD_INPUT: {
@@ -172,7 +171,7 @@ APZEventResult APZInputBridgeChild::ReceiveInputEvent(
 
       SendReceiveKeyboardInputEvent(event, !!aCallback, &res, &processedEvent);
 
-      event = processedEvent;
+      event = std::move(processedEvent);
       break;
     }
     default: {

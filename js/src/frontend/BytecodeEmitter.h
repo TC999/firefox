@@ -730,10 +730,13 @@ struct MOZ_STACK_CLASS BytecodeEmitter {
   }
   [[nodiscard]] bool emitGetDotGeneratorInScope(EmitterScope& currentScope);
 
+  [[nodiscard]] bool checkResumeIndexLimit();
   [[nodiscard]] bool allocateResumeIndex(BytecodeOffset offset,
                                          uint32_t* resumeIndex);
-  [[nodiscard]] bool allocateResumeIndexRange(
-      mozilla::Span<BytecodeOffset> offsets, uint32_t* firstResumeIndex);
+  [[nodiscard]] bool allocateTableSwitchResumeIndexRange(
+      mozilla::Span<BytecodeOffset> caseOffsets, BytecodeOffset switchOffset,
+      uint32_t* firstResumeIndex);
+  [[nodiscard]] bool finishResumeOffsets();
 
   [[nodiscard]] bool emitInitialYield(UnaryNode* yieldNode);
   [[nodiscard]] bool emitYield(UnaryNode* yieldNode);
@@ -747,8 +750,13 @@ struct MOZ_STACK_CLASS BytecodeEmitter {
 
   [[nodiscard]] bool emitPushResumeKind(GeneratorResumeKind kind);
 
-  [[nodiscard]] bool emitPropLHS(PropertyAccess* prop);
+  [[nodiscard]] bool emitPropLHS(NonOptionalPropertyAccessBase* prop);
   [[nodiscard]] bool emitPropIncDec(UnaryNode* incDec, ValueUsage valueUsage);
+
+  // Emit an ArgumentsLength node, leaving the value of |arguments.length| on
+  // the stack. Uses the JSOp::ArgumentsLength fast path when the optimization
+  // is still eligible, otherwise falls back to reading the |arguments| binding.
+  [[nodiscard]] bool emitArgumentsLength();
 
   [[nodiscard]] bool emitComputedPropertyName(UnaryNode* computedPropName);
 
@@ -851,6 +859,8 @@ struct MOZ_STACK_CLASS BytecodeEmitter {
     return emitIteratorCloseInScope(*innermostEmitterScope(), iterKind,
                                     completionKind, selfHostedIter);
   }
+  [[nodiscard]] bool emitDestructuringIteratorClose(
+      SelfHostedIter selfHostedIter);
 
   template <typename InnerEmitter>
   [[nodiscard]] bool wrapWithDestructuringTryNote(int32_t iterDepth,
@@ -886,6 +896,9 @@ struct MOZ_STACK_CLASS BytecodeEmitter {
 
   [[nodiscard]] bool emitReturn(UnaryNode* returnNode);
   [[nodiscard]] bool finishReturn(BytecodeOffset setRvalOffset);
+
+  [[nodiscard]] bool emitCheckYieldResumeKind();
+  [[nodiscard]] bool emitCheckAwaitResumeKind();
 
   [[nodiscard]] bool emitExpressionStatement(UnaryNode* exprStmt);
   [[nodiscard]] bool emitStatementList(ListNode* stmtList);
@@ -950,7 +963,6 @@ struct MOZ_STACK_CLASS BytecodeEmitter {
   [[nodiscard]] bool emitDebugCheckSelfHosted();
   [[nodiscard]] bool emitSelfHostedCallFunction(CallNode* callNode, JSOp op);
   [[nodiscard]] bool emitSelfHostedResumeGenerator(CallNode* callNode);
-  [[nodiscard]] bool emitSelfHostedForceInterpreter();
   [[nodiscard]] bool emitSelfHostedAllowContentIter(CallNode* callNode);
   [[nodiscard]] bool emitSelfHostedAllowContentIterWith(CallNode* callNode);
   [[nodiscard]] bool emitSelfHostedAllowContentIterWithNext(CallNode* callNode);
@@ -969,11 +981,9 @@ struct MOZ_STACK_CLASS BytecodeEmitter {
   [[nodiscard]] bool emitSelfHostedSetCanonicalName(CallNode* callNode);
   [[nodiscard]] bool emitSelfHostedArgumentsLength(CallNode* callNode);
   [[nodiscard]] bool emitSelfHostedGetArgument(CallNode* callNode);
-#ifdef ENABLE_EXPLICIT_RESOURCE_MANAGEMENT
   enum class DisposalKind : bool { Sync, Async };
   [[nodiscard]] bool emitSelfHostedDisposeResources(CallNode* callNode,
                                                     DisposalKind kind);
-#endif
 #ifdef DEBUG
   void assertSelfHostedExpectedTopLevel(ParseNode* node);
   void assertSelfHostedUnsafeGetReservedSlot(ListNode* argsList);
@@ -1053,9 +1063,7 @@ struct MOZ_STACK_CLASS BytecodeEmitter {
 
   [[nodiscard]] js::UniquePtr<ImmutableScriptData> createImmutableScriptData();
 
-#if defined(ENABLE_DECORATORS) || defined(ENABLE_EXPLICIT_RESOURCE_MANAGEMENT)
   [[nodiscard]] bool emitCheckIsCallable();
-#endif
 
  private:
   [[nodiscard]] SelfHostedIter getSelfHostedIterFor(ParseNode* parseNode) const;

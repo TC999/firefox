@@ -14,15 +14,6 @@
 
 #include "absl/base/internal/thread_identity.h"
 
-#if !defined(_WIN32) || defined(__MINGW32__)
-#include <pthread.h>
-#ifndef __wasi__
-// WASI does not provide this header, either way we disable use
-// of signals with it below.
-#include <signal.h>
-#endif
-#endif
-
 #include <atomic>
 #include <cassert>
 #include <memory>
@@ -31,6 +22,15 @@
 #include "absl/base/call_once.h"
 #include "absl/base/internal/raw_logging.h"
 #include "absl/base/internal/spinlock.h"
+
+#if !defined(_WIN32)
+#include <pthread.h>
+#ifndef __wasi__
+// WASI does not provide this header, either way we disable use
+// of signals with it below.
+#include <signal.h>
+#endif
+#endif
 
 namespace absl {
 ABSL_NAMESPACE_BEGIN
@@ -84,9 +84,9 @@ void SetCurrentThreadIdentity(ThreadIdentity* identity,
   absl::call_once(init_thread_identity_key_once, AllocateThreadIdentityKey,
                   reclaimer);
 
-#if defined(__wasi__) || defined(__EMSCRIPTEN__) || defined(__MINGW32__) || \
+#if defined(__wasi__) || defined(__EMSCRIPTEN__) || \
     defined(__hexagon__)
-  // Emscripten, WASI and MinGW pthread implementations does not support
+  // Emscripten and WASI pthread implementations does not support
   // signals. See
   // https://kripken.github.io/emscripten-site/docs/porting/pthreads.html for
   // more information.
@@ -106,7 +106,7 @@ void SetCurrentThreadIdentity(ThreadIdentity* identity,
   pthread_setspecific(thread_identity_pthread_key,
                       reinterpret_cast<void*>(identity));
   pthread_sigmask(SIG_SETMASK, &curr_signals, nullptr);
-#endif  // !__EMSCRIPTEN__ && !__MINGW32__
+#endif  // !__EMSCRIPTEN__
 
 #elif ABSL_THREAD_IDENTITY_MODE == ABSL_THREAD_IDENTITY_MODE_USE_TLS
   // NOTE: Not async-safe.  But can be open-coded.

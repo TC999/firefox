@@ -1,26 +1,23 @@
 From: Michael Froman <mfroman@mozilla.com>
-Date: Wed, 16 Jul 2025 21:08:00 +0300
-Subject: Bug 1974813 - turn off rust in libwebrtc since we don't use any
- libwebrtc rust code. r=ng?
+Date: Wed, 8 Oct 2025 16:39:00 -0500
+Subject: Bug 1993083 - (fix-032f8c223e) add missing stub implementation for
+ SSLStreamAdapter static method.
 
-Note: no moz.build changes are caused by this change.
-
-Differential Revision: https://phabricator.services.mozilla.com/D257316
-Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/14ee98c4832a55bf32116c925540ab0f53e46cd3
+Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/293f1877fead30723696b8f5cb354bdf819af5d3
 ---
- .gn | 2 +-
+ rtc_base/ssl_stream_adapter.h | 2 +-
  1 file changed, 1 insertion(+), 1 deletion(-)
 
-diff --git a/.gn b/.gn
-index 21e1c5ce69..b6c6ef8de3 100644
---- a/.gn
-+++ b/.gn
-@@ -89,7 +89,7 @@ default_args = {
-   use_fuzztest_wrapper = false
- 
-   # Enable Rust in WebRTC
--  enable_rust = true
-+  enable_rust = false # Mozilla
-   enable_rust_cxx = true
-   enable_chromium_prelude = true
+diff --git a/rtc_base/ssl_stream_adapter.h b/rtc_base/ssl_stream_adapter.h
+index 499c76e151..00fd5f2da9 100644
+--- a/rtc_base/ssl_stream_adapter.h
++++ b/rtc_base/ssl_stream_adapter.h
+@@ -273,7 +273,7 @@ class SSLStreamAdapter : public StreamInterface {
+   static std::set<uint16_t> GetSupportedEphemeralKeyExchangeCipherGroups()
+       { return {}; }
+   static std::optional<std::string> GetEphemeralKeyExchangeCipherGroupName(
+-      uint16_t group_id);
++      uint16_t group_id) { return std::nullopt; }
+   static std::vector<uint16_t> GetDefaultEphemeralKeyExchangeCipherGroups(
+       const FieldTrialsView* field_trials) { return {}; }
  

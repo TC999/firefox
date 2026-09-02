@@ -7,6 +7,7 @@ loader: gecko_taskgraph.loader.test:loader
 kind-dependencies:
     - build
     - fetch
+    - openh264-plugin
     - toolchain
 
 transforms:
@@ -21,7 +22,17 @@ task-defaults:
     run-on-repo-type: [hg]
     attributes:
         retrigger: true
-    use-python: default
+    use-python:
+        by-test-platform:
+            # android-hw tasks are driven by the host's script.py wrapper,
+            # which imports mozdevice from the host environment; a fetched CI
+            # Python would shadow the host Python on PATH and break that import.
+            android-hw.*: system
+            # Fetched CI python is x86_64; under Rosetta it forces the universal
+            # mac Firefox onto its x86_64 slice and hits a Rosetta hang.  Keep mac
+            # on the native system python until there's an arm64 fetched python.
+            macosx.*: system
+            default: default
     use-uv: true
     require-signed-extensions:
         by-release-type:
@@ -182,6 +193,7 @@ tasks:
                 - --exclude-tag=canvas
                 - --exclude-tag=webcodecs
                 - --exclude-tag=eme
+                - --exclude-tag=webrtc
 
     web-platform-tests-backlog:
         description: "Web platform test (backlog) run"
@@ -225,6 +237,7 @@ tasks:
                 - --exclude-tag=webgpu
                 - --exclude-tag=webcodecs
                 - --exclude-tag=eme
+                - --exclude-tag=webrtc
 
     web-platform-tests-webcodecs:
         description: "Web platform webcodecs test run"
@@ -239,13 +252,21 @@ tasks:
         chunks: dynamic
         default-chunks: 1
         max-run-time: 1800
-        variants: []  # We don't need sw or nofis testing.
-        run-on-projects: built-projects
+        # We don't need sw or nofis testing, but running with a real OpenH264
+        # plugin will provide better release coverage.
+        variants:
+            - openh264
+        run-on-projects:
+            by-variant:
+                openh264:
+                    by-test-platform:
+                        linux2404-64/.*: ['autoland', 'mozilla-central']
+                        default: []
+                default: built-projects
         mozharness:
             chunked: true
             extra-options:
                 - --test-type=testharness
-                - --test-type=crashtest
                 - --default-exclude
                 - --tag=webcodecs
                 - --no-update-status-on-crash
@@ -278,6 +299,33 @@ tasks:
                 - --test-type=testharness
                 - --default-exclude
                 - --tag=eme
+                - --no-update-status-on-crash
+
+    web-platform-tests-webrtc:
+        description: "Web platform webrtc test run"
+        suite: web-platform-tests
+        treeherder-symbol: W(webrtc)
+        tier: default
+        chunks: dynamic
+        default-chunks: 1
+        max-run-time: 7200
+        # Runs in socket-process mode by default, no need for spi variants.
+        # We don't *really* need to be running these in nofis either.
+        # We do some things differently in private browsing mode though.
+        # Running with a real OpenH264 plugin reflects release best.
+        variants:
+            - privatebrowsing
+            - openh264
+        run-on-projects:
+            by-variant:
+                openh264: []
+                default: built-projects
+        mozharness:
+            chunked: true
+            extra-options:
+                - --test-type=testharness
+                - --default-exclude
+                - --tag=webrtc
                 - --no-update-status-on-crash
 
     web-platform-tests-reftest:
@@ -362,6 +410,9 @@ tasks:
                 - --skip-timeout
                 - --skip-crash
                 - --no-update-status-on-crash
+                # webgpu CTS reftests need the webgpu job's --timeout-multiplier,
+                # so they just time out here.
+                - --exclude-tag=webgpu
 
     web-platform-tests-webgpu:
         description: "Web platform WebGPU test run"
@@ -405,6 +456,7 @@ tasks:
                 - --exclude-tag=webgpu-long
                 - --exclude-tag=canvas
                 - --exclude-tag=webcodecs
+                - --exclude-tag=webrtc
                 - --timeout-multiplier=5.0
         worker-type:
             by-test-platform:
@@ -471,6 +523,7 @@ tasks:
                 - --exclude-tag=webgpu-long
                 - --exclude-tag=canvas
                 - --exclude-tag=webcodecs
+                - --exclude-tag=webrtc
                 - --skip-implementation-status=implementing
                 - --skip-implementation-status=not-implementing
                 - --backlog
@@ -575,6 +628,7 @@ tasks:
                 - --tag=canvas
                 - --exclude-tag=webgpu
                 - --exclude-tag=webcodecs
+                - --exclude-tag=webrtc
 
     web-platform-tests-reftest-backlog:
         description: "Web platform reftest (backlog) run"
@@ -611,6 +665,7 @@ tasks:
                 - --exclude-tag=webgpu
                 - --exclude-tag=webcodecs
                 - --exclude-tag=eme
+                - --exclude-tag=webrtc
 
     web-platform-tests-wdspec:
         description: "Web platform webdriver-spec run"
@@ -620,7 +675,8 @@ tasks:
             by-test-platform:
                 .*windows.*: win11-64-25h2
                 default: default
-        chunks:
+        chunks: dynamic
+        default-chunks:
             by-test-platform:
                 .*-ccov.*: 6
                 .*-tsan.*: 8
@@ -683,7 +739,7 @@ tasks:
                         - macosx64-minidump-stackwalk
                         - macosx64-fix-stacks
                     macosx.*-aarch64.*:
-                        - macosx64-aarch64-geckodriver
+                        - macosx64-geckodriver
                         - macosx64-aarch64-minidump-stackwalk
                         - macosx64-aarch64-fix-stacks
                     win.*-32.*:
@@ -698,6 +754,56 @@ tasks:
                         - linux64-minidump-stackwalk
                         - linux64-fix-stacks
                         - linux64-geckodriver
+
+    web-platform-tests-aam:
+        description: "Web platform aamtests run"
+        schedules-component: web-platform-tests-aam
+        treeherder-symbol: W(aam)
+        worker-type:
+            by-test-platform:
+                .*windows.*: win11-64-25h2
+                default: default
+        chunks: 1
+        mozharness:
+            extra-options:
+                - --test-type=aamtest
+            config:
+                - web_platform_tests/prod_config.py
+                - web_platform_tests/aam_config.py
+                - remove_executables.py
+        variants:
+            - no-fission
+            - async-event-dispatching
+        run-on-projects:
+            by-variant:
+                no-fission:
+                    by-test-platform:
+                        linux2404-64/.*: ['mozilla-central']
+                        linux2404-64-shippable/opt: ['mozilla-central']
+                        linux2404-64-asan/opt: ['mozilla-central']
+                        default: []
+                async-event-dispatching:
+                    by-test-platform:
+                        .*/opt: []  # try only for now
+                        default: []
+                default:
+                    by-test-platform:
+                        linux.*: built-projects  # only on Linux for now
+                        default: []
+        tier:
+            by-variant:
+                no-fission:
+                    by-test-platform:
+                        linux.*: 2
+                        default: default
+                default: default
+        fetches:
+            toolchain:
+                - linux64-minidump-stackwalk
+                - linux64-fix-stacks
+                - linux64-geckodriver
+                - linux64-python3.9-pygobject
+                - linux64-python3.9-pycairo
 
     web-platform-tests-crashtest:
         description: "Web platform crashtests run"
@@ -715,6 +821,10 @@ tasks:
         mozharness:
             extra-options:
                 - --test-type=crashtest
+                # Keep webgpu CTS tests in the webgpu job (they need its
+                # --timeout-multiplier); no webgpu crashtests exist today, but
+                # this guards against them being dumped here and timing out.
+                - --exclude-tag=webgpu
         variants:
             - no-fission
             - webrender-sw
@@ -860,7 +970,7 @@ tasks:
                         - macosx64-minidump-stackwalk
                         - macosx64-fix-stacks
                     macosx.*-aarch64.*:
-                        - macosx64-aarch64-geckodriver
+                        - macosx64-geckodriver
                         - macosx64-aarch64-minidump-stackwalk
                         - macosx64-aarch64-fix-stacks
                     win.*-32.*:

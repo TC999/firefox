@@ -315,8 +315,8 @@ already_AddRefed<Promise> ServiceWorkerContainer::Register(
   }
 
   mActor->SendRegister(
-      clientInfo.ref().ToIPC(), nsCString(cleanedScopeURL), aOptions.mType,
-      nsCString(cleanedScriptURL), aOptions.mUpdateViaCache,
+      clientInfo.ref().ToIPC(), std::move(cleanedScopeURL), aOptions.mType,
+      std::move(cleanedScriptURL), aOptions.mUpdateViaCache,
       [self,
        outer](const IPCServiceWorkerRegistrationDescriptorOrCopyableErrorResult&
                   aResult) {
@@ -615,7 +615,7 @@ Promise* ServiceWorkerContainer::GetReady(ErrorResult& aRv) {
 nsIGlobalObject* ServiceWorkerContainer::GetGlobalIfValid(
     ErrorResult& aRv,
     const std::function<void(nsIGlobalObject*)>&& aStorageFailureCB) const {
-  nsIGlobalObject* global = GetOwnerGlobal();
+  nsIGlobalObject* global = GetRelevantGlobal();
   if (NS_WARN_IF(!global)) {
     aRv.Throw(NS_ERROR_DOM_INVALID_STATE_ERR);
     return nullptr;
@@ -657,7 +657,7 @@ void ServiceWorkerContainer::EnqueueReceivedMessageDispatch(
 
 template <typename F>
 void ServiceWorkerContainer::RunWithJSContext(F&& aCallable) {
-  nsCOMPtr<nsIGlobalObject> globalObject = GetOwnerGlobal();
+  nsCOMPtr<nsIGlobalObject> globalObject = GetRelevantGlobal();
 
   // If AutoJSAPI::Init() fails then either global is nullptr or not
   // in a usable state.

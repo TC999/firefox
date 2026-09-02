@@ -5,16 +5,16 @@
 #ifndef mozilla_layers_InputQueue_h
 #define mozilla_layers_InputQueue_h
 
+#include <unordered_map>
+
 #include "APZUtils.h"
 #include "DragTracker.h"
 #include "InputData.h"
 #include "mozilla/EventForwards.h"
-#include "mozilla/layers/TouchCounter.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/UniquePtr.h"
+#include "mozilla/layers/TouchCounter.h"
 #include "nsTArray.h"
-
-#include <unordered_map>
 
 namespace mozilla {
 
@@ -39,6 +39,10 @@ struct APZEventResult;
 struct APZHandledResult;
 enum class BrowserGestureResponse : bool;
 
+// Indicating whether an incoming MULTITOUCH_MOVE event is the first touch-move
+// in the current touch block (i.e. the very first one after the touch-start).
+enum class InitialTouchMove : bool { No, Yes };
+
 using InputBlockCallback = std::function<void(uint64_t aInputBlockId,
                                               APZHandledResult aHandledResult)>;
 
@@ -51,7 +55,7 @@ class InputQueueIterator {
   using Iterator = nsTArray<UniquePtr<QueuedInput>>::iterator;
 
  public:
-  InputQueueIterator() : mCurrent(), mEnd() {}  // "null" iterator
+  InputQueueIterator() = default;  // "null" iterator
   InputQueueIterator(Iterator aCurrent, Iterator aEnd)
       : mCurrent(aCurrent), mEnd(aEnd) {}
 
@@ -84,7 +88,8 @@ class InputQueue {
   APZEventResult ReceiveInputEvent(
       const RefPtr<AsyncPanZoomController>& aTarget,
       TargetConfirmationFlags aFlags, InputData& aEvent,
-      const Maybe<nsTArray<TouchBehaviorFlags>>& aTouchBehaviors = Nothing());
+      const Maybe<nsTArray<TouchBehaviorFlags>>& aTouchBehaviors = Nothing(),
+      InitialTouchMove aInitialTouchMove = InitialTouchMove::No);
   /**
    * This function should be invoked to notify the InputQueue when web content
    * decides whether or not it wants to cancel a block of events. The block
@@ -217,7 +222,8 @@ class InputQueue {
   APZEventResult ReceiveTouchInput(
       const RefPtr<AsyncPanZoomController>& aTarget,
       TargetConfirmationFlags aFlags, const MultiTouchInput& aEvent,
-      const Maybe<nsTArray<TouchBehaviorFlags>>& aTouchBehaviors);
+      const Maybe<nsTArray<TouchBehaviorFlags>>& aTouchBehaviors,
+      InitialTouchMove aInitialTouchMove);
   APZEventResult ReceiveMouseInput(
       const RefPtr<AsyncPanZoomController>& aTarget,
       TargetConfirmationFlags aFlags, MouseInput& aEvent);

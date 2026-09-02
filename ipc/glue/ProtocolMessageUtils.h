@@ -9,6 +9,7 @@
 #include "chrome/common/ipc_channel.h"
 #include "chrome/common/ipc_message_utils.h"
 #include "ipc/EnumSerializer.h"
+#include "ipc/IPCMessageUtils.h"
 #include "mozilla/ipc/Endpoint.h"
 #include "mozilla/ipc/ProtocolUtils.h"
 
@@ -42,6 +43,29 @@ struct ParamTraits<mozilla::ipc::IProtocol*> {
   static bool Read(MessageReader* aReader, paramType* aResult);
 };
 
+template <mozilla::ipc::IPDLActorType PFooSide>
+struct ParamTraits<PFooSide*> {
+  using paramType = PFooSide*;
+
+  static void Write(MessageWriter* aWriter, const paramType& aParam) {
+    WriteParam(aWriter, static_cast<mozilla::ipc::IProtocol*>(aParam));
+  }
+
+  static bool Read(MessageReader* aReader, paramType* aResult) {
+    mozilla::ipc::IProtocol* result = nullptr;
+    if (!ReadParam(aReader, &result)) {
+      return false;
+    }
+
+    *aResult = ActorDynCast<PFooSide>(result);
+    if (result && !*aResult) {
+      aReader->FatalError("Unexpected actor type");
+      return false;
+    }
+    return true;
+  }
+};
+
 template <>
 struct ParamTraits<mozilla::ipc::UntypedEndpoint> {
   using paramType = mozilla::ipc::UntypedEndpoint;
@@ -55,20 +79,8 @@ template <class PFooSide>
 struct ParamTraits<mozilla::ipc::Endpoint<PFooSide>>
     : ParamTraits<mozilla::ipc::UntypedEndpoint> {};
 
-template <>
-struct ParamTraits<mozilla::ipc::EndpointProcInfo> {
-  using paramType = mozilla::ipc::EndpointProcInfo;
-
-  static void Write(MessageWriter* aWriter, const paramType& aParam) {
-    IPC::WriteParam(aWriter, aParam.mPid);
-    IPC::WriteParam(aWriter, aParam.mChildID);
-  }
-
-  static bool Read(MessageReader* aReader, paramType* aResult) {
-    return IPC::ReadParam(aReader, &aResult->mPid) &&
-           IPC::ReadParam(aReader, &aResult->mChildID);
-  }
-};
+DEFINE_IPC_SERIALIZER_WITH_FIELDS(mozilla::ipc::EndpointProcInfo, mPid,
+                                  mChildID);
 
 template <>
 struct ParamTraits<mozilla::ipc::UntypedManagedEndpoint> {

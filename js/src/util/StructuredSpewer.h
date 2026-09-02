@@ -13,6 +13,7 @@
 #  include "mozilla/Sprintf.h"
 
 #  include "jstypes.h"
+
 #  include "js/Printer.h"
 #  include "vm/JSONPrinter.h"
 
@@ -237,8 +238,6 @@ class StructuredSpewer {
 //  correct number of destructors fire.
 class MOZ_RAII AutoStructuredSpewer {
   mozilla::Maybe<JSONPrinter*> printer_;
-  AutoStructuredSpewer(const AutoStructuredSpewer&) = delete;
-  void operator=(AutoStructuredSpewer&) = delete;
 
  public:
   explicit AutoStructuredSpewer(JSContext* cx, SpewChannel channel,
@@ -249,6 +248,9 @@ class MOZ_RAII AutoStructuredSpewer {
       printer_.ref()->endObject();
     }
   }
+
+  AutoStructuredSpewer(const AutoStructuredSpewer&) = delete;
+  void operator=(AutoStructuredSpewer&) = delete;
 
   explicit operator bool() const { return printer_.isSome(); }
 
@@ -271,14 +273,14 @@ class MOZ_RAII AutoSpewChannel {
   JSContext* cx_;
   bool wasChannelAutoSet = false;
 
-  AutoSpewChannel(const AutoSpewChannel&) = delete;
-  void operator=(AutoSpewChannel&) = delete;
-
  public:
   explicit AutoSpewChannel(JSContext* cx, SpewChannel channel,
                            JSScript* script);
 
   ~AutoSpewChannel();
+
+  AutoSpewChannel(const AutoSpewChannel&) = delete;
+  void operator=(AutoSpewChannel&) = delete;
 };
 
 }  // namespace js

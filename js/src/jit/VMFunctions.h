@@ -362,6 +362,7 @@ bool InvokeFromInterpreterStub(JSContext* cx,
 void* GetContextSensitiveInterpreterStub();
 
 bool CheckOverRecursed(JSContext* cx);
+bool CheckOverRecursedResumingGenerator(JSContext* cx);
 bool CheckOverRecursedBaseline(JSContext* cx, BaselineFrame* frame);
 
 [[nodiscard]] bool MutatePrototype(JSContext* cx, Handle<PlainObject*> obj,
@@ -449,13 +450,7 @@ JSObject* CreateGenerator(JSContext* cx, HandleFunction, HandleScript,
                                  const jsbytecode* pc);
 [[nodiscard]] bool FinalSuspend(JSContext* cx, HandleObject obj,
                                 const jsbytecode* pc);
-[[nodiscard]] bool InterpretResume(JSContext* cx, HandleObject obj,
-                                   Value* stackValues, MutableHandleValue rval);
 [[nodiscard]] bool DebugAfterYield(JSContext* cx, BaselineFrame* frame);
-[[nodiscard]] bool GeneratorThrowOrReturn(
-    JSContext* cx, BaselineFrame* frame,
-    Handle<AbstractGeneratorObject*> genObj, HandleValue arg,
-    int32_t resumeKindArg);
 
 [[nodiscard]] bool GlobalDeclInstantiationFromIon(JSContext* cx,
                                                   HandleScript script,
@@ -524,7 +519,6 @@ bool ObjectIsCallable(JSObject* obj);
 bool ObjectIsConstructor(JSObject* obj);
 JSObject* ObjectKeys(JSContext* cx, HandleObject obj);
 JSObject* ObjectKeysFromIterator(JSContext* cx, HandleObject iterObj);
-bool ObjectKeysLength(JSContext* cx, HandleObject obj, int32_t* length);
 
 [[nodiscard]] bool ThrowRuntimeLexicalError(JSContext* cx,
                                             unsigned errorNumber);
@@ -707,6 +701,13 @@ float Float16ToFloat32(int32_t value);
 int32_t Float32ToFloat16(float value);
 
 void DateFillLocalTimeSlots(DateObject* dateObj);
+double DateNow(JSContext* cx);
+double DateParse(JSContext* cx, const JSString* str);
+double DateLocalTimeToUTC(JSContext* cx, int64_t localTime);
+void DateYearFromTime(JSContext* cx, double utcTime, JS::Value* result);
+void DateMonthFromTime(JSContext* cx, double utcTime, JS::Value* result);
+void DateDateFromTime(JSContext* cx, double utcTime, JS::Value* result);
+JSObject* NewDateObject(JSContext* cx, double utcTime);
 
 JSAtom* AtomizeStringNoGC(JSContext* cx, JSString* str);
 
@@ -735,7 +736,7 @@ void AssertMapObjectHash(JSContext* cx, MapObject* obj, const Value* value,
 
 void AssertPropertyLookup(NativeObject* obj, PropertyKey id, uint32_t slot);
 
-void ReadBarrier(gc::Cell* cell);
+void WeakMapValueReadBarrier(gc::TenuredCell* cell, Zone* mapZone);
 
 // Functions used when JS_MASM_VERBOSE is enabled.
 void AssumeUnreachable(const char* output);

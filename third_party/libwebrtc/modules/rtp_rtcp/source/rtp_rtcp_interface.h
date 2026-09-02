@@ -15,12 +15,13 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
 #include "absl/strings/string_view.h"
-#include "api/array_view.h"
 #include "api/frame_transformer_interface.h"
+#include "api/rtp_header_extension_id.h"
 #include "api/rtp_headers.h"
 #include "api/rtp_packet_sender.h"
 #include "api/scoped_refptr.h"
@@ -45,7 +46,6 @@ class FrameEncryptorInterface;
 class RateLimiter;
 class RTPSender;
 class Transport;
-class VideoBitrateAllocationObserver;
 
 class RtpRtcpInterface : public RtcpFeedbackSenderInterface {
  public:
@@ -76,7 +76,6 @@ class RtpRtcpInterface : public RtcpFeedbackSenderInterface {
 
     NetworkStateEstimateObserver* network_state_estimate_observer = nullptr;
 
-    VideoBitrateAllocationObserver* bitrate_allocation_observer = nullptr;
     RtcpRttStats* rtt_stats = nullptr;
     RtcpPacketTypeCounterObserver* rtcp_packet_type_counter_observer = nullptr;
     // Called on receipt of RTCP report block from remote side.
@@ -100,6 +99,11 @@ class RtpRtcpInterface : public RtcpFeedbackSenderInterface {
     StreamDataCountersCallback* rtp_stats_callback = nullptr;
 
     int rtcp_report_interval_ms = 0;
+
+    // Initial RTCP status. Defaults to kCompound to ensure that all high-level
+    // media streams (which commonly assume active RTCP by default) have RTCP
+    // enabled immediately upon construction.
+    RtcpMode rtcp_mode = RtcpMode::kCompound;
 
     // Update network2 instead of pacer_exit field of video timing extension.
     bool populate_network2_timestamp = false;
@@ -125,6 +129,7 @@ class RtpRtcpInterface : public RtcpFeedbackSenderInterface {
     // FlexFec SSRC is fetched from `flexfec_sender`.
     uint32_t local_media_ssrc = 0;
     std::optional<uint32_t> rtx_send_ssrc;
+    std::optional<uint32_t> remote_ssrc;
 
     bool need_rtp_packet_infos = false;
 
@@ -183,13 +188,9 @@ class RtpRtcpInterface : public RtcpFeedbackSenderInterface {
   // Receiver functions
   // **************************************************************************
 
-  virtual void IncomingRtcpPacket(ArrayView<const uint8_t> incoming_packet) = 0;
+  virtual void IncomingRtcpPacket(std::span<const uint8_t> incoming_packet) = 0;
 
   virtual void SetRemoteSSRC(uint32_t ssrc) = 0;
-
-  // Called when the local ssrc changes (post initialization) for receive
-  // streams to match with send. Called on the packet receive thread/tq.
-  virtual void SetLocalSsrc(uint32_t ssrc) = 0;
 
   // **************************************************************************
   // Sender
@@ -213,7 +214,8 @@ class RtpRtcpInterface : public RtcpFeedbackSenderInterface {
   virtual void SetExtmapAllowMixed(bool extmap_allow_mixed) = 0;
 
   // Register extension by uri, triggers CHECK on falure.
-  virtual void RegisterRtpHeaderExtension(absl::string_view uri, int id) = 0;
+  virtual void RegisterRtpHeaderExtension(absl::string_view uri,
+                                          RtpHeaderExtensionId id) = 0;
 
   virtual void DeregisterSendRtpHeaderExtension(absl::string_view uri) = 0;
 
@@ -343,16 +345,16 @@ class RtpRtcpInterface : public RtcpFeedbackSenderInterface {
   virtual std::vector<std::unique_ptr<RtpPacketToSend>> FetchFecPackets() = 0;
 
   virtual void OnAbortedRetransmissions(
-      ArrayView<const uint16_t> sequence_numbers) = 0;
+      std::span<const uint16_t> sequence_numbers) = 0;
 
   virtual void OnPacketsAcknowledged(
-      ArrayView<const uint16_t> sequence_numbers) = 0;
+      std::span<const uint16_t> sequence_numbers) = 0;
 
   virtual std::vector<std::unique_ptr<RtpPacketToSend>> GeneratePadding(
       size_t target_size_bytes) = 0;
 
   virtual std::vector<RtpSequenceNumberMap::Info> GetSentRtpPacketInfos(
-      ArrayView<const uint16_t> sequence_numbers) const = 0;
+      std::span<const uint16_t> sequence_numbers) const = 0;
 
   // Returns an expected per packet overhead representing the main RTP header,
   // any CSRCs, and the registered header extensions that are expected on all

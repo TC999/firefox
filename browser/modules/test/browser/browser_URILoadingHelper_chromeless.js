@@ -5,6 +5,7 @@ http://creativecommons.org/publicdomain/zero/1.0/ */
 ChromeUtils.defineESModuleGetters(this, {
   URILoadingHelper: "resource:///modules/URILoadingHelper.sys.mjs",
   BrowserWindowTracker: "resource:///modules/BrowserWindowTracker.sys.mjs",
+  ASRouterTargeting: "resource:///modules/asrouter/ASRouterTargeting.sys.mjs",
 });
 
 const URL_TO_LOAD = "https://example.com/";
@@ -57,29 +58,43 @@ add_task(async function opens_a_new_window_not_reusing_existing_window() {
   await BrowserTestUtils.closeWindow(win);
 });
 
+add_task(async function opens_with_requested_dimensions() {
+  const { width, height } = ASRouterTargeting.Environment.primaryResolution;
+  if (width < 800 || height < 600) {
+    ok(true, "Skipping: screen too small to reliably test window dimensions");
+    return;
+  }
+  const win = await openChromelessAndWaitForLoad(URL_TO_LOAD, {
+    width: 800,
+    height: 600,
+  });
+  Assert.equal(win.innerWidth, 800, "Window should have the requested width");
+  Assert.equal(win.innerHeight, 600, "Window should have the requested height");
+  await BrowserTestUtils.closeWindow(win);
+});
+
 add_task(async function browser_chrome_is_hidden() {
-  function chomeElementIsHidden(win, el) {
-    const rect = el.getBoundingClientRect();
-    return el.collapsed || rect.width <= 0;
+  function chomeElementIsHidden(el) {
+    return !BrowserTestUtils.isVisible(el);
   }
 
   const win = await openChromelessAndWaitForLoad(URL_TO_LOAD);
 
   const doc = win.document;
-  const navBar = doc.getElementById("nav-bar");
+  const personalToolbar = doc.getElementById("PersonalToolbar");
   const tabsToolbar = doc.getElementById("TabsToolbar");
   const urlbar = doc.getElementById("urlbar-container");
 
   Assert.ok(
-    chomeElementIsHidden(win, navBar),
-    "Navigation toolbar is not visible in chromeless window"
+    chomeElementIsHidden(personalToolbar),
+    "Personal toolbar is not visible in chromeless window"
   );
   Assert.ok(
-    chomeElementIsHidden(win, tabsToolbar),
+    chomeElementIsHidden(tabsToolbar),
     "Tabs toolbar is not visible in chromeless window"
   );
   Assert.ok(
-    chomeElementIsHidden(win, urlbar),
+    chomeElementIsHidden(urlbar),
     "URLbar is not visible in chromeless window"
   );
 

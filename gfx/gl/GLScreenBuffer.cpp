@@ -6,9 +6,9 @@
 
 #include "CompositorTypes.h"
 #include "GLContext.h"
-#include "gfx2DGlue.h"
 #include "MozFramebuffer.h"
 #include "SharedSurface.h"
+#include "gfx2DGlue.h"
 #include "mozilla/gfx/BuildConstants.h"
 
 namespace mozilla::gl {
@@ -53,7 +53,7 @@ UniquePtr<SwapChainPresenter> SwapChain::Acquire(
   }
 
   auto ret = MakeUnique<SwapChainPresenter>(*this);
-  const auto old = ret->SwapBackBuffer(surf);
+  const auto old = ret->SwapBackBuffer(std::move(surf));
   MOZ_ALWAYS_TRUE(!old);
   return ret;
 }

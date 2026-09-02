@@ -8,19 +8,16 @@
 void ParamTraitsEnumChecker::registerMatchers(MatchFinder *AstMatcher) {
   AstMatcher->addMatcher(
       classTemplateSpecializationDecl(
-          hasName("ParamTraits"),
+          hasName("ParamTraits"), isDefinition(),
           unless(anyOf(
               // Exclude ParamTraits that derive from EnumSerializer (e.g.,
               // ContiguousEnumSerializer) as these are the recommended way to
               // serialize enums.
               isDerivedFrom("EnumSerializer"),
-              // Exclude ParamTraits_IsEnumCase, which is an alternative to
-              // EnumSerializer.
-              isDerivedFrom("ParamTraits_IsEnumCase"),
               // Exclude nsresult specifically, which has a legitimate
               // ParamTraitsMozilla specialization.
-              hasTemplateArgument(
-                  0, refersToType(hasDeclaration(namedDecl(hasName("nsresult"))))))))
+              hasTemplateArgument(0, refersToType(hasDeclaration(
+                                         namedDecl(hasName("nsresult"))))))))
           .bind("decl"),
       this);
 }

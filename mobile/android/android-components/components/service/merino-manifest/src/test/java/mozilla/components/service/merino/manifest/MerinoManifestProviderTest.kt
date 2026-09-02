@@ -5,20 +5,26 @@
 package mozilla.components.service.merino.manifest
 
 import android.content.res.AssetManager
+import androidx.core.net.toUri
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import kotlin.test.assertNotNull
+import mozilla.components.support.ktx.android.net.hostWithoutCommonPrefixes
 import mozilla.components.support.test.any
 import mozilla.components.support.test.mock
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.mockito.Mockito.doReturn
 
-private val TEST_JSON = MerinoManifestProviderTest::class.java.classLoader!!
-    .getResourceAsStream(ASSET_FILE_PATH)!!
-    .bufferedReader()
-    .readText()
+private val TEST_JSON =
+    MerinoManifestProviderTest::class
+        .java
+        .classLoader!!
+        .getResourceAsStream(ASSET_FILE_PATH)!!
+        .bufferedReader()
+        .readText()
 
 @RunWith(AndroidJUnit4::class)
 class MerinoManifestProviderTest {
@@ -43,9 +49,10 @@ class MerinoManifestProviderTest {
 
     @Test
     fun `GIVEN host has a blank icon WHEN the icon URL is fetched THEN return null`() {
-        val provider = providerWith(
-            """{"domains":[{"rank":1,"domain":"example","categories":[],"serp_categories":[],"url":"https://example.com/","title":"Example","icon":""}]}""",
-        )
+        val provider =
+            providerWith(
+                """{"domains":[{"rank":1,"domain":"example","categories":[],"serp_categories":[],"url":"https://example.com/","title":"Example","icon":""}]}"""
+            )
         assertNull(provider.getIconUrl("example.com"))
     }
 
@@ -54,10 +61,11 @@ class MerinoManifestProviderTest {
         val provider = providerWith(TEST_JSON)
         val entry = provider.getManifestEntry("facebook.com")
 
-        assertEquals("facebook", entry?.domain)
-        assertEquals("Facebook", entry?.title)
-        assertEquals(3, entry?.rank)
-        assertEquals(listOf("Social Networks"), entry?.categories)
+        assertNotNull(entry)
+        assertEquals("facebook", entry.domain)
+        assertEquals("Facebook", entry.title)
+        assertTrue(entry.rank > 0)
+        assertTrue("expected at least one category", entry.categories.isNotEmpty())
     }
 
     @Test
@@ -71,9 +79,10 @@ class MerinoManifestProviderTest {
         val provider = providerWith(TEST_JSON)
         val domains = provider.getTopDomains()
 
-        assertEquals(1, domains[0].rank)
-        assertEquals(2, domains[1].rank)
-        assertEquals(3, domains[2].rank)
+        assertTrue("expected at least one top domain", domains.isNotEmpty())
+        domains.zipWithNext().forEach { (a, b) ->
+            assertTrue("ranks should be non-decreasing", a.rank <= b.rank)
+        }
     }
 
     @Test
@@ -81,8 +90,28 @@ class MerinoManifestProviderTest {
         val provider = providerWith(TEST_JSON)
         val domains = provider.getTopDomains(limit = 2)
         assertEquals(2, domains.size)
-        assertEquals(1, domains[0].rank)
-        assertEquals(2, domains[1].rank)
+        assertTrue("ranks should be non-decreasing", domains[0].rank <= domains[1].rank)
+    }
+
+    @Test
+    fun `GIVEN excluded domains WHEN the top domains are fetched THEN returned domains do not include the excluded domains`() {
+        val provider = providerWith(TEST_JSON)
+        val excludedDomains = provider.getTopDomains(limit = 3).map { it.url.toUri().hostWithoutCommonPrefixes }
+
+        val domains = provider.getTopDomains(excludedDomains = excludedDomains.filterNotNull().toSet())
+
+        assertTrue(domains.none { it.url.toUri().hostWithoutCommonPrefixes in excludedDomains })
+    }
+
+    @Test
+    fun `GIVEN excluded domains and a limit WHEN the top domains are fetched THEN return the expected number of domains`() {
+        val provider = providerWith(TEST_JSON)
+        val excluded = provider.getTopDomains(limit = 2).map { it.url.toUri().hostWithoutCommonPrefixes }
+
+        val domains = provider.getTopDomains(limit = 2, excludedDomains = excluded.filterNotNull().toSet())
+
+        assertEquals(2, domains.size)
+        assertTrue(domains.none { it.url.toUri().hostWithoutCommonPrefixes in excluded })
     }
 
     @Test

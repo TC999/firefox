@@ -7,7 +7,7 @@ use alloc::{
 use core::fmt;
 
 use arrayvec::ArrayVec;
-use hashbrown::hash_map::Entry;
+use hashbrown::{hash_map::Entry, HashSet};
 use shader_io_deductions::{display_deductions_as_optional_list, MaxVertexShaderOutputDeduction};
 use thiserror::Error;
 use wgt::{
@@ -16,7 +16,8 @@ use wgt::{
 };
 
 use crate::{
-    device::bgl, resource::InvalidResourceError,
+    command::ColorAttachmentError, device::bgl, pipeline::ColorStateError,
+    resource::InvalidResourceError,
     validation::shader_io_deductions::MaxFragmentShaderInputDeduction, FastHashMap, FastHashSet,
 };
 
@@ -25,7 +26,7 @@ pub mod shader_io_deductions;
 #[derive(Debug)]
 enum ResourceType {
     Buffer {
-        size: wgt::BufferSize,
+        minimum_binding_size: wgt::BufferSize,
     },
     Texture {
         dim: naga::ImageDimension,
@@ -150,9 +151,26 @@ impl fmt::Display for InterfaceVar {
     }
 }
 
+/// An [inter-stage input or output value][io].
+///
+/// A value of this type describes one value to be passed to or returned from
+/// some entry point.
+///
+/// [io]: https://www.w3.org/TR/WGSL/#stage-inputs-outputs
 #[derive(Debug, Eq, PartialEq)]
 enum Varying {
-    Local { location: u32, iv: InterfaceVar },
+    /// A [user-defined input or output][uio].
+    ///
+    /// In WGSL, this is a value with a `@location` attribute.
+    ///
+    /// [uio]: https://www.w3.org/TR/WGSL/#user-defined-inputs-outputs
+    UserDefined { location: u32, iv: InterfaceVar },
+
+    /// A [built-in input or output][bio].
+    ///
+    /// In WGSL, this is a value with a `@builtin` attribute.
+    ///
+    /// [bio]: https://www.w3.org/TR/WGSL/#builtin-inputs-outputs
     BuiltIn(BuiltIn),
 }
 
@@ -267,17 +285,11 @@ impl BuiltIn {
     }
 }
 
-#[allow(unused)]
-#[derive(Debug)]
-struct SpecializationConstant {
-    id: u32,
-    ty: NumericType,
-}
-
 #[derive(Debug)]
 struct EntryPointMeshInfo {
     max_vertices: u32,
     max_primitives: u32,
+    primitive_topology: wgt::PrimitiveTopology,
 }
 
 #[derive(Debug, Default)]
@@ -285,20 +297,54 @@ struct EntryPoint {
     inputs: Vec<Varying>,
     outputs: Vec<Varying>,
     resources: Vec<naga::Handle<Resource>>,
-    #[allow(unused)]
-    spec_constants: Vec<SpecializationConstant>,
     sampling_pairs: FastHashSet<(naga::Handle<Resource>, naga::Handle<Resource>)>,
     workgroup_size: [u32; 3],
     dual_source_blending: bool,
     task_payload_size: Option<u32>,
     mesh_info: Option<EntryPointMeshInfo>,
+    immediate_usage: naga::valid::ImmediateUsage,
+}
+
+#[derive(Debug, Hash, PartialEq, Eq)]
+struct EntryPointKey(naga::ShaderStage, String);
+
+#[derive(Debug, Hash, PartialEq, Eq)]
+struct EntryPointKeyRef<'a>(naga::ShaderStage, &'a str);
+
+impl hashbrown::Equivalent<EntryPointKey> for EntryPointKeyRef<'_> {
+    fn equivalent(&self, key: &EntryPointKey) -> bool {
+        self.0 == key.0 && self.1 == key.1
+    }
 }
 
 #[derive(Debug)]
 pub struct Interface {
     limits: wgt::Limits,
     resources: naga::Arena<Resource>,
-    entry_points: FastHashMap<(naga::ShaderStage, String), EntryPoint>,
+    entry_points: FastHashMap<EntryPointKey, EntryPoint>,
+}
+
+#[derive(Debug)]
+pub struct PassthroughInterface {
+    pub entry_point_names: HashSet<String>,
+}
+
+// Most shaders will use a standard interface which is very large.
+// Passthrough shaders have a much smaller interface. No reason to
+// box the standard interface though.
+#[expect(clippy::large_enum_variant)]
+#[derive(Debug)]
+pub enum ShaderMetaData {
+    Interface(Interface),
+    Passthrough(PassthroughInterface),
+}
+impl ShaderMetaData {
+    pub fn interface(&self) -> Option<&Interface> {
+        match self {
+            Self::Interface(i) => Some(i),
+            Self::Passthrough(_) => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Error)]
@@ -392,20 +438,8 @@ impl WebGpuError for InputError {
 #[derive(Clone, Debug, Error)]
 #[non_exhaustive]
 pub enum StageError {
-    #[error(
-        "Shader entry point's workgroup size {dimensions:?} ({total} total invocations) must be \
-        less or equal to the per-dimension limit `Limits::{per_dimension_limits_desc}` of \
-        {per_dimension_limits:?} and the total invocation limit `Limits::{total_limit_desc}` of \
-        {total_limit}"
-    )]
-    InvalidWorkgroupSize {
-        dimensions: [u32; 3],
-        per_dimension_limits: [u32; 3],
-        per_dimension_limits_desc: &'static str,
-        total: u32,
-        total_limit: u32,
-        total_limit_desc: &'static str,
-    },
+    #[error(transparent)]
+    InvalidWorkgroupSize(#[from] InvalidWorkgroupSizeError),
     #[error("Unable to find entry point '{0}'")]
     MissingEntryPoint(String),
     #[error("Shader global {0:?} is not available in the pipeline layout")]
@@ -508,12 +542,18 @@ pub enum StageError {
     InvalidPrimitiveIndex,
     #[error("If a mesh shader writes to primitive index, it must be read by the fragment shader.")]
     MissingPrimitiveIndex,
-    #[error("DrawId cannot be used in the same pipeline as a task shader")]
+    #[error("DrawId cannot be used in a mesh shader in a pipeline with a task shader")]
     DrawIdError,
     #[error("Pipeline uses dual-source blending, but the shader does not support it")]
     InvalidDualSourceBlending,
     #[error("Fragment shader writes depth, but pipeline does not have a depth attachment")]
     MissingFragDepthAttachment,
+    #[error("Per vertex fragment inputs can only be used in triangle primitive pipelines")]
+    PerVertexNotTriangles,
+    #[error("Mesh shader pipelines must have primitive topology of TriangleList, LineList or PointList, and this must match with what the mesh shader declares.")]
+    MeshTopologyMismatch,
+    #[error("Pipeline layout immediate size ({layout}) must be >= the required immediate size ({required}) of the shader entry point")]
+    LayoutImmediateSize { layout: u32, required: u32 },
 }
 
 impl WebGpuError for StageError {
@@ -548,7 +588,10 @@ impl WebGpuError for StageError {
             | Self::MissingPrimitiveIndex
             | Self::DrawIdError
             | Self::InvalidDualSourceBlending
-            | Self::MissingFragDepthAttachment => ErrorType::Validation,
+            | Self::MissingFragDepthAttachment
+            | Self::PerVertexNotTriangles
+            | Self::MeshTopologyMismatch
+            | Self::LayoutImmediateSize { .. } => ErrorType::Validation,
         }
     }
 }
@@ -559,7 +602,9 @@ pub use wgpu_naga_bridge::map_storage_format_to_naga;
 impl Resource {
     fn check_binding_use(&self, entry: &BindGroupLayoutEntry) -> Result<(), BindingError> {
         match self.ty {
-            ResourceType::Buffer { size } => {
+            ResourceType::Buffer {
+                minimum_binding_size,
+            } => {
                 let min_size = match entry.ty {
                     BindingType::Buffer {
                         ty,
@@ -592,9 +637,9 @@ impl Resource {
                     }
                 };
                 match min_size {
-                    Some(non_zero) if non_zero < size => {
+                    Some(non_zero) if non_zero < minimum_binding_size => {
                         return Err(BindingError::WrongBufferSize {
-                            buffer_size: size,
+                            buffer_size: minimum_binding_size,
                             min_binding_size: non_zero,
                         })
                     }
@@ -762,7 +807,9 @@ impl Resource {
         is_reffed_by_sampler_in_entrypoint: bool,
     ) -> Result<BindingType, BindingError> {
         Ok(match self.ty {
-            ResourceType::Buffer { size } => BindingType::Buffer {
+            ResourceType::Buffer {
+                minimum_binding_size,
+            } => BindingType::Buffer {
                 ty: match self.class {
                     naga::AddressSpace::Uniform => wgt::BufferBindingType::Uniform,
                     naga::AddressSpace::Storage { access } => wgt::BufferBindingType::Storage {
@@ -771,7 +818,7 @@ impl Resource {
                     _ => return Err(BindingError::WrongBufferAddressSpace { space: self.class }),
                 },
                 has_dynamic_offset: false,
-                min_binding_size: Some(size),
+                min_binding_size: Some(minimum_binding_size),
             },
             ResourceType::Sampler { comparison } => BindingType::Sampler(if comparison {
                 wgt::SamplerBindingType::Comparison
@@ -982,7 +1029,7 @@ impl NumericType {
         }
     }
 
-    fn is_subtype_of(&self, other: &NumericType) -> bool {
+    fn is_subtype_of(self, other: NumericType) -> bool {
         if self.scalar.width > other.scalar.width {
             return false;
         }
@@ -1002,16 +1049,34 @@ impl NumericType {
 }
 
 /// Return true if the fragment `format` is covered by the provided `output`.
-pub fn check_texture_format(
-    format: wgt::TextureFormat,
-    output: &NumericType,
-) -> Result<(), NumericType> {
-    let nt = NumericType::from_texture_format(format);
-    if nt.is_subtype_of(output) {
-        Ok(())
-    } else {
-        Err(nt)
+pub fn check_color_attachment_compatibility(
+    state: &wgt::ColorTargetState,
+    output_ty: NumericType,
+) -> Result<(), ColorStateError> {
+    let pipeline_ty = NumericType::from_texture_format(state.format);
+    if !pipeline_ty.is_subtype_of(output_ty) {
+        return Err(ColorStateError::IncompatibleFormat {
+            pipeline: pipeline_ty,
+            shader: output_ty,
+        });
     }
+    if let Some(blend) = state.blend {
+        for (factor, name) in [
+            (blend.color.src_factor, "source"),
+            (blend.color.dst_factor, "destination"),
+        ] {
+            if factor.uses_source_alpha()
+                && output_ty.dim != NumericDimension::Vector(naga::VectorSize::Quad)
+            {
+                return Err(ColorStateError::InvalidAlphaBlend {
+                    which: name,
+                    factor,
+                });
+            }
+        }
+    }
+
+    Ok(())
 }
 
 pub enum BindingLayoutSource {
@@ -1046,6 +1111,7 @@ pub struct StageIo {
     ///
     /// This is Some if it was a mesh shader.
     pub primitive_index: Option<bool>,
+    pub immediates: naga::valid::ImmediateUsage,
 }
 
 impl Interface {
@@ -1106,12 +1172,7 @@ impl Interface {
                 return;
             }
             ref other => {
-                //Note: technically this should be at least `log::error`, but
-                // the reality is - every shader coming from `glslc` outputs an array
-                // of clip distances and hits this path :(
-                // So we lower it to `log::debug` to be less annoying as
-                // there's nothing the user can do about it.
-                log::debug!("Unexpected varying type: {other:?}");
+                log::error!("Unexpected varying type: {other:?}");
                 return;
             }
         };
@@ -1123,7 +1184,7 @@ impl Interface {
                 sampling,
                 per_primitive,
                 blend_src: _,
-            }) => Varying::Local {
+            }) => Varying::UserDefined {
                 location,
                 iv: InterfaceVar {
                     ty: numeric_ty,
@@ -1221,7 +1282,8 @@ impl Interface {
                     ResourceType::AccelerationStructure { vertex_return }
                 }
                 ref other => ResourceType::Buffer {
-                    size: wgt::BufferSize::new(other.size(module.to_ctx()) as u64).unwrap(),
+                    minimum_binding_size: wgt::BufferSize::new(other.size(module.to_ctx()) as u64)
+                        .unwrap(),
                 },
             };
             let handle = resources.append(
@@ -1239,7 +1301,7 @@ impl Interface {
         let mut entry_points = FastHashMap::default();
         entry_points.reserve(module.entry_points.len());
         for (index, entry_point) in module.entry_points.iter().enumerate() {
-            let info = info.get_entry_point(index);
+            let func_info = info.get_entry_point(index);
             let mut ep = EntryPoint::default();
             for arg in entry_point.function.arguments.iter() {
                 Self::populate(&mut ep.inputs, arg.binding.as_ref(), arg.ty, &module.types);
@@ -1254,18 +1316,38 @@ impl Interface {
             }
 
             for (var_handle, var) in module.global_variables.iter() {
-                let usage = info[var_handle];
+                let usage = func_info[var_handle];
                 if !usage.is_empty() && var.binding.is_some() {
                     ep.resources.push(resource_mapping[&var_handle]);
                 }
             }
 
-            for key in info.sampling_set.iter() {
+            for key in func_info.sampling_set.iter() {
                 ep.sampling_pairs
                     .insert((resource_mapping[&key.image], resource_mapping[&key.sampler]));
             }
-            ep.dual_source_blending = info.dual_source_blending;
+            ep.dual_source_blending = func_info.dual_source_blending;
             ep.workgroup_size = entry_point.workgroup_size;
+
+            // Find the used immediates. Naga should have validated that
+            // at most one immediate is used by the entry point.
+            let mut used_immediates = module
+                .global_variables
+                .iter()
+                .filter(|&(_, var)| var.space == naga::AddressSpace::Immediate)
+                .map(|(handle, _)| handle)
+                .filter(|&handle| !func_info[handle].is_empty());
+            ep.immediate_usage = used_immediates
+                .next()
+                .map(|handle| {
+                    naga::valid::ImmediateUsage::from_type(
+                        &module.types[module.global_variables[handle].ty].inner,
+                        &module.types,
+                        module.to_ctx(),
+                    )
+                })
+                .unwrap_or_default();
+            assert!(used_immediates.next().is_none());
 
             if let Some(task_payload) = entry_point.task_payload {
                 ep.task_payload_size = Some(
@@ -1278,6 +1360,11 @@ impl Interface {
                 ep.mesh_info = Some(EntryPointMeshInfo {
                     max_vertices: mesh_info.max_vertices,
                     max_primitives: mesh_info.max_primitives,
+                    primitive_topology: match mesh_info.topology {
+                        naga::MeshOutputTopology::Triangles => wgt::PrimitiveTopology::TriangleList,
+                        naga::MeshOutputTopology::Lines => wgt::PrimitiveTopology::LineList,
+                        naga::MeshOutputTopology::Points => wgt::PrimitiveTopology::PointList,
+                    },
                 });
                 Self::populate(
                     &mut ep.outputs,
@@ -1293,7 +1380,10 @@ impl Interface {
                 );
             }
 
-            entry_points.insert((entry_point.stage, entry_point.name.clone()), ep);
+            entry_points.insert(
+                EntryPointKey(entry_point.stage, entry_point.name.clone()),
+                ep,
+            );
         }
 
         Self {
@@ -1301,6 +1391,17 @@ impl Interface {
             resources,
             entry_points,
         }
+    }
+
+    fn immediate_usage(
+        &self,
+        stage: naga::ShaderStage,
+        entry_point_name: &str,
+    ) -> naga::valid::ImmediateUsage {
+        self.entry_points
+            .get(&EntryPointKeyRef(stage, entry_point_name))
+            .map(|ep| ep.immediate_usage)
+            .unwrap_or_default()
     }
 
     pub fn finalize_entry_point_name(
@@ -1312,10 +1413,12 @@ impl Interface {
             .map(|ep| ep.to_string())
             .map(Ok)
             .unwrap_or_else(|| {
-                let mut entry_points = self
-                    .entry_points
-                    .keys()
-                    .filter_map(|(ep_stage, name)| (ep_stage == &stage).then_some(name));
+                let mut entry_points =
+                    self.entry_points
+                        .keys()
+                        .filter_map(|EntryPointKey(ep_stage, name)| {
+                            (ep_stage == &stage).then_some(name)
+                        });
                 let first = entry_points.next().ok_or(StageError::NoEntryPointFound)?;
                 if entry_points.next().is_some() {
                     return Err(StageError::MultipleEntryPointsFound);
@@ -1329,19 +1432,20 @@ impl Interface {
     pub fn check_stage(
         &self,
         layouts: &mut BindingLayoutSource,
-        shader_binding_sizes: &mut FastHashMap<naga::ResourceBinding, wgt::BufferSize>,
+        minimum_binding_sizes: &mut FastHashMap<naga::ResourceBinding, wgt::BufferSize>,
         entry_point_name: &str,
         shader_stage: ShaderStageForValidation,
         inputs: StageIo,
+        primitive_topology: Option<wgt::PrimitiveTopology>,
     ) -> Result<StageIo, StageError> {
         // Since a shader module can have multiple entry points with the same name,
         // we need to look for one with the right execution model.
-        let pair = (shader_stage.to_naga(), entry_point_name.to_string());
+        let pair = EntryPointKeyRef(shader_stage.to_naga(), entry_point_name);
         let entry_point = match self.entry_points.get(&pair) {
             Some(some) => some,
-            None => return Err(StageError::MissingEntryPoint(pair.1)),
+            None => return Err(StageError::MissingEntryPoint(pair.1.to_string())),
         };
-        let (_, entry_point_name) = pair;
+        let EntryPointKeyRef(_, entry_point_name) = pair;
 
         let stage_bit = shader_stage.to_wgt_bit();
 
@@ -1352,13 +1456,16 @@ impl Interface {
                 match layouts {
                     BindingLayoutSource::Provided(pipeline_layout) => {
                         // update the required binding size for this buffer
-                        if let ResourceType::Buffer { size } = res.ty {
-                            match shader_binding_sizes.entry(res.bind) {
+                        if let ResourceType::Buffer {
+                            minimum_binding_size,
+                        } = res.ty
+                        {
+                            match minimum_binding_sizes.entry(res.bind) {
                                 Entry::Occupied(e) => {
-                                    *e.into_mut() = size.max(*e.get());
+                                    *e.into_mut() = minimum_binding_size.max(*e.get());
                                 }
                                 Entry::Vacant(e) => {
-                                    e.insert(size);
+                                    e.insert(minimum_binding_size);
                                 }
                             }
                         }
@@ -1465,81 +1572,55 @@ impl Interface {
 
         // check workgroup size limits
         if shader_stage.to_naga().compute_like() {
-            let (
-                max_workgroup_size_limits,
-                max_workgroup_size_total,
-                per_dimension_limit,
-                total_limit,
-            ) = match shader_stage.to_naga() {
-                naga::ShaderStage::Compute => (
-                    [
+            let workgroup_size_check = match shader_stage.to_naga() {
+                naga::ShaderStage::Compute => WorkgroupSizeCheck {
+                    dimensions: &entry_point.workgroup_size,
+                    per_dimension_limits: &[
                         self.limits.max_compute_workgroup_size_x,
                         self.limits.max_compute_workgroup_size_y,
                         self.limits.max_compute_workgroup_size_z,
                     ],
-                    self.limits.max_compute_invocations_per_workgroup,
-                    "max_compute_workgroup_size_*",
-                    "max_compute_invocations_per_workgroup",
-                ),
-                naga::ShaderStage::Task => (
-                    [
-                        self.limits.max_task_invocations_per_dimension,
-                        self.limits.max_task_invocations_per_dimension,
-                        self.limits.max_task_invocations_per_dimension,
-                    ],
-                    self.limits.max_task_invocations_per_workgroup,
-                    "max_task_invocations_per_dimension",
-                    "max_task_invocations_per_workgroup",
-                ),
-                naga::ShaderStage::Mesh => (
-                    [
-                        self.limits.max_mesh_invocations_per_dimension,
-                        self.limits.max_mesh_invocations_per_dimension,
-                        self.limits.max_mesh_invocations_per_dimension,
-                    ],
-                    self.limits.max_mesh_invocations_per_workgroup,
-                    "max_mesh_invocations_per_dimension",
-                    "max_mesh_invocations_per_workgroup",
-                ),
+                    per_dimension_limits_desc: "max_compute_workgroup_size_*",
+
+                    total_limit: self.limits.max_compute_invocations_per_workgroup,
+                    total_limit_desc: "max_compute_invocations_per_workgroup",
+                },
+                naga::ShaderStage::Task => WorkgroupSizeCheck {
+                    dimensions: &entry_point.workgroup_size,
+                    per_dimension_limits: &[self.limits.max_task_invocations_per_dimension; 3],
+                    per_dimension_limits_desc: "max_task_invocations_per_dimension",
+
+                    total_limit: self.limits.max_task_invocations_per_workgroup,
+                    total_limit_desc: "max_task_invocations_per_workgroup",
+                },
+                naga::ShaderStage::Mesh => WorkgroupSizeCheck {
+                    dimensions: &entry_point.workgroup_size,
+                    per_dimension_limits: &[self.limits.max_mesh_invocations_per_dimension; 3],
+                    per_dimension_limits_desc: "max_mesh_invocations_per_dimension",
+
+                    total_limit: self.limits.max_mesh_invocations_per_workgroup,
+                    total_limit_desc: "max_mesh_invocations_per_workgroup",
+                },
                 _ => unreachable!(),
             };
-
-            let total_invocations = entry_point
-                .workgroup_size
-                .iter()
-                .fold(1u32, |total, &dim| total.saturating_mul(dim));
-            let invalid_total_invocations =
-                total_invocations > max_workgroup_size_total || total_invocations == 0;
-
-            assert_eq!(
-                entry_point.workgroup_size.len(),
-                max_workgroup_size_limits.len()
-            );
-            let dimension_too_large = entry_point
-                .workgroup_size
-                .iter()
-                .zip(max_workgroup_size_limits.iter())
-                .any(|(dim, limit)| dim > limit);
-
-            if invalid_total_invocations || dimension_too_large {
-                return Err(StageError::InvalidWorkgroupSize {
-                    dimensions: entry_point.workgroup_size,
-                    total: total_invocations,
-                    per_dimension_limits: max_workgroup_size_limits,
-                    total_limit: max_workgroup_size_total,
-                    per_dimension_limits_desc: per_dimension_limit,
-                    total_limit_desc: total_limit,
-                });
+            let total = workgroup_size_check.check_and_compute_total_invocations()?;
+            if total == 0 {
+                return Err(StageError::InvalidWorkgroupSize(
+                    InvalidWorkgroupSizeError::Zero {
+                        dimensions: entry_point.workgroup_size,
+                    },
+                ));
             }
         }
 
         let mut this_stage_primitive_index = false;
         let mut has_draw_id = false;
+        let mut has_per_vertex = false;
 
         // check inputs compatibility
         for input in entry_point.inputs.iter() {
             match *input {
-                Varying::Local { location, ref iv } => {
+                Varying::UserDefined { location, ref iv } => {
                     let result = inputs
                         .varyings
                         .get(&location)
@@ -1566,7 +1647,7 @@ impl Interface {
                                         ));
                                     }
                                     (
-                                        iv.ty.is_subtype_of(&provided.ty),
+                                        iv.ty.is_subtype_of(provided.ty),
                                         iv.per_primitive == provided.per_primitive,
                                     )
                                 }
@@ -1599,6 +1680,7 @@ impl Interface {
                             error,
                         });
                     }
+                    has_per_vertex |= iv.interpolation == Some(naga::Interpolation::PerVertex);
                 }
                 Varying::BuiltIn(BuiltIn::PrimitiveIndex) => {
                     this_stage_primitive_index = true;
@@ -1656,7 +1738,7 @@ impl Interface {
 
                 for output in entry_point.outputs.iter() {
                     match *output {
-                        Varying::Local { ref iv, location } => {
+                        Varying::UserDefined { ref iv, location } => {
                             if location > max_vertex_shader_output_location {
                                 return Err(StageError::VertexOutputLocationTooLarge {
                                     location,
@@ -1709,7 +1791,7 @@ impl Interface {
                     self.limits.max_inter_stage_shader_variables;
 
                 let deductions = entry_point.inputs.iter().filter_map(|output| match output {
-                    Varying::Local { .. } => None,
+                    Varying::UserDefined { .. } => None,
                     Varying::BuiltIn(builtin) => {
                         MaxFragmentShaderInputDeduction::from_inter_stage_builtin(builtin.to_naga())
                             .or_else(|| {
@@ -1736,7 +1818,7 @@ impl Interface {
 
                 for output in entry_point.inputs.iter() {
                     match *output {
-                        Varying::Local { ref iv, location } => {
+                        Varying::UserDefined { ref iv, location } => {
                             if location >= self.limits.max_inter_stage_shader_variables {
                                 return Err(StageError::FragmentInputLocationTooLarge {
                                     location,
@@ -1760,7 +1842,7 @@ impl Interface {
                 }
 
                 for output in &entry_point.outputs {
-                    let &Varying::Local { location, ref iv } = output else {
+                    let &Varying::UserDefined { location, ref iv } = output else {
                         continue;
                     };
                     if location >= self.limits.max_color_attachments {
@@ -1811,6 +1893,9 @@ impl Interface {
                     value: mesh_info.max_primitives,
                 });
             }
+            if primitive_topology != Some(mesh_info.primitive_topology) {
+                return Err(StageError::MeshTopologyMismatch);
+            }
         }
         if let Some(task_payload_size) = entry_point.task_payload_size {
             if task_payload_size > self.limits.max_task_payload_size {
@@ -1848,14 +1933,32 @@ impl Interface {
             return Err(StageError::DrawIdError);
         }
 
+        if primitive_topology.is_none_or(|e| !e.is_triangles()) && has_per_vertex {
+            return Err(StageError::PerVertexNotTriangles);
+        }
+
         let outputs = entry_point
             .outputs
             .iter()
             .filter_map(|output| match *output {
-                Varying::Local { location, ref iv } => Some((location, iv.clone())),
+                Varying::UserDefined { location, ref iv } => Some((location, iv.clone())),
                 Varying::BuiltIn(_) => None,
             })
             .collect();
+
+        let immediate_usage = self
+            .immediate_usage(shader_stage.to_naga(), entry_point_name)
+            .merge(&inputs.immediates);
+
+        // Check pipeline layout immediate size
+        if let BindingLayoutSource::Provided(pipeline_layout) = layouts {
+            if pipeline_layout.immediate_size < immediate_usage.size() {
+                return Err(StageError::LayoutImmediateSize {
+                    layout: pipeline_layout.immediate_size,
+                    required: immediate_usage.size(),
+                });
+            }
+        }
 
         Ok(StageIo {
             task_payload_size: entry_point.task_payload_size,
@@ -1865,19 +1968,24 @@ impl Interface {
             } else {
                 None
             },
+            immediates: immediate_usage,
         })
     }
+}
 
-    pub fn fragment_uses_dual_source_blending(
-        &self,
-        entry_point_name: &str,
-    ) -> Result<bool, StageError> {
-        let pair = (naga::ShaderStage::Fragment, entry_point_name.to_string());
-        self.entry_points
-            .get(&pair)
-            .ok_or(StageError::MissingEntryPoint(pair.1))
-            .map(|ep| ep.dual_source_blending)
+pub fn check_color_attachment_count(
+    num_attachments: usize,
+    limit: u32,
+) -> Result<(), ColorAttachmentError> {
+    let limit = usize::try_from(limit).unwrap();
+    if num_attachments > limit {
+        return Err(ColorAttachmentError::TooMany {
+            given: num_attachments,
+            limit,
+        });
     }
+
+    Ok(())
 }
 
 /// Validate a list of color attachment formats against `maxColorAttachmentBytesPerSample`.
@@ -1888,7 +1996,7 @@ impl Interface {
 pub fn validate_color_attachment_bytes_per_sample(
     attachment_formats: impl IntoIterator<Item = wgt::TextureFormat>,
     limit: u32,
-) -> Result<(), crate::command::ColorAttachmentError> {
+) -> Result<(), ColorAttachmentError> {
     let mut total_bytes_per_sample: u32 = 0;
     for format in attachment_formats {
         let byte_cost = format.target_pixel_byte_cost().unwrap();
@@ -1899,15 +2007,86 @@ pub fn validate_color_attachment_bytes_per_sample(
     }
 
     if total_bytes_per_sample > limit {
-        return Err(
-            crate::command::ColorAttachmentError::TooManyBytesPerSample {
-                total: total_bytes_per_sample,
-                limit,
-            },
-        );
+        return Err(ColorAttachmentError::TooManyBytesPerSample {
+            total: total_bytes_per_sample,
+            limit,
+        });
     }
 
     Ok(())
+}
+
+#[derive(Clone, Debug, Error)]
+pub enum InvalidWorkgroupSizeError {
+    #[error(
+        "Workgroup size {dimensions:?} ({total} total invocations) must be less or equal to \
+        the per-dimension limit `Limits::{per_dimension_limits_desc}` of {per_dimension_limits:?} \
+        and the total invocation limit `Limits::{total_limit_desc}` of {total_limit}"
+    )]
+    LimitExceeded {
+        dimensions: [u32; 3],
+        per_dimension_limits: [u32; 3],
+        per_dimension_limits_desc: &'static str,
+        total: u32,
+        total_limit: u32,
+        total_limit_desc: &'static str,
+    },
+    #[error("Workgroup sizes {dimensions:?} must be positive")]
+    Zero { dimensions: [u32; 3] },
+}
+
+/// A helper type for avoiding argument order mistakes when calling
+/// [`Self::check_and_compute_total_invocations`].
+#[derive(Clone, Debug)]
+pub(crate) struct WorkgroupSizeCheck<'a> {
+    pub dimensions: &'a [u32; 3],
+    pub per_dimension_limits: &'a [u32; 3],
+    pub per_dimension_limits_desc: &'static str,
+    pub total_limit: u32,
+    pub total_limit_desc: &'static str,
+}
+
+impl WorkgroupSizeCheck<'_> {
+    /// Check X/Y/Z workgroup sizes against per-dimension and overall limits.
+    ///
+    /// This function does not check that the sizes are non-zero. In a dispatch, it is legal for
+    /// the size to be zero. In shader or pipeline creation, it is an error for the size to be
+    /// zero, and the caller must check that.
+    pub(crate) fn check_and_compute_total_invocations(
+        self,
+    ) -> Result<u32, InvalidWorkgroupSizeError> {
+        let Self {
+            dimensions,
+            per_dimension_limits,
+            per_dimension_limits_desc,
+            total_limit,
+            total_limit_desc,
+        } = self;
+
+        let total = dimensions
+            .iter()
+            .fold(1u32, |total, &dim| total.saturating_mul(dim));
+
+        let invalid_total_invocations = total > total_limit;
+
+        let dimension_too_large = dimensions
+            .iter()
+            .zip(per_dimension_limits.iter())
+            .any(|(dim, limit)| dim > limit);
+
+        if invalid_total_invocations || dimension_too_large {
+            Err(InvalidWorkgroupSizeError::LimitExceeded {
+                dimensions: *dimensions,
+                per_dimension_limits: *per_dimension_limits,
+                per_dimension_limits_desc,
+                total,
+                total_limit,
+                total_limit_desc,
+            })
+        } else {
+            Ok(total)
+        }
+    }
 }
 
 pub enum ShaderStageForValidation {

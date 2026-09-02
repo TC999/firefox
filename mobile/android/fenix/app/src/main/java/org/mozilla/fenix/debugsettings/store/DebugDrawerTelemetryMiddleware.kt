@@ -8,9 +8,7 @@ import mozilla.components.lib.state.Middleware
 import mozilla.components.lib.state.Store
 import org.mozilla.fenix.GleanMetrics.DebugDrawer
 
-/**
- * Middleware for translating actions into useful telemetry.
- */
+/** Middleware for translating actions into useful telemetry. */
 class DebugDrawerTelemetryMiddleware : Middleware<DebugDrawerState, DebugDrawerAction> {
     override fun invoke(
         store: Store<DebugDrawerState, DebugDrawerAction>,
@@ -34,12 +32,13 @@ class DebugDrawerTelemetryMiddleware : Middleware<DebugDrawerState, DebugDrawerA
             DebugDrawerAction.NavigateTo.GleanDebugTools,
             DebugDrawerAction.NavigateTo.Home,
             DebugDrawerAction.NavigateTo.IntegrityDebugTools,
-            DebugDrawerAction.NavigateTo.LlmDebugTools,
+            DebugDrawerAction.NavigateTo.TabGroupDebugTools,
+            DebugDrawerAction.NavigateTo.TabProcessTools,
             DebugDrawerAction.NavigateTo.Logins,
             DebugDrawerAction.NavigateTo.RegionDebugTools,
             DebugDrawerAction.NavigateTo.TabTools,
-            DebugDrawerAction.OnBackPressed,
-            -> Unit
+            DebugDrawerAction.NavigateTo.DistributionTools,
+            DebugDrawerAction.OnBackPressed -> Unit
         }
     }
 }

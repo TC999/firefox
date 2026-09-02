@@ -1,5 +1,3 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* vim: set ts=8 sts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -13,6 +11,7 @@
 #include "mozilla/dom/BrowserSessionStore.h"
 #include "mozilla/dom/BrowserSessionStoreBinding.h"
 #include "mozilla/dom/BrowsingContext.h"
+#include "mozilla/dom/ContentParent.h"
 #include "mozilla/dom/InProcessChild.h"
 #include "mozilla/dom/InProcessParent.h"
 #include "mozilla/dom/SessionStoreChild.h"
@@ -192,6 +191,24 @@ mozilla::ipc::IPCResult SessionStoreParent::RecvSessionStoreUpdate(
   return IPC_OK();
 }
 
+bool SessionStoreParent::IsAllowedUpdateTarget(
+    CanonicalBrowsingContext* aBrowsingContext) {
+  // Incremental updates must only carry data for in-process documents of the
+  // process the SessionStoreChild actor lives in, so the target context must
+  // be owned by the sending process and belong to this actor's frame tree.
+  if (InProcessParent::ChildActorFor(this)) {
+    return true;
+  }
+
+  if (!mBrowsingContext || aBrowsingContext->Top() != mBrowsingContext->Top()) {
+    return false;
+  }
+
+  auto* browserParent = static_cast<BrowserParent*>(Manager());
+  return aBrowsingContext->IsOwnedByProcess(
+      browserParent->Manager()->ChildID());
+}
+
 mozilla::ipc::IPCResult SessionStoreParent::RecvIncrementalSessionStoreUpdate(
     const MaybeDiscarded<BrowsingContext>& aBrowsingContext,
     const Maybe<FormData>& aFormData, const Maybe<nsPoint>& aScrollPosition,
@@ -206,7 +223,7 @@ mozilla::ipc::IPCResult SessionStoreParent::RecvIncrementalSessionStoreUpdate(
     } else {
       bc = aBrowsingContext.GetMaybeDiscarded()->Canonical();
     }
-    if (!bc) {
+    if (!bc || !IsAllowedUpdateTarget(bc)) {
       return IPC_OK();
     }
     if (aFormData.isSome()) {
@@ -234,7 +251,7 @@ mozilla::ipc::IPCResult SessionStoreParent::RecvResetSessionStore(
     } else {
       bc = aBrowsingContext.GetMaybeDiscarded()->Canonical();
     }
-    if (!bc) {
+    if (!bc || !IsAllowedUpdateTarget(bc)) {
       return IPC_OK();
     }
     mSessionStore->RemoveSessionStore(bc);

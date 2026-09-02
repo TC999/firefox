@@ -5,16 +5,16 @@
 #ifndef MOZ_DMABUF_LIB_WRAPPER_H_
 #define MOZ_DMABUF_LIB_WRAPPER_H_
 
+#include <gbm.h>
+
 #include "mozilla/StaticMutex.h"
 #include "mozilla/widget/DMABufFormats.h"
-#include <gbm.h>
-#include <mutex>
 
 #undef LOGDMABUF
 #ifdef MOZ_LOGGING
+#  include "Units.h"
 #  include "mozilla/Logging.h"
 #  include "nsTArray.h"
-#  include "Units.h"
 extern mozilla::LazyLogModule gDmabufLog;
 #  define LOGDMABUF(args) MOZ_LOG(gDmabufLog, mozilla::LogLevel::Debug, args)
 #else
@@ -179,7 +179,7 @@ class GbmLib {
                                            uint32_t width, uint32_t height,
                                            uint32_t format, uint32_t flags) {
     if (!gbm) {
-      return 0;
+      return nullptr;
     }
     return sCreateSurface(gbm, width, height, format, flags);
   }

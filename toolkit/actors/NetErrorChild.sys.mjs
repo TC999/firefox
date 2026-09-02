@@ -1,4 +1,3 @@
-/* -*- indent-tabs-mode: nil; js-indent-level: 2 -*- */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -10,7 +9,29 @@ ChromeUtils.defineESModuleGetters(lazy, {
   BrowserUtils: "resource://gre/modules/BrowserUtils.sys.mjs",
 });
 
-import { RemotePageChild } from "resource://gre/actors/RemotePageChild.sys.mjs";
+import { RemotePageChild } from "moz-src:///toolkit/actors/RemotePageChild.sys.mjs";
+
+/**
+ * Record a click on the injected "did you mean" alternate-host suggestion
+ * (bug 2058380), matching the extras the other security.ui.neterror click
+ * events carry. Content-free: the suggested host is never recorded.
+ *
+ * @param {Document} doc The error page document holding the suggestion.
+ */
+function recordDnsSuggestionClick(doc) {
+  let errorCode = "";
+  try {
+    // Truncated to stay inside the telemetry string limit, as the other click
+    // events do. DNS failures carry an empty code.
+    errorCode = doc.getNetErrorInfo().errorCodeString.substring(0, 40);
+  } catch (e) {
+    // No net error info on this document.
+  }
+  Glean.securityUiNeterror.clickDnsSuggestionLink.record({
+    value: errorCode,
+    is_frame: doc.defaultView.parent != doc.defaultView,
+  });
+}
 
 export class NetErrorChild extends RemotePageChild {
   actorCreated() {
@@ -35,6 +56,7 @@ export class NetErrorChild extends RemotePageChild {
       "RPMSetTRRDisabledLoadFlags",
       "RPMGetCurrentTRRMode",
       "RPMShowOSXLocalNetworkPermissionWarning",
+      "RPMIsSSLKeyLoggingEnabled",
     ];
     this.exportFunctions(exportableFunctions);
   }
@@ -139,7 +161,15 @@ export class NetErrorChild extends RemotePageChild {
         link.setAttribute("data-l10n-name", "website");
 
         let span = doc.createElement("span");
+        span.id = "dns-suggestion";
         span.appendChild(link);
+        // The suggestion is injected after page setup, so neither renderer has
+        // a delegated click recorder to pick up a data-telemetry-id, and it
+        // needs its own listener (bug 2058380). It goes on the span, not the
+        // link: L10nOverlays replaces a data-l10n-name child with a shallow
+        // clone when the translation applies, which keeps the attributes but
+        // drops any listener. The span is the overlay root and survives.
+        span.addEventListener("click", () => recordDnsSuggestionClick(doc));
         doc.l10n.setAttributes(span, "neterror-dns-not-found-with-suggestion", {
           hostAndPath: displayHost + pathQueryRef,
         });
@@ -148,18 +178,16 @@ export class NetErrorChild extends RemotePageChild {
         if (shortDesc) {
           shortDesc.textContent += " ";
           shortDesc.appendChild(span);
+        } else {
+          const intro =
+            doc.querySelector("net-error-card")?.wrappedJSObject?.errorIntro;
+          if (!intro) {
+            return;
+          }
+          intro.after(span);
         }
 
-        // For Felt Privacy experience (net-error-card), also update the learn more link
-        // to point to the corrected domain instead of the SUMO support page
-        const netErrorCard =
-          doc.querySelector("net-error-card").wrappedJSObject;
-        if (netErrorCard) {
-          const learnMoreLink = netErrorCard.learnMoreLink;
-          if (learnMoreLink) {
-            learnMoreLink.href = displaySpec;
-          }
-        }
+        Glean.securityUiNeterror.alternateHostSuggested.add(1);
       },
     };
 
@@ -244,6 +272,10 @@ export class NetErrorChild extends RemotePageChild {
   RPMSetTRRDisabledLoadFlags() {
     this.contentWindow.docShell.browsingContext.defaultLoadFlags |=
       Ci.nsIRequest.LOAD_TRR_DISABLED_MODE;
+  }
+
+  RPMIsSSLKeyLoggingEnabled() {
+    return Services.env.exists("SSLKEYLOGFILE");
   }
 
   RPMShowOSXLocalNetworkPermissionWarning() {

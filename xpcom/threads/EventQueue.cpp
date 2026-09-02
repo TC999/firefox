@@ -3,20 +3,20 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "mozilla/EventQueue.h"
-#include "mozilla/FlowMarkers.h"
 
 #include "GeckoProfiler.h"
 #include "InputTaskManager.h"
-#include "VsyncTaskManager.h"
-#include "nsIRunnable.h"
 #include "TaskController.h"
+#include "VsyncTaskManager.h"
+#include "mozilla/FlowMarkers.h"
+#include "nsIRunnable.h"
 
 using namespace mozilla;
 using namespace mozilla::detail;
 
 template <size_t ItemsPerPage>
 void EventQueueInternal<ItemsPerPage>::PutEvent(
-    already_AddRefed<nsIRunnable>&& aEvent, EventQueuePriority aPriority,
+    already_AddRefed<nsIRunnable> aEvent, EventQueuePriority aPriority,
     const MutexAutoLock& aProofOfLock, mozilla::TimeDuration* aDelay) {
   nsCOMPtr<nsIRunnable> event(aEvent);
 

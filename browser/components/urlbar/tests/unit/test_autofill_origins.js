@@ -187,7 +187,7 @@ add_task(async function portNoMatch1() {
     context,
     matches: [
       makeVisitResult(context, {
-        source: UrlbarUtils.RESULT_SOURCE.OTHER_LOCAL,
+        source: UrlbarShared.RESULT_SOURCE.OTHER_LOCAL,
         uri: `http://${origin}:89/`,
         title: `${origin}:89/`,
         iconUri: "",
@@ -212,7 +212,7 @@ add_task(async function portNoMatch2() {
     context,
     matches: [
       makeVisitResult(context, {
-        source: UrlbarUtils.RESULT_SOURCE.OTHER_LOCAL,
+        source: UrlbarShared.RESULT_SOURCE.OTHER_LOCAL,
         uri: `http://${origin}:9/`,
         title: `${origin}:9/`,
         iconUri: "",
@@ -237,7 +237,7 @@ add_task(async function trailingSlash_2() {
     context,
     matches: [
       makeVisitResult(context, {
-        source: UrlbarUtils.RESULT_SOURCE.OTHER_LOCAL,
+        source: UrlbarShared.RESULT_SOURCE.OTHER_LOCAL,
         uri: "http://example/",
         title: "example/",
         iconUri: "page-icon:http://example/",
@@ -555,7 +555,7 @@ add_task(async function suggestHistoryFalse_bookmark_prefix_multiple() {
     context,
     matches: [
       makeVisitResult(context, {
-        source: UrlbarUtils.RESULT_SOURCE.OTHER_LOCAL,
+        source: UrlbarShared.RESULT_SOURCE.OTHER_LOCAL,
         uri: `${search}/`,
         title: `${search}/`,
         iconUri: "",
@@ -576,7 +576,7 @@ add_task(async function suggestHistoryFalse_bookmark_prefix_multiple() {
     context,
     matches: [
       makeVisitResult(context, {
-        source: UrlbarUtils.RESULT_SOURCE.OTHER_LOCAL,
+        source: UrlbarShared.RESULT_SOURCE.OTHER_LOCAL,
         uri: `${search}/`,
         title: `${search}/`,
         iconUri: "",
@@ -597,7 +597,7 @@ add_task(async function suggestHistoryFalse_bookmark_prefix_multiple() {
     context,
     matches: [
       makeVisitResult(context, {
-        source: UrlbarUtils.RESULT_SOURCE.OTHER_LOCAL,
+        source: UrlbarShared.RESULT_SOURCE.OTHER_LOCAL,
         uri: `${search}/`,
         title: `${search}/`,
         iconUri: "",
@@ -829,7 +829,7 @@ add_task(async function about() {
           makeVisitResult(context, {
             uri: "about:blan",
             title: "about:blan",
-            source: UrlbarUtils.RESULT_SOURCE.OTHER_LOCAL,
+            source: UrlbarShared.RESULT_SOURCE.OTHER_LOCAL,
             heuristic: true,
           }),
         context =>
@@ -1060,6 +1060,12 @@ async function doTitleTest({ visits, input, expected }) {
   permanent private browsing mode), then the only information we have is the
   number of bookmarks per origin, and we're going to use that. */
 add_task(async function just_multiple_unvisited_bookmarks() {
+  // Bookmark-driven autofill is disabled when adaptive autofill is on.
+  Services.prefs.setBoolPref(
+    "browser.urlbar.autoFill.adaptiveHistory.enabled",
+    false
+  );
+
   // These are sorted to avoid confusion with natural sorting, so the one with
   // the highest score is added in the middle.
   let filledUrl = "https://www.tld2.com/";
@@ -1118,5 +1124,8 @@ add_task(async function just_multiple_unvisited_bookmarks() {
     ],
   });
 
+  Services.prefs.clearUserPref(
+    "browser.urlbar.autoFill.adaptiveHistory.enabled"
+  );
   await cleanup();
 });

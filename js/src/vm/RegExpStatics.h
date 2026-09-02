@@ -98,9 +98,9 @@ class RegExpStatics {
      * Changes to this function must also be reflected in
      * RegExpStatics::AutoRooter::trace().
      */
-    TraceNullableEdge(trc, &matchesInput, "res->matchesInput");
-    TraceNullableEdge(trc, &lazySource, "res->lazySource");
-    TraceNullableEdge(trc, &pendingInput, "res->pendingInput");
+    TraceEdge(trc, &matchesInput, "res->matchesInput");
+    TraceEdge(trc, &lazySource, "res->lazySource");
+    TraceEdge(trc, &pendingInput, "res->pendingInput");
   }
 
   size_t sizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf) const {
@@ -299,8 +299,10 @@ inline bool RegExpStatics::updateFromMatchPairs(JSContext* cx,
 
   if (!matches.initArrayFrom(newPairs)) {
     ReportOutOfMemory(cx);
+    clear();
     return false;
   }
+
   clearInvalidation();
   return true;
 }
