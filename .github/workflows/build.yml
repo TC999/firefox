@@ -99,10 +99,12 @@ jobs:
   Windows:
     if: ${{ inputs.windows }}
     runs-on: windows-2022
-    timeout-minutes: 180
     env:
       MOZILLA_SOURCE_DIR: C:\mozilla-source
       CARGO_TERM_COLOR: always
+      SCCACHE_DIR: C:\sccache
+      RUSTC_WRAPPER: sccache
+      MOZBUILD_STATE_PATH: C:\mozilla-source\.mozbuild
     steps:
       #- name: 检出 workflow 仓库
       #  uses: actions/checkout@v4
@@ -129,6 +131,27 @@ jobs:
         continue-on-error: true
         run: |
           .\clean.ps1
+
+      - name: 恢复构建缓存
+        uses: actions/cache@v4
+        with:
+          path: |
+            C:\sccache
+            C:\mozilla-source\.mozbuild
+            ~\.cargo\registry
+            ~\.cargo\git
+            C:\mozilla-source\firefox\obj-*\dist\include
+            C:\mozilla-source\firefox\obj-*\dist\bin\*.pdb
+          key: ${{ runner.os }}-firefox-${{ github.ref_name }}-${{ hashFiles('.github/workflows/build.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-firefox-${{ github.ref_name }}-
+            ${{ runner.os }}-firefox-
+
+      - name: 安装 sccache
+        shell: pwsh
+        run: |
+          choco install -y sccache
+          sccache --version
   
       - name: 安装 Chocolatey（包管理器）
         run: |
@@ -193,8 +216,11 @@ jobs:
   
       - name: 构建 Firefox
         working-directory: C:\mozilla-source\firefox
+        shell: pwsh
         run: |
+          sccache --start-server
           .\mach.cmd build
+          sccache --show-stats
   
       - name: 输出构建产物目录
         working-directory: C:\mozilla-source\firefox
