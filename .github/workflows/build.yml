@@ -100,11 +100,11 @@ jobs:
     if: ${{ inputs.windows }}
     runs-on: windows-2022
     env:
-      MOZILLA_SOURCE_DIR: C:\mozilla-source
+      MOZILLA_SOURCE_DIR: D:\mozilla-source
       CARGO_TERM_COLOR: always
-      SCCACHE_DIR: C:\sccache
+      SCCACHE_DIR: D:\sccache
       RUSTC_WRAPPER: sccache
-      MOZBUILD_STATE_PATH: C:\mozilla-source\.mozbuild
+      MOZBUILD_STATE_PATH: D:\mozilla-source\.mozbuild
     steps:
       #- name: 检出 workflow 仓库
       #  uses: actions/checkout@v4
@@ -143,12 +143,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            C:\sccache
-            C:\mozilla-source\.mozbuild
+            D:\sccache
+            D:\mozilla-source\.mozbuild
             ~\.cargo\registry
             ~\.cargo\git
-            C:\mozilla-source\firefox\obj-*\dist\include
-            C:\mozilla-source\firefox\obj-*\dist\bin\*.pdb
+            D:\mozilla-source\firefox\obj-*\dist\include
+            D:\mozilla-source\firefox\obj-*\dist\bin\*.pdb
           key: ${{ runner.os }}-firefox-${{ github.ref_name }}-${{ hashFiles('.github/workflows/build.yml') }}
           restore-keys: |
             ${{ runner.os }}-firefox-${{ github.ref_name }}-
@@ -202,39 +202,39 @@ jobs:
           New-Item -ItemType Directory -Force -Path "C:\mozilla-source"
   
       - name: 下载 Firefox bootstrap.py
-        working-directory: C:\mozilla-source
+        working-directory: D:\mozilla-source
         run: |
           wget https://raw.githubusercontent.com/mozilla-firefox/firefox/refs/heads/main/python/mozboot/bin/bootstrap.py
   
       - name: 运行 bootstrap（可重入）
         shell: pwsh
-        working-directory: C:\mozilla-source
+        working-directory: D:\mozilla-source
         run: |
-          if (Test-Path "C:\mozilla-source\firefox\.git") {
+          if (Test-Path "D:\mozilla-source\firefox\.git") {
             Write-Host "已有源码，执行 mach bootstrap..."
-            Set-Location C:\mozilla-source\firefox
+            Set-Location D:\mozilla-source\firefox
             .\mach.cmd bootstrap --no-interactive
           } else {
             Write-Host "首次环境，执行 bootstrap.py..."
-            if (-not (Test-Path "C:\mozilla-source\bootstrap.py")) {
+            if (-not (Test-Path "D:\mozilla-source\bootstrap.py")) {
               wget https://raw.githubusercontent.com/mozilla-firefox/firefox/refs/heads/main/python/mozboot/bin/bootstrap.py
             }
-            python C:\mozilla-source\bootstrap.py --no-interactive --application-choice=browser
+            python D:\mozilla-source\bootstrap.py --no-interactive --application-choice=browser
           }
   
       - name: 更新/拉取 Firefox 源码
         shell: pwsh
-        working-directory: C:\mozilla-source
+        working-directory: D:\mozilla-source
         run: |
-          if (-Not (Test-Path "C:\mozilla-source\firefox\.git")) {
+          if (-Not (Test-Path "D:\mozilla-source\firefox\.git")) {
             git clone https://github.com/mozilla/gecko-dev.git firefox
           }
-          Set-Location C:\mozilla-source\firefox
+          Set-Location D:\mozilla-source\firefox
           git fetch origin
           git pull --ff-only
   
       - name: 构建 Firefox
-        working-directory: C:\mozilla-source\firefox
+        working-directory: D:\mozilla-source\firefox
         shell: pwsh
         run: |
           sccache --start-server
@@ -242,7 +242,7 @@ jobs:
           sccache --show-stats
   
       - name: 输出构建产物目录
-        working-directory: C:\mozilla-source\firefox
+        working-directory: D:\mozilla-source\firefox
         run: |
           dir obj-*\dist\bin
   
@@ -252,7 +252,7 @@ jobs:
         with:
           name: firefox-windows-build
           path: |
-            C:\mozilla-source\firefox\obj-*\dist
+            D:\mozilla-source\firefox\obj-*\dist
 
   Release:
     if: ${{ inputs.release }}
