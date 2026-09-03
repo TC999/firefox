@@ -133,11 +133,11 @@ jobs:
         run: |
           curl https://raw.githubusercontent.com/TC999/firefox/refs/heads/main/clean.ps1 -o clean.ps1
   
-      - name: 扩容
-        shell: pwsh
-        continue-on-error: true
-        run: |
-          .\clean.ps1
+      #- name: 扩容
+      #  shell: pwsh
+      #  continue-on-error: true
+      #  run: |
+      #    .\clean.ps1
 
       - name: 恢复构建缓存
         uses: actions/cache@v4
