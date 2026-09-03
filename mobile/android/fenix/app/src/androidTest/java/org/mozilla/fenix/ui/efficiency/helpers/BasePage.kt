@@ -8,7 +8,6 @@ import android.os.SystemClock
 import android.util.Log
 import android.view.accessibility.AccessibilityWindowInfo
 import androidx.compose.ui.semantics.SemanticsActions
-import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.SemanticsNodeInteractionCollection
 import androidx.compose.ui.test.filter
 import androidx.compose.ui.test.hasAnyChild
@@ -34,6 +33,7 @@ import org.mozilla.fenix.helpers.HomeActivityIntentTestRule
 import org.mozilla.fenix.helpers.TestAssetHelper
 import org.mozilla.fenix.helpers.TestHelper.mDevice
 import org.mozilla.fenix.helpers.TestHelper.packageName
+import org.mozilla.fenix.ui.efficiency.core.ElementResolution
 import org.mozilla.fenix.ui.efficiency.core.ElementState
 import org.mozilla.fenix.ui.efficiency.core.Failure
 import org.mozilla.fenix.ui.efficiency.core.Gestures
@@ -55,6 +55,9 @@ import org.mozilla.fenix.ui.efficiency.core.requireAll
 import org.mozilla.fenix.ui.efficiency.core.requireState
 import org.mozilla.fenix.ui.efficiency.logging.TestLogging
 import org.mozilla.fenix.ui.efficiency.logging.TimedReporter
+import org.mozilla.fenix.ui.efficiency.navigation.NavigationEdge
+import org.mozilla.fenix.ui.efficiency.navigation.NavigationOptions
+import org.mozilla.fenix.ui.efficiency.navigation.NavigationPath
 import org.mozilla.fenix.ui.efficiency.navigation.NavigationRegistry
 import org.mozilla.fenix.ui.efficiency.navigation.NavigationStep
 
@@ -126,55 +129,106 @@ abstract class BasePage(protected val composeRule: AndroidComposeTestRule<HomeAc
 
     // --- Navigation (STEP) -------------------------------------------------------
 
-    open fun navigateToPage(url: String = "", forceNavigation: Boolean = false): BasePage {
+    open fun navigateToPage(
+        url: String = "",
+        forceNavigation: Boolean = false,
+        navigationOptions: NavigationOptions = NavigationOptions(),
+    ): BasePage {
         val step = rep().start(TimedReporter.Type.STEP, "nav_$pageName", "Attempting to Navigate to $pageName")
+        var fromPage = PageStateTracker.currentPageName
+        var path: NavigationPath? = null
+        var activeEdge: NavigationEdge? = null
+        var activeStepIndex: Int? = null
 
         try {
             if (!forceNavigation && mozIsOnPageNow()) {
                 PageStateTracker.currentPageName = pageName
-                step.ok("'$pageName' already loaded", facts("navigate", extra = mapOf("page" to pageName)))
-                return this
+                val currentState = PageStateTracker.snapshot()
+                val waypointIndex = navigationOptions.advanceWaypoint(0, pageName)
+                if (navigationOptions.goalSatisfied(currentState, pageName, waypointIndex, emptySet())) {
+                    step.ok("'$pageName' already loaded", facts("navigate", extra = mapOf("page" to pageName)))
+                    return this
+                }
             }
 
-            val fromPage = PageStateTracker.currentPageName
+            fromPage = PageStateTracker.currentPageName
             Log.i("PageNavigation", "Trying to find path from '$fromPage' to '$pageName'")
 
-            val path = NavigationRegistry.findPath(fromPage, pageName)
-
-            if (path == null) {
-                NavigationRegistry.logGraph()
-                step.fail(
-                    "No navigation path found to '$pageName'",
-                    facts =
-                        facts(
-                            "navigate",
-                            failure = Failure.NO_PATH,
-                            extra = mapOf("page" to pageName, "from" to fromPage),
-                        ),
+            path =
+                NavigationRegistry.findPath(
+                    from = fromPage,
+                    to = pageName,
+                    options = navigationOptions,
+                    initialFacts = PageStateTracker.currentFacts,
                 )
-                assertionFailure("No navigation path found from '$fromPage' to '$pageName'")
-            } else {
-                Log.i("PageNavigation", "Navigation path found from '$fromPage' to '$pageName':")
-                path.forEachIndexed { i, step -> Log.i("PageNavigation", "   Step ${i + 1}: $step") }
+            val selectedPath =
+                path
+                    ?: run {
+                        NavigationRegistry.logGraph()
+                        step.fail(
+                            "No navigation path found to '$pageName'",
+                            facts =
+                                facts(
+                                    "navigate",
+                                    failure = Failure.NO_PATH,
+                                    extra =
+                                        mapOf(
+                                            "page" to pageName,
+                                            "from" to fromPage,
+                                            "navigationOptions" to navigationOptions,
+                                            "navigationFacts" to PageStateTracker.currentFacts.map { it.name }.sorted(),
+                                        ),
+                                ),
+                        )
+                        assertionFailure("No navigation path found from '$fromPage' to '$pageName'")
+                    }
+            Log.i("PageNavigation", "Navigation path found from '$fromPage' to '$pageName':")
+            selectedPath.edges.forEachIndexed { edgeIndex, edge ->
+                Log.i("PageNavigation", "   Edge ${edgeIndex + 1}: ${edge.id} (${edge.purpose})")
+                edge.steps.forEachIndexed { index, navigationStep ->
+                    Log.i("PageNavigation", "      Step ${index + 1}: $navigationStep")
+                }
             }
 
-            path.forEach { step ->
-                when (step) {
-                    is NavigationStep.Click -> mozClick(step.selector)
-                    is NavigationStep.LongClick -> mozLongClick(step.selector)
-                    is NavigationStep.ClickIfPresent -> mozClickIfPresent(step.selector)
-                    is NavigationStep.Swipe -> mozSwipeTo(step.selector, step.direction)
-                    is NavigationStep.OpenNotificationsTray -> mozOpenNotificationsTray()
-                    is NavigationStep.Action -> step.action()
-                    is NavigationStep.EnterText -> mozEnterText(url, step.selector)
-                    is NavigationStep.EnterTextValue -> mozEnterText(step.text, step.selector)
-                    is NavigationStep.PressEnter -> mozPressEnter(step.selector)
-                    is NavigationStep.PressBack -> {
-                        mDevice.pressBack()
-                        mDevice.waitForIdle()
+            if (0 in selectedPath.waypointPageIndices && !NavigationRegistry.verifyCheckpoint(fromPage)) {
+                assertionFailure("Failed to verify navigation waypoint $fromPage")
+            }
+
+            selectedPath.edges.forEachIndexed { edgeIndex, edge ->
+                activeEdge = edge
+                edge.steps.forEachIndexed { index, navigationStep ->
+                    activeStepIndex = index
+                    when (navigationStep) {
+                        is NavigationStep.Click -> mozClick(navigationStep.selector)
+                        is NavigationStep.LongClick -> mozLongClick(navigationStep.selector)
+                        is NavigationStep.ClickIfPresent -> mozClickIfPresent(navigationStep.selector)
+                        is NavigationStep.Swipe -> mozSwipeTo(navigationStep.selector, navigationStep.direction)
+                        is NavigationStep.OpenNotificationsTray -> mozOpenNotificationsTray()
+                        is NavigationStep.Action -> navigationStep.action()
+                        is NavigationStep.EnterText -> mozEnterText(url, navigationStep.selector)
+                        is NavigationStep.EnterTextValue -> mozEnterText(navigationStep.text, navigationStep.selector)
+                        is NavigationStep.PressEnter -> mozPressEnter(navigationStep.selector)
+                        is NavigationStep.PressBack -> {
+                            mDevice.pressBack()
+                            mDevice.waitForIdle()
+                        }
+                        is NavigationStep.WaitForIdle -> composeRule.waitForIdle()
+                        is NavigationStep.PressBackUntilGone ->
+                            mozPressBackUntilGone(navigationStep.selector, navigationStep.maxPresses)
                     }
-                    is NavigationStep.WaitForIdle -> composeRule.waitForIdle()
-                    is NavigationStep.PressBackUntilGone -> mozPressBackUntilGone(step.selector, step.maxPresses)
+                }
+
+                val pageIndex = edgeIndex + 1
+                val isDestination = pageIndex == selectedPath.pages.lastIndex
+                if (
+                    pageIndex in selectedPath.waypointPageIndices &&
+                        !isDestination &&
+                        !NavigationRegistry.verifyCheckpoint(edge.to)
+                ) {
+                    assertionFailure("Failed to verify navigation waypoint ${edge.to}")
+                }
+                if (!isDestination) {
+                    PageStateTracker.arrive(selectedPath.states[pageIndex])
                 }
             }
 
@@ -186,14 +240,38 @@ abstract class BasePage(protected val composeRule: AndroidComposeTestRule<HomeAc
                 assertionFailure("Failed to navigate to $pageName")
             }
 
-            PageStateTracker.currentPageName = pageName
-            step.ok("Navigation to '$pageName' completed", facts("navigate", extra = mapOf("page" to pageName)))
+            PageStateTracker.arrive(selectedPath.states.last())
+            step.ok(
+                "Navigation to '$pageName' completed",
+                facts(
+                    "navigate",
+                    extra =
+                        mapOf(
+                            "page" to pageName,
+                            "from" to fromPage,
+                            "path" to selectedPath.edges.map { it.id },
+                            "navigationFacts" to PageStateTracker.currentFacts.map { it.name }.sorted(),
+                        ),
+                ),
+            )
             return this
         } catch (t: Throwable) {
             step.fail(
                 "Navigation to '$pageName' failed: ${t.message ?: "exception"}",
                 cause = t,
-                facts = facts("navigate", failure = Failure.ACTION_FAILED, extra = mapOf("page" to pageName)),
+                facts =
+                    facts(
+                        "navigate",
+                        failure = Failure.ACTION_FAILED,
+                        extra =
+                            mapOf(
+                                "page" to pageName,
+                                "from" to fromPage,
+                                "path" to path?.edges.orEmpty().map { it.id },
+                                "edge" to activeEdge?.id,
+                                "edgeStepIndex" to activeStepIndex,
+                            ),
+                    ),
             )
             // Without this a nav failure says only "did not arrive" - not which page we landed on.
             dumpFailure("navigateToPage failed: $pageName")
@@ -234,12 +312,15 @@ abstract class BasePage(protected val composeRule: AndroidComposeTestRule<HomeAc
         )
     }
 
+    internal fun waitForNavigationCheckpoint(): Boolean = mozWaitForPageToLoad()
+
     fun mozVerifyElementsByGroup(group: String = "requiredForPage"): BasePage {
         val present =
             groupPresent(
                 verb = "verify_group",
                 label = "${pageName}_$group",
                 selectors = mozGetSelectorsByGroup(group),
+                policy = WaitPolicy.Poll(),
                 applyPreconditions = true,
             )
         if (!present) {
@@ -254,48 +335,49 @@ abstract class BasePage(protected val composeRule: AndroidComposeTestRule<HomeAc
     // --- Resolution: selector -> element -----------------------------------------
 
     /**
-     * Find the element a selector names, or null. Strategies are described as data in [STRATEGY_LOCATORS] and
-     * interpreted by [Resolvers], one per UI toolkit, so adding one is a table row rather than a branch.
+     * Resolve the element a selector names. Strategies are described as data in [STRATEGY_LOCATORS] and interpreted by
+     * [Resolvers], one per UI toolkit, so adding one is a table row rather than a branch.
      */
-    private fun mozGetElement(selector: Selector, applyPreconditions: Boolean = true): Any? {
+    private fun mozGetElement(selector: Selector, applyPreconditions: Boolean = true): ElementResolution {
         if (selector.value.isBlank()) {
             Log.i("mozGetElement", "Empty or blank selector value: ${selector.description}")
-            return null
-        }
-        if (applyPreconditions && requiresScroll(selector.groups)) {
-            ensureReachable(selector) // may call mozSwipeTo with applyPreconditions = false
+            return ElementResolution.Unsupported("selector value is blank")
         }
         val locator = STRATEGY_LOCATORS[selector.strategy]
         if (locator == null) {
             Log.i("mozGetElement", "No locator for strategy ${selector.strategy}")
-            return null
+            return ElementResolution.Unsupported("no locator for ${selector.strategy}")
         }
-        return when (locator.layer) {
-            Layer.COMPOSE -> Resolvers.compose(composeRule, locator, selector)
-            Layer.ESPRESSO -> Resolvers.espresso(locator, selector) { selector.toResourceId() }
-            Layer.UIAUTOMATOR -> Resolvers.uiAutomator(mDevice, packageName, locator, selector)
-            Layer.UIAUTOMATOR2 -> Resolvers.uiAutomator2(mDevice, packageName, locator, selector)
-        }.also { if (it == null) Log.i("mozGetElement", "not found: ${selector.description}") }
-    }
-
-    /**
-     * The click path's resolver: prefer the on-screen match, else the first, as a backend-agnostic [UiElement]. Every
-     * other verb resolves through [mozGetElement] instead, so an element can be clickable and unverifiable - MTE-5737.
-     */
-    private fun resolve(selector: Selector, applyPreconditions: Boolean = true): UiElement? {
-        if (selector.value.isBlank()) return null
-        if (applyPreconditions && requiresScroll(selector.groups)) {
-            ensureReachable(selector)
+        return try {
+            if (applyPreconditions && requiresScroll(selector.groups)) {
+                ensureReachable(selector)
+            }
+            val raw =
+                when (locator.layer) {
+                    Layer.COMPOSE -> Resolvers.displayed(composeRule, locator, selector)
+                    Layer.ESPRESSO -> Resolvers.espresso(locator, selector) { selector.toResourceId() }
+                    Layer.UIAUTOMATOR -> Resolvers.uiAutomator(mDevice, packageName, locator, selector)
+                    Layer.UIAUTOMATOR2 -> Resolvers.uiAutomator2(mDevice, packageName, locator, selector)
+                }
+            when {
+                raw == null -> ElementResolution.Absent
+                else ->
+                    UiElement.wrap(raw)?.let(ElementResolution::Found)
+                        ?: ElementResolution.Unsupported("resolver returned ${raw::class.java.name}")
+            }.also {
+                if (it == ElementResolution.Absent) Log.i("mozGetElement", "not found: ${selector.description}")
+            }
+        } catch (e: Throwable) {
+            ElementResolution.Error(e)
         }
-        return Resolvers.displayed(composeRule, selector)
-            ?: UiElement.wrap(mozGetElement(selector, applyPreconditions = false))
     }
 
     private fun mozVerifyElement(selector: Selector, applyPreconditions: Boolean = true): Boolean {
         // MUST NOT throw. The page probes poll this before navigation starts, and an escaped
         // exception reaches navigateToPage() -> failure screenshot -> StrictMode penaltyDeath, which
         // masks the real error. Both halves below degrade to false instead.
-        val element = runCatching { mozGetElement(selector, applyPreconditions) }.getOrNull() ?: return false
+        val result = locate(selector, applyPreconditions)
+        val element = (result as? ElementResolution.Found)?.element ?: return false
         return ElementState.probe(element, ElementState.Trait.DISPLAYED)
     }
 
@@ -543,7 +625,7 @@ abstract class BasePage(protected val composeRule: AndroidComposeTestRule<HomeAc
             expectation = "clickable",
             via = { sel, pre ->
                 composeRule.waitForIdle()
-                resolve(sel, pre)
+                locate(sel, pre)
             },
             action = UiActions::click,
         )
@@ -587,9 +669,7 @@ abstract class BasePage(protected val composeRule: AndroidComposeTestRule<HomeAc
             action = { element ->
                 // TEXT_MERGED re-fetches by text instead of using the located node: the merged node can
                 // be the whole row, and the gesture has to land on the text itself.
-                if (
-                    element is SemanticsNodeInteraction && selector.strategy == SelectorStrategy.COMPOSE_BY_TEXT_MERGED
-                ) {
+                if (selector.strategy == SelectorStrategy.COMPOSE_BY_TEXT_MERGED) {
                     composeRule.waitUntil(TestAssetHelper.waitingTime) {
                         composeRule.onAllNodesWithText(selector.value).fetchSemanticsNodes().isNotEmpty()
                     }

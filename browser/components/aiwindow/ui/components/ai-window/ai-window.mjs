@@ -60,8 +60,6 @@ ChromeUtils.defineESModuleGetters(lazy, {
     "moz-src:///browser/components/aiwindow/models/ConversationSuggestions.sys.mjs",
   generateResumeActivityConversationStarters:
     "moz-src:///browser/components/aiwindow/models/ConversationSuggestions.sys.mjs",
-  MAX_NUM_MEMORIES_FOR_RESUME_ACTIVITY:
-    "moz-src:///browser/components/aiwindow/models/ConversationSuggestions.sys.mjs",
   constructConversationToResumeActivity:
     "moz-src:///browser/components/aiwindow/models/ConversationSuggestions.sys.mjs",
   MemoriesManager:
@@ -87,6 +85,10 @@ ChromeUtils.defineESModuleGetters(lazy, {
   UrlbarShared: "chrome://browser/content/urlbar/UrlbarShared.mjs",
   SmartWindowTelemetry:
     "moz-src:///browser/components/aiwindow/ui/modules/SmartWindowTelemetry.sys.mjs",
+  isResumeActivityMemoryDismissed:
+    "moz-src:///browser/components/aiwindow/ui/modules/ResumeActivityDismissals.sys.mjs",
+  dismissResumeActivityMemory:
+    "moz-src:///browser/components/aiwindow/ui/modules/ResumeActivityDismissals.sys.mjs",
 });
 
 ChromeUtils.defineLazyGetter(lazy, "log", function () {
@@ -182,7 +184,10 @@ const HISTORY_MENU_EVENTS = [
 ];
 const MAX_SIDEBAR_STARTER_CACHE_KEYS = 20;
 const MAX_TOP_SITES = 8;
-const MAX_PILL_COUNT = 3;
+// Temporary cap until regular starters increase to 5.
+const MAX_PILL_COUNT = 6;
+// Show 3 undismissed candidates from the larger generated pool.
+const MAX_RESUME_PILLS_DISPLAYED = 3;
 // TEMP: English-only workaround. Remove once resume headlines support
 // localization - see Bug 2066263.
 const RESUME_HEADLINE_PREFIX_RE = /^\s*pick\s+up\b[\s:;,.—-]*/iu;
@@ -277,6 +282,15 @@ export class AIWindow extends MozLitElement {
     return (
       this.memoriesConversationPref ||
       this.memoriesHistoryPref ||
+      this.#hasMemories
+    );
+  }
+
+  // Skip resume loading UI when generation cannot produce results.
+  get #resumeActivityMemoriesEnabled() {
+    return (
+      (this.#memoriesToggled ??
+        (this.memoriesConversationPref || this.memoriesHistoryPref)) &&
       this.#hasMemories
     );
   }
@@ -1318,14 +1332,10 @@ export class AIWindow extends MozLitElement {
       if (shouldLoadResumeStarters) {
         this.#canLoadResumeStarters = false;
 
-        // Ensure #hasMemories is current before checking it.
-        if (!this.memoriesConversationPref && !this.memoriesHistoryPref) {
-          await this.#refreshHasMemories();
-        }
-        const memoriesEnabled =
-          this.#memoriesToggled ?? this.#memoriesIconShown;
+        // Refresh the memory gate before loading resume starters.
+        await this.#refreshHasMemories();
 
-        if (memoriesEnabled) {
+        if (this.#resumeActivityMemoriesEnabled) {
           resumeStartersPromise =
             lazy.generateResumeActivityConversationStarters();
 
@@ -1377,7 +1387,7 @@ export class AIWindow extends MozLitElement {
       } else if (resumeStartersPromise) {
         const resumeStarters = this.#resumeActivitiesToStarterPrompts(
           await resumeStartersPromise
-        ).slice(0, lazy.MAX_NUM_MEMORIES_FOR_RESUME_ACTIVITY);
+        ).slice(0, MAX_RESUME_PILLS_DISPLAYED);
 
         if (selectedTab === this.#getCurrentTab()) {
           starters = [...resumeStarters, ...starters].slice(0, MAX_PILL_COUNT);
@@ -1396,7 +1406,10 @@ export class AIWindow extends MozLitElement {
 
   #resumeActivitiesToStarterPrompts(resumeActivities) {
     return resumeActivities.flatMap(({ memory, content }) => {
-      if (!content.headline.trim()) {
+      if (
+        !content.headline.trim() ||
+        lazy.isResumeActivityMemoryDismissed(memory.id)
+      ) {
         return [];
       }
 
@@ -2005,6 +2018,25 @@ export class AIWindow extends MozLitElement {
   }
 
   /**
+   * Dismisses the memory for the session and removes its pill from this tab.
+   *
+   * @param {CustomEvent} event - The prompt-dismissed event
+   * @private
+   */
+  #handlePromptDismissed = event => {
+    const { memory } = event.detail;
+    lazy.dismissResumeActivityMemory(memory.id);
+
+    const remaining = this.#conversation.transientStarters.filter(
+      starter => starter.memory?.id !== memory.id
+    );
+    this.#conversation.transientStarters = remaining;
+    this.#renderStarterPrompts(remaining, true, false);
+
+    this.#recordQuickPromptDismissed();
+  };
+
+  /**
    * Builds a conversation seeded with the selected resume-activity
    * suggestion and generates its first response, attaching an open_tabs
    * confirmation card built from the pill's preview tabs. Uses a plain
@@ -2021,7 +2053,7 @@ export class AIWindow extends MozLitElement {
     let conversation = null;
     this.#isGeneratingResumeActivityConversation = true;
     try {
-      if (this.#memoriesToggled ?? this.#memoriesIconShown) {
+      if (this.#resumeActivityMemoriesEnabled) {
         try {
           conversation = await lazy.constructConversationToResumeActivity({
             memory: resumePrompt.memory,
@@ -2139,6 +2171,15 @@ export class AIWindow extends MozLitElement {
       message_seq: this.#conversation?.messageCount ?? 0,
       starter: starterType !== "followup",
       starter_type: starterType,
+    });
+  }
+
+  /**
+   * Records a quick_prompt_dismissed Glean event.
+   */
+  #recordQuickPromptDismissed() {
+    Glean.smartWindow.quickPromptDismissed.record({
+      chat_id: this.conversationId,
     });
   }
 
@@ -3517,6 +3558,8 @@ export class AIWindow extends MozLitElement {
                     .mode=${this.mode}
                     @SmartWindowPrompt:prompt-selected=${this
                       .#handlePromptSelected}
+                    @SmartWindowPrompt:prompt-dismissed=${this
+                      .#handlePromptDismissed}
                   ></smartwindow-prompts>
                 `
               : ""}

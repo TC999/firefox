@@ -24,6 +24,8 @@ import org.mozilla.fenix.helpers.HomeActivityIntentTestRule
 import org.mozilla.fenix.helpers.IdlingResourceHelper.unregisterAllIdlingResources
 import org.mozilla.fenix.helpers.TestHelper.appContext
 import org.mozilla.fenix.helpers.TestHelper.exitMenu
+import org.mozilla.fenix.ui.efficiency.logging.AttemptFinalization
+import org.mozilla.fenix.ui.efficiency.logging.DiagnosticFaultInjection
 import org.mozilla.fenix.ui.efficiency.logging.TestLogging
 import org.mozilla.fenix.ui.efficiency.logging.TestStatus
 import org.mozilla.fenix.ui.efficiency.logging.TimedReporter
@@ -42,9 +44,10 @@ import org.mozilla.fenix.ui.efficiency.navigation.PageCatalog
  *
  * A LOWER `order` is applied further out, so this is also the order they run in.
  *
- * -1 [sampleOnArrival] records what the device arrived carrying, before anything clears it 0 FenixTestRule (legacy)
- * GrantPermissionRule -> TestSetupRule -> MockWebServerRule 1 [composeRuleWithCleanup] the per-test clear, then the
- * activity, then the failure dump 2 [recordTestBoundaries] test start/end and the state samples around them
+ * -2 [finalizeAttempt] emits the terminal attempt record after every other rule -1 [sampleOnArrival] records what the
+ * device arrived carrying, before anything clears it 0 FenixTestRule (legacy) GrantPermissionRule -> TestSetupRule ->
+ * MockWebServerRule 1 [composeRuleWithCleanup] the per-test clear, then the activity, then the failure dump 2
+ * [recordTestBoundaries] test start/end and the state samples around them
  *
  * ## What is cleared, and by which of them
  *
@@ -54,17 +57,18 @@ import org.mozilla.fenix.ui.efficiency.navigation.PageCatalog
  * clipboard. It grants POST_NOTIFICATIONS unconditionally, and starts a MockWebServer for every test whether the test
  * uses one or not.
  *
- * [AppDataCleaner] at order 1 then clears bookmarks and pinned sites again, sessions, autofill addresses and cards,
- * saved logins, all tabs, and the launcher icon aliases. It runs at both ends of the test, and reports which clears
- * failed rather than swallowing them.
+ * [AppDataCleaner] at order 1 owns the enforced app-data boundary: its allowlisted test preferences, bookmarks, pinned
+ * sites, history, site permissions, sessions, autofill addresses and cards, saved logins, tabs, in-memory downloads,
+ * and launcher icon aliases. It runs at both ends and fails the boundary if any step fails. [RuntimeStateCleaner],
+ * [InputStateCleaner], and [ActivityStateCleaner] own process-global UI flags, input, and activity/task teardown.
  *
  * ## What is NOT cleared by either
  *
  * The Gecko profile, which is not under /data/data at all --- it lives in app-scoped external storage and holds
  * cookies, HSTS state, certificates, Gecko-side site permissions, localStorage and IndexedDB. Also: the default search
- * engine, fenix_preferences.xml, collections, tab groups, Nimbus, Glean, and anything the running process holds in
- * memory. Under `am instrument` the process is shared across a class's methods, so the in-memory half crosses between
- * them freely.
+ * engine metadata, preference keys outside the harness allowlist, Nimbus, Glean, and process memory not named by the
+ * runtime cleaner. Under `am instrument` the process is shared across a class's methods, so every unnamed in-memory
+ * resource can cross between them.
  *
  * The full account, with what reads each layer, is in mission-control/docs/STATE-BOUNDARIES.md.
  *
@@ -99,10 +103,9 @@ abstract class BaseTest(private val defaultLaunchConfig: LaunchConfig = LaunchCo
      *
      * Order -1 so it is OUTSIDE FenixTestRule. A lower order is applied further out, and FenixTestRule at 0 wraps
      * TestSetupRule, whose before() clears history, bookmarks, site permissions, the downloads folder and
-     * notifications. Sampling anywhere inside that reads what survived the cleanup, not what the previous test left ---
-     * and it is the second that finds a leak. Taken from -1, an inherited history entry is visible; taken from 1 it is
-     * not, which is measurably what happened: the leak demo's inherited downloads showed up and its inherited history
-     * did not.
+     * notifications. Sampling anywhere inside that reads what survived cleanup, not what the worker or previous test
+     * delivered. The raw arrival sample is evidence only; the enforced isolation sample is taken after the harness's
+     * own cleanup.
      */
     @get:Rule(order = -1)
     val sampleOnArrival: TestRule = TestRule { base, description ->
@@ -121,6 +124,33 @@ abstract class BaseTest(private val defaultLaunchConfig: LaunchConfig = LaunchCo
     // rule is constructed. AndroidComposeTestRule also holds a TestScope that can only be entered
     // once, so it could not be reused across tests even if the flags were fixed.
     private var _composeRule: AndroidComposeTestRule<HomeActivityIntentTestRule, *>? = null
+    private var _pageContext: PageContext? = null
+    private val attemptFinalization = AttemptFinalization()
+
+    @get:Rule(order = -2)
+    val finalizeAttempt: TestRule = TestRule { base, description ->
+        object : Statement() {
+            override fun evaluate() {
+                val reporter = installedReporter()
+                reporter.reset()
+                attemptFinalization.reset()
+                var finalFailure: Throwable? = null
+                try {
+                    base.evaluate()
+                } catch (t: Throwable) {
+                    finalFailure = t
+                } finally {
+                    runCatching {
+                        reporter.record(
+                            "attemptEnd",
+                            attemptFinalization.terminalFields(description.displayName, finalFailure),
+                        )
+                    }
+                }
+                finalFailure?.let { throw it }
+            }
+        }
+    }
 
     /**
      * The Compose rule for the test currently running.
@@ -137,9 +167,9 @@ abstract class BaseTest(private val defaultLaunchConfig: LaunchConfig = LaunchCo
         get() =
             checkNotNull(_composeRule) {
                 "composeRule read before the activity rule built it. Rules run outermost-first by " +
-                    "ascending order: -1 samples arrival, 0 is FenixTestRule, 1 builds this, 2 " +
-                    "records boundaries. Anything at a lower order than 1, or outside a test body, " +
-                    "runs before this exists."
+                    "ascending order: -2 finalizes the attempt, -1 samples arrival, 0 is " +
+                    "FenixTestRule, 1 builds this, and 2 records boundaries. Anything at a lower " +
+                    "order than 1, or outside a test body, runs before this exists."
             }
 
     // There is deliberately no retry here. Firebase re-runs a failing test once
@@ -158,71 +188,143 @@ abstract class BaseTest(private val defaultLaunchConfig: LaunchConfig = LaunchCo
     val composeRuleWithCleanup: TestRule = TestRule { base, description ->
         object : Statement() {
             override fun evaluate() {
-                val cfg = launchConfig()
-                _composeRule =
-                    AndroidComposeTestRuleV2(
-                        HomeActivityIntentTestRule(
-                            skipOnboarding = cfg.skipOnboarding,
-                            isPageLoadTranslationsPromptEnabled = cfg.isPageLoadTranslationsPromptEnabled,
-                            isPocketEnabled = cfg.isPocketEnabled,
-                            isRecentlyVisitedFeatureEnabled = cfg.isRecentlyVisitedFeatureEnabled,
-                            shouldUseExpandedToolbar = cfg.shouldUseExpandedToolbar,
-                            isTabStripEnabled = cfg.isTabStripEnabled,
-                            shakeToSummarizeFeatureFlagEnabled = cfg.shakeToSummarizeFeatureFlagEnabled,
-                        )
-                    ) {
-                        it.activity
-                    }
+                val lifecycleTrace = ActivityLifecycleTrace.start(description.displayName)
                 try {
-                    AppDataCleaner.clear("before", description.displayName)
-                    // Dump on ANY failure, not only those raised through a page-object verb.
-                    // BasePage.dumpFailure covers navigateToPage and mozVerifyElementsByGroup, but
-                    // a page object asserting with a bare JUnit assertTrue --- BrowserPage
-                    // .verifyPageContent, for one --- throws straight past it, and the failure that
-                    // most needs a picture is the one nobody wrote a verb for.
-                    //
-                    // Wrapped INSIDE the activity rule on purpose. Catching further out photographs
-                    // a black screen: the activity rule finishes the activity in its own teardown,
-                    // which runs before the exception reaches anything outside it.
-                    val dumpOnFailure =
-                        object : Statement() {
-                            override fun evaluate() {
-                                try {
-                                    base.evaluate()
-                                } catch (t: Throwable) {
-                                    runCatching {
-                                        ScreenDump.dumpAll(_composeRule, "test failed: ${description.methodName}")
-                                    }
-                                        .onFailure {
-                                            Log.i("BaseTest", "BaseTest: failure dump failed: ${it.message}")
-                                        }
-                                    throw t
-                                }
-                            }
+                    val cfg = launchConfig()
+                    _pageContext = null
+                    NavigationRegistry.reset()
+                    requireAppDataCleanup("before", description.displayName)
+                    RuntimeStateCleaner.restore("before", description.displayName)
+                    StateProbe.assertIsolated("afterSetup", description.displayName)
+                    RuntimePermissionRequirements.assertSatisfied(description)
+                    _composeRule =
+                        AndroidComposeTestRuleV2(
+                            HomeActivityIntentTestRule(
+                                skipOnboarding = cfg.skipOnboarding,
+                                isPageLoadTranslationsPromptEnabled = cfg.isPageLoadTranslationsPromptEnabled,
+                                isPocketEnabled = cfg.isPocketEnabled,
+                                isRecentlyVisitedFeatureEnabled = cfg.isRecentlyVisitedFeatureEnabled,
+                                shouldUseExpandedToolbar = cfg.shouldUseExpandedToolbar,
+                                isTabStripEnabled = cfg.isTabStripEnabled,
+                                shakeToSummarizeFeatureFlagEnabled = cfg.shakeToSummarizeFeatureFlagEnabled,
+                            )
+                        ) {
+                            it.activity
                         }
                     try {
-                        composeRule.apply(dumpOnFailure, description).evaluate()
-                    } finally {
-                        // Tidy up after, not only before. Cleaning only at the start meant a
-                        // failing test left everything it created on the device until the next
-                        // test cleared up on its behalf --- and if it was the last test in the
-                        // class, indefinitely. In a `finally` so a failure is tidied up after too,
-                        // which is the case that used to leave the mess.
-                        AppDataCleaner.clear("after", description.displayName)
+                        // Dump on ANY failure, not only those raised through a page-object verb.
+                        // BasePage.dumpFailure covers navigateToPage and mozVerifyElementsByGroup, but
+                        // a page object asserting with a bare JUnit assertTrue --- BrowserPage
+                        // .verifyPageContent, for one --- throws straight past it, and the failure that
+                        // most needs a picture is the one nobody wrote a verb for.
+                        //
+                        // Wrapped INSIDE the activity rule on purpose. Catching further out photographs
+                        // a black screen: the activity rule finishes the activity in its own teardown,
+                        // which runs before the exception reaches anything outside it.
+                        val dumpOnFailure =
+                            object : Statement() {
+                                override fun evaluate() {
+                                    var testFailure: Throwable? = null
+                                    try {
+                                        base.evaluate()
+                                    } catch (t: Throwable) {
+                                        testFailure = t
+                                        runCatching {
+                                            ScreenDump.dumpAll(_composeRule, "test failed: ${description.methodName}")
+                                        }
+                                            .onFailure {
+                                                Log.i("BaseTest", "BaseTest: failure dump failed: ${it.message}")
+                                            }
+                                    }
+
+                                    attemptFinalization.beginCleanup()
+                                    val cleanupFailures = mutableListOf<Throwable>()
+                                    runCatching {
+                                        RuntimeStateCleaner.restore("after", description.displayName)
+                                        composeRule.waitForIdle()
+                                    }
+                                        .exceptionOrNull()
+                                        ?.let {
+                                            attemptFinalization.recordCleanupFailure("runtimeState")
+                                            cleanupFailures += it
+                                        }
+                                    runCatching {
+                                        InputStateCleaner.restore(
+                                            "after",
+                                            description.displayName,
+                                            composeRule.activity,
+                                        )
+                                    }
+                                        .exceptionOrNull()
+                                        ?.let {
+                                            attemptFinalization.recordCleanupFailure("inputState")
+                                            cleanupFailures += it
+                                        }
+                                    runCatching {
+                                        ActivityStateCleaner.restore(composeRule.activity, description.displayName)
+                                    }
+                                        .exceptionOrNull()
+                                        ?.let {
+                                            attemptFinalization.recordCleanupFailure("activityState")
+                                            cleanupFailures += it
+                                        }
+                                    cleanupFailures.firstOrNull()?.let { primaryFailure ->
+                                        cleanupFailures.drop(1).forEach(primaryFailure::addSuppressed)
+                                        testFailure?.addSuppressed(primaryFailure)
+                                    }
+
+                                    testFailure?.let { throw it }
+                                    cleanupFailures.firstOrNull()?.let { throw it }
+                                }
+                            }
+                        var executionFailure: Throwable? = null
+                        try {
+                            InputStateCleaner.restore("before", description.displayName)
+                            composeRule.apply(dumpOnFailure, description).evaluate()
+                        } catch (t: Throwable) {
+                            executionFailure = t
+                        }
+                        attemptFinalization.beginCleanup()
+                        val appCleanupFailures = mutableListOf<Throwable>()
+                        runCatching { requireAppDataCleanup("after", description.displayName) }
+                            .exceptionOrNull()
+                            ?.let {
+                                attemptFinalization.recordCleanupFailure("appData")
+                                appCleanupFailures += it
+                            }
+                        runCatching { StateProbe.assertIsolated("afterCleanup", description.displayName) }
+                            .exceptionOrNull()
+                            ?.let {
+                                attemptFinalization.recordCleanupFailure("stateIsolation")
+                                appCleanupFailures += it
+                            }
+                        attemptFinalization.finishCleanup()
+                        appCleanupFailures.firstOrNull()?.let { primaryFailure ->
+                            appCleanupFailures.drop(1).forEach(primaryFailure::addSuppressed)
+                        }
+                        val appCleanupFailure = appCleanupFailures.firstOrNull()
+                        executionFailure?.let { failure ->
+                            appCleanupFailure?.let(failure::addSuppressed)
+                            throw failure
+                        }
+                        appCleanupFailure?.let { throw it }
+                    } catch (t: NoLeakAssertionFailedError) {
+                        Log.i("BaseTest", "BaseTest: NoLeakAssertionFailedError caught.")
+                        cleanup(removeTabs = true)
+                        throw t
                     }
-                } catch (t: NoLeakAssertionFailedError) {
-                    Log.i("BaseTest", "BaseTest: NoLeakAssertionFailedError caught.")
-                    cleanup(removeTabs = true)
-                    throw t
+                } finally {
+                    runCatching { lifecycleTrace.close() }
+                        .onFailure { Log.i("BaseTest", "BaseTest: lifecycle trace close failed: ${it.message}") }
                 }
             }
         }
     }
 
-    // get() ensures this always delegates to the current composeRule instance,
-    // not a stale one captured at class construction time.
+    // One context per test keeps the facade tied to the current rule without rebuilding every
+    // page object and re-registering the navigation graph on every `on` access.
     protected val on: PageContext
-        get() = PageContext(composeRule)
+        get() = _pageContext ?: PageContext(composeRule).also { _pageContext = it }
 
     /**
      * Reporter lifecycle:
@@ -254,17 +356,21 @@ abstract class BaseTest(private val defaultLaunchConfig: LaunchConfig = LaunchCo
 
             override fun succeeded(description: Description) {
                 StateProbe.record("end", description.displayName)
+                attemptFinalization.recordBody(TestStatus.PASS)
                 installedReporter().testEnd(description.displayName, TestStatus.PASS)
+                DiagnosticFaultInjection.afterPassingBody(description.displayName)
             }
 
             override fun failed(e: Throwable, description: Description) {
                 // Especially on failure: "the store has three history entries and the screen shows
                 // none" is a different bug report from "the store is empty too".
                 StateProbe.record("end", description.displayName)
+                attemptFinalization.recordBody(TestStatus.FAIL)
                 installedReporter().testEnd(description.displayName, TestStatus.FAIL)
             }
 
             override fun skipped(e: org.junit.AssumptionViolatedException, description: Description) {
+                attemptFinalization.recordBody(TestStatus.SKIP)
                 installedReporter().testEnd(description.displayName, TestStatus.SKIP)
             }
         }
@@ -275,6 +381,13 @@ abstract class BaseTest(private val defaultLaunchConfig: LaunchConfig = LaunchCo
      * decides which runs first and neither should care.
      */
     private fun installedReporter(): TimedReporter = TestLogging.installed()
+
+    private fun requireAppDataCleanup(phase: String, testId: String) {
+        val failed = AppDataCleaner.clear(phase, testId)
+        check(failed.isEmpty()) {
+            "App-data cleanup failed at $phase for $testId: ${failed.joinToString()}"
+        }
+    }
 
     /**
      * An opt-in diagnostic, read from the instrumentation arguments.
@@ -315,8 +428,8 @@ abstract class BaseTest(private val defaultLaunchConfig: LaunchConfig = LaunchCo
         // shared across a class's methods, so "per test" was never true anyway.
         installEspressoFailureHandlerOnce()
 
-        installedReporter().reset()
         if (flagArg("logNavigationSummary")) {
+            on
             NavigationRegistry.logPathSummary()
         }
         if (flagArg("logPageCatalog")) {
@@ -356,11 +469,6 @@ abstract class BaseTest(private val defaultLaunchConfig: LaunchConfig = LaunchCo
      * - STEP/CMD/LOC totals sum only the instrumented scopes.
      */
     @After
-    fun tearDown() {
-        appContext.components.useCases.tabsUseCases.removeAllTabs()
-    }
-
-    @After
     fun tearDownLogging() {
         try {
             TestLogging.reporter.printSummary()
@@ -373,7 +481,7 @@ abstract class BaseTest(private val defaultLaunchConfig: LaunchConfig = LaunchCo
 private fun cleanup(removeTabs: Boolean = false) {
     unregisterAllIdlingResources()
     if (removeTabs) {
-        appContext.components.useCases.tabsUseCases.removeAllTabs()
+        appContext.components.useCases.tabsUseCases.removeAllTabs(recoverable = false)
     }
     exitMenu()
 }

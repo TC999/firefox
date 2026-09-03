@@ -328,14 +328,17 @@ export class Tabbrowser {
     ALL_DUPLICATES: 7,
   };
 
+  /** @type {WeakMap<MozTabbrowserTab, MozTabbrowserTab>} */
   #lastRelatedTabMap = new WeakMap();
 
   #progressListeners = [];
 
   #tabsProgressListeners = [];
 
+  /** @type {Map<MozTabbrowserTab, TabProgressListener>} */
   #tabListeners = new Map();
 
+  /** @type {Map<MozTabbrowserTab, BrowserStatusFilter>} */
   #tabFilters = new Map();
 
   _isBusy = false;
@@ -496,7 +499,7 @@ export class Tabbrowser {
   _switcher = null;
 
   /**
-   * @type {Array<{count: number, uris: [string, string], timestamp: number}>}
+   * @type {Array<{count: number, uris: string[], timestamp: number}>}
    */
   #tabSelectTimestamps = [];
 
@@ -810,9 +813,11 @@ export class Tabbrowser {
 
     // Hook the browser up with a progress listener.
     let tabListener = new TabProgressListener(tab, browser, true, false);
-    let filter = Cc[
-      "@mozilla.org/appshell/component/browser-status-filter;1"
-    ].createInstance(Ci.nsIWebProgress);
+    let filter = /** @type {BrowserStatusFilter} */ (
+      Cc[
+        "@mozilla.org/appshell/component/browser-status-filter;1"
+      ].createInstance(Ci.nsIWebProgress)
+    );
     filter.addProgressListener(tabListener, Ci.nsIWebProgress.NOTIFY_ALL);
     this.#tabListeners.set(tab, tabListener);
     this.#tabFilters.set(tab, filter);
@@ -2858,9 +2863,11 @@ export class Tabbrowser {
     listener = new TabProgressListener(tab, aBrowser, true, false);
     this.#tabListeners.set(tab, listener);
     if (!filter) {
-      filter = Cc[
-        "@mozilla.org/appshell/component/browser-status-filter;1"
-      ].createInstance(Ci.nsIWebProgress);
+      filter = /** @type {BrowserStatusFilter} */ (
+        Cc[
+          "@mozilla.org/appshell/component/browser-status-filter;1"
+        ].createInstance(Ci.nsIWebProgress)
+      );
       this.#tabFilters.set(tab, filter);
     }
     filter.addProgressListener(listener, Ci.nsIWebProgress.NOTIFY_ALL);
@@ -3233,9 +3240,11 @@ export class Tabbrowser {
       uriIsAboutBlank,
       usingPreloadedContent
     );
-    const filter = Cc[
-      "@mozilla.org/appshell/component/browser-status-filter;1"
-    ].createInstance(Ci.nsIWebProgress);
+    const filter = /** @type {BrowserStatusFilter} */ (
+      Cc[
+        "@mozilla.org/appshell/component/browser-status-filter;1"
+      ].createInstance(Ci.nsIWebProgress)
+    );
     filter.addProgressListener(tabListener, Ci.nsIWebProgress.NOTIFY_ALL);
     browser.webProgress.addProgressListener(
       filter,
@@ -3622,6 +3631,7 @@ export class Tabbrowser {
    *    The new tab. The return value will be null if the tab couldn't be
    *    created; this shouldn't normally happen, and an error will be logged
    *    to the console if it does.
+   * @throws {Error} When `options.triggeringPrincipal` is missing.
    */
   addTab(
     uriString,
@@ -3667,10 +3677,9 @@ export class Tabbrowser {
       schemelessInput,
       hasValidUserGestureActivation = false,
       textDirectiveUserActivation = false,
-    } = {}
+    }
   ) {
-    // all callers of addTab that pass a params object need to pass
-    // a valid triggeringPrincipal.
+    // All callers of addTab need to pass a valid triggeringPrincipal.
     if (!triggeringPrincipal) {
       throw new Error(
         "Required argument triggeringPrincipal missing within addTab"
@@ -4311,7 +4320,7 @@ export class Tabbrowser {
     }
 
     for (let element of group.tabsAndSplitViews) {
-      if (element.tagName == "tab-split-view-wrapper") {
+      if (this.isSplitViewWrapper(element)) {
         splitview = this.adoptSplitView(element, {
           elementIndex,
           tabIndex,
@@ -5382,8 +5391,10 @@ export class Tabbrowser {
       index = Math.max(index, this.pinnedTabCount);
       index = Math.min(index, allItems.length);
     }
-    /** @type {MozTabbrowserTab|undefined} */
-    let itemAfter = allItems.at(index);
+    let itemAfter =
+      /** @type {MozTabbrowserTab|MozTabSplitViewWrapper|MozTabbrowserTabGroupLabel|undefined} */ (
+        allItems.at(index)
+      );
 
     if (pinned && !itemAfter?.pinned) {
       itemAfter = null;
@@ -5392,7 +5403,9 @@ export class Tabbrowser {
       itemAfter =
         itemAfter === splitview.tabs[0]
           ? splitview
-          : splitview.nextElementSibling || null;
+          : /** @type {MozTabbrowserTab|MozTabSplitViewWrapper} */ (
+              splitview.nextElementSibling
+            ) || null;
     }
     // Prevent a flash of unstyled content by setting up the tab content
     // and inherited attributes before appending it (see Bug 1592054):
@@ -5774,7 +5787,7 @@ export class Tabbrowser {
 
   /**
    * @typedef {object} StartRemoveTabsResult
-   * @property {Promise<void>} beforeUnloadComplete
+   * @property {Promise<void[]>} beforeUnloadComplete
    *   A promise that is resolved once all the beforeunload handlers have been
    *   called.
    * @property {object[]} tabsWithBeforeUnloadPrompt
@@ -5790,18 +5803,18 @@ export class Tabbrowser {
    * @param {object[]} tabs
    *   The set of tabs to remove.
    * @param {object} options
-   * @param {boolean} options.animate
+   * @param {boolean} [options.animate]
    *   Whether or not to animate closing.
-   * @param {boolean} options.suppressWarnAboutClosingWindow
+   * @param {boolean} [options.suppressWarnAboutClosingWindow]
    *   This will suppress the warning about closing a window with the last tab.
-   * @param {boolean} options.skipPermitUnload
+   * @param {boolean} [options.skipPermitUnload]
    *   Skips the before unload checks for the tabs. Only set this to true when
    *   using it in tandem with `runBeforeUnloadForTabs`.
-   * @param {boolean} options.skipRemoves
+   * @param {boolean} [options.skipRemoves]
    *   Skips actually removing the tabs. The beforeunload handlers still run.
-   * @param {boolean} options.skipSessionStore
+   * @param {boolean} [options.skipSessionStore]
    *   If true, don't record the closed tabs in SessionStore.
-   * @param {TabMetricsContext} options.metricsContext
+   * @param {TabMetricsContext} [options.metricsContext]
    *   The context for the operation for telemetry purposes.
    * @returns {StartRemoveTabsResult}
    * @see Tabbrowser.runBeforeUnloadForTabs
@@ -6267,7 +6280,9 @@ export class Tabbrowser {
       isVisibleTab &&
       aTab._fullyOpen &&
       triggeringEvent?.inputSource == MouseEvent.MOZ_SOURCE_MOUSE &&
-      triggeringEvent?.target.closest(".tabbrowser-tab");
+      /** @type {Element} */ (triggeringEvent.target).closest(
+        ".tabbrowser-tab"
+      );
     if (lockTabSizing) {
       this.tabContainer._lockTabSizing(aTab, tabWidth);
     } else {
@@ -7592,7 +7607,7 @@ export class Tabbrowser {
 
     // tell a new window to take the "dropped" tab
     let args = Cc["@mozilla.org/array;1"].createInstance(Ci.nsIMutableArray);
-    args.appendElement(aTab.splitview ?? aTab);
+    args.appendElement(/** @type {nsISupports} */ (aTab.splitview ?? aTab));
     return lazy.BrowserWindowTracker.openWindow({
       private: lazy.PrivateBrowsingUtils.isWindowPrivate(this.documentGlobal),
       features: Object.entries(aOptions)
@@ -7889,7 +7904,7 @@ export class Tabbrowser {
   }
 
   /**
-   * @param {MozTabbrowserTab|MozTabbrowserTabGroup[]} elements
+   * @param {Array<MozTabbrowserTab|MozTabbrowserTabGroup>} elements
    * @param {MozTabbrowserTab|MozTabbrowserTabGroup} targetElement
    * @param {object} [options]
    * @param {TabMetricsContext} [options.metricsContext]
@@ -7911,7 +7926,7 @@ export class Tabbrowser {
   }
 
   /**
-   * @param {MozTabbrowserTab|MozTabbrowserTabGroup[]} elements
+   * @param {Array<MozTabbrowserTab|MozTabbrowserTabGroup>} elements
    * @param {MozTabbrowserTab|MozTabbrowserTabGroup} targetElement
    * @param {object} [options]
    * @param {TabMetricsContext} [options.metricsContext]
@@ -8002,8 +8017,8 @@ export class Tabbrowser {
   }
 
   /**
-   * @param {MozTabbrowserTab[]} elements
-   * @param {MozTabbrowserTab|MozTabbrowserTabGroup} targetElement
+   * @param {Array<MozTabbrowserTab|MozTabbrowserTabGroup>} elements
+   * @param {MozTabbrowserTab|MozTabbrowserTabGroup|MozTabSplitViewWrapper} targetElement
    * @param {boolean} [moveBefore=false]
    * @param {object} [options]
    * @param {TabMetricsContext} [options.metricsContext]
@@ -8972,7 +8987,7 @@ export class Tabbrowser {
     }
     if (
       !aEvent.isReplyEventFromRemoteContent &&
-      aEvent.target?.isRemoteBrowser === true
+      /** @type {MozBrowser} */ (aEvent.target)?.isRemoteBrowser === true
     ) {
       aEvent.requestReplyFromRemoteContent();
       return true;

@@ -9,6 +9,7 @@ import org.mozilla.fenix.helpers.HomeActivityIntentTestRule
 import org.mozilla.fenix.helpers.TestHelper.mDevice
 import org.mozilla.fenix.ui.efficiency.helpers.BasePage
 import org.mozilla.fenix.ui.efficiency.helpers.Selector
+import org.mozilla.fenix.ui.efficiency.navigation.NavigationOptions
 import org.mozilla.fenix.ui.efficiency.navigation.NavigationRegistry
 import org.mozilla.fenix.ui.efficiency.navigation.NavigationStep
 import org.mozilla.fenix.ui.efficiency.selectors.HomeSelectors
@@ -30,7 +31,7 @@ class TabHistoryPage(composeRule: AndroidComposeTestRule<HomeActivityIntentTestR
             to = pageName,
             steps =
                 listOf(
-                    NavigationStep.Click(ToolbarSelectors.TOOLBAR_URL_BOX_UIAUTOMATOR),
+                    NavigationStep.Click(ToolbarSelectors.TOOLBAR_URL_BOX_UIAUTOMATOR2),
                     NavigationStep.EnterTextValue(SearchBarSelectors.TOOLBAR_IN_EDIT_MODE, "example.org"),
                     NavigationStep.PressEnter(SearchBarSelectors.TOOLBAR_IN_EDIT_MODE),
                     NavigationStep.Click(HomeSelectors.MAIN_MENU_BUTTON_UIAUTOMATOR),
@@ -39,8 +40,16 @@ class TabHistoryPage(composeRule: AndroidComposeTestRule<HomeActivityIntentTestR
         )
     }
 
-    override fun navigateToPage(url: String, forceNavigation: Boolean): TabHistoryPage {
-        super.navigateToPage(url = url.ifBlank { "example.com" }, forceNavigation = forceNavigation)
+    override fun navigateToPage(
+        url: String,
+        forceNavigation: Boolean,
+        navigationOptions: NavigationOptions,
+    ): TabHistoryPage {
+        super.navigateToPage(
+            url = url.ifBlank { "example.com" },
+            forceNavigation = forceNavigation,
+            navigationOptions = navigationOptions,
+        )
         return this
     }
 

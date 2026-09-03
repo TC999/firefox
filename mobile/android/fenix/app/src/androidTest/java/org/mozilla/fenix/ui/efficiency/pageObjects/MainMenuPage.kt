@@ -10,12 +10,14 @@ import org.mozilla.fenix.helpers.HomeActivityIntentTestRule
 import org.mozilla.fenix.helpers.TestAssetHelper.waitingTimeLong
 import org.mozilla.fenix.ui.efficiency.helpers.BasePage
 import org.mozilla.fenix.ui.efficiency.helpers.Selector
+import org.mozilla.fenix.ui.efficiency.navigation.NavigationFacts
 import org.mozilla.fenix.ui.efficiency.navigation.NavigationRegistry
 import org.mozilla.fenix.ui.efficiency.navigation.NavigationStep
 import org.mozilla.fenix.ui.efficiency.selectors.BrowserPageSelectors
 import org.mozilla.fenix.ui.efficiency.selectors.HomeSelectors
 import org.mozilla.fenix.ui.efficiency.selectors.MainMenuSelectors
 import org.mozilla.fenix.ui.efficiency.selectors.SettingsAddonsManagerSelectors
+import org.mozilla.fenix.ui.efficiency.selectors.SettingsSavedPasswordsSelectors
 
 class MainMenuPage(composeRule: AndroidComposeTestRule<HomeActivityIntentTestRule, *>) : BasePage(composeRule) {
     override val pageName = "MainMenuPage"
@@ -37,6 +39,40 @@ class MainMenuPage(composeRule: AndroidComposeTestRule<HomeActivityIntentTestRul
             from = pageName,
             to = "BrowserPage",
             steps = listOf(),
+            requires = setOf(NavigationFacts.RETURN_SURFACE_BROWSER),
+        )
+
+        NavigationRegistry.register(
+            from = pageName,
+            to = "HomePage",
+            steps = listOf(NavigationStep.PressBack),
+            requires = setOf(NavigationFacts.RETURN_SURFACE_HOME),
+        )
+
+        NavigationRegistry.register(
+            from = pageName,
+            to = "SettingsPage",
+            steps =
+                listOf(
+                    NavigationStep.Swipe(MainMenuSelectors.SETTINGS_BUTTON),
+                    NavigationStep.Click(MainMenuSelectors.SETTINGS_BUTTON),
+                ),
+        )
+
+        NavigationRegistry.register(
+            from = pageName,
+            to = "DownloadsPage",
+            steps = listOf(NavigationStep.Click(MainMenuSelectors.DOWNLOADS_BUTTON)),
+        )
+
+        NavigationRegistry.register(
+            from = pageName,
+            to = "SettingsSavedPasswordsPage",
+            steps =
+                listOf(
+                    NavigationStep.Click(MainMenuSelectors.PASSWORDS_BUTTON),
+                    NavigationStep.ClickIfPresent(SettingsSavedPasswordsSelectors.LOGINS_SECURITY_DIALOG_LATER_BUTTON),
+                ),
         )
     }
 

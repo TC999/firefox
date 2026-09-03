@@ -664,8 +664,9 @@ Nullable<double> Animation::GetOverallProgress() const {
   return result;
 }
 
-// https://drafts.csswg.org/web-animations/#set-the-playback-rate
+// https://drafts.csswg.org/web-animations-1/#set-the-playback-rate
 void Animation::SetPlaybackRate(double aPlaybackRate) {
+  // 1. Clear any pending playback rate on animation.
   mPendingPlaybackRate.reset();
 
   if (aPlaybackRate == mPlaybackRate) {
@@ -674,10 +675,37 @@ void Animation::SetPlaybackRate(double aPlaybackRate) {
 
   AutoMutationBatchForAnimation mb(*this);
 
-  Nullable<TimeDuration> previousTime = GetCurrentTimeAsDuration();
+  // 2. Let previous time be the value of the current time of animation before
+  // changing the playback rate.
+  const Nullable<TimeDuration> previousTime = GetCurrentTimeAsDuration();
+
+  // 3. Let previous playback rate be the current effective playback rate of
+  // animation.
+  const double previousPlaybackRate = CurrentOrPendingPlaybackRate();
+
+  // 4. Set the playback rate to new playback rate.
   mPlaybackRate = aPlaybackRate;
-  if (!HasFiniteTimeline() && !previousTime.IsNull()) {
+
+  // 5. Perform the steps corresponding to the first matching condition from the
+  //    following, if any:
+  if (mTimeline && mTimeline->IsMonotonicallyIncreasing() &&
+      !previousTime.IsNull()) {
+    // If animation is associated with a monotonically increasing timeline and
+    // the previous time is resolved,
+    // Set the current time of animation to previous time.
     SetCurrentTime(previousTime.Value());
+  } else if (mTimeline && !mTimeline->IsMonotonicallyIncreasing() &&
+             !mStartTime.IsNull() && EffectEnd() != TimeDuration::Forever() &&
+             ((previousPlaybackRate < 0.0 && aPlaybackRate >= 0.0) ||
+              (previousPlaybackRate >= 0.0 && aPlaybackRate < 0.0))) {
+    // If animation is associated with a non-null timeline that is not
+    // monotonically increasing, the start time of animation is resolved,
+    // associated effect end is not infinity, and either:
+    // - the previous playback rate < 0 and the new playback rate ≥ 0, or
+    // - the previous playback rate ≥ 0 and the new playback rate < 0,
+    // Set animation’s start time to the result of evaluating
+    // "associated effect end − start time" for animation.
+    mStartTime.SetValue(TimeDuration(EffectEnd()) - mStartTime.Value());
   }
 
   // In the case where GetCurrentTimeAsDuration() returns the same result before
@@ -949,7 +977,7 @@ void Animation::Play(ErrorResult& aRv, LimitBehavior aLimitBehavior) {
   PostUpdate();
 }
 
-// https://drafts.csswg.org/web-animations/#reverse-an-animation
+// https://drafts.csswg.org/web-animations-1/#reverse-an-animation
 void Animation::Reverse(ErrorResult& aRv) {
   if (!mTimeline) {
     return aRv.ThrowInvalidStateError(
@@ -960,15 +988,17 @@ void Animation::Reverse(ErrorResult& aRv) {
         "Can't reverse an animation associated with an inactive timeline");
   }
 
-  double effectivePlaybackRate = mPendingPlaybackRate.valueOr(mPlaybackRate);
-
-  if (effectivePlaybackRate == 0.0) {
-    return;
-  }
+  const double effectivePlaybackRate = CurrentOrPendingPlaybackRate();
 
   Maybe<double> originalPendingPlaybackRate = mPendingPlaybackRate;
 
-  mPendingPlaybackRate = Some(-effectivePlaybackRate);
+  // We still call Play() even if the playback rate is 0 to make sure we update
+  // the animation synchronously (e.g. start time / hold time).
+  // Also, per spec, we do have to call Play() even if the playback rate is 0.
+  // Note: If playback rate is 0, we have to preserve it, i.e. we don't set the
+  // playback rate to -0.
+  mPendingPlaybackRate =
+      Some(effectivePlaybackRate == 0 ? 0 : -effectivePlaybackRate);
 
   Play(aRv, LimitBehavior::AutoRewind);
 

@@ -2679,14 +2679,11 @@ newtab_content:
         description: >
           If click belongs in a section, the name of the section
         type: string
-      section_position:
-        description: >
-          If click belongs in a section, the numberic position of the section
-        type: string
       is_section_followed:
         description: >
           If click belongs in a section, if that section is followed
         type: boolean
+      layout_name: *layout_name
     send_in_pings:
       - newtab-content
 
@@ -2730,14 +2727,11 @@ newtab_content:
         description: >
           If click belongs in a section, the name of the section
         type: string
-      section_position:
-        description: >
-          If click belongs in a section, the numberic position of the section
-        type: string
       is_section_followed:
         description: >
           If click belongs in a section, if that section is followed
         type: boolean
+      layout_name: *layout_name
     send_in_pings:
       - newtab-content
 

@@ -361,7 +361,6 @@ pub enum TextTransformCase {
     /// Capitalize each word.
     Capitalize,
     /// Automatic italicization of math variables.
-    #[cfg(feature = "gecko")]
     MathAuto,
 }
 
@@ -381,22 +380,11 @@ pub enum TextTransformCase {
     ToShmem,
     ToTyped,
 )]
-#[cfg_attr(
-    feature = "gecko",
-    css(bitflags(
-        single = "none,math-auto",
-        mixed = "uppercase,lowercase,capitalize,full-width,full-size-kana",
-        validate_mixed = "Self::validate_mixed_flags",
-    ))
-)]
-#[cfg_attr(
-    not(feature = "gecko"),
-    css(bitflags(
-        single = "none",
-        mixed = "uppercase,lowercase,capitalize,full-width,full-size-kana",
-        validate_mixed = "Self::validate_mixed_flags",
-    ))
-)]
+#[css(bitflags(
+    single = "none,math-auto",
+    mixed = "uppercase,lowercase,capitalize,full-width,full-size-kana",
+    validate_mixed = "Self::validate_mixed_flags",
+))]
 #[repr(C)]
 /// Specified value for the text-transform property.
 /// (The spec grammar gives
@@ -414,15 +402,11 @@ bitflags! {
         /// Capitalize each word.
         const CAPITALIZE = 1 << 2;
         /// Automatic italicization of math variables.
-        #[cfg(feature = "gecko")]
         const MATH_AUTO = 1 << 3;
 
         /// All the case transforms, which are exclusive with each other.
-        #[cfg(feature = "gecko")]
+        /// Except for math-auto, they can be mixed with full-width or full-size-kana.
         const CASE_TRANSFORMS = Self::UPPERCASE.0 | Self::LOWERCASE.0 | Self::CAPITALIZE.0 | Self::MATH_AUTO.0;
-        /// All the case transforms, which are exclusive with each other.
-        #[cfg(feature = "servo")]
-        const CASE_TRANSFORMS = Self::UPPERCASE.0 | Self::LOWERCASE.0 | Self::CAPITALIZE.0;
 
         /// full-width
         const FULL_WIDTH = 1 << 4;
@@ -457,7 +441,6 @@ impl TextTransform {
             Self::UPPERCASE => TextTransformCase::Uppercase,
             Self::LOWERCASE => TextTransformCase::Lowercase,
             Self::CAPITALIZE => TextTransformCase::Capitalize,
-            #[cfg(feature = "gecko")]
             Self::MATH_AUTO => TextTransformCase::MathAuto,
             _ => unreachable!("Case bits are exclusive with each other"),
         }
@@ -931,7 +914,7 @@ pub enum MozControlCharacterVisibility {
 #[cfg(feature = "gecko")]
 impl Default for MozControlCharacterVisibility {
     fn default() -> Self {
-        if static_prefs::pref!("layout.css.control-characters.visible") {
+        if crate::pref!("layout.css.control-characters.visible") {
             Self::Visible
         } else {
             Self::Hidden
@@ -1104,7 +1087,7 @@ fn parse_inset_endpoint(
     ctx: &ParserContext,
     input: &mut Parser,
 ) -> Result<LengthPercentage, ParseError> {
-    if !static_prefs::pref!("layout.css.text-decoration-inset-percentage.enabled") {
+    if !crate::pref!("layout.css.text-decoration-inset-percentage.enabled") {
         Length::parse(ctx, input).map(|l| l.into())
     } else {
         LengthPercentage::parse(ctx, input)

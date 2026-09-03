@@ -35,11 +35,11 @@ import org.mozilla.fenix.helpers.TestHelper.packageName
 import org.mozilla.fenix.helpers.ext.waitNotNull
 import org.mozilla.fenix.ui.efficiency.helpers.BasePage
 import org.mozilla.fenix.ui.efficiency.helpers.Selector
+import org.mozilla.fenix.ui.efficiency.navigation.NavigationOptions
 import org.mozilla.fenix.ui.efficiency.navigation.NavigationRegistry
 import org.mozilla.fenix.ui.efficiency.navigation.NavigationStep
 import org.mozilla.fenix.ui.efficiency.selectors.BrowserPageSelectors
 import org.mozilla.fenix.ui.efficiency.selectors.DownloadsSelectors
-import org.mozilla.fenix.ui.efficiency.selectors.HomeSelectors
 import org.mozilla.fenix.ui.efficiency.selectors.MainMenuSelectors
 import org.mozilla.fenix.ui.efficiency.selectors.SearchBarSelectors
 import org.mozilla.fenix.ui.efficiency.selectors.ToolbarSelectors
@@ -65,7 +65,7 @@ class BrowserPage(composeRule: AndroidComposeTestRule<HomeActivityIntentTestRule
             to = pageName,
             steps =
                 listOf(
-                    NavigationStep.Click(ToolbarSelectors.TOOLBAR_URL_BOX_UIAUTOMATOR),
+                    NavigationStep.Click(ToolbarSelectors.TOOLBAR_URL_BOX_UIAUTOMATOR2),
                     NavigationStep.EnterText(SearchBarSelectors.TOOLBAR_IN_EDIT_MODE),
                     NavigationStep.PressEnter(SearchBarSelectors.TOOLBAR_IN_EDIT_MODE),
                 ),
@@ -79,13 +79,6 @@ class BrowserPage(composeRule: AndroidComposeTestRule<HomeActivityIntentTestRule
                     NavigationStep.EnterText(SearchBarSelectors.TOOLBAR_IN_EDIT_MODE),
                     NavigationStep.PressEnter(SearchBarSelectors.TOOLBAR_IN_EDIT_MODE),
                 ),
-        )
-
-        // Use UIAutomator selector to avoid Compose sync hanging when GeckoView is active.
-        NavigationRegistry.register(
-            from = pageName,
-            to = "MainMenuPage",
-            steps = listOf(NavigationStep.Click(HomeSelectors.MAIN_MENU_BUTTON_UIAUTOMATOR)),
         )
 
         // Use UIAutomator selector to avoid Compose sync hanging when GeckoView is active.
@@ -109,20 +102,18 @@ class BrowserPage(composeRule: AndroidComposeTestRule<HomeActivityIntentTestRule
                     NavigationStep.Click(MainMenuSelectors.ADD_TO_HOMESCREEN_BUTTON),
                 ),
         )
-
-        // UIAutomator (Compose sync can hang while GeckoView is active) AND the content-description
-        // variant rather than the testTag: with shouldUseExpandedToolbar the counter moves to the bottom
-        // navigation bar, where it carries no tag. NOTE: TabDrawerPage registers this same edge — keep the
-        // two in step until the duplicate is removed.
-        NavigationRegistry.register(
-            from = pageName,
-            to = "TabDrawerPage",
-            steps = listOf(NavigationStep.Click(ToolbarSelectors.TAB_COUNTER_ANY_LAYOUT)),
-        )
     }
 
-    override fun navigateToPage(url: String, forceNavigation: Boolean): BrowserPage {
-        super.navigateToPage(url = url.ifBlank { "example.com" }, forceNavigation = forceNavigation)
+    override fun navigateToPage(
+        url: String,
+        forceNavigation: Boolean,
+        navigationOptions: NavigationOptions,
+    ): BrowserPage {
+        super.navigateToPage(
+            url = url.ifBlank { "example.com" },
+            forceNavigation = forceNavigation,
+            navigationOptions = navigationOptions,
+        )
         return this
     }
 

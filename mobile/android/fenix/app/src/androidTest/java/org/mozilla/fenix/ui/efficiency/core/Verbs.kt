@@ -46,16 +46,19 @@ fun <T : VerbHost> T.require(
     applyPreconditions: Boolean = true,
     dumpOnFailure: Boolean = true,
     optional: Boolean = false,
-    via: ((Selector, Boolean) -> Any?)? = null,
-    predicate: (Any) -> Boolean = { true },
-    action: (Any) -> Unit = {},
+    via: ((Selector, Boolean) -> ElementResolution)? = null,
+    predicate: (UiElement) -> Boolean = { true },
+    action: (UiElement) -> Unit = {},
 ): T {
     val cmd = cmd(verb, selector.description, "Attempting to $verb '${selector.description}'...")
 
     val probe = seek(selector, policy, applyPreconditions, predicate, via)
     val element = probe.matched
     if (element == null) {
-        if (optional) {
+        probe.last.problem(selector)?.let {
+            failLookup(cmd, verb, selector, expectation, dumpOnFailure, it)
+        }
+        if (optional && probe.located == null) {
             cmd.skip("'${selector.description}' not present; skipped", facts(verb, selector, Failure.NOT_FOUND))
             return this
         }
@@ -89,16 +92,27 @@ fun <T : VerbHost> T.require(
         cmd.ok("$verb '${selector.description}' ok", facts(verb, selector))
         return this
     } catch (e: Throwable) {
-        // Optional means best-effort all the way through, not just at the lookup: the element can be
-        // torn down between resolving it and acting on it - an add-on's onboarding tab closing the
-        // "was added" dialog is the standing example - and a failed click on something we were
-        // willing not to find at all is not a test failure.
         if (optional) {
-            cmd.skip(
-                "'${selector.description}' went away mid-$verb; skipped",
-                facts(verb, selector, Failure.ACTION_FAILED),
-            )
-            return this
+            val afterFailure =
+                observe(
+                    selector,
+                    applyPreconditions = false,
+                    suffix = "_after_action_failure",
+                    predicate = { ElementState.probe(it, ElementState.Trait.DISPLAYED) },
+                    via = via,
+                )
+            if (afterFailure.problem(selector) == null && afterFailure.matched == null) {
+                cmd.skip(
+                    "'${selector.description}' disappeared during $verb; skipped",
+                    facts(
+                        verb,
+                        selector,
+                        Failure.DISAPPEARED_DURING_ACTION,
+                        extra = mapOf("actionThrowableType" to e::class.java.name),
+                    ),
+                )
+                return this
+            }
         }
         cmd.fail(
             "$verb '${selector.description}' failed: ${e.message ?: "exception"}",
@@ -124,10 +138,16 @@ fun <T : VerbHost> T.requireAbsent(
 ): T {
     val cmd = cmd(verb, selector.description, "Verifying '${selector.description}' is absent...")
 
-    fun present(): Boolean =
-        runCatching { locate(selector, false) }
-            .getOrNull()
-            ?.let { ElementState.probe(it, ElementState.Trait.DISPLAYED) } == true
+    fun present(): Boolean {
+        val observation =
+            observe(
+                selector,
+                false,
+                predicate = { ElementState.probe(it, ElementState.Trait.DISPLAYED) },
+            )
+        observation.problem(selector)?.let { failLookup(cmd, verb, selector, "absent", dumpOnFailure, it) }
+        return observation.matched != null
+    }
 
     val timeout = (policy as? WaitPolicy.Poll)?.timeout ?: 0
     val deadline = SystemClock.uptimeMillis() + timeout
@@ -231,7 +251,7 @@ fun <T : VerbHost> T.driveUntil(
     attempts: Int,
     want: Boolean,
     dumpOnFailure: Boolean = false,
-    probe: (Any) -> Boolean = { ElementState.probe(it, ElementState.Trait.DISPLAYED) },
+    probe: (UiElement) -> Boolean = { ElementState.probe(it, ElementState.Trait.DISPLAYED) },
     settle: () -> Unit = {},
     step: () -> Unit,
 ): T {
@@ -239,10 +259,9 @@ fun <T : VerbHost> T.driveUntil(
     val cmd = cmd(verb, selector.description, "$verb until '${selector.description}' is $goal...")
 
     fun matches(attempt: Int): Boolean {
-        val loc = loc(selector.description, "_attempt_$attempt")
-        val here = runCatching { locate(selector, false)?.let { probe(it) } }.getOrNull() == true
-        // The LOC succeeded if the screen is how the caller wants it, not if the element is there.
-        loc.done(here == want, if (here) "'${selector.description}' found" else "'${selector.description}' not found")
+        val observation = observe(selector, false, "_attempt_$attempt", probe)
+        observation.problem(selector)?.let { failLookup(cmd, verb, selector, goal, dumpOnFailure, it) }
+        val here = observation.matched != null
         return here == want
     }
 
@@ -349,25 +368,56 @@ fun VerbHost.groupPresent(
     whenPresent: String = "'$label' present",
 ): Boolean {
     val cmd = cmd(verb, label, "Checking '$label'...")
+    if (selectors.isEmpty()) {
+        cmd.fail(
+            "'$label' has no selectors",
+            facts = facts(verb, failure = Failure.EMPTY_SELECTOR_GROUP, extra = mapOf("group" to label)),
+        )
+        return false
+    }
 
-    fun allPresent(): Boolean = selectors.all { sel ->
-        val loc = loc(sel.description, "_in_$label")
-        val present =
-            runCatching { locate(sel, applyPreconditions) }
-                .getOrNull()
-                ?.let { ElementState.probe(it, ElementState.Trait.DISPLAYED) } == true
-        loc.found(sel.description, present, facts(verb, sel, if (present) null else Failure.NOT_FOUND))
-        present
+    var lastRetryableProblem: Pair<Selector, LookupProblem>? = null
+    fun allPresent(): Boolean {
+        lastRetryableProblem = null
+        return selectors.all { sel ->
+            val observation =
+                observe(
+                    sel,
+                    applyPreconditions,
+                    "_in_$label",
+                    predicate = { ElementState.probe(it, ElementState.Trait.DISPLAYED) },
+                )
+            observation.problem(sel)?.let { problem ->
+                if (!problem.retryable) {
+                    failLookup(cmd, verb, sel, "present", dumpOnFailure = false, problem)
+                }
+                lastRetryableProblem = sel to problem
+            }
+            observation.matched != null
+        }
     }
 
     val timeout = (policy as? WaitPolicy.Poll)?.timeout ?: 0
     val deadline = SystemClock.uptimeMillis() + timeout
     var wait = policy.firstGap()
     var here = allPresent()
+    if (!here && lastRetryableProblem != null && dismissOverlays()) {
+        here = allPresent()
+    }
     while (!here && SystemClock.uptimeMillis() < deadline) {
         SystemClock.sleep(wait)
         wait = (policy as WaitPolicy.Poll).next(wait)
         here = allPresent()
+    }
+
+    if (!here && dismissOverlays()) {
+        here = allPresent()
+    }
+
+    if (!here && policy is WaitPolicy.Poll) {
+        lastRetryableProblem?.let { (selector, problem) ->
+            failLookup(cmd, verb, selector, "present", dumpOnFailure = false, problem)
+        }
     }
 
     cmd.done(
@@ -389,7 +439,25 @@ private fun dumpRef(dumping: Boolean, verb: String, selector: Selector): Map<Str
  * What a lookup saw: [located] is the element if it resolved at all, [matched] only if it also satisfied the predicate.
  * Two fields rather than one nullable so a failure can say which happened.
  */
-private class Probe(val located: Any? = null, val matched: Any? = null)
+private class Probe(
+    val located: UiElement? = null,
+    val matched: UiElement? = null,
+    val last: Observation,
+)
+
+private data class Observation(
+    val resolution: ElementResolution,
+    val matched: UiElement? = null,
+    val phase: String = "resolve",
+)
+
+private data class LookupProblem(
+    val failure: String,
+    val message: String,
+    val cause: Throwable? = null,
+    val phase: String,
+    val retryable: Boolean = false,
+)
 
 /**
  * The lookup itself: poll if asked, and give a covering overlay exactly one chance to be dismissed before declaring the
@@ -399,36 +467,186 @@ private fun VerbHost.seek(
     selector: Selector,
     policy: WaitPolicy,
     applyPreconditions: Boolean,
-    predicate: (Any) -> Boolean,
-    via: ((Selector, Boolean) -> Any?)? = null,
+    predicate: (UiElement) -> Boolean,
+    via: ((Selector, Boolean) -> ElementResolution)? = null,
 ): Probe {
-    var seen: Any? = null
+    var seen: UiElement? = null
 
-    fun once(): Any? {
-        val loc = loc(selector.description)
-        val found = runCatching {
-            via?.invoke(selector, applyPreconditions) ?: locate(selector, applyPreconditions)
-        }
-            .getOrNull()
-        if (found != null) seen = found
-        val ok = found != null && runCatching { predicate(found) }.getOrDefault(false)
-        loc.found(selector.description, ok, facts("locate", selector, if (ok) null else Failure.NOT_FOUND))
-        return if (ok) found else null
+    fun once(): Observation {
+        val observation = observe(selector, applyPreconditions, predicate = predicate, via = via)
+        (observation.resolution as? ElementResolution.Found)?.element?.let { seen = it }
+        return observation
     }
 
-    var matched = once()
-    if (matched == null && policy is WaitPolicy.Poll) {
+    var observation = once()
+    if (observation.matched == null && observation.problem(selector)?.retryable == true && dismissOverlays()) {
+        observation = once()
+    }
+    if (
+        observation.matched == null &&
+            observation.problem(selector)?.let { !it.retryable } != true &&
+            policy is WaitPolicy.Poll
+    ) {
         val deadline = SystemClock.uptimeMillis() + policy.timeout
         var wait = policy.firstGap()
-        while (matched == null && SystemClock.uptimeMillis() < deadline) {
+        while (
+            observation.matched == null &&
+                observation.problem(selector)?.let { !it.retryable } != true &&
+                SystemClock.uptimeMillis() < deadline
+        ) {
             SystemClock.sleep(wait)
             wait = policy.next(wait)
-            matched = once()
+            observation = once()
         }
     }
     // A known blocking overlay may have been covering the target the whole time.
-    if (matched == null && dismissOverlays()) {
-        matched = once()
+    if (
+        observation.matched == null && observation.problem(selector)?.let { !it.retryable } != true && dismissOverlays()
+    ) {
+        observation = once()
     }
-    return Probe(seen, matched)
+    return Probe(seen, observation.matched, observation)
+}
+
+private fun VerbHost.observe(
+    selector: Selector,
+    applyPreconditions: Boolean,
+    suffix: String = "",
+    predicate: (UiElement) -> Boolean,
+    via: ((Selector, Boolean) -> ElementResolution)? = null,
+): Observation {
+    val loc = loc(selector.description, suffix)
+    val resolution =
+        try {
+            via?.invoke(selector, applyPreconditions) ?: locate(selector, applyPreconditions)
+        } catch (e: Throwable) {
+            ElementResolution.Error(e)
+        }
+    return when (resolution) {
+        is ElementResolution.Found ->
+            try {
+                if (predicate(resolution.element)) {
+                    loc.found(
+                        selector.description,
+                        true,
+                        facts("locate", selector, extra = mapOf("resolution" to "found")),
+                    )
+                    Observation(resolution, resolution.element)
+                } else {
+                    loc.fail(
+                        "'${selector.description}' found but predicate was false",
+                        facts =
+                            facts(
+                                "locate",
+                                selector,
+                                Failure.WRONG_STATE,
+                                extra = mapOf("resolution" to "found"),
+                            ),
+                    )
+                    Observation(resolution)
+                }
+            } catch (e: Throwable) {
+                loc.fail(
+                    "'${selector.description}' predicate failed: ${e.message ?: "exception"}",
+                    cause = e,
+                    facts =
+                        facts(
+                            "locate",
+                            selector,
+                            Failure.PREDICATE_ERROR,
+                            extra = mapOf("resolution" to "error", "failurePhase" to "predicate"),
+                        ),
+                )
+                Observation(ElementResolution.Error(e), phase = "predicate")
+            }
+        ElementResolution.Absent -> {
+            loc.found(
+                selector.description,
+                false,
+                facts("locate", selector, Failure.NOT_FOUND, extra = mapOf("resolution" to "absent")),
+            )
+            Observation(resolution)
+        }
+        is ElementResolution.Unsupported -> {
+            loc.fail(
+                "'${selector.description}' is unsupported: ${resolution.reason}",
+                facts =
+                    facts(
+                        "locate",
+                        selector,
+                        Failure.UNSUPPORTED_STRATEGY,
+                        extra = mapOf("resolution" to "unsupported", "reason" to resolution.reason),
+                    ),
+            )
+            Observation(resolution)
+        }
+        is ElementResolution.Error -> {
+            val details =
+                facts(
+                    "locate",
+                    selector,
+                    Failure.RESOLUTION_ERROR,
+                    extra =
+                        mapOf(
+                            "resolution" to if (resolution.retryable) "transient_error" else "error",
+                            "failurePhase" to "resolve",
+                            "retryable" to resolution.retryable,
+                        ),
+                )
+            if (resolution.retryable) {
+                loc.found(selector.description, false, details)
+            } else {
+                loc.fail(
+                    "'${selector.description}' resolution failed: ${resolution.cause.message ?: "exception"}",
+                    cause = resolution.cause,
+                    facts = details,
+                )
+            }
+            Observation(resolution)
+        }
+    }
+}
+
+private fun Observation.problem(selector: Selector): LookupProblem? =
+    when (val result = resolution) {
+        is ElementResolution.Unsupported ->
+            LookupProblem(
+                Failure.UNSUPPORTED_STRATEGY,
+                "'${selector.description}' is unsupported: ${result.reason}",
+                phase = phase,
+            )
+        is ElementResolution.Error ->
+            LookupProblem(
+                if (phase == "predicate") Failure.PREDICATE_ERROR else Failure.RESOLUTION_ERROR,
+                "'${selector.description}' $phase failed: ${result.cause.message ?: "exception"}",
+                result.cause,
+                phase,
+                result.retryable,
+            )
+        else -> null
+    }
+
+private fun VerbHost.failLookup(
+    scope: TimedReporter.Scope,
+    verb: String,
+    selector: Selector,
+    expectation: String,
+    dumpOnFailure: Boolean,
+    problem: LookupProblem,
+): Nothing {
+    scope.fail(
+        problem.message,
+        cause = problem.cause,
+        facts =
+            facts(
+                verb,
+                selector,
+                problem.failure,
+                expectation,
+                mapOf("failurePhase" to problem.phase) + dumpRef(dumpOnFailure, verb, selector),
+            ),
+    )
+    if (dumpOnFailure) dumpFailure("$verb failed: ${selector.description}")
+    problem.cause?.let { throw it }
+    throw AssertionError(problem.message)
 }
