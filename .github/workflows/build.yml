@@ -206,20 +206,32 @@ jobs:
         run: |
           wget https://raw.githubusercontent.com/mozilla-firefox/firefox/refs/heads/main/python/mozboot/bin/bootstrap.py
   
-      - name: 运行 bootstrap.py 引导源码和依赖
+      - name: 运行 bootstrap（可重入）
+        shell: pwsh
         working-directory: C:\mozilla-source
         run: |
-          python bootstrap.py --no-interactive --application-choice=browser
+          if (Test-Path "C:\mozilla-source\firefox\.git") {
+            Write-Host "已有源码，执行 mach bootstrap..."
+            Set-Location C:\mozilla-source\firefox
+            .\mach.cmd bootstrap --no-interactive
+          } else {
+            Write-Host "首次环境，执行 bootstrap.py..."
+            if (-not (Test-Path "C:\mozilla-source\bootstrap.py")) {
+              wget https://raw.githubusercontent.com/mozilla-firefox/firefox/refs/heads/main/python/mozboot/bin/bootstrap.py
+            }
+            python C:\mozilla-source\bootstrap.py --no-interactive --application-choice=browser
+          }
   
-      - name: 检出 Firefox 源码（central 分支）
+      - name: 更新/拉取 Firefox 源码
+        shell: pwsh
         working-directory: C:\mozilla-source
         run: |
-          if (-Not (Test-Path "C:\mozilla-source\firefox")) {
+          if (-Not (Test-Path "C:\mozilla-source\firefox\.git")) {
             git clone https://github.com/mozilla/gecko-dev.git firefox
           }
-          cd firefox
+          Set-Location C:\mozilla-source\firefox
           git fetch origin
-          git pull
+          git pull --ff-only
   
       - name: 构建 Firefox
         working-directory: C:\mozilla-source\firefox
