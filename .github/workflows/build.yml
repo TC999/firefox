@@ -199,7 +199,7 @@ jobs:
   
       - name: 创建源码目录
         run: |
-          New-Item -ItemType Directory -Force -Path "C:\mozilla-source"
+          New-Item -ItemType Directory -Force -Path "D:\mozilla-source"
   
       - name: 下载 Firefox bootstrap.py
         working-directory: D:\mozilla-source
