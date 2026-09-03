@@ -6178,7 +6178,6 @@ uint8_t MacroAssembler::getByteAtOffset(size_t offset) const {
 #endif
 }
 
-mozilla::Atomic<uint32_t> ctr(0);
 void MacroAssembler::appendAndVerify(wasm::Trap trap,
                                      wasm::TrapMachineInsn insn,
                                      FaultingCodeRange fcr,

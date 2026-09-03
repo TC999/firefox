@@ -5,6 +5,7 @@
 package org.mozilla.fenix.settings
 
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.hasContentDescription
@@ -155,5 +156,45 @@ class IPProtectionScreenTest {
         }
 
         composeTestRule.onNode(hasContentDescription("Browse with extra protection", substring = true)).assertExists()
+    }
+
+    @Test
+    fun `GIVEN the proxy is activating WHEN rendering the screen THEN the location row is not selectable`() {
+        val state =
+            IPProtectionState(
+                eligibilityStatus = EligibilityStatus.Eligible,
+                proxyStatus = Authorized.Activating,
+                serviceStatus = ServiceState.Ready,
+                maxDataBytes = 0L,
+                remainingDataBytes = 0L,
+            )
+
+        composeTestRule.setContent {
+            FirefoxTheme(theme = Theme.Light) {
+                IPProtectionScreen(
+                    state = state,
+                    snackbarHostState = SnackbarHostState(),
+                    readyToUse = true,
+                    syncingData = false,
+                    promoDate = null,
+                    onVpnToggle = {},
+                    onLearnMoreClick = {},
+                    onGetStartedClick = {},
+                    showDebugAction = false,
+                    onDebugActionClick = {},
+                    onNavigateBack = {},
+                    onLocationClicked = {},
+                    isLocationSelectionEnabled = true,
+                )
+            }
+        }
+
+        composeTestRule
+            .onNode(hasText(testContext.getString(R.string.ip_protection_toggle_label)) and isToggleable())
+            .assertIsNotEnabled()
+
+        composeTestRule
+            .onNodeWithText(testContext.getString(R.string.ip_protection_location_recommended_label))
+            .assertHasNoClickAction()
     }
 }

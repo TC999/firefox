@@ -78,6 +78,28 @@ export class UrlbarTelemetryUtils {
   }
 
   /**
+   * Collects the modifier keys held during an engagement from its DOM event.
+   *
+   * @param {?(Event)} event
+   *   The DOM event behind the engagement.
+   * @returns {string} Comma separated modifier names. If no modifiers, returns
+   *   empty string.
+   */
+  static modifiersFromEvent(event) {
+    // Only MouseEvent and KeyboardEvent have getModifierState(), so we ignore
+    // other events such as blur, and the null event for paste&go and drop&go.
+    let inputEvent = /** @type {?(MouseEvent|KeyboardEvent)} */ (event);
+    if (typeof inputEvent?.getModifierState != "function") {
+      return "";
+    }
+    let allModifiers = ["Accel", "Alt", "AltGraph", "Shift"];
+    return allModifiers
+      .filter(m => inputEvent.getModifierState(m))
+      .map(m => m.toLowerCase())
+      .join(",");
+  }
+
+  /**
    * Derives the character and word counts telemetry records from the search
    * string. The string itself is never recorded.
    *
@@ -209,6 +231,7 @@ export class UrlbarTelemetryUtils {
     return {
       method,
       action,
+      modifiers: this.modifiersFromEvent(event),
       startEventInfo,
       numChars,
       numWords,
@@ -531,6 +554,9 @@ export class UrlbarTelemetryUtils {
    *   One of engagement / abandonment / disable / bounce.
    * @param {string} data.action
    *   The action behind the engagement (from `actionFromEvent`).
+   * @param {string} [data.modifiers]
+   *   The modifier keys held during the engagement (from
+   *   `modifiersFromEvent`).
    * @param {string} data.interaction
    *   The resolved interaction type (from `getInteractionType`).
    * @param {number} data.numChars
@@ -571,6 +597,7 @@ export class UrlbarTelemetryUtils {
   static buildEventInfo({
     method,
     action,
+    modifiers = "",
     interaction,
     numChars,
     numWords,
@@ -648,6 +675,7 @@ export class UrlbarTelemetryUtils {
               selType === "search_button"
                 ? selType
                 : action,
+            modifiers,
             groups,
             results,
             actions,
@@ -821,6 +849,7 @@ export class UrlbarTelemetryUtils {
     let built = this.buildEventInfo({
       method,
       action: snapshot.action,
+      modifiers: snapshot.modifiers,
       interaction: interactionResult.interaction,
       numChars: snapshot.numChars,
       numWords: snapshot.numWords,

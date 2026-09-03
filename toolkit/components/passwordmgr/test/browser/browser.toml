@@ -77,6 +77,8 @@ skip-if = [
 ["browser_autofill_http.js"]
 https_first_disabled = true
 
+["browser_autofill_primary_password.js"]
+
 ["browser_autofill_track_filled_logins.js"]
 
 ["browser_basicAuth_multiTab.js"]

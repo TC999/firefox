@@ -243,7 +243,7 @@ void PathOps::TransformInPlace(const Matrix& aTransform) {
   }
 }
 
-Maybe<Circle> PathOps::AsCircle() const {
+Maybe<Path::Circle> PathOps::AsCircle() const {
   if (mPathData.empty()) {
     return Nothing();
   }
@@ -262,12 +262,12 @@ Maybe<Circle> PathOps::AsCircle() const {
           nextByte += sizeof(OpType);
           if (nextOpType == OpType::OP_CLOSE) {
             if (nextByte == end) {
-              return Some(Circle{params.GetOrigin(), *radius, true});
+              return Some(Path::Circle{params.GetOrigin(), *radius, true});
             }
           }
         } else {
           // the circle wasn't closed
-          return Some(Circle{params.GetOrigin(), *radius, false});
+          return Some(Path::Circle{params.GetOrigin(), *radius, false});
         }
       }
     }
@@ -276,12 +276,12 @@ Maybe<Circle> PathOps::AsCircle() const {
   return Nothing();
 }
 
-Maybe<Line> PathOps::AsLine() const {
+Maybe<Path::Line> PathOps::AsLine() const {
   if (mPathData.empty()) {
     return Nothing();
   }
 
-  Line retval;
+  Path::Line retval;
 
   const uint8_t* nextByte = mPathData.begin();
   const uint8_t* end = mPathData.end();

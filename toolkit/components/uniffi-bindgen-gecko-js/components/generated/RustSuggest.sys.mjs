@@ -1599,7 +1599,7 @@ export class Suggestion {}
  * Amp
  */
 Suggestion.Amp = class extends Suggestion{
-   constructor({title = undefined, url = undefined, rawUrl = undefined, icon = undefined, iconMimetype = undefined, fullKeyword = undefined, blockId = undefined, advertiser = undefined, iabCategory = undefined, categories = undefined, impressionUrl = undefined, clickUrl = undefined, rawClickUrl = undefined, score = undefined, ftsMatchInfo = undefined } = {}) {
+   constructor({title = undefined, url = undefined, rawUrl = undefined, icon = undefined, iconMimetype = undefined, fullKeyword = undefined, blockId = undefined, advertiser = undefined, iabCategory = undefined, categories = undefined, impressionUrl = undefined, clickUrl = undefined, rawClickUrl = undefined, score = undefined, ftsMatchInfo = undefined, suggestionId = undefined } = {}) {
                 super();
             try {
                 FfiConverterString.checkType(title);
@@ -1721,7 +1721,15 @@ Suggestion.Amp = class extends Suggestion{
                 }
                 throw e;
             }
-            this.ftsMatchInfo = ftsMatchInfo;
+            this.ftsMatchInfo = ftsMatchInfo;try {
+                FfiConverterString.checkType(suggestionId);
+            } catch (e) {
+                if (e instanceof UniFFITypeError) {
+                    e.addItemDescriptionPart("suggestionId");
+                }
+                throw e;
+            }
+            this.suggestionId = suggestionId;
     }
 }
 /**
@@ -2056,7 +2064,8 @@ export class FfiConverterTypeSuggestion extends FfiConverterArrayBuffer {
                     clickUrl: FfiConverterString.read(dataStream),
                     rawClickUrl: FfiConverterString.read(dataStream),
                     score: FfiConverterFloat64.read(dataStream),
-                    ftsMatchInfo: FfiConverterOptionalTypeFtsMatchInfo.read(dataStream)
+                    ftsMatchInfo: FfiConverterOptionalTypeFtsMatchInfo.read(dataStream),
+                    suggestionId: FfiConverterString.read(dataStream)
                 });
             case 2:
                 return new Suggestion.Wikipedia({
@@ -2132,6 +2141,7 @@ export class FfiConverterTypeSuggestion extends FfiConverterArrayBuffer {
             FfiConverterString.write(dataStream, value.rawClickUrl);
             FfiConverterFloat64.write(dataStream, value.score);
             FfiConverterOptionalTypeFtsMatchInfo.write(dataStream, value.ftsMatchInfo);
+            FfiConverterString.write(dataStream, value.suggestionId);
             return;
         }
         if (value instanceof Suggestion.Wikipedia) {
@@ -2212,6 +2222,7 @@ export class FfiConverterTypeSuggestion extends FfiConverterArrayBuffer {
             totalSize += FfiConverterString.computeSize(value.rawClickUrl);
             totalSize += FfiConverterFloat64.computeSize(value.score);
             totalSize += FfiConverterOptionalTypeFtsMatchInfo.computeSize(value.ftsMatchInfo);
+            totalSize += FfiConverterString.computeSize(value.suggestionId);
             return totalSize;
         }
         if (value instanceof Suggestion.Wikipedia) {

@@ -1839,6 +1839,14 @@
   value: false
   mirror: always
 
+# How many times a crashed HWInference process is restarted before giving up,
+# leaving the features relying on it unavailable. Reset once the process is
+# shut down cleanly, i.e. because its last consumer went away.
+- name: browser.ml.hwinference.max_restarts
+  type: uint32_t
+  value: 3
+  mirror: always
+
 - name: browser.navigation.requireUserInteraction
   type: bool
   value: true
@@ -9012,12 +9020,6 @@
   value: 2.5f
   mirror: always
 
-# Whether EXIF density metadata is sanity checked against PixelXDimension and PixelYDimension
-- name: image.exif-density-correction.sanity-check.enabled
-  type: RelaxedAtomicBool
-  value: true
-  mirror: always
-
 # The threshold for inferring that changes to an <img> element's |src|
 # attribute by JavaScript represent an animation, in milliseconds. If the |src|
 # attribute is changing more frequently than this value, then we enter a
@@ -13235,25 +13237,34 @@
   value: false
   mirror: always
 
-- name: media.webspeech.test.fake_fsm_events
+- name: media.webspeech.recognition.enable
   type: bool
   value: false
   mirror: always
 
-- name: media.webspeech.test.fake_recognition_service
-  type: bool
-  value: false
+# How long the HWInference connection (and with it the utility process, when
+# nothing else holds it) is kept alive after the last recognition session ends
+# and the last availability/install call settles. Absorbs stop()/start()
+# cycles and bursts of static calls, which would otherwise pay for a process
+# relaunch each time. 0 tears it down immediately, which is what tests want.
+- name: media.webspeech.recognition.idle_shutdown_grace_ms
+  type: uint32_t
+  value: 5000
   mirror: always
 
--   name: media.webspeech.recognition.enable
-    type: bool
-    value: false
-    mirror: always
+# Delays the recognition thread, right before it acquires the parent actor's
+# lock during session init, by this many milliseconds. Used by tests to
+# deterministically land actor teardown in that window instead of relying on
+# scheduling luck. 0 (default) means no delay.
+- name: media.webspeech.recognition.testing.parakeet_init_delay_ms
+  type: RelaxedAtomicInt32
+  value: 0
+  mirror: always
 
--   name: media.webspeech.synth.enabled
-    type: bool
-    value: true
-    mirror: always
+- name: media.webspeech.synth.enabled
+  type: bool
+  value: true
+  mirror: always
 #endif  # MOZ_WEBSPEECH
 
 - name: media.encoder.webm.enabled

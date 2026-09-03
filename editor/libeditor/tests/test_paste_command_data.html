@@ -3,6 +3,7 @@
 <head>
   <title>Test whether the paste event carries the correct data for the paste command</title>
   <script src="/tests/SimpleTest/SimpleTest.js"></script>
+  <script src="/tests/SimpleTest/ChromeTask.js"></script>
   <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css"/>
 </head>
 <body>
@@ -17,6 +18,19 @@ const htmlPrefix = navigator.platform.includes("Win")
 const htmlPostfix = navigator.platform.includes("Win")
   ? "<!--EndFragment-->\n</body>\n</html>"
   : "";
+
+let isWayland = false;
+
+async function getWindowProtocol() {
+  return await SpecialPowers.spawnChrome([], () => {
+    try {
+      return Cc["@mozilla.org/gfx/info;1"].getService(Ci.nsIGfxInfo)
+        .windowProtocol;
+    } catch {
+      return "";
+    }
+  });
+}
 
 async function initializeClipboardData() {
   const text = `Text-${Math.random()}`;
@@ -35,8 +49,21 @@ async function initializeClipboardData() {
     }
   );
 
+  if (isWayland) {
+    // Wait for clipboard state stable (see bug 2005351).
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+
   return {text, html};
 }
+
+add_setup(async function init() {
+  isWayland = (await getWindowProtocol()) === "wayland";
+
+  if (isWayland) {
+    SimpleTest.requestFlakyTimeout("Timeouts are needed to wait for clipboard state stable for Wayland (see bug 2005351)");
+  }
+});
 
 document.querySelectorAll("input, textarea, div[contenteditable]").forEach((element) => {
   add_task(async function test_paste_command() {

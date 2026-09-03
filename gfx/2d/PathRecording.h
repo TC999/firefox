@@ -13,17 +13,6 @@
 namespace mozilla {
 namespace gfx {
 
-struct Circle {
-  Point origin;
-  float radius;
-  bool closed = false;
-};
-
-struct Line {
-  Point origin;
-  Point destination;
-};
-
 class PathOps {
  public:
   PathOps() = default;
@@ -126,8 +115,8 @@ class PathOps {
 
   void Close() { AppendPathOp(OpType::OP_CLOSE); }
 
-  Maybe<Circle> AsCircle() const;
-  Maybe<Line> AsLine() const;
+  Maybe<Path::Circle> AsCircle() const;
+  Maybe<Path::Line> AsLine() const;
 
   bool IsActive() const { return !mPathData.empty(); }
 
@@ -198,6 +187,9 @@ class PathBuilderRecording final : public PathBuilder {
 
   bool IsActive() const final { return mPathOps.IsActive(); }
 
+  Maybe<Path::Circle> AsCircle() const final { return mPathOps.AsCircle(); }
+  Maybe<Path::Line> AsLine() const final { return mPathOps.AsLine(); }
+
  private:
   BackendType mBackendType;
   FillRule mFillRule;
@@ -249,8 +241,8 @@ class PathRecording final : public Path {
     return mPath->AsRect();
   }
 
-  Maybe<Circle> AsCircle() const { return mPathOps.AsCircle(); }
-  Maybe<Line> AsLine() const { return mPathOps.AsLine(); }
+  Maybe<Path::Circle> AsCircle() const final { return mPathOps.AsCircle(); }
+  Maybe<Path::Line> AsLine() const final { return mPathOps.AsLine(); }
 
   void StreamToSink(PathSink* aSink) const final {
     mPathOps.StreamToSink(*aSink);

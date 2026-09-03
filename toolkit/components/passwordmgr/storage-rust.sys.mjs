@@ -104,6 +104,35 @@ const loginToLoginInfo = login => {
   return loginInfo;
 };
 
+// The fields a LoginCandidate carries, under the storage field names that
+// #searchLogins matches on. A search restricted to these fields can be answered
+// without the encryption key, i.e. without prompting for the primary password.
+const candidateToMatchable = candidate => ({
+  hostname: candidate.origin,
+  formSubmitURL: candidate.formActionOrigin,
+  httpRealm: candidate.httpRealm,
+  usernameField: candidate.usernameField,
+  passwordField: candidate.passwordField,
+  guid: candidate.id,
+  timeCreated: candidate.timeCreated,
+  timeLastUsed: candidate.timeLastUsed,
+  timePasswordChanged: candidate.timePasswordChanged,
+  timesUsed: candidate.timesUsed,
+});
+
+const CANDIDATE_MATCH_FIELDS = new Set([
+  "origin",
+  "formActionOrigin",
+  "httpRealm",
+  "usernameField",
+  "passwordField",
+  "guid",
+  "timeCreated",
+  "timeLastUsed",
+  "timePasswordChanged",
+  "timesUsed",
+]);
+
 // Build a bare LoginInfo carrying only the given guid. Used to report the ids
 // of removed logins in "removeAllLogins" notifications, since the bulk deletion
 // APIs only return guids rather than full logins.
@@ -129,6 +158,22 @@ class RustLoginsStoreAdapter {
 
   async list() {
     const logins = await this.#store.list();
+    return logins.map(loginToLoginInfo);
+  }
+
+  async listCandidates() {
+    return this.#store.listCandidates();
+  }
+
+  // getMany() returns the rows in whatever order the query gives it, so sort
+  // them back into the order of `ids`. Callers hand the logins on in the order
+  // they receive them, and both the deduping in LoginManagerParent and the
+  // username suggestions in the prompter pick by position among equal
+  // candidates.
+  async getMany(ids) {
+    const order = new Map(ids.map((id, index) => [id, index]));
+    const logins = await this.#store.getMany(ids);
+    logins.sort((a, b) => order.get(a.id) - order.get(b.id));
     return logins.map(loginToLoginInfo);
   }
 
@@ -744,11 +789,8 @@ export class LoginManagerRustStorage {
       acceptDifferentSubdomains: false,
       acceptRelatedRealms: false,
       relatedRealms: [],
-    },
-    candidateLogins
+    }
   ) {
-    candidateLogins ||= await this.#storageAdapter.list();
-
     function match(aLoginItem) {
       for (const field in matchData) {
         const wantedValue = matchData[field];
@@ -831,6 +873,24 @@ export class LoginManagerRustStorage {
         }
       }
       return true;
+    }
+
+    let candidateLogins;
+    if (
+      Object.keys(matchData).every(field => CANDIDATE_MATCH_FIELDS.has(field))
+    ) {
+      // Matching the cleartext fields first means that a search without a hit
+      // never needs the encryption key, and so never prompts for the primary
+      // password. Only the logins that are actually returned get decrypted.
+      const ids = (await this.#storageAdapter.listCandidates())
+        .filter(candidate => match(candidateToMatchable(candidate)))
+        .map(candidate => candidate.id);
+      candidateLogins = ids.length
+        ? await this.#storageAdapter.getMany(ids)
+        : [];
+    } else {
+      // Matching on a field the candidates don't carry needs everything.
+      candidateLogins = await this.#storageAdapter.list();
     }
 
     const foundLogins = [];

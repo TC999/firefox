@@ -39,6 +39,10 @@ if __name__ == '__main__':
         'ENABLE_TOOLS': 0,
         'ENABLE_DOCS': 0,
         'ENABLE_NEON': 1,
+        # Backends whose CMakeLists.txt the parser descends into, to pick up
+        # their sources. This does not disable a backend: the Metal one is
+        # absent because we vendor its sources without their CMakeLists.txt and
+        # list them by hand in moz.build, so there is nothing here to parse.
         'MOZ_GGML_BACKENDS': "cpu"
     }
 

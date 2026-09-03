@@ -2419,6 +2419,11 @@ pref("browser.smartwindow.agent.enabled", true);
 pref("browser.smartwindow.agent.supportedRegions", "US,CA");
 // Toolbar button that opens the monitor creation panel (bug 2062113).
 pref("browser.smartwindow.agent.toolbar.enabled", false);
+// Announces the monitor agent as a new feature with a dot on the toolbar
+// button, for as long as the rollout runs. Set on the default branch by Nimbus
+// so that dismissing it, which writes the user branch, survives the rollout
+// being re-applied (bug 2066576).
+pref("browser.smartwindow.agent.monitorAnnouncement", false);
 
 
 // Smart Window: Exa search endpoint, used by the search_the_web agentic flow (bug 2037948)
@@ -3059,10 +3064,8 @@ pref("app.normandy.onsync_skew_sec", 600);
 pref("toolkit.coverage.enabled", false);
 pref("toolkit.coverage.endpoint.base", "https://coverage.mozilla.org");
 
-// Discovery prefs
+// Enable personalized extension recommendations
 pref("browser.discovery.enabled", true);
-pref("browser.discovery.containers.enabled", true);
-pref("browser.discovery.sites", "addons.mozilla.org");
 
 pref("browser.engagement.recent_visited_origins.expiry", 86400); // 24 * 60 * 60 (24 hours in seconds)
 pref("browser.engagement.downloads-button.has-used", false);

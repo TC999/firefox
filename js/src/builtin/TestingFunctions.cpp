@@ -7220,6 +7220,14 @@ static bool HasInvalidatedTeleporting(JSContext* cx, unsigned argc, Value* vp) {
   return true;
 }
 
+static bool DisableDictionaryModeTeleportation(JSContext* cx, unsigned argc,
+                                               Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+  cx->zone()->shapeZone().disableDictionaryModeTeleportation();
+  args.rval().setUndefined();
+  return true;
+}
+
 static bool DumpBacktrace(JSContext* cx, unsigned argc, Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
   DumpBacktrace(cx);
@@ -11220,6 +11228,10 @@ JS_FOR_WASM_FEATURES(WASM_FEATURE)
     JS_FN_HELP("hasInvalidatedTeleporting", HasInvalidatedTeleporting, 1, 0,
 "hasInvalidatedTeleporting(obj)",
 "  Return true if the shape teleporting optimization has been disabled for |obj|."),
+
+    JS_FN_HELP("disableDictionaryModeTeleportation", DisableDictionaryModeTeleportation, 0, 0,
+"disableDictionaryModeTeleportation()",
+"  Disable dictionary-mode teleportation for the current zone."),
 
     JS_FN_HELP("evalReturningScope", EvalReturningScope, 1, 0,
 "evalReturningScope(scriptStr, [global])",

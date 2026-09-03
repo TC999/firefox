@@ -70,6 +70,7 @@ import mozilla.components.feature.ipprotection.store.state.IPProtectionState
 import mozilla.components.feature.ipprotection.store.state.Location
 import mozilla.components.feature.ipprotection.store.state.Recommended
 import mozilla.components.feature.ipprotection.store.state.Uninitialized
+import mozilla.components.feature.ipprotection.store.state.isActivationInFlight
 import mozilla.components.feature.ipprotection.store.state.maxDataGb
 import mozilla.components.feature.ipprotection.store.state.remainingDataGb
 import mozilla.components.feature.ipprotection.store.state.usedDataGb
@@ -171,6 +172,7 @@ fun IPProtectionScreen(
                         selectedLocation = state.locationState.selectedLocation,
                         onLocationClicked = onLocationClicked,
                         enabled = isLocationSelectionEnabled,
+                        isActivating = state.isActivationInFlight,
                     )
                 } else {
                     GetStartedSection(
@@ -328,7 +330,12 @@ private fun VpnLocationSection(
     selectedLocation: Location,
     onLocationClicked: () -> Unit,
     enabled: Boolean,
+    isActivating: Boolean,
 ) {
+    // Disable the row out only when it is tappable.
+    val isClickable = enabled && !isActivating
+    val isDimmed = enabled && isActivating
+
     SettingsSectionHeader(
         text = stringResource(R.string.ip_protection_location_section),
         modifier =
@@ -348,13 +355,15 @@ private fun VpnLocationSection(
                         stringResource(R.string.firefox),
                     ),
                 maxDescriptionLines = Int.MAX_VALUE,
-                onClick = onLocationClicked.takeIf { enabled },
+                enabled = !isDimmed,
+                onClick = onLocationClicked.takeIf { isClickable },
             )
         }
         is Country -> {
             TextListItem(
                 label = selectedLocation.displayName,
-                onClick = onLocationClicked.takeIf { enabled },
+                enabled = !isDimmed,
+                onClick = onLocationClicked.takeIf { isClickable },
             )
         }
     }
@@ -470,6 +479,36 @@ private fun IPProtectionScreenActivePreview(@PreviewParameter(PreviewThemeProvid
             onDebugActionClick = {},
             onNavigateBack = {},
             onLocationClicked = {},
+        )
+    }
+}
+
+@OptIn(ExperimentalAndroidComponentsApi::class)
+@FlexibleWindowPreview
+@Composable
+private fun IPProtectionScreenActivatingPreview(@PreviewParameter(PreviewThemeProvider::class) theme: Theme) {
+    FirefoxTheme(theme = theme) {
+        IPProtectionScreen(
+            state =
+                IPProtectionState(
+                    eligibilityStatus = EligibilityStatus.Eligible,
+                    proxyStatus = Authorized.Activating,
+                    serviceStatus = ServiceState.Ready,
+                    remainingDataBytes = 40 * BYTES_PER_GB.toLong(),
+                    maxDataBytes = 50 * BYTES_PER_GB.toLong(),
+                ),
+            snackbarHostState = SnackbarHostState(),
+            readyToUse = true,
+            syncingData = false,
+            promoDate = null,
+            onVpnToggle = {},
+            onLearnMoreClick = {},
+            onGetStartedClick = {},
+            showDebugAction = false,
+            onDebugActionClick = {},
+            onNavigateBack = {},
+            onLocationClicked = {},
+            isLocationSelectionEnabled = true,
         )
     }
 }

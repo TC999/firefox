@@ -793,6 +793,10 @@ async function openPasswordContextMenu(
 
   await contextMenuShownPromise;
 
+  // The password manager items are appended after the menu is already shown, so
+  // wait for them rather than racing the lookup they need.
+  await doc.defaultView.gContextMenu?.passwordItemsReady;
+
   if (assertCallback) {
     let shouldContinue = await assertCallback();
     if (!shouldContinue) {

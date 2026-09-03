@@ -1493,7 +1493,6 @@ static void AtomicFetchOp(MacroAssembler& masm,
       MOZ_CRASH();
   }
 
-  MOZ_ASSERT(before < after);
   // Add trap instruction directly before the load.
   if (access) {
     masm.appendAndVerify(*access, WasmTrapMachineInsn(arrayType, op),

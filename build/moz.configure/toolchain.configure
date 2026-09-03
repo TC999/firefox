@@ -745,9 +745,7 @@ def check_compiler(
             flags.append("-m32")
         elif (info.cpu, target.cpu) in same_arch:
             flags.append("-m64")
-        elif info.type == "clang-cl" and target.cpu == "aarch64":
-            flags.append("--target=%s" % toolchain)
-        elif info.type == "clang":
+        elif info.type in ("clang", "clang-cl"):
             flags.append("--target=%s" % toolchain)
 
     return namespace(
