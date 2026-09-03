@@ -206,20 +206,39 @@ jobs:
         run: |
           wget https://raw.githubusercontent.com/mozilla-firefox/firefox/refs/heads/main/python/mozboot/bin/bootstrap.py
   
-      - name: 运行 bootstrap（可重入）
+      - name: 运行 bootstrap（可重入，目录存在优先）
         shell: pwsh
         working-directory: D:\mozilla-source
         run: |
-          if (Test-Path "D:\mozilla-source\firefox\.git") {
-            Write-Host "已有源码，执行 mach bootstrap..."
-            Set-Location D:\mozilla-source\firefox
-            .\mach.cmd bootstrap --no-interactive
+          $srcRoot = "D:\mozilla-source"
+          $fxDir   = Join-Path $srcRoot "firefox"
+          $gitDir  = Join-Path $fxDir ".git"
+
+          New-Item -ItemType Directory -Force -Path $srcRoot | Out-Null
+
+          if (Test-Path $fxDir) {
+            Write-Host "检测到 firefox 目录已存在。"
+
+            if (Test-Path $gitDir) {
+              Write-Host "检测到 .git，执行增量引导: mach bootstrap"
+              Set-Location $fxDir
+              .\mach.cmd bootstrap --no-interactive
+            } else {
+              Write-Host "目录存在但不是有效 git 仓库，先清理后重新首次引导..."
+              Remove-Item -Recurse -Force $fxDir
+              Set-Location $srcRoot
+              if (-not (Test-Path ".\bootstrap.py")) {
+                wget https://raw.githubusercontent.com/mozilla-firefox/firefox/refs/heads/main/python/mozboot/bin/bootstrap.py
+              }
+              python .\bootstrap.py --no-interactive --application-choice=browser
+            }
           } else {
             Write-Host "首次环境，执行 bootstrap.py..."
-            if (-not (Test-Path "D:\mozilla-source\bootstrap.py")) {
+            Set-Location $srcRoot
+            if (-not (Test-Path ".\bootstrap.py")) {
               wget https://raw.githubusercontent.com/mozilla-firefox/firefox/refs/heads/main/python/mozboot/bin/bootstrap.py
             }
-            python D:\mozilla-source\bootstrap.py --no-interactive --application-choice=browser
+            python .\bootstrap.py --no-interactive --application-choice=browser
           }
   
       - name: 更新/拉取 Firefox 源码
@@ -227,6 +246,9 @@ jobs:
         working-directory: D:\mozilla-source
         run: |
           if (-Not (Test-Path "D:\mozilla-source\firefox\.git")) {
+            if (Test-Path "D:\mozilla-source\firefox") {
+              Remove-Item -Recurse -Force "D:\mozilla-source\firefox"
+            }
             git clone https://github.com/mozilla/gecko-dev.git firefox
           }
           Set-Location D:\mozilla-source\firefox
