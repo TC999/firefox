@@ -79,9 +79,9 @@
   }, 'CSS transform should be used for hit testing');
 
   promise_test(async function (t) {
-    canvas.updateElementGeometry(b, {canvasTransform: new DOMMatrix().translate(50, 50)});
+    b.setCanvasTransform(new DOMMatrix().translate(50, 50));
     t.add_cleanup(() => {
-      canvas.clearElementGeometry(b);
+      b.setCanvasTransform();
     });
     assert_array_equals(document.elementsFromPoint(110, 110),
                         [b, canvas, document.body, document.documentElement],
