@@ -2228,8 +2228,7 @@ theme_picker:
         type: string
         description: >
           The surface that hosts the picker. The values are `"about:newtab"`,
-          `"about:addons"`, and `"profiles"`. The about:welcome onboarding
-          picker sets no install source, so it records `"unknown"`.
+          `"about:addons"`, `"profiles"`, and `"about:welcome"`.
       layout:
         type: string
         description: >
@@ -2258,8 +2257,7 @@ theme_picker:
         type: string
         description: >
           The surface that hosts the picker. The values are `"about:newtab"`,
-          `"about:addons"`, and `"profiles"`. The about:welcome onboarding
-          picker sets no install source, so it records `"unknown"`.
+          `"about:addons"`, `"profiles"`, and `"about:welcome"`.
       layout:
         type: string
         description: >

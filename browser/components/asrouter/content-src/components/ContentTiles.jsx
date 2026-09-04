@@ -358,7 +358,10 @@ export const ContentTiles = props => {
               />
             )}
             {tile.type === "theme-picker" && (
-              <EmbeddedThemePicker handleAction={props.handleAction} />
+              <EmbeddedThemePicker
+                handleAction={props.handleAction}
+                installSource={tile.data?.installSource}
+              />
             )}
             {tile.type === "action_checklist" && tile.data && (
               <ActionChecklist

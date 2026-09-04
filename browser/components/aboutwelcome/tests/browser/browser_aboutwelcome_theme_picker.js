@@ -63,8 +63,8 @@ add_task(async function test_aboutwelcome_theme_picker_screen_displays() {
   Assert.equal(events?.length, 1, "The child actor should record shown once");
   Assert.equal(
     events?.[0].extra.source,
-    "unknown",
-    "The default source should be recorded"
+    "about:welcome",
+    "The about:welcome source should be recorded"
   );
   Assert.equal(
     events?.[0].extra.layout,

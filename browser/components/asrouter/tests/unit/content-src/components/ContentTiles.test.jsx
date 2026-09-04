@@ -305,7 +305,9 @@ describe("ContentTiles component", () => {
 
   it("should render EmbeddedThemePicker for 'theme-picker' tile type", () => {
     const TEST_CONTENT_WITH_THEME_PICKER = {
-      tiles: [{ type: "theme-picker" }],
+      tiles: [
+        { type: "theme-picker", data: { installSource: "about:welcome" } },
+      ],
     };
 
     const themePickerWrapper = mount(
@@ -322,9 +324,19 @@ describe("ContentTiles component", () => {
       embeddedThemePicker.exists(),
       "EmbeddedThemePicker component should be rendered"
     );
+    assert.equal(
+      embeddedThemePicker.prop("installSource"),
+      "about:welcome",
+      "installSource should be forwarded from tile data"
+    );
 
     const themePickerEl = themePickerWrapper.find("theme-picker");
     assert.ok(themePickerEl.exists(), "theme-picker element rendered");
+    assert.equal(
+      themePickerEl.prop("installsource"),
+      "about:welcome",
+      "installsource attribute should be set on the theme-picker element"
+    );
 
     themePickerWrapper.unmount();
   });

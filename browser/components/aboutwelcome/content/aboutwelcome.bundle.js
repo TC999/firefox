@@ -4956,7 +4956,8 @@ const ContentTiles = props => {
         tiles: tile
       }
     }), tile.type === "theme-picker" && /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement(_EmbeddedThemePicker__WEBPACK_IMPORTED_MODULE_8__.EmbeddedThemePicker, {
-      handleAction: props.handleAction
+      handleAction: props.handleAction,
+      installSource: tile.data?.installSource
     }), tile.type === "action_checklist" && tile.data && /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement(_ActionChecklist__WEBPACK_IMPORTED_MODULE_10__.ActionChecklist, {
       content: content,
       message_id: props.messageId,
@@ -6031,8 +6032,12 @@ __webpack_require__.r(__webpack_exports__);
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 
-const EmbeddedThemePicker = () => {
-  return /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("theme-picker", null);
+const EmbeddedThemePicker = ({
+  installSource
+}) => {
+  return /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("theme-picker", {
+    installsource: installSource
+  });
 };
 
 /***/ }),

@@ -3255,8 +3255,12 @@ const EmbeddedMigrationWizard = ({
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 
-const EmbeddedThemePicker = () => {
-  return /*#__PURE__*/external_React_default().createElement("theme-picker", null);
+const EmbeddedThemePicker = ({
+  installSource
+}) => {
+  return /*#__PURE__*/external_React_default().createElement("theme-picker", {
+    installsource: installSource
+  });
 };
 ;// ./content-src/components/EmbeddedFxBackupOptIn.jsx
 /* This Source Code Form is subject to the terms of the Mozilla Public
@@ -4099,7 +4103,8 @@ const ContentTiles = props => {
         tiles: tile
       }
     }), tile.type === "theme-picker" && /*#__PURE__*/external_React_default().createElement(EmbeddedThemePicker, {
-      handleAction: props.handleAction
+      handleAction: props.handleAction,
+      installSource: tile.data?.installSource
     }), tile.type === "action_checklist" && tile.data && /*#__PURE__*/external_React_default().createElement(ActionChecklist, {
       content: content,
       message_id: props.messageId,

@@ -4,6 +4,6 @@
 
 import React from "react";
 
-export const EmbeddedThemePicker = () => {
-  return <theme-picker></theme-picker>;
+export const EmbeddedThemePicker = ({ installSource }) => {
+  return <theme-picker installsource={installSource}></theme-picker>;
 };
