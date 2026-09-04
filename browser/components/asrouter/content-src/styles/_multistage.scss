@@ -255,9 +255,13 @@ html {
   --screen-1-yellow-circle-background-color: var(--color-purple-60);
   --screen-2-yellow-circle-background-color: var(--color-pink-50);
   --message-bar-icon-color: light-dark(var(--color-blue-60), var(--color-blue-20));
-  // Dark value is #271C48 under Nova. The light value is a placeholder so the
-  // row stays readable in light mode; design has only specified the dark one.
-  --multi-select-card-background-color: light-dark(var(--color-violet-10), var(--color-violet-80));
+  // Per the design spec sheet the card is translucent white over the page
+  // backdrop in light mode, and --color-violet-80 in dark. The dark value is
+  // #271C48CC, that colour at 80% opacity; there is no Nova token for the
+  // alpha variant.
+  --multi-select-card-background-color: light-dark(color-mix(in srgb, var(--color-white) 30%, transparent), color-mix(in srgb, var(--color-violet-80) 80%, transparent));
+  // The spec sheet asks for the standard card border in both modes.
+  --multi-select-card-border-color: var(--card-border-color);
   // The notice reads as a lighter panel than the card row it belongs to: the
   // dark values sample as the card colour at 30% over the screen backdrop, with
   // a faint violet border. Light values are chosen to keep the same
@@ -278,6 +282,7 @@ html {
     --picker-checkbox-hover-color: SelectedItem;
     --picker-focus-ring-color: CanvasText;
     --multi-select-card-background-color: ButtonFace;
+    --multi-select-card-border-color: ButtonText;
     --multi-select-notice-background-color: ButtonFace;
     --multi-select-notice-border-color: ButtonText;
     --multi-select-notice-icon-color: ButtonText;
@@ -600,7 +605,7 @@ html {
     z-index: 1;
     box-sizing: border-box;
 
-    @media (prefers-contrast){
+    @media (prefers-contrast) {
       border: 1px solid var(--text-color)
     }
 
@@ -625,6 +630,57 @@ html {
 
     .steps {
       display: none;
+    }
+  }
+
+  // Row layout shared by the card multi-select designs: the label, and an
+  // optional description beneath it, occupy the inline-start column, while the
+  // checkbox sits on the inline-end edge centred across both rows.
+  @mixin checkbox-end-grid {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-rows: auto auto;
+    column-gap: var(--space-medium);
+    align-items: center;
+
+    input {
+      grid-column: 2;
+      grid-row: 1 / -1;
+      margin: 0;
+      align-self: center;
+    }
+
+    label {
+      grid-area: 1 / 1;
+      margin: 0;
+      color: var(--text-color);
+    }
+
+    p {
+      grid-area: 2 / 1;
+      margin: var(--space-xxsmall) 0 0;
+      font-size: 13px;
+      font-weight: normal;
+
+      // The same deemphasized pair the rest of this stylesheet uses, which is
+      // also what design specified here. --text-color-deemphasized is
+      // currentColor at 69% and computes noticeably dimmer than the dark value.
+      @media not (prefers-contrast) {
+        color: light-dark(#5B5B66, #CFCFD8);
+      }
+    }
+  }
+
+  // The filled surface the card multi-select designs sit on, applied either to
+  // each item (`select-card`) or to the whole group (`grouped-card`).
+  @mixin multi-select-card-surface {
+    border-radius: var(--border-radius-medium);
+    background-color: var(--multi-select-card-background-color);
+    border: 1px solid var(--multi-select-card-border-color);
+
+    @media (forced-colors: active) {
+      background-color: ButtonFace;
+      border-color: ButtonText;
     }
   }
 
@@ -2608,10 +2664,10 @@ html {
       text-align: initial;
     }
 
-    // Full-width rows with the label on the inline-start edge and the checkbox
-    // on the inline-end edge. `row-reverse` flips them visually while leaving
-    // the input before its label in the DOM, so the label association and
-    // focus order are unchanged.
+    // Full-width rows, one card per item, with the label on the inline-start
+    // edge and the checkbox on the inline-end edge. The grid places them
+    // visually while leaving the input before its label in the DOM, so the
+    // label association and focus order are unchanged.
     // Not named "card": the design value becomes a class on the container, and
     // in-content/common.css — which the Spotlight loads — has a global `.card`
     // utility that would paint its own background, border and box-shadow here.
@@ -2625,28 +2681,27 @@ html {
       padding: 0;
 
       .checkbox-container.multi-select-item {
-        flex-direction: row-reverse;
-        justify-content: space-between;
-        align-items: center;
-        gap: var(--space-medium);
+        @include checkbox-end-grid;
+        @include multi-select-card-surface;
+
         padding: var(--space-xxlarge);
-        border-radius: var(--border-radius-medium);
-        background-color: var(--multi-select-card-background-color);
         font-size: 16px;
+      }
+    }
 
-        @media (forced-colors: active) {
-          border: 1px solid ButtonText;
-        }
+    // One card wrapping the whole group instead of one per item, for items
+    // that should read as a single unit.
+    &.grouped-card {
+      @include multi-select-card-surface;
 
-        label {
-          flex: 1 1 auto;
-          margin: 0;
-          color: var(--text-color);
-        }
+      align-items: stretch;
+      gap: var(--space-medium);
+      margin-block: 0;
+      margin-inline: 0;
+      padding: var(--space-xlarge);
 
-        > input {
-          margin: 0;
-        }
+      .checkbox-container.multi-select-item {
+        @include checkbox-end-grid;
       }
     }
 
@@ -2910,10 +2965,42 @@ html {
     }
   }
 
+  // The tiles container is inset from the content column, but the action
+  // buttons are not, so a full-width primary button overhangs the tiles it
+  // sits under. Put the buttons on the same inset when the screen has tiles.
+  // Buttons that size to their label are centred either way, so this only
+  // moves one that was already stretching the full column.
+  .main-content-inner:has(#content-tiles-container) .action-buttons {
+    margin-inline: 48px;
+
+    // The gutter that separates side-by-side buttons would push a lone
+    // full-width button back past the inset.
+    .primary:only-child {
+      margin-inline: 0;
+    }
+  }
+
   #content-tiles-container {
     --tiles-container-border-radius: var(--border-radius-medium);
 
     margin: var(--space-xlarge) 48px;
+
+    // The existing `.legal-paragraph` sizing is scoped to `pos=split` screens,
+    // so a `text` tile would otherwise fall back to the body size. Legal copy
+    // here is --font-size-small, and deliberately not deemphasized: it carries
+    // the terms the user is agreeing to, so it has to read at full strength.
+    .legal-paragraph {
+      font-size: 13px;
+      line-height: 1.5;
+      color: var(--text-color);
+    }
+
+    // Shrinks the gap before the primary button when the last tile is a
+    // collapsed link-style header (a single line of text doesn't need the
+    // margin sized for a full card).
+    &:has(> .content-tile:last-child > button.tile-header.link-style[aria-expanded='false']) {
+      margin-block-end: 0;
+    }
 
     .content-tile {
       display: flex;
@@ -2940,6 +3027,11 @@ html {
                 border-top: none;
                 border-radius: 0 0 var(--tiles-container-border-radius) var(--tiles-container-border-radius);
               }
+
+              &.link-style + .tile-content {
+                border: none;
+                border-radius: 0;
+              }
             }
           }
         }
@@ -2961,6 +3053,10 @@ html {
           border-inline-end: 1px solid var(--border-color);
         }
 
+        &.link-style + .tile-content {
+          border-inline: none;
+        }
+
         .header-text-container {
           display: flex;
           flex-direction: column;
@@ -2968,6 +3064,35 @@ html {
           .header-title, .header-subtitle {
             font-weight: normal;
             line-height: 1.5;
+          }
+        }
+
+        &.link-style {
+          background: none;
+          border: none;
+          border-radius: 0;
+          padding: 0;
+          // Shrink to the label and centre it, so the focus ring hugs the text
+          // rather than spanning the content column.
+          width: fit-content;
+          margin: 0 auto;
+          // The shared tile-header rule insets the ring by 12px, which relies
+          // on that button's padding. With no padding it would land on top of
+          // the text instead.
+          outline-offset: var(--space-xxsmall);
+          color: var(--link-color);
+          text-decoration: underline;
+
+          &:hover {
+            color: var(--link-color-hover);
+          }
+
+          &:active {
+            color: var(--link-color-active);
+          }
+
+          .arrow-icon {
+            margin-inline-start: var(--space-xsmall);
           }
         }
       }
@@ -3058,6 +3183,22 @@ html {
           p {
             margin-block: 0.5em 0;
           }
+        }
+
+        &.select-card .checkbox-container.multi-select-item,
+        &.grouped-card .checkbox-container.multi-select-item {
+          label,
+          p {
+            grid-column: 1;
+          }
+        }
+
+        // The default multiselect is inset inside the tiles container. The card
+        // designs are the container's full width instead, so that they line up
+        // with the other tiles and with the action buttons below them.
+        // `grouped-card` keeps the padding as the card's own inner spacing.
+        &.select-card {
+          padding: 0;
         }
       }
     }

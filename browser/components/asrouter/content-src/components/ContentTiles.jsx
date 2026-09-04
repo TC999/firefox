@@ -20,6 +20,7 @@ import { EmbeddedBackupRestore } from "./EmbeddedBackupRestore";
 import { PinnableSitesList } from "./PinnableSitesList";
 import { ContentToggle } from "./ContentToggle";
 import { TextBoxTile } from "./TextBoxTile";
+import { LinkParagraph } from "./LinkParagraph";
 
 const HEADER_STYLES = [
   "backgroundColor",
@@ -253,7 +254,7 @@ export const ContentTiles = props => {
       >
         {header?.title && (
           <button
-            className="tile-header secondary"
+            className={`tile-header secondary${header.linkStyle ? " link-style" : ""}`}
             onClick={() => toggleTile(index, tile)}
             {...tileHeaderProps}
             style={MultiStageUtils.getValidStyle(header.style, HEADER_STYLES)}
@@ -417,6 +418,12 @@ export const ContentTiles = props => {
               <TextBoxTile
                 content={{ tiles: tile }}
                 contentToggled={props.contentToggleChecked}
+              />
+            )}
+            {tile.type === "text" && tile.text && (
+              <LinkParagraph
+                text_content={tile}
+                handleAction={props.handleAction}
               />
             )}
           </div>

@@ -4687,10 +4687,12 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony import */ var _PinnableSitesList__WEBPACK_IMPORTED_MODULE_15__ = __webpack_require__(31);
 /* harmony import */ var _ContentToggle__WEBPACK_IMPORTED_MODULE_16__ = __webpack_require__(32);
 /* harmony import */ var _TextBoxTile__WEBPACK_IMPORTED_MODULE_17__ = __webpack_require__(33);
+/* harmony import */ var _LinkParagraph__WEBPACK_IMPORTED_MODULE_18__ = __webpack_require__(14);
 function _extends() { return _extends = Object.assign ? Object.assign.bind() : function (n) { for (var e = 1; e < arguments.length; e++) { var t = arguments[e]; for (var r in t) ({}).hasOwnProperty.call(t, r) && (n[r] = t[r]); } return n; }, _extends.apply(null, arguments); }
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
+
 
 
 
@@ -4881,7 +4883,7 @@ const ContentTiles = props => {
       className: `content-tile ${header ? "has-header" : ""}`,
       style: _lib_multistage_utils_mjs__WEBPACK_IMPORTED_MODULE_13__.MultiStageUtils.getTileStyle(tile, TILE_STYLES)
     }, header?.title && /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("button", _extends({
-      className: "tile-header secondary",
+      className: `tile-header secondary${header.linkStyle ? " link-style" : ""}`,
       onClick: () => toggleTile(index, tile)
     }, tileHeaderProps, {
       style: _lib_multistage_utils_mjs__WEBPACK_IMPORTED_MODULE_13__.MultiStageUtils.getValidStyle(header.style, HEADER_STYLES)
@@ -4997,6 +4999,9 @@ const ContentTiles = props => {
         tiles: tile
       },
       contentToggled: props.contentToggleChecked
+    }), tile.type === "text" && tile.text && /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement(_LinkParagraph__WEBPACK_IMPORTED_MODULE_18__.LinkParagraph, {
+      text_content: tile,
+      handleAction: props.handleAction
     })) : null);
   };
   const renderContentTiles = () => {
