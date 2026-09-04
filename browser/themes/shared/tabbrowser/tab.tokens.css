@@ -20,7 +20,7 @@
     --tab-border-color-selected: var(--toolbarbutton-outline-color-selected);
     --tab-border-radius: var(--toolbarbutton-border-radius);
     --tab-box-shadow-selected: var(--box-shadow-level-1);
-    --tab-close-button-background-color: var(--button-background-color-ghost);
+    --tab-close-button-background-color: var(--toolbarbutton-background-color);
     --tab-close-button-background-color-hover: var(--toolbarbutton-background-color-hover);
     --tab-close-button-background-color-active: var(--toolbarbutton-background-color-active);
     --tab-close-button-border-color: var(--tab-border-color);

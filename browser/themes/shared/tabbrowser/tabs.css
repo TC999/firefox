@@ -707,7 +707,7 @@ tab-split-view-wrapper[dragtarget] {
       fill: var(--tab-text-color-selected);
       color-scheme: var(--tab-selected-color-scheme);
       border-radius: var(--border-radius-circle);
-      border: var(--border-width) solid var(--button-border-color-ghost);
+      border: var(--border-width) solid var(--button-border-color);
 
       background-image: image(var(--audio-overlay-extra-background)), image(var(--toolbox-background-color));
       &:-moz-window-inactive {
@@ -2873,6 +2873,10 @@ tab-group {
   }
 
   &:not([expanded]) {
+    --tab-close-button-border-color: var(--button-border-color);
+    --tab-close-button-border-color-hover: var(--button-border-color-hover);
+    --tab-close-button-border-color-active: var(--button-border-color-active);
+
     .tabbrowser-tab[pinned] {
       width: var(--tab-collapsed-width);
     }

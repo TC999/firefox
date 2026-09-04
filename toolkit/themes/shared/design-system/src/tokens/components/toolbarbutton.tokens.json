@@ -105,6 +105,12 @@
   },
   "background": {
     "color": {
+      "@base": {
+        "value": {
+          "default": "transparent",
+          "forcedColors": "{button.background.color.@base}"
+        }
+      },
       "hover": {
         "value": {
           "default": "color-mix(in srgb, currentColor 17%, transparent)",

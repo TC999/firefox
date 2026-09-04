@@ -73,10 +73,10 @@
     --button-background-color-primary-disabled: var(--button-background-color-primary);
     --button-background-color-primary-selected: var(--button-background-color-primary-active);
     --button-background-color-selected: var(--button-background-color-active);
-    --button-background-color-toolbar: transparent;
+    --button-background-color-toolbar: var(--toolbarbutton-background-color);
     --button-background-color-toolbar-hover: var(--toolbarbutton-background-color-hover);
     --button-background-color-toolbar-active: var(--toolbarbutton-background-color-active);
-    --button-background-color-toolbar-disabled: var(--button-background-color-ghost);
+    --button-background-color-toolbar-disabled: var(--toolbarbutton-background-color);
     --button-background-color-toolbar-selected: var(--button-background-color-ghost-active);
     --button-badge-background-color: var(--color-accent-attention);
     --button-badge-size: 6px;
@@ -111,9 +111,9 @@
     --button-border-color-primary-disabled: var(--button-border-color-primary);
     --button-border-color-primary-selected: var(--button-border-color-primary-active);
     --button-border-color-selected: var(--button-border-color-active);
-    --button-border-color-toolbar: var(--button-border-color);
-    --button-border-color-toolbar-hover: var(--button-border-color-hover);
-    --button-border-color-toolbar-active: var(--button-border-color-active);
+    --button-border-color-toolbar: var(--toolbarbutton-outline-color);
+    --button-border-color-toolbar-hover: var(--toolbarbutton-outline-color-hover);
+    --button-border-color-toolbar-active: var(--toolbarbutton-outline-color-active);
     --button-border-color-toolbar-disabled: var(--button-border-color-disabled);
     --button-border-color-toolbar-selected: var(--button-border-color-ghost-active);
     --button-border-radius: var(--border-radius-medium);
@@ -169,10 +169,10 @@
     --button-text-color-primary-disabled: var(--button-text-color-primary);
     --button-text-color-primary-selected: var(--button-text-color-primary-active);
     --button-text-color-selected: var(--button-text-color-active);
-    --button-text-color-toolbar: inherit;
-    --button-text-color-toolbar-hover: inherit;
-    --button-text-color-toolbar-active: inherit;
-    --button-text-color-toolbar-disabled: inherit;
+    --button-text-color-toolbar: currentColor;
+    --button-text-color-toolbar-hover: currentColor;
+    --button-text-color-toolbar-active: currentColor;
+    --button-text-color-toolbar-disabled: var(--button-text-color-disabled);
     --button-text-color-toolbar-selected: var(--button-text-color-ghost-active);
 
     /** card **/
@@ -521,6 +521,7 @@
     --toolbar-text-color: light-dark(var(--color-gray-100), var(--color-gray-0));
 
     /** toolbarbutton **/
+    --toolbarbutton-background-color: transparent;
     --toolbarbutton-background-color-hover: color-mix(in srgb, currentColor 17%, transparent);
     --toolbarbutton-background-color-active: color-mix(in srgb, currentColor 30%, transparent);
     --toolbarbutton-badge-background-color: light-dark(var(--color-red-60), var(--color-red-40));
@@ -584,8 +585,6 @@
       --button-border-color-ghost: var(--button-border-color);
       --button-text-color-ghost-hover: var(--button-text-color-hover);
       --button-text-color-ghost-active: var(--button-text-color-active);
-      --button-text-color-toolbar-hover: var(--button-text-color-hover);
-      --button-text-color-toolbar-active: var(--button-text-color-active);
 
       /** card **/
       --card-border-color: color-mix(in srgb, currentColor 41%, transparent);
@@ -661,6 +660,7 @@
       --button-background-color-primary-hover: SelectedItem;
       --button-background-color-primary-active: var(--button-background-color-primary-hover);
       --button-background-color-primary-disabled: var(--button-text-color-disabled);
+      --button-background-color-toolbar-disabled: var(--button-background-color-disabled);
       --button-border-color: var(--border-color-interactive);
       --button-border-color-hover: var(--border-color-interactive-hover);
       --button-border-color-active: var(--border-color-interactive-active);
@@ -688,6 +688,7 @@
       --button-text-color-menu-selected: var(--button-text-color-primary-selected);
       --button-text-color-primary: ButtonFace;
       --button-text-color-primary-hover: SelectedItemText;
+      --button-text-color-toolbar: var(--button-text-color);
       --button-text-color-toolbar-hover: var(--button-text-color-hover);
       --button-text-color-toolbar-active: var(--button-text-color-active);
 
@@ -734,6 +735,7 @@
       --text-color-accent-primary-selected: SelectedItemText;
 
       /** toolbarbutton **/
+      --toolbarbutton-background-color: var(--button-background-color);
       --toolbarbutton-background-color-hover: var(--button-background-color-ghost-hover);
       --toolbarbutton-background-color-active: var(--button-background-color-ghost-active);
       --toolbarbutton-outline-color: ButtonText;

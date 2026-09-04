@@ -212,7 +212,7 @@
       "background": {
         "color": {
           "@base": {
-            "value": "{button.background.color.ghost.@base}"
+            "value": "{toolbarbutton.background.color.@base}"
           },
           "hover": {
             "value": "{toolbarbutton.background.color.hover}"
