@@ -25,6 +25,10 @@
   /* How far the background reaches past the input while the view is open. */
   --urlbar-background-overhang-breakout: 8px;
 
+  /* The container's block padding, which the popover takes as its offset from
+     the container's border box. */
+  --urlbar-container-padding-block: var(--urlbar-padding-block);
+
   @media not -moz-pref("browser.nova.enabled") {
     --urlbar-basic-component-size: calc(var(--urlbar-height) - 2 * (var(--urlbar-input-container-border-width) + var(--urlbar-input-container-padding)));
     --urlbar-icon-padding: calc((var(--urlbar-height) - 2px /* border */ - 2px /* padding */ - 16px /* icon */) / 2);
@@ -33,6 +37,9 @@
   }
   &[uidensity="compact"] {
     --urlbar-background-overhang-breakout: 0px;
+  }
+  &[uidensity="touch"] {
+    --urlbar-container-padding-block: 5px;
   }
   @media (max-width: 770px) {
     --urlbar-container-min-width: 240px;
@@ -172,12 +179,8 @@ toolbar[inactive="true"] .urlbar,
 }
 
 .urlbar-container {
-  padding-block: var(--urlbar-padding-block);
+  padding-block: var(--urlbar-container-padding-block);
   margin-inline: var(--urlbar-margin-inline);
-
-  :root[uidensity="touch"] & {
-    padding-block: 5px;
-  }
 
   &[breakout] {
     min-height: var(--urlbar-container-height);
@@ -189,7 +192,6 @@ toolbar[inactive="true"] .urlbar,
   flex-direction: row;
   flex: 1;
   box-sizing: border-box;
-  will-change: translate;
   -moz-user-focus: ignore;
   user-select: none;
 
@@ -205,18 +207,34 @@ toolbar[inactive="true"] .urlbar,
 
   &[breakout] {
     display: block;
-    /* This is technically not needed, because popover takes care of it, but
-     * helps for clarity. */
-    position: absolute;
-    width: var(--urlbar-width);
+
+    &:popover-open {
+      /* UrlbarInputBase names the anchor on the container. The area starts at
+         the container's border box, so an unextended element takes the
+         container's block padding to sit where it does in flow. */
+      position-anchor: --urlbar-anchor;
+      position-area: span-block-end center;
+      inset-block-start: 0;
+      width: 100%;
+
+      &:not([breakout-extend]) {
+        inset-block-start: var(--urlbar-container-padding-block);
+      }
+    }
 
     &[breakout-extend] {
       margin-block-start: var(--urlbar-margin-block-start-breakout);
     }
+  }
 
-    &:popover-open {
-      translate: var(--toolbar-shift-translate, none);
-    }
+  /* In a page the viewport clips the top layer, where a chrome panel may extend
+     past the window, so the element takes the space below the input and scrolls
+     within it, bounded by a screenful so a long page doesn't give it one and by
+     the room the background needs past the border box. */
+  &[in-page][breakout]:popover-open {
+    max-height: min(calc(100% - var(--urlbar-background-overhang-breakout)), 100vh);
+    display: flex;
+    flex-direction: column;
   }
 }
 
@@ -257,28 +275,13 @@ toolbar[inactive="true"] .urlbar,
    size derivation repeats the one on the root because that one runs where the
    padding still has its chrome value. */
 .urlbar[in-page] {
+  --urlbar-container-padding-block: 0px;
   --urlbar-input-container-padding: 10px;
   --urlbar-basic-component-size: calc(var(--urlbar-height) - 2 * var(--urlbar-input-container-padding));
   --urlbarview-border-radius: calc(var(--urlbar-height) / 2);
 
-  /* The element goes in the top layer anchored to the container it sits in,
-     which the embedder names. A chrome window's own bars are popovers too, and
-     the element lays out in flow until it is shown, hence both parts of the
-     selector. */
   &[breakout] {
     width: 100%;
-
-    &:popover-open {
-      /* The element takes the space below the input, bounded by a screenful so
-         a long page doesn't give it one, and by the page itself minus the room
-         the background needs past the border box. */
-      position-anchor: --urlbar-anchor;
-      position-area: span-block-end center;
-      inset-block-start: 0;
-      max-height: min(calc(100% - var(--urlbar-background-overhang-breakout)), 100vh);
-      display: flex;
-      flex-direction: column;
-    }
   }
 }
 
@@ -525,8 +528,7 @@ toolbar[inactive="true"] .urlbar,
   }
 
   .urlbar[breakout][breakout-extend] {
-    margin-left: calc(-1 * var(--urlbar-margin-inline));
-    width: calc(var(--urlbar-width) + 2 * var(--urlbar-margin-inline));
+    width: calc(100% + 2 * var(--urlbar-margin-inline));
 
     > .urlbar-input-container {
       height: var(--urlbar-container-height);

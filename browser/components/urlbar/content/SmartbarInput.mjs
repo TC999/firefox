@@ -562,12 +562,6 @@ ${
 
     this.window.addEventListener("customizationstarting", this);
     this.window.addEventListener("aftercustomization", this);
-    this.window.addEventListener("toolbarvisibilitychange", this);
-    let menuToolbar = this.window.document.getElementById("toolbar-menubar");
-    if (menuToolbar) {
-      menuToolbar.addEventListener("DOMMenuBarInactive", this);
-      menuToolbar.addEventListener("DOMMenuBarActive", this);
-    }
 
     if (this.window.gBrowser) {
       // On startup, this will be called again by browser-init.js
@@ -586,17 +580,6 @@ ${
 
     // Expanding requires a parent toolbar, and us not being read-only.
     this.#allowBreakout = !!this.closest("toolbar");
-    if (this.#allowBreakout) {
-      // TODO(emilio): This could use CSS anchor positioning rather than this
-      // ResizeObserver, eventually.
-      this._resizeObserver = new this.window.ResizeObserver(([entry]) => {
-        this.style.setProperty(
-          "--urlbar-width",
-          px(entry.borderBoxSize[0].inlineSize)
-        );
-      });
-      this._resizeObserver.observe(this.parentNode);
-    }
 
     this.#updateLayoutBreakout();
 
@@ -659,12 +642,6 @@ ${
 
     this.window.removeEventListener("customizationstarting", this);
     this.window.removeEventListener("aftercustomization", this);
-    this.window.removeEventListener("toolbarvisibilitychange", this);
-    let menuToolbar = this.window.document.getElementById("toolbar-menubar");
-    if (menuToolbar) {
-      menuToolbar.removeEventListener("DOMMenuBarInactive", this);
-      menuToolbar.removeEventListener("DOMMenuBarActive", this);
-    }
     if (this.#gBrowserListenersAdded) {
       this.window.gBrowser.tabContainer.removeEventListener("TabSelect", this);
       this.window.gBrowser.tabContainer.removeEventListener("TabClose", this);
@@ -690,8 +667,6 @@ ${
       this._inputCta.removeEventListener("shown", this);
       this.removeEventListener("ai-website-chip:remove", this);
     }
-
-    this._resizeObserver?.disconnect();
 
     this._removeObservers();
 
@@ -3959,8 +3934,6 @@ ${
       return;
     }
 
-    this.#updateTextboxPosition();
-
     this.setAttribute("breakout-extend", "true");
 
     // Enable the animation only after the first extend call to ensure it
@@ -3983,7 +3956,6 @@ ${
     }
 
     this.removeAttribute("breakout-extend");
-    this.#updateTextboxPosition();
   }
 
   updateLayoutExtend() {
@@ -4253,36 +4225,9 @@ ${
     this.view.close();
   }
 
-  #updateTextboxPosition() {
-    if (!this.view.isOpen) {
-      this.style.top = "";
-      return;
-    }
-    this.style.top = px(
-      this.parentNode.getBoxQuads({
-        ignoreTransforms: true,
-        flush: false,
-      })[0].p1.y
-    );
-  }
-
-  #updateTextboxPositionNextFrame() {
-    if (!this.hasAttribute("breakout")) {
-      return;
-    }
-    // Allow for any layout changes to take place (e.g. when the menubar becomes
-    // inactive) before re-measuring to position the textbox
-    this.window.requestAnimationFrame(() => {
-      this.window.requestAnimationFrame(() => {
-        this.#updateTextboxPosition();
-      });
-    });
-  }
-
   #stopBreakout() {
     this.removeAttribute("breakout");
     this.parentNode.removeAttribute("breakout");
-    this.style.top = "";
     try {
       this.hidePopover();
     } catch (ex) {
@@ -4333,7 +4278,6 @@ ${
         this.setAttribute("breakout", "true");
         this.parentNode.setAttribute("breakout", "true");
         this.showPopover();
-        this.#updateTextboxPosition();
 
         resolve();
       });
@@ -7134,18 +7078,6 @@ ${
       return;
     }
     this.#updateLayoutBreakout();
-  }
-
-  _on_toolbarvisibilitychange() {
-    this.#updateTextboxPositionNextFrame();
-  }
-
-  _on_DOMMenuBarActive() {
-    this.#updateTextboxPositionNextFrame();
-  }
-
-  _on_DOMMenuBarInactive() {
-    this.#updateTextboxPositionNextFrame();
   }
 
   #allTextSelectedOnKeyDown = false;
