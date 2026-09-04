@@ -23,8 +23,11 @@
   }
   ::interest-button {
     content:"pseudo";
+    display: block;
+    position: absolute;
     width: 50px;
     height: 50px;
+    left: 150px;
     padding:0;
     margin:0;
   }
@@ -58,8 +61,8 @@ function test(invoker) {
     assert_equals(loseInterestFired, 0, 'No extra events');
 
     let rect = invoker.getBoundingClientRect();
-    const buttonlocX = rect.right + 25;
-    const buttonlocY = rect.y + 25;
+    const buttonlocX = rect.x + 175;
+    const buttonlocY = rect.y + 30;
     await new test_driver.Actions()
       .pointerMove(buttonlocX, buttonlocY, {})
       .send();
