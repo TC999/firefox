@@ -334,6 +334,10 @@ static SVCLayerSettings GetSVCLayerSettings(CodecType aCodec,
                           appendix};
 }
 
+static bool CodecManagesTemporalIds(CodecType aCodec) {
+  return aCodec == CodecType::VP8 || aCodec == CodecType::VP9;
+}
+
 void FFmpegVideoEncoder<LIBAV_VER>::SVCInfo::UpdateTemporalLayerId() {
   MOZ_ASSERT(!mTemporalLayerIds.IsEmpty());
   mCurrentIndex = (mCurrentIndex + 1) % mTemporalLayerIds.Length();
@@ -788,8 +792,7 @@ Result<MediaDataEncoder::EncodedData, MediaResult> FFmpegVideoEncoder<
   // VP8/VP9 use a mode that handles the temporal layer id sequence internally,
   // and don't require setting explicitly setting the metadata. Other codecs
   // such as AV1 via libaom however requires manual frame tagging.
-  if (SvcEnabled() && mConfig.mCodec != CodecType::VP8 &&
-      mConfig.mCodec != CodecType::VP9) {
+  if (SvcEnabled() && !CodecManagesTemporalIds(mConfig.mCodec)) {
     if (aSample->mKeyframe) {
       FFMPEGV_LOG("Key frame requested, reseting temporal layer id");
       mSVCInfo->ResetTemporalLayerId();
@@ -888,9 +891,9 @@ FFmpegVideoEncoder<LIBAV_VER>::ToMediaRawData(AVPacket* aPacket) {
   }
 
   if (mSVCInfo) {
-    if (data->mKeyframe) {
+    if (data->mKeyframe && CodecManagesTemporalIds(mConfig.mCodec)) {
       FFMPEGV_LOG(
-          "Encoded packet is key frame, reseting temporal layer id sequence");
+          "Encoded packet is key frame, resetting temporal layer id sequence");
       mSVCInfo->ResetTemporalLayerId();
     }
     uint8_t temporalLayerId = mSVCInfo->CurrentTemporalLayerId();
