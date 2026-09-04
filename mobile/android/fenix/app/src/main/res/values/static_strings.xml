@@ -284,6 +284,9 @@
     <string name="debug_drawer_ip_protection_signed_out" translatable="false">Sign in to your Mozilla account to use IP protection.</string>
     <string name="debug_drawer_ip_protection_opted_out" translatable="false">IP protection is opted out.</string>
 
+  <!-- Debug drawer Listen to Page tools -->
+  <string name="debug_drawer_listen_to_page_tools_title">Listen to Page Tools</string>
+
     <!-- Debug drawer "contextual feature recommendation" (CFR) tools -->
     <!-- The description of the reset CFR section in CFR Tools -->
     <string name="debug_drawer_cfr_tools_reset_cfr_description">Toggle off a CFR to reset it. Toggle on a CFR to mark it as shown.</string>

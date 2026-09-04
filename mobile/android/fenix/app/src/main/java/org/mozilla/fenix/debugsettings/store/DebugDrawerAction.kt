@@ -78,6 +78,9 @@ sealed class DebugDrawerAction : Action {
 
         /** [NavigateTo] action fired when the debug drawer needs to navigate to [IPProtectionLocationToolsScreen]. */
         object IPProtectionLocationTools : NavigateTo()
+
+        /** [NavigateTo] action fired when the debug drawer needs to navigate to [ListenToPageTools]. */
+        object ListenToPageTools : NavigateTo()
     }
 
     /** [DebugDrawerAction] fired when a back navigation event occurs. */
