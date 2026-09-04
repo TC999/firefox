@@ -19,6 +19,8 @@ support-files = [
   "ctxmenu-image.png",
 ]
 
+["browser_ext_action_openPopup_tabPreview.js"]
+
 ["browser_ext_action_popup_allowed_urls.js"]
 
 ["browser_ext_browserAction_activeTab.js"]

@@ -768,11 +768,21 @@ export class ViewPopup extends BasePopup {
 // Checks whether there is anything preventing a panel from being opened via
 // action.openPopup(), browserAction.openPopup() or pageAction.openPopup().
 export function isGloballyBlockingOpenPopup(window) {
+  // previewPanel is null until the tab hover preview implementation has been
+  // lazily loaded, which only happens once a preview is about to be shown.
+  let previewPanel = window.gBrowser.tabContainer.previewPanel;
+
   // Avoid covering existing menus and panels. We only need to check before
   // opening the extension popup, because any menus/panels that are opened
   // later will render on top of the extension popup.
   for (let elem of window.document.querySelectorAll("menupopup,panel")) {
     if (elem.state !== "closed" && elem.state !== "hiding") {
+      // Tab hover previews are tooltip-like panels tied to the pointer being
+      // over the tab strip, so they are not UI that the extension popup could
+      // be confused with or used to clickjack.
+      if (previewPanel?.isHoverPanel(elem)) {
+        continue;
+      }
       // State "open" or "showing" means that something else is already shown.
       return true;
     }
