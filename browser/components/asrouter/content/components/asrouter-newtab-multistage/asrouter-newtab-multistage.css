@@ -1510,7 +1510,6 @@ html {
 }
 .onboardingContainer:has([pos=center-large][fullscreen]) .section-main .main-content {
   box-shadow: none;
-  position: relative;
   justify-content: center;
   overflow: visible;
 }
@@ -1530,7 +1529,6 @@ html {
   }
 }
 .onboardingContainer:has([pos=center-large][fullscreen]) .section-main .main-content .main-content-inner {
-  position: relative;
   width: 50%;
   margin: auto;
   flex-grow: 0;
@@ -1548,13 +1546,47 @@ html {
     inset-inline: -100px;
     margin: auto;
     z-index: -1;
-    width: calc(100% + 200px);
-    height: calc(100% + 120px);
+    width: calc(50% + 200px);
+    height: calc(50% + 120px);
     border-radius: 50%;
     background-color: var(--center-large-glow-color);
     filter: blur(70px);
     pointer-events: none;
   }
+}
+.onboardingContainer:has([pos=center-large][fullscreen]) .section-main .main-content .main-content-inner .secondary-cta .arrow-icon {
+  -moz-context-properties: fill;
+  fill: currentColor;
+  text-decoration: none;
+}
+.onboardingContainer:has([pos=center-large][fullscreen]) .section-main .main-content .main-content-inner .secondary-cta .arrow-icon::after {
+  content: "";
+  padding-inline-end: var(--space-medium);
+  margin-inline-start: var(--space-xsmall);
+  background: url("chrome://browser/skin/forward.svg") no-repeat center/12px;
+}
+.onboardingContainer:has([pos=center-large][fullscreen]) .section-main .main-content .main-content-inner .secondary-cta .arrow-icon:dir(rtl)::after {
+  background-image: url("chrome://browser/skin/back.svg");
+}
+.onboardingContainer:has([pos=center-large][fullscreen]) .section-main .main-content .main-content-inner .secondary-cta .secondary {
+  background-color: var(--button-background-color);
+  border: var(--button-border);
+  line-height: 12px;
+  font-size: 0.72em;
+  font-weight: var(--font-weight-semibold);
+  padding: var(--space-small) var(--space-large);
+  text-decoration: none;
+  cursor: default;
+  color: var(--button-text-color);
+  border: none;
+}
+.onboardingContainer:has([pos=center-large][fullscreen]) .section-main .main-content .main-content-inner .secondary-cta .secondary:hover, .onboardingContainer:has([pos=center-large][fullscreen]) .section-main .main-content .main-content-inner .secondary-cta .secondary[open] {
+  background-color: var(--button-background-color-hover);
+  color: var(--button-text-color-hover);
+}
+.onboardingContainer:has([pos=center-large][fullscreen]) .section-main .main-content .main-content-inner .secondary-cta .secondary:hover:active, .onboardingContainer:has([pos=center-large][fullscreen]) .section-main .main-content .main-content-inner .secondary-cta .secondary[open]:active {
+  background-color: var(--button-background-color-active);
+  color: var(--button-text-color-active);
 }
 .onboardingContainer:has([pos=center-large][fullscreen]) .corner-image-container {
   position: absolute;
@@ -1591,6 +1623,48 @@ html {
 }
 .onboardingContainer:has([pos=center-large][fullscreen]):has(theme-picker) .content-tile {
   margin-inline: auto;
+}
+.onboardingContainer:has([pos=center-large][fullscreen]):has(migration-wizard) .welcome-text {
+  margin: 0.5em auto;
+  width: 60%;
+}
+.onboardingContainer:has([pos=center-large][fullscreen]):has(migration-wizard) .content-tile {
+  width: 60%;
+  align-self: center;
+}
+.onboardingContainer:has([pos=center-large][fullscreen]) migration-wizard::part(deck) {
+  width: 100%;
+}
+.onboardingContainer:has([pos=center-large][fullscreen]) migration-wizard::part(page-selection), .onboardingContainer:has([pos=center-large][fullscreen]) migration-wizard::part(page-progress) {
+  align-items: center;
+}
+.onboardingContainer:has([pos=center-large][fullscreen]) migration-wizard::part(profile-selector) {
+  border-radius: var(--border-radius-medium);
+  border: 1px solid var(--card-border-color);
+  background: var(--multi-select-card-background-color);
+  width: -moz-available;
+}
+.onboardingContainer:has([pos=center-large][fullscreen]) migration-wizard::part(profile-name) {
+  text-transform: unset;
+}
+.onboardingContainer:has([pos=center-large][fullscreen]) migration-wizard::part(resource-selection-details) {
+  border-radius: var(--border-radius-medium);
+  border: 1px solid var(--card-border-color);
+  background: var(--multi-select-card-background-color);
+  width: -moz-available;
+  margin-block-start: var(--space-large);
+}
+.onboardingContainer:has([pos=center-large][fullscreen]) migration-wizard::part(resource-type-list) {
+  padding-block-end: var(--space-large);
+}
+.onboardingContainer:has([pos=center-large][fullscreen]) migration-wizard::part(buttons) {
+  width: 100%;
+  justify-content: center;
+  margin-top: var(--space-xxlarge);
+  margin-inline-start: calc(-1 * (var(--space-small)));
+}
+.onboardingContainer:has([pos=center-large][fullscreen]) migration-wizard::part(import-primary), .onboardingContainer:has([pos=center-large][fullscreen]) migration-wizard::part(continue-primary) {
+  width: 100%;
 }
 .onboardingContainer .section-main {
   display: flex;
@@ -4849,6 +4923,7 @@ html {
 }
 .onboardingContainer migration-wizard::part(deck) {
   font-size: 0.83em;
+  align-items: center;
 }
 .onboardingContainer turn-on-scheduled-backups::part(form) {
   transition: var(--transition);
