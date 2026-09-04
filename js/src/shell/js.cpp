@@ -14342,12 +14342,6 @@ bool SetContextJITOptions(JSContext* cx, const OptionParser& op) {
     jit::JitOptions.trace_regexp_peephole_optimization = true;
   }
 
-#ifdef NIGHTLY_BUILD
-  if (op.getBoolOption("enable-regexp-buffer-boundaries")) {
-    jit::JitOptions.js_regexp_buffer_boundaries = true;
-  }
-#endif
-
   if (op.getBoolOption("less-debug-code")) {
     jit::JitOptions.lessDebugCode = true;
   }

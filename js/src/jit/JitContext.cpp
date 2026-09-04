@@ -18,6 +18,7 @@
 #include "jit/MacroAssembler.h"
 #include "jit/PerfSpewer.h"
 #include "js/HeapAPI.h"
+#include "js/Prefs.h"
 #include "vm/JSContext.h"
 
 #ifdef JS_CODEGEN_ARM64
@@ -139,6 +140,11 @@ bool jit::InitializeJit() {
   bool supportsUnaligned = MacroAssembler::SupportsUnalignedAccesses();
   JitOptions.supportsUnalignedAccesses = supportsUnaligned;
   JitOptions.enable_regexp_unaligned_accesses = supportsUnaligned;
+
+#ifdef NIGHTLY_BUILD
+  JitOptions.js_regexp_buffer_boundaries =
+      JS::Prefs::experimental_regexp_buffer_boundaries();
+#endif
 
   if (HasJitBackend()) {
     if (!InitProcessExecutableMemory()) {
