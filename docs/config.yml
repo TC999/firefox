@@ -1,6 +1,6 @@
 ---
 
-# The order of the main categories are defined in index.rst
+# The order of the main categories are defined in index.md
 # Sub categories orders are preserved
 categories:
     overview_doc:
@@ -155,7 +155,7 @@ allowed_warnings:
     # Unknown document warnings
     # Undefined label warnings.
     - "dom/navigation/nav_replace\\.md:.*: WARNING: undefined label"
-    - "devtools-user/page_inspector/how_to/work_with_animations/index\\.(rst|md):.*: WARNING: undefined label"
+    - "devtools-user/page_inspector/how_to/work_with_animations/index\\.md:.*: WARNING: undefined label"
     # Bug 1915274 - Clean up documentation warnings in NSS
     - "security/nss/.* WARNING: undefined label"
     - "WARNING: duplicate label header-files, other instance in"
@@ -174,12 +174,12 @@ allowed_warnings:
     - "WARNING: doing serial read"
 
 # Paths to exclude from documentation staging to avoid duplicate builds
-    - "devtools-user/debugger-api/index\\.(rst|md):.*: WARNING: unknown document"
-    - "devtools-user/memory/aggregate_view/index\\.(rst|md):.*: WARNING: unknown document"
-    - "devtools-user/migrating_from_firebug/index\\.(rst|md):.*: WARNING: unknown document"
-    - "devtools-user/tips/index\\.(rst|md):.*: WARNING: unknown document"
-    - "devtools-user/tools_toolbox/index\\.(rst|md):.*: WARNING: unknown document"
-    - "devtools-user/web_console/console_messages/index\\.(rst|md):.*: ERROR: Undefined substitution referenced"
+    - "devtools-user/debugger-api/index\\.md:.*: WARNING: unknown document"
+    - "devtools-user/memory/aggregate_view/index\\.md:.*: WARNING: unknown document"
+    - "devtools-user/migrating_from_firebug/index\\.md:.*: WARNING: unknown document"
+    - "devtools-user/tips/index\\.md:.*: WARNING: unknown document"
+    - "devtools-user/tools_toolbox/index\\.md:.*: WARNING: unknown document"
+    - "devtools-user/web_console/console_messages/index\\.md:.*: ERROR: Undefined substitution referenced"
     # mdn-imported content with image width values that confuse the parser.
     - "ipc/ipdl\\.md:.*: WARNING: Duplicate explicit target name"
     - "contributing/.*\\.md:.*: WARNING: undefined label"
