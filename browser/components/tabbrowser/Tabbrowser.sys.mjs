@@ -3664,7 +3664,7 @@ export class Tabbrowser {
    *   related metadata for the load.
    * @param {string} [options.triggeringRemoteType]
    *   The remoteType triggering this load.
-   * @param {nsILoadInfo_SchemelessInputType} [options.schemelessInput]
+   * @param {nsILoadInfo.SchemelessInputType} [options.schemelessInput]
    *   Whether the search/URL term was without an explicit scheme.
    * @param {boolean} [options.hasValidUserGestureActivation]
    *   Indicates if a valid user gesture caused this load. This informs
@@ -4780,7 +4780,7 @@ export class Tabbrowser {
    *   related metadata for the load.
    * @param {string} [options.triggeringRemoteType]
    *   The remoteType triggering this load.
-   * @param {nsILoadInfo_SchemelessInputType} [options.schemelessInput]
+   * @param {nsILoadInfo.SchemelessInputType} [options.schemelessInput]
    *   Whether the search/URL term was without an explicit scheme.
    * @param {boolean} [options.hasValidUserGestureActivation]
    *   Indicates if a valid user gesture caused this load. This informs

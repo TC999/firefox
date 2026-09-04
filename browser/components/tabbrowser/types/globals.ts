@@ -14,10 +14,6 @@ type TabGroupStateData =
 // TODO(bug 2066310): the tabbrowser has no business holding one.
 type TaskbarTab = any;
 
-// The generated XPIDL declarations only reach this enum through the interface
-// that uses it, and JSDoc's parser rejects an indexed access type.
-type nsILoadInfo_SchemelessInputType = nsILoadInfo["schemelessInput"];
-
 // Sessionstore names TabStateData in its JSDoc without defining it anywhere.
 type TabStateData = any;
 
