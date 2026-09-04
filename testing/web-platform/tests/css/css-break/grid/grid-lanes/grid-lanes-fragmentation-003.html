@@ -27,26 +27,25 @@ wrapper {
   margin-bottom: 15px;
 }
 
-.grid-lanes {
+.grid {
   display: grid-lanes;
   grid: 20px auto 30px / none;
   border: solid;
   border-width: 3px 1px 7px 5px;
   padding: 1px 3px 5px 7px;
   gap: 1px 5px;
-  flow-tolerance: 0;
 }
 
-.grid-lanes > * {
+.grid > * {
   background: cyan;
   min-width: 20px;
   min-height: 10px;
 }
-.grid-lanes > :nth-child(4n) {
+.grid > :nth-child(4n) {
   background: blue;
   width: 35px;
 }
-.grid-lanes > :nth-child(3n) {
+.grid > :nth-child(3n) {
   background: gray;
   width: 40px;
 }
@@ -56,7 +55,7 @@ wrapper {
 <wrapper style="display:none">
 <div style="display:none">
 <div class="columns">
-  <div class="grid-lanes">
+  <div class="grid">
     <x></x><x></x><x></x><x></x><x></x><x></x><x></x><x></x><x></x><x></x><x></x><x></x>
   </div>
 </div>
