@@ -565,14 +565,14 @@ skip-if = [
 
 ["test_compareURIs.js"]
 
-["test_compressappend.js"]
-
 ["test_compressConv_offmainthread_js_listener.js"]
 prefs = [
   "network.decompression_off_mainthread2=true",
   "network.decompression_off_mainthread_min_size=0",
   "network.http.encoding.trustworthy_is_https=false",
 ]
+
+["test_compressappend.js"]
 
 ["test_connection_based_auth.js"]
 
@@ -708,6 +708,7 @@ skip-if = [
 ["test_dns_service.js"]
 
 ["test_dns_stale_zero_ttl.js"]
+
 ["test_dns_stress.js"]
 
 ["test_domain_eviction.js"]
@@ -789,6 +790,8 @@ skip-if = [
   "os == 'android'",
   "os == 'win'",
 ]
+
+["test_happy_eyeballs_all_addrs_unusable.js"]
 
 ["test_happy_eyeballs_altsvc_h3_only_claim.js"]
 skip-if = [
