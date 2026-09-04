@@ -5249,6 +5249,12 @@ nsHttpChannel::OnCacheEntryCheck(nsICacheEntry* entry, uint32_t* aResult) {
   LOG(("nsHttpChannel::OnCacheEntryCheck enter [channel=%p entry=%p]", this,
        entry));
 
+  if (mCacheWaitTimedOut) {
+    LOG(("  cache entry check arrived after backstop timeout, declining"));
+    *aResult = ENTRY_NOT_WANTED;
+    return NS_OK;
+  }
+
   NoteCacheEntryKeyMatch(entry);
 
   nsAutoCString cacheControlRequestHeader;
@@ -12290,9 +12296,15 @@ nsresult nsHttpChannel::OnCacheWaitTimeout() {
   LOG(("  cache entry wait timed out, forcing network [this=%p]", this));
   mCacheWaitTimedOut = true;
 
-  // Stop treating the outstanding cache open as blocking.  A late
-  // OnCacheEntryAvailable will be ignored (see mCacheWaitTimedOut).
+  // Stop treating the outstanding cache open as blocking.  We stay registered
+  // as a callback on the entry, but a late OnCacheEntryCheck or
+  // OnCacheEntryAvailable will be declined/ignored (see mCacheWaitTimedOut).
   StoreWaitForCacheEntry(LoadWaitForCacheEntry() & ~WAIT_FOR_CACHE_ENTRY);
+
+  mCacheInputStream.CloseAndRelease();
+  mAvailableCachedAltDataType.Truncate();
+  StoreDeliveringAltData(false);
+  mAltDataLength = -1;
 
   nsresult rv = TriggerNetwork();
   if (NS_FAILED(rv)) {
