@@ -11,8 +11,6 @@ const lazy = {};
 ChromeUtils.defineESModuleGetters(lazy, {
   AboutNewTab: "resource:///modules/AboutNewTab.sys.mjs",
   BrowserWindowTracker: "resource:///modules/BrowserWindowTracker.sys.mjs",
-  handleBounceEventTrigger:
-    "moz-src:///browser/components/urlbar/UrlbarParentController.sys.mjs",
 });
 
 ChromeUtils.defineLazyGetter(lazy, "ReferrerInfo", () =>
@@ -675,9 +673,11 @@ export const URILoadingHelper = {
     // We avoid triggering for URL bar initiated loads since this gets called
     // right after a result is picked and the bounce event tracking is started.
     // We instead check for potential URL bar initiated bounce events directly
-    // in the collector's startTrackingBounceEvent().
+    // in gURLBar.controller.engagementEvent.startTrackingBounceEvent().
     if (!params.initiatedByURLBar && targetBrowser) {
-      lazy.handleBounceEventTrigger(targetBrowser);
+      w.gURLBar.controller.engagementEvent.handleBounceEventTrigger(
+        targetBrowser
+      );
     }
 
     if (
