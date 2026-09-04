@@ -79,7 +79,7 @@ interface SubtleCrypto {
   Promise<ArrayBuffer> deriveBits(
     AlgorithmIdentifier algorithm,
     CryptoKey baseKey,
-    optional [EnforceRange] unsigned long? length = null
+    optional unsigned long? length = null
   );
 
   Promise<CryptoKey> importKey(
@@ -161,7 +161,7 @@ dictionary RsaHashedKeyGenParams : RsaKeyGenParams {
 };
 
 dictionary RsaKeyAlgorithm : KeyAlgorithm {
-  required [EnforceRange] unsigned long modulusLength;
+  required unsigned long modulusLength;
   required BigInteger publicExponent;
 };
 
@@ -209,7 +209,7 @@ dictionary AesCtrParams : Algorithm {
 };
 
 dictionary AesKeyAlgorithm : KeyAlgorithm {
-  required [EnforceRange] unsigned short length;
+  required unsigned short length;
 };
 
 dictionary AesKeyGenParams : Algorithm {
@@ -237,7 +237,7 @@ dictionary HmacImportParams : Algorithm {
 
 dictionary HmacKeyAlgorithm : KeyAlgorithm {
   required KeyAlgorithm hash;
-  required [EnforceRange] unsigned long length;
+  required unsigned long length;
 };
 
 dictionary HmacKeyGenParams : Algorithm {

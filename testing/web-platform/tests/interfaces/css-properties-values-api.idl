@@ -6,9 +6,8 @@
 dictionary PropertyDefinition {
   required DOMString name;
            DOMString syntax       = "*";
-           boolean   inherits     = true;
+  required boolean   inherits;
            DOMString initialValue;
-
 };
 
 partial namespace CSS {

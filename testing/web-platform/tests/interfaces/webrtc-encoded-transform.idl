@@ -91,12 +91,12 @@ interface SFrameTransformErrorEvent : Event {
 
     readonly attribute SFrameTransformErrorEventType errorType;
     readonly attribute CryptoKeyID? keyID;
-    readonly attribute (RTCEncodedVideoFrame or RTCEncodedAudioFrame) frame;
+    readonly attribute any frame;
 };
 
 dictionary SFrameTransformErrorEventInit : EventInit {
     required SFrameTransformErrorEventType errorType;
-    required (RTCEncodedVideoFrame or RTCEncodedAudioFrame) frame;
+    required any frame;
     CryptoKeyID? keyID;
 };
 
