@@ -2991,6 +2991,11 @@ bool wasm::GenerateContBaseFrameStub(jit::MacroAssembler& masm,
   CodeOffset slowCallOffset;
   masm.wasmCallRef(callSite, callee, &fastCallOffset, &slowCallOffset);
 
+  // The current stack pointer might not match the one before the call if the
+  // callee performed a tail call, so recover it from FP before reading the
+  // stack results.
+  masm.freeStackTo(masm.framePushed());
+
   // Store results to returnTarget.paramsArea in source order. scratch3 holds
   // the paramsArea pointer for the whole routine, so it must not alias a result
   // register: loading it would clobber the register result. We store the
@@ -3010,8 +3015,8 @@ bool wasm::GenerateContBaseFrameStub(jit::MacroAssembler& masm,
                               offsetof(wasm::SwitchTarget, paramsArea)),
         scratch3);
 
-    // The call leaves SP unchanged, so the stack results the callee wrote
-    // through the hidden pointer are still at SP + stackResultAreaOffset.
+    // SP was restored above, so the stack results the callee wrote through the
+    // hidden pointer are at SP + stackResultAreaOffset.
     int32_t stackAreaSPOffset = static_cast<int32_t>(stackResultAreaOffset);
 
     // Iterate in Prev direction (source order: result[0], result[1], ...) and
