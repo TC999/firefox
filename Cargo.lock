@@ -4578,6 +4578,7 @@ dependencies = [
  "app_units",
  "cssparser",
  "euclid",
+ "hashbrown 0.17.1",
  "selectors",
  "servo_arc",
  "smallbitvec",
@@ -7271,6 +7272,7 @@ dependencies = [
  "bitflags 2.10.0",
  "cssparser",
  "derive_more",
+ "hashbrown 0.17.1",
  "log",
  "new_debug_unreachable",
  "precomputed-hash",
@@ -7767,6 +7769,7 @@ dependencies = [
  "dom",
  "euclid",
  "gecko-profiler",
+ "hashbrown 0.17.1",
  "icu_segmenter",
  "indexmap",
  "itertools 0.14.999",
@@ -8183,6 +8186,7 @@ name = "to_shmem"
 version = "0.1.0"
 dependencies = [
  "cssparser",
+ "hashbrown 0.17.1",
  "servo_arc",
  "smallbitvec",
  "smallvec",

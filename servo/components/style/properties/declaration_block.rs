@@ -210,7 +210,7 @@ impl PropertyDeclarationIdSet {
 /// An iterator over a set of longhand ids.
 pub struct PropertyDeclarationIdSetIterator<'a> {
     longhands: LonghandIdSetIterator<'a>,
-    custom: std::collections::hash_set::Iter<'a, custom_properties::Name>,
+    custom: hashbrown::hash_set::Iter<'a, custom_properties::Name>,
 }
 
 impl<'a> Iterator for PropertyDeclarationIdSetIterator<'a> {

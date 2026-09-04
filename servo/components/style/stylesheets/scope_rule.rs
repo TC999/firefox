@@ -396,26 +396,21 @@ impl ScopeSubjectMap {
         let iter = selector.iter();
         for c in iter {
             let component_any = match c {
-                Component::Class(cls) => {
-                    match self.buckets.classes.try_entry(cls.0.clone(), quirks_mode) {
-                        Ok(e) => {
-                            e.or_insert(());
-                            false
-                        },
-                        Err(_) => true,
-                    }
-                },
-                Component::ID(id) => match self.buckets.ids.try_entry(id.0.clone(), quirks_mode) {
-                    Ok(e) => {
-                        e.or_insert(());
-                        false
-                    },
-                    Err(_) => true,
-                },
+                Component::Class(cls) => self
+                    .buckets
+                    .classes
+                    .try_get_or_insert_with(&cls.0, quirks_mode, || ())
+                    .is_err(),
+                Component::ID(id) => self
+                    .buckets
+                    .ids
+                    .try_get_or_insert_with(&id.0, quirks_mode, || ())
+                    .is_err(),
                 Component::LocalName(local_name) => {
                     self.buckets
                         .local_names
-                        .insert(local_name.lower_name.clone(), ());
+                        .entry_ref(&local_name.lower_name)
+                        .or_insert(());
                     false
                 },
                 Component::Is(list) | Component::Where(list) => {

@@ -19,9 +19,9 @@ use crate::typed_om::NumericBaseType;
 use crate::values::computed;
 use crate::values::specified::calc::PercentageContext;
 use crate::values::specified::number::parse_number_with_clamping_mode;
+use crate::FxHashMap;
 use crate::{Namespace, Prefix};
 use cssparser::{Parser, Token};
-use rustc_hash::FxHashMap;
 use style_traits::values::specified::AllowedNumericType;
 use style_traits::{ParseError, StyleParseErrorKind};
 

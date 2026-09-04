@@ -41,13 +41,13 @@ use crate::values::computed::ToComputedValue;
 use crate::values::specified::length::FontBaseSize;
 use crate::values::specified::position::PositionTryFallbacksTryTactic;
 use crate::values::{computed, specified};
-use rustc_hash::FxHashMap;
+use crate::FxHashMap;
+use hashbrown::hash_map::{Entry, EntryRef};
 use selectors::matching::ElementSelectorFlags;
 use servo_arc::Arc;
 use smallvec::SmallVec;
 use std::borrow::Cow;
 use std::cmp;
-use std::collections::hash_map::Entry;
 
 /// Whether we're resolving a style with the purposes of reparenting for ::first-line.
 #[derive(Copy, Clone)]
@@ -2475,11 +2475,11 @@ fn substitute_all(
                 } else {
                     &mut context.index_map.attr
                 };
-                match index_map.entry(name.clone()) {
-                    Entry::Occupied(entry) => {
+                match index_map.entry_ref(name) {
+                    EntryRef::Occupied(entry) => {
                         return Some(*entry.get());
                     },
-                    Entry::Vacant(entry) => {
+                    EntryRef::Vacant(entry) => {
                         entry.insert(context.count);
                     },
                 }

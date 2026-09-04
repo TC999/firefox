@@ -404,14 +404,14 @@ impl ContainerCondition {
         };
         for attr in self.get_attributes_referenced() {
             kind_map
-                .entry(attr.clone())
+                .entry_ref(attr)
                 .and_modify(|v| {
                     if *v == ContainerAttributeDependencyKind::UnnamedContainer {
                         *v = name_kind
                     }
                 })
                 .or_insert(name_kind);
-            attribute_dependencies.insert(attr.clone());
+            attribute_dependencies.get_or_insert_with(attr, Clone::clone);
         }
     }
 }

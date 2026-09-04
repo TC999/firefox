@@ -13,7 +13,7 @@
 #![crate_type = "rlib"]
 
 use std::alloc::Layout;
-use std::collections::HashSet;
+use hashbrown::HashSet;
 use std::ffi::CString;
 use std::marker::PhantomData;
 use std::mem::{self, ManuallyDrop};

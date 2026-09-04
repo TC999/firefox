@@ -1096,7 +1096,7 @@ impl<'a> AttributeTracker<'a> {
         // a and b can only share style if ns1 and ns2 resolve to the same namespace.
         self.references
             .get_or_insert_default()
-            .entry(name.clone())
+            .entry_ref(name)
             .or_default()
             .push(namespace.clone());
         self.context.get_attr(name, namespace)

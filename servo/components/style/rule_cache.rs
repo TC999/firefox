@@ -14,7 +14,7 @@ use crate::selector_parser::PseudoElement;
 use crate::shared_lock::StylesheetGuards;
 use crate::values::computed::{Context, NonNegativeLength};
 use crate::values::specified::color::ColorSchemeFlags;
-use rustc_hash::FxHashMap;
+use crate::FxHashMap;
 use servo_arc::Arc;
 use smallvec::SmallVec;
 

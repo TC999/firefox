@@ -34,9 +34,9 @@ use crate::stylesheets::Origin;
 use crate::stylist::Stylist;
 use crate::typed_om::{ToTyped, TypedValue};
 use crate::values::{computed, serialize_atom_name};
+use crate::FxHashMap;
 use arrayvec::{ArrayVec, Drain as ArrayVecDrain};
 use cssparser::{match_ignore_ascii_case, Parser};
-use rustc_hash::FxHashMap;
 use servo_arc::Arc;
 use std::{
     borrow::Cow,
