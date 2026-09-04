@@ -3427,8 +3427,7 @@ mozilla::ipc::IPCResult ContentParent::RecvGetClipboardDataSnapshot(
     mozilla::NotNull<nsIPrincipal*> aRequestingPrincipal,
     GetClipboardDataSnapshotResolver&& aResolver) {
   if (!ValidatePrincipal(aRequestingPrincipal,
-                         {ValidatePrincipalOptions::AlwaysAllowSystem,
-                          ValidatePrincipalOptions::AllowExpanded})) {
+                         {ValidatePrincipalOptions::AllowExpanded})) {
     return PrincipalValidationIpcFail(aRequestingPrincipal, this, __func__);
   }
 
