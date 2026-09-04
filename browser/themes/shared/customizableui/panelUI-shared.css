@@ -863,7 +863,9 @@ toolbarbutton[constrain-size="true"][cui-areatype="panel"] > .toolbarbutton-badg
 #appMenu-fxa-sign-in-promo {
   background-color: var(--promo-background-color-vibrant);
   border-radius: var(--promo-border-radius);
-  color: var(--promo-message-text-color-vibrant);
+  @media not (forced-colors) {
+    color: var(--promo-message-text-color-vibrant);
+  }
   /* stylelint-disable-next-line stylelint-plugin-mozilla/use-design-tokens */
   padding: 10px;
   gap: var(--space-small);
