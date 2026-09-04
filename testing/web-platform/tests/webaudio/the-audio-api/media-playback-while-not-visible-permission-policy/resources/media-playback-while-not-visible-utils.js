@@ -108,16 +108,14 @@ function showFrame(iframe, type) {
 // produces a genuine cross-origin (out-of-process) iframe. If `frameType` is
 // 'nested', an intermediate iframe is inserted between the test page and the
 // AudioContext frame, so the test page and the AudioContext frame are always
-// separated by at least one frame boundary on origin `base`. If `hidden` is
-// set, the iframe is hidden (using the given visibility type) before being
-// inserted into the DOM, so it is never rendered.
-async function createIframe(t, frameType, base, hidden = null) {
+// separated by at least one frame boundary on origin `base`.
+async function createIframe(t, frameType, base) {
   if (document.readyState !== 'complete') {
     await new Promise(resolve => window.addEventListener('load', resolve));
   }
 
   const running_state_transition_promise =
-      hidden ? null : expectIframeAudioContextStateChangeEvent(t);
+      expectIframeAudioContextStateChangeEvent(t);
 
   const iframe = document.createElement('iframe');
   if (frameType === 'nested') {
@@ -129,16 +127,10 @@ async function createIframe(t, frameType, base, hidden = null) {
     iframe.src = base + 'audiocontext-frame.html';
   }
 
-  if (hidden) {
-    hideFrame(iframe, hidden);
-  }
-
   document.body.appendChild(iframe);
   await new Promise(resolve => iframe.addEventListener('load', resolve));
   t.add_cleanup(() => iframe.remove());
 
-  if (!hidden) {
-    assert_equals(await running_state_transition_promise, 'running');
-  }
+  assert_equals(await running_state_transition_promise, 'running');
   return iframe;
 }
