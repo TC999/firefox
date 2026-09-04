@@ -570,6 +570,14 @@ export var UITour = {
         break;
       }
 
+      case "setNewtabWallpaper": {
+        let prefix = "browser.newtabpage.activity-stream.newtabWallpapers.";
+        Services.prefs.setStringPref(prefix + "wallpaper", data.wallpaper);
+        Services.prefs.setStringPref(prefix + "initialWallpaper", "");
+        Services.prefs.setBoolPref(prefix + "user.enabled", true);
+        break;
+      }
+
       case "setTreatmentTag": {
         let name = data.name;
         let value = data.value;
