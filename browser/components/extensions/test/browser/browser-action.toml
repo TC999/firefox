@@ -87,6 +87,8 @@ https_first_disabled = true
 
 ["browser_ext_pageAction_popup.js"]
 
+["browser_ext_pageAction_popup_anchor.js"]
+
 ["browser_ext_pageAction_popup_resize.js"]
 
 ["browser_ext_pageAction_show_matches.js"]
