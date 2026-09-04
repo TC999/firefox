@@ -22,6 +22,9 @@ class SdpBandwidths : public std::map<std::string, uint32_t> {
 };
 
 class SdpMediaSectionImpl : public SdpMediaSection {
+  // Fills in the m= line of the sections it creates in AddMediaSection
+  friend class SdpImpl;
+
  public:
   MediaType GetMediaType() const override final { return mMediaType; }
 
@@ -49,7 +52,8 @@ class SdpMediaSectionImpl : public SdpMediaSection {
 
   void Serialize(std::ostream&) const override final;
 
-  ~SdpMediaSectionImpl() = default;
+  // SdpImpl owns media sections through this type, so this must be virtual
+  virtual ~SdpMediaSectionImpl() = default;
 
   SdpMediaSectionImpl(const SdpMediaSectionImpl& orig) = delete;
   SdpMediaSectionImpl& operator=(const SdpMediaSectionImpl& rhs) = delete;
