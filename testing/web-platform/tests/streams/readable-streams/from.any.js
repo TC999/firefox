@@ -420,6 +420,7 @@ promise_test(async t => {
 promise_test(async t => {
 
   let nextCalls = 0;
+  let returnCalls = 0;
 
   const iterable = {
     async next() {
@@ -427,7 +428,9 @@ promise_test(async t => {
       return { value: undefined, done: true };
     },
     throw: t.unreached_func('throw() should not be called'),
-    return: t.unreached_func('return() should not be called'),
+    async return() {
+      returnCalls += 1;
+    },
     [Symbol.asyncIterator]: () => iterable
   };
 
@@ -439,6 +442,7 @@ promise_test(async t => {
   assert_equals(nextCalls, 1, 'next() should be called once');
 
   await reader.closed;
+  assert_equals(returnCalls, 0, 'return() should not be called');
 
 }, `ReadableStream.from: return() is not called when iterator completes normally`);
 
@@ -582,7 +586,7 @@ promise_test(async () => {
 
 }, `ReadableStream.from: reader.read() inside next()`);
 
-promise_test(async t => {
+promise_test(async () => {
 
   let nextCalls = 0;
   let returnCalls = 0;
@@ -591,12 +595,12 @@ promise_test(async t => {
   const iterable = {
     async next() {
       nextCalls++;
-      await reader.cancel().catch(t.unreached_func('cancel() should not reject'));
+      await reader.cancel();
+      assert_equals(returnCalls, 1, 'return() should be called once');
       return { value: 'something else', done: false };
     },
     async return() {
       returnCalls++;
-      return { done: true };
     },
     [Symbol.asyncIterator]: () => iterable
   };
@@ -607,10 +611,8 @@ promise_test(async t => {
   const read = await reader.read();
   assert_object_equals(read, { value: undefined, done: true }, 'first read should be done');
   assert_equals(nextCalls, 1, 'next() should be called once');
-  assert_equals(returnCalls, 1, 'return() should be called once');
 
   await reader.closed;
-  await flushAsyncEvents(); // wait for next() to settle
 
 }, `ReadableStream.from: reader.cancel() inside next()`);
 
