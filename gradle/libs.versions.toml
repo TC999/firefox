@@ -83,7 +83,7 @@ androidx-lint = "1.0.0"
 detekt = "1.23.8"
 google-java-format = "1.28.0"
 ktfmt = "0.64"
-spotless = "8.10.0"
+spotless = "8.10.2"
 
 # Mozilla
 glean = "68.0.1"
