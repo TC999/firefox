@@ -2,13 +2,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use std::cell::{Cell, RefCell, RefMut};
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::ffi::c_void;
+use std::time::Duration;
 
-use dbus::arg::messageitem::MessageItem;
-use dbus::ffidisp::{BusType, Connection};
-use dbus::Message;
+use dbus::arg::Variant;
+use dbus::blocking::Connection;
 use log::warn;
 
 use nserror::{
@@ -23,7 +23,7 @@ use xpcom::{xpcom, xpcom_method, RefPtr};
 const PORTAL_DESTINATION: &str = "org.freedesktop.portal.Desktop";
 const PORTAL_PATH: &str = "/org/freedesktop/portal/desktop";
 const PORTAL_INTERFACE: &str = "org.freedesktop.portal.Notification";
-const CALL_TIMEOUT_MS: i32 = 3000;
+const CALL_TIMEOUT: Duration = Duration::from_millis(3000);
 
 struct ActiveAlert {
     id: String,
@@ -32,9 +32,6 @@ struct ActiveAlert {
 
 #[xpcom(implement(nsIAlertsService, nsIAlertsDoNotDisturb), atomic)]
 struct PortalAlertsService {
-    // Connected lazily so creating the service does not block on the
-    // session-bus handshake.
-    connection: RefCell<Option<Connection>>,
     // Live notifications keyed by the alert name's raw UTF-16 code units,
     // since names may contain invalid UTF-16.
     active: RefCell<HashMap<Vec<u16>, ActiveAlert>>,
@@ -44,7 +41,6 @@ struct PortalAlertsService {
 impl PortalAlertsService {
     fn create() -> RefPtr<Self> {
         PortalAlertsService::allocate(InitPortalAlertsService {
-            connection: RefCell::new(None),
             active: RefCell::new(HashMap::new()),
             suppress_for_screen_sharing: Cell::new(false),
         })
@@ -118,28 +114,6 @@ impl PortalAlertsService {
         Ok(())
     }
 
-    // TODO: Use the proxy support in newer dbus-rs instead once the vendored
-    // crate is upgraded (bug 2061689).
-    fn session_connection(&self) -> Result<RefMut<'_, Connection>, String> {
-        let mut guard = self.connection.borrow_mut();
-        // Drop a dead connection so a session-bus restart does not disable
-        // the backend for the rest of the session.
-        if guard
-            .as_ref()
-            .is_some_and(|connection| !connection.is_connected())
-        {
-            *guard = None;
-        }
-        if guard.is_none() {
-            let connection = Connection::get_private(BusType::Session)
-                .map_err(|error| format!("could not connect to the session bus: {error:?}"))?;
-            *guard = Some(connection);
-        }
-        Ok(RefMut::map(guard, |connection| {
-            connection.as_mut().unwrap()
-        }))
-    }
-
     fn add_notification(&self, alert: &nsIAlertNotification, id: &str) -> Result<(), String> {
         let mut title = nsString::new();
         unsafe { alert.GetTitle(&mut *title) }
@@ -150,52 +124,28 @@ impl PortalAlertsService {
             .to_result()
             .map_err(|error| format!("could not read the alert text: {error}"))?;
 
-        // All XPCOM calls must stay above this borrow: a JS-implemented alert
-        // runs script in its getters, which could reenter this service and
-        // panic the RefCell.
-        let connection = self.session_connection()?;
-
-        let entries = vec![
-            ("title".to_string(), dbus_string(&title).into()),
-            ("body".to_string(), dbus_string(&body).into()),
-        ];
-        let mut message = Message::new_method_call(
-            PORTAL_DESTINATION,
-            PORTAL_PATH,
-            PORTAL_INTERFACE,
-            "AddNotification",
-        )?;
-        message.append_items(&[
-            id.into(),
-            MessageItem::from_dict(entries.into_iter().map(Ok::<_, ()>)).unwrap(),
+        let entries = HashMap::from([
+            ("title", Variant(dbus_string(&title))),
+            ("body", Variant(dbus_string(&body))),
         ]);
-        connection
-            .send_with_reply_and_block(message, CALL_TIMEOUT_MS)
+        let () = session_connection()?
+            .with_proxy(PORTAL_DESTINATION, PORTAL_PATH, CALL_TIMEOUT)
+            .method_call(PORTAL_INTERFACE, "AddNotification", (id, entries))
             .map_err(|error| format!("{error:?}"))?;
         Ok(())
     }
 
-    // Fire and forget: RemoveNotification has no reply data, and a withdrawal
-    // does not wait for a reply so failures go unobserved.
-    fn send_remove_notification(connection: &Connection, id: &str) -> Result<(), String> {
-        let mut message = Message::new_method_call(
-            PORTAL_DESTINATION,
-            PORTAL_PATH,
-            PORTAL_INTERFACE,
-            "RemoveNotification",
-        )?;
-        message.set_no_reply(true);
-        message.append_items(&[id.into()]);
-        connection
-            .send(message)
-            .map(|_| ())
-            .map_err(|_| "could not send RemoveNotification".to_string())
-    }
-
     fn remove_notification(&self, id: &str) {
-        let result = self
-            .session_connection()
-            .and_then(|connection| Self::send_remove_notification(&connection, id));
+        // Waiting for the reply keeps the connection alive until the portal
+        // has taken the request; the portal discards a request whose sender
+        // has already disconnected.
+        let result = session_connection().and_then(|connection| {
+            let () = connection
+                .with_proxy(PORTAL_DESTINATION, PORTAL_PATH, CALL_TIMEOUT)
+                .method_call(PORTAL_INTERFACE, "RemoveNotification", (id,))
+                .map_err(|error| format!("{error:?}"))?;
+            Ok(())
+        });
         if let Err(error) = result {
             warn!("XDG Desktop Portal notification withdrawal failed: {error}");
         }
@@ -261,6 +211,13 @@ impl PortalAlertsService {
         self.suppress_for_screen_sharing.set(suppress);
         Ok(())
     }
+}
+
+// The connection is created per call: notifications are infrequent, and this
+// leaves no cached bus state to manage.
+fn session_connection() -> Result<Connection, String> {
+    Connection::new_session()
+        .map_err(|error| format!("could not connect to the session bus: {error:?}"))
 }
 
 // An interior nul would terminate the string early at the D-Bus layer, so
