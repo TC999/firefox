@@ -1,4 +1,0 @@
-#target {
-  color: red;
-  @apply --frame-mixin();
-}
