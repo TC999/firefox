@@ -1018,9 +1018,6 @@
       "chrome://remote/content/marionette/stream-utils.sys.mjs": [
         "../../../remote/marionette/stream-utils.sys.mjs"
       ],
-      "chrome://remote/content/marionette/sync.sys.mjs": [
-        "../../../remote/marionette/sync.sys.mjs"
-      ],
       "chrome://remote/content/marionette/transport.sys.mjs": [
         "../../../remote/marionette/transport.sys.mjs"
       ],
