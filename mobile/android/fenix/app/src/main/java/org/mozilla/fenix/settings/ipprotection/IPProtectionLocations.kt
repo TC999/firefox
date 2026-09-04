@@ -60,7 +60,7 @@ import org.mozilla.fenix.theme.FirefoxTheme
  * @param selectedLocation The currently selected location.
  * @param locations A list of available locations for user to choose from.
  * @param snackbarHostState The [SnackbarHostState] used to display snackbars.
- * @param isActivating Whether we are waiting on the VPN to connect. While `true` nothing in the list can be tapped.
+ * @param isActivating Whether we are waiting on the VPN to connect. While `true` nothing in the list can be tapped,
  * @param onNavigateBack Called when the back navigation icon is tapped.
  * @param onLocationSelected Called with the user taps on a location.
  */
@@ -123,8 +123,7 @@ private fun LocationList(
                     label = stringResource(R.string.ip_protection_location_recommended_label),
                     description = stringResource(R.string.ip_protection_location_fastest_description),
                     isSelected = selectedLocation == recommended,
-                    enabled = !isActivating,
-                    onClick = { onLocationSelected(recommended) },
+                    onClick = { onLocationSelected(recommended) }.takeIf { !isActivating },
                 )
             }
         }
@@ -139,8 +138,8 @@ private fun LocationList(
                             stringResource(R.string.ip_protection_location_unavailable_description).takeIf {
                                 !country.available
                             },
-                        enabled = country.available && !isActivating,
-                        onClick = { onLocationSelected(country) },
+                        enabled = country.available,
+                        onClick = { onLocationSelected(country) }.takeIf { !isActivating },
                     )
                 }
             }
@@ -199,7 +198,7 @@ private fun LocationOption(
     isSelected: Boolean,
     description: String? = null,
     enabled: Boolean = true,
-    onClick: () -> Unit,
+    onClick: (() -> Unit)?,
 ) {
     MenuTextItem(
         label = label,

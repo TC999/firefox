@@ -332,9 +332,8 @@ private fun VpnLocationSection(
     enabled: Boolean,
     isActivating: Boolean,
 ) {
-    // Disable the row out only when it is tappable.
+    // The row keeps its enabled appearance while activating, it just stops being tappable.
     val isClickable = enabled && !isActivating
-    val isDimmed = enabled && isActivating
 
     SettingsSectionHeader(
         text = stringResource(R.string.ip_protection_location_section),
@@ -355,14 +354,12 @@ private fun VpnLocationSection(
                         stringResource(R.string.firefox),
                     ),
                 maxDescriptionLines = Int.MAX_VALUE,
-                enabled = !isDimmed,
                 onClick = onLocationClicked.takeIf { isClickable },
             )
         }
         is Country -> {
             TextListItem(
                 label = selectedLocation.displayName,
-                enabled = !isDimmed,
                 onClick = onLocationClicked.takeIf { isClickable },
             )
         }
