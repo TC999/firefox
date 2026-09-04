@@ -549,6 +549,16 @@
     "dark": "{Theme$color/accent/primary}",
     "forcedColors": "{Theme$color/accent/primary}"
   },
+  "toolbarbutton/background/color/hover": {
+    "light": "rgba(117, 102, 159, 0.25)",
+    "dark": "rgba(182, 170, 217, 0.25)",
+    "forcedColors": "{Theme$button/background/color/ghost/hover}"
+  },
+  "toolbarbutton/background/color/active": {
+    "light": "rgba(117, 102, 159, 0.4)",
+    "dark": "rgba(182, 170, 217, 0.4)",
+    "forcedColors": "{Theme$button/background/color/ghost/active}"
+  },
   "toolbarbutton/outline/color": {
     "light": "transparent",
     "dark": "transparent",

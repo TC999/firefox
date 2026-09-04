@@ -296,6 +296,8 @@
   --toolbar-padding-inline: 6px;
 
   /** toolbarbutton **/
+  --toolbarbutton-background-color-hover: light-dark(rgba(117, 102, 159, 25%), rgba(182, 170, 217, 25%));
+  --toolbarbutton-background-color-active: light-dark(rgba(117, 102, 159, 40%), rgba(182, 170, 217, 40%));
   --toolbarbutton-icon-fill: light-dark(var(--color-violet-desaturated-50), var(--color-violet-desaturated-10));
   --toolbarbutton-icon-fill-attention: var(--color-accent-primary);
   --toolbarbutton-opacity-disabled: 0.4;
@@ -407,6 +409,8 @@
     --toolbar-field-text-color: var(--text-color);
 
     /** toolbarbutton **/
+    --toolbarbutton-background-color-hover: var(--button-background-color-ghost-hover);
+    --toolbarbutton-background-color-active: var(--button-background-color-ghost-active);
     --toolbarbutton-icon-fill: var(--button-text-color);
     --toolbarbutton-outline-color: var(--button-border-color);
     --toolbarbutton-outline-color-hover: var(--button-border-color-hover);

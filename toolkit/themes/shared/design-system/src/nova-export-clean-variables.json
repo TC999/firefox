@@ -1389,19 +1389,6 @@
         "Smart Light (WIP)": "{color/gray/50}"
       }
     },
-    "input": {
-      "text": {
-        "background": {
-          "color": {
-            "Light": "{background/color/box}",
-            "Dark": "{background/color/box}",
-            "disabled": {
-              "Value": "{button/background/color/ghost/disabled}"
-            }
-          }
-        }
-      }
-    },
     "link": {
       "color": {
         "Light": "{color/accent/primary}",
@@ -2725,14 +2712,14 @@
           "hover": {
             "Light": "rgba(117, 102, 159, 0.25)",
             "Dark": "rgba(182, 170, 217, 0.25)",
-            "HCM": "{button/background/color/hover}",
+            "HCM": "{button/background/color/ghost/hover}",
             "Private": "rgba(182, 170, 217, 0.25)",
             "Smart Light (WIP)": "#FFFFFF"
           },
           "active": {
             "Light": "rgba(117, 102, 159, 0.4000000059604645)",
             "Dark": "rgba(182, 170, 217, 0.4000000059604645)",
-            "HCM": "{button/background/color/active}",
+            "HCM": "{button/background/color/ghost/active}",
             "Private": "rgba(182, 170, 217, 0.4000000059604645)",
             "Smart Light (WIP)": "#FFFFFF"
           }
@@ -3204,6 +3191,19 @@
             "HCM": "{border/color/deemphasized}",
             "Private": "{border/color/deemphasized}",
             "Smart Light (WIP)": "{border/color/deemphasized}"
+          }
+        }
+      }
+    },
+    "input": {
+      "text": {
+        "background": {
+          "color": {
+            "Light": "{background/color/box}",
+            "Dark": "{background/color/box}",
+            "disabled": {
+              "Value": "{button/background/color/ghost/disabled}"
+            }
           }
         }
       }
@@ -4019,13 +4019,6 @@
       }
     },
     "input": {
-      "search": {
-        "icon": {
-          "size": {
-            "Value": "{icon/size/small}"
-          }
-        }
-      },
       "text": {
         "min": {
           "height": {
@@ -4035,6 +4028,13 @@
         "border": {
           "radius": {
             "Value": "{border/radius/medium}"
+          }
+        }
+      },
+      "search": {
+        "icon": {
+          "size": {
+            "Value": "{icon/size/small}"
           }
         }
       }

@@ -106,18 +106,16 @@
   "background": {
     "color": {
       "hover": {
-        "ignoreFigma": "color-mix with currentColor cannot be expressed in Figma",
         "value": {
           "default": "color-mix(in srgb, currentColor 17%, transparent)",
-          "forcedColors": "{button.background.color.hover}",
+          "forcedColors": "{button.background.color.ghost.hover}",
           "nativeTheme": "{button.background.color.ghost.hover}"
         }
       },
       "active": {
-        "ignoreFigma": "color-mix with currentColor cannot be expressed in Figma",
         "value": {
           "default": "color-mix(in srgb, currentColor 30%, transparent)",
-          "forcedColors": "{button.background.color.active}",
+          "forcedColors": "{button.background.color.ghost.active}",
           "nativeTheme": "{button.background.color.ghost.active}"
         }
       }

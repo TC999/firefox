@@ -1057,12 +1057,12 @@
   "toolbarbutton/background/color/hover": {
     "light": "color-mix(in srgb, currentColor 17%, transparent)",
     "dark": "color-mix(in srgb, currentColor 17%, transparent)",
-    "forcedColors": "{Theme$button/background/color/hover}"
+    "forcedColors": "{Theme$button/background/color/ghost/hover}"
   },
   "toolbarbutton/background/color/active": {
     "light": "color-mix(in srgb, currentColor 30%, transparent)",
     "dark": "color-mix(in srgb, currentColor 30%, transparent)",
-    "forcedColors": "{Theme$button/background/color/active}"
+    "forcedColors": "{Theme$button/background/color/ghost/active}"
   },
   "toolbarbutton/outline": {
     "light": "{Primitives$border/width} solid {Theme$toolbarbutton/outline/color}",
