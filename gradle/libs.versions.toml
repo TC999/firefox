@@ -66,7 +66,7 @@ play-review = "2.0.2"
 play-services-ads-id = "18.3.0"
 play-services-base = "18.10.1"
 play-services-fido = "21.3.1"
-protobuf = "4.36.0"
+protobuf = "4.36.1"
 
 # Gradle plugins
 dependency-analysis = "3.19.1"
