@@ -1864,6 +1864,9 @@ firefox-appdir = "browser"
 
 ["test_trackingProtection_annotateChannels.js"]
 
+["test_transaction_restart_activity.js"]
+run-sequentially = ["true"] # arranging the pooled retry is timing-sensitive
+
 ["test_transparent_redirect.js"]
 
 ["test_trr.js"]
