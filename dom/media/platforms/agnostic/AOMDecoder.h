@@ -64,6 +64,7 @@ class AOMDecoder final : public MediaDataDecoder,
   struct OBUInfo {
     OBUType mType = OBUType::Reserved;
     bool mExtensionFlag = false;
+    uint8_t mTemporalId = 0;
     Span<const uint8_t> mContents;
 
     bool IsValid() const {
