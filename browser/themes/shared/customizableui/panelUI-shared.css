@@ -826,6 +826,11 @@ toolbarbutton[constrain-size="true"][cui-areatype="panel"] > .toolbarbutton-badg
   display: none;
 }
 
+#appMenu-menu-message,
+#PanelUI-fxa-menu-message {
+  contain: inline-size;
+}
+
 #appMenu-mainView[showing-fxa-menu-message] {
   & #appMenu-fxa-status2,
   & #appMenu-fxa-separator {
