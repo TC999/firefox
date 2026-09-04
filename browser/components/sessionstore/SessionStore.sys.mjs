@@ -3591,7 +3591,7 @@ class _SessionStore {
     if (obj.__SSi) {
       return this.#windows[obj.__SSi];
     }
-    return obj.loadURI
+    return "loadURI" in obj
       ? TAB_STATE_FOR_BROWSER.get(obj)
       : TAB_CUSTOM_VALUES.get(obj);
   }
