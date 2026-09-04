@@ -761,25 +761,25 @@ xz:
         strip-components: 1
         add-prefix: xz-source/
 
-cpython-3.10.11:
-    description: cpython 3.10.11 source code
+cpython-3.9.13:
+    description: cpython 3.9.13 source code
     fetch:
         type: static-url
-        url: https://www.python.org/ftp/python/3.10.11/Python-3.10.11.tgz
-        sha256: f3db31b668efa983508bd67b5712898aa4247899a346f2eb745734699ccd3859
-        size: 26085141
+        url: https://www.python.org/ftp/python/3.9.13/Python-3.9.13.tgz
+        sha256: 829b0d26072a44689a6b0810f5b4a3933ee2a0b8a4bfc99d7c5893ffd4f97c44
+        size: 26355887
         artifact-name: cpython-source.tar.zst
         strip-components: 1
         add-prefix: cpython-source/
 
-cpython-3.10.11.exe:
-    description: cpython 3.10.11 installer
+cpython-3.9.13.exe:
+    description: cpython 3.9.13 installer
     fetch:
         type: static-url
-        url: https://www.python.org/ftp/python/3.10.11/python-3.10.11-amd64.exe
-        sha256: d8dede5005564b408ba50317108b765ed9c3c510342a598f9fd42681cbe0648b
-        size: 29037240
-        artifact-name: python-3.10.11-amd64.exe
+        url: https://www.python.org/ftp/python/3.9.13/python-3.9.13-amd64.exe
+        sha256: fb3d0466f3754752ca7fd839a09ffe53375ff2c981279fd4bc23a005458f7f5d
+        size: 29235432
+        artifact-name: python-3.9.13-amd64.exe
 
 cpython-3.11.7:
     description: cpython 3.11.7 source code

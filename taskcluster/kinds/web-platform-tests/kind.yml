@@ -835,8 +835,8 @@ tasks:
                 - linux64-minidump-stackwalk
                 - linux64-fix-stacks
                 - linux64-geckodriver
-                - linux64-python3.10-pygobject
-                - linux64-python3.10-pycairo
+                - linux64-python3.9-pygobject
+                - linux64-python3.9-pycairo
 
     web-platform-tests-crashtest:
         description: "Web platform crashtests run"
