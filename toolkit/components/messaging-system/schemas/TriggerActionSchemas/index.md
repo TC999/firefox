@@ -252,6 +252,27 @@ let regexPatterns: string[];
 }
 ```
 
+The trigger context exposes two counters. `visitsCount` is per unique URL, so
+it only grows when the same URL is loaded again. `totalVisitsCount` counts
+every matched visit, so it grows on each matching page load regardless of the
+URL. Pair `totalVisitsCount` with a broad pattern to count all page loads:
+
+```javascript
+{
+  ...
+  trigger: { id: "openURL", patterns: ["*://*/*"] },
+  // Show the message on the third page load of the session.
+  targeting: "totalVisitsCount >= 3"
+  ...
+}
+```
+
+Note that the `openURL` listener is shared by every active `openURL` message,
+and `totalVisitsCount` counts matches against the combined `params`,
+`patterns`, and `regexPatterns` of all of them, not just those of the message
+being evaluated. Only use it with a trigger broad enough that the distinction
+does not matter; prefer `visitsCount` for narrowly scoped triggers.
+
 ### `newSavedLogin`
 
 Happens every time the user saves or updates a login via the login capture doorhanger.

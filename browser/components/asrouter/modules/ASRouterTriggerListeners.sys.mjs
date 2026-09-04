@@ -640,6 +640,9 @@ export const ASRouterTriggerListeners = new Map([
       _hosts: null,
       _matchPatternSet: null,
       _visits: null,
+      // Running count of every matched visit this session, across all hosts
+      // and patterns registered by any active openURL message.
+      _totalVisits: 0,
       _regexPatterns: null,
 
       /*
@@ -664,6 +667,7 @@ export const ASRouterTriggerListeners = new Map([
           );
 
           this._visits = new Map();
+          this._totalVisits = 0;
           this._initialized = true;
         }
         this._triggerHandler = triggerHandler;
@@ -696,6 +700,7 @@ export const ASRouterTriggerListeners = new Map([
           this._hosts = null;
           this._matchPatternSet = null;
           this._visits = null;
+          this._totalVisits = 0;
           this._regexPatterns = null;
         }
       },
@@ -720,10 +725,16 @@ export const ASRouterTriggerListeners = new Map([
           if (match) {
             let visitsCount = (this._visits.get(match.url) || 0) + 1;
             this._visits.set(match.url, visitsCount);
+            this._totalVisits++;
             this._triggerHandler(aBrowser, {
               id: this.id,
               param: match,
-              context: { visitsCount, url: match.url, host: match.host },
+              context: {
+                visitsCount,
+                totalVisitsCount: this._totalVisits,
+                url: match.url,
+                host: match.host,
+              },
             });
           }
         }
