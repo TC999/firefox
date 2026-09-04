@@ -61,7 +61,6 @@ enum class PortalKind {
   FilePicker,
   MimeHandler,
   NativeMessaging,
-  NativeMessagingProxy,
   Settings,
   Location,
   OpenUri,

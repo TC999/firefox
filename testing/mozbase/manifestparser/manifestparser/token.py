@@ -146,9 +146,6 @@ class ManifestTokens:
         _v2404: Token = self.add(
             Token(t_type=t_os_version, depends=linux, value="24.04")
         )
-        _v2604: Token = self.add(
-            Token(t_type=t_os_version, depends=linux, value="26.04")
-        )
 
         _v1015: Token = self.add(Token(t_type=t_os_version, depends=mac, value="10.15"))
         _v1470: Token = self.add(Token(t_type=t_os_version, depends=mac, value="14.70"))

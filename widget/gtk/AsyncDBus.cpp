@@ -67,29 +67,27 @@ RefPtr<DBusCallPromise> DBusProxyCall(GDBusProxy* aProxy, const char* aMethod,
 static void ProxyCallWithUnixFDListCallback(GObject* aSourceObject,
                                             GAsyncResult* aResult,
                                             gpointer aUserData) {
-  RefPtr<DBusCallFDListPromise::Private> promise =
-      dont_AddRef(static_cast<DBusCallFDListPromise::Private*>(aUserData));
+  RefPtr<DBusCallPromise::Private> promise =
+      dont_AddRef(static_cast<DBusCallPromise::Private*>(aUserData));
   GUniquePtr<GError> error;
-  RefPtr<GUnixFDList> fdList;
+  GUnixFDList** aFDList = nullptr;
   RefPtr<GVariant> result =
       dont_AddRef(g_dbus_proxy_call_with_unix_fd_list_finish(
-          G_DBUS_PROXY(aSourceObject), getter_AddRefs(fdList), aResult,
+          G_DBUS_PROXY(aSourceObject), aFDList, aResult,
           getter_Transfers(error)));
   if (result) {
-    auto pair = std::make_pair<RefPtr<GVariant>, RefPtr<GUnixFDList>>(
-        std::move(result), std::move(fdList));
-    promise->Resolve(std::move(pair), __func__);
+    promise->Resolve(std::move(result), __func__);
   } else {
     promise->Reject(std::move(error), __func__);
   }
   nsAppShell::DBusConnectionCheck();
 }
 
-RefPtr<DBusCallFDListPromise> DBusProxyCallWithUnixFDList(
+RefPtr<DBusCallPromise> DBusProxyCallWithUnixFDList(
     GDBusProxy* aProxy, const char* aMethod, GVariant* aArgs,
     GDBusCallFlags aFlags, gint aTimeout, GUnixFDList* aFDList,
     GCancellable* aCancellable) {
-  auto promise = MakeRefPtr<DBusCallFDListPromise::Private>(__func__);
+  auto promise = MakeRefPtr<DBusCallPromise::Private>(__func__);
   nsAppShell::DBusConnectionCheck();
   g_dbus_proxy_call_with_unix_fd_list(
       aProxy, aMethod, aArgs, aFlags, aTimeout, aFDList, aCancellable,
