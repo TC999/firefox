@@ -23,6 +23,7 @@ import {
   WIDGET_REGISTRY,
   isWidgetEnabled,
 } from "resource://newtab/common/WidgetsRegistry.mjs";
+import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
 import { resolvePageLayoutVariant } from "resource://newtab/common/PageLayoutVariants.mjs";
 import { Prefs } from "resource://newtab/lib/ActivityStreamPrefs.sys.mjs";
 import { classifySite } from "resource://newtab/lib/SiteClassifier.sys.mjs";
@@ -48,6 +49,14 @@ ChromeUtils.defineESModuleGetters(lazy, {
   MozAdsReportReason:
     "moz-src:///toolkit/components/uniffi-bindgen-gecko-js/components/generated/RustAdsClient.sys.mjs",
 });
+
+// @backward-compat { version 157 } card_column was added as an extra_key to
+// the pocket impression/click events in 157. A train-hopped XPI can run on
+// older platform builds whose schema lacks it, which would throw a Glean
+// error. Remove this guard, and its call sites, once 157 reaches Release.
+function isCardColumnSupported() {
+  return Services.vc.compare(AppConstants.MOZ_APP_VERSION, "157.0a1") >= 0;
+}
 
 export const PREF_IMPRESSION_ID = "impressionId";
 export const TELEMETRY_PREF = "telemetry";
@@ -1283,6 +1292,7 @@ export class TelemetryFeed {
       case "OPEN_NEW_WINDOW":
       case "CLICK": {
         const {
+          card_column,
           card_type,
           corpus_item_id,
           event_source,
@@ -1321,6 +1331,7 @@ export class TelemetryFeed {
             newtab_visit_id: session.session_id,
             is_sponsored,
             ...(format ? { format } : {}),
+            ...(card_column && isCardColumnSupported() ? { card_column } : {}),
             ...(section
               ? {
                   section,
@@ -2634,6 +2645,9 @@ export class TelemetryFeed {
       const gleanData = {
         is_sponsored,
         ...(tile.format ? { format: tile.format } : {}),
+        ...(tile.card_column && isCardColumnSupported()
+          ? { card_column: tile.card_column }
+          : {}),
         ...(tile.section
           ? {
               section: tile.section,
