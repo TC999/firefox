@@ -11,11 +11,10 @@
   --urlbarView-small-font-size: 0.85em;
 
   /* The purpose of the gutter is to create a visible gap between adjacent hovered
-     and selected rows while keeping the view's entire hover area contiguous. */
+     and selected rows while keeping the view's entire hover area contiguous. It's
+     row padding that `background-clip: content-box` keeps out of the background. */
   --urlbarView-row-gutter: var(--space-xsmall);
-  --urlbarView-row-border: var(--urlbarView-row-gutter) solid transparent;
   --urlbarView-row-border-radius: var(--urlbarview-border-radius);
-  --urlbarView-row-background-clip: padding-box;
 
   --urlbarView-row-padding-inline: var(--urlbar-icon-padding);
   --urlbarView-row-inner-min-height: calc(var(--urlbarview-row-min-height) - var(--urlbarview-row-padding-block) * 2);
@@ -97,8 +96,8 @@
 }
 
 .urlbarView {
-  /* Compensate for the row's transparent border (gutter), so the selection rect
-     is flush with the input container's border edge. */
+  /* Compensate for the row's gutter, so the selection rect is flush with the
+     input container's border edge. */
   margin: calc(-1 * var(--urlbarView-row-gutter));
 
   /* Don't handle window drag events in case we are overlapping a toolbar */
@@ -149,13 +148,17 @@
   --urlbarView-icon-margin-start: max(0px, (var(--urlbarView-rich-search-suggestion-icon-size) - var(--urlbarView-icon-size)) / 2);
   --urlbarView-icon-margin-end: calc(var(--urlbarView-icon-margin-end-base) + var(--urlbarView-icon-margin-start));
 
+  /* Block padding that belongs inside the row's background. It goes on the row's
+     children, since the row's own padding is the gutter, which is outside it. */
+  --urlbarView-row-extra-padding-block: 0px;
+
   display: flex;
   align-items: center;
   fill: currentColor;
   fill-opacity: var(--urlbar-icon-fill-opacity);
-  border: var(--urlbarView-row-border);
+  padding: var(--urlbarView-row-gutter);
   border-radius: var(--urlbarView-row-border-radius);
-  background-clip: var(--urlbarView-row-background-clip);
+  background-clip: content-box;
 
   /* Must hide the overflowing rows while the view is updating */
   &[hidden] {
@@ -174,10 +177,10 @@
 
   &:not([type="tip"], [type="dynamic"]) {
     :root:not([uidensity="compact"]) & {
-      min-height: var(--urlbarview-row-min-height);
+      min-height: calc(var(--urlbarview-row-min-height) + 2 * var(--urlbarView-row-extra-padding-block));
     }
     :root[uidensity="touch"] & {
-      padding-block: 11px;
+      --urlbarView-row-extra-padding-block: 11px;
     }
   }
 
@@ -186,10 +189,10 @@
     --urlbarView-icon-border-radius: var(--urlbarView-rich-search-suggestion-icon-border-radius);
 
     :root:not([uidensity="compact"]) & {
-      min-height: 46px;
+      min-height: calc(46px + 2 * var(--urlbarView-row-extra-padding-block));
     }
     :root[uidensity="touch"] & {
-      padding-block: 4px;
+      --urlbarView-row-extra-padding-block: 4px;
     }
   }
 }
@@ -202,7 +205,7 @@
   flex: auto;
   overflow: hidden;
   padding-inline: var(--urlbarView-row-padding-inline);
-  padding-block: var(--urlbarview-row-padding-block);
+  padding-block: calc(var(--urlbarview-row-padding-block) + var(--urlbarView-row-extra-padding-block));
 
   :root:not([uidensity="compact"]) & {
     min-height: var(--urlbarView-row-inner-min-height);
@@ -441,6 +444,7 @@
   align-items: center;
   justify-content: end;
   flex-wrap: wrap;
+  padding-block: var(--urlbarView-row-extra-padding-block);
 }
 
 .urlbarView-button {
@@ -611,8 +615,9 @@
     /* Remove the label from the document flow so it doesn't affect the row
        selection and hover states. */
     position: absolute;
-    /* `top` controls how far the label is from the main part of the row. */
-    top: var(--urlbarView-labeled-row-label-top);
+    /* `top` controls how far the label is from the main part of the row. It is
+       measured from the row's padding box, hence the gutter. */
+    top: calc(var(--urlbarView-row-gutter) + var(--urlbarView-labeled-row-label-top));
     margin-inline-start: var(--urlbarView-row-padding-inline);
     font-size: 0.8em;
     /* The color and opacity of labels is the same as the "This time, search with"
@@ -927,8 +932,9 @@
 
 .urlbarView-row[type="tip"] {
   padding-block: 18px;
-  border-block: 0;
   border-radius: 0;
+  /* A tip has no block gutter, so its block padding is part of the background. */
+  background-clip: padding-box;
 
   &:not(:last-child) {
     border-bottom: 1px solid var(--urlbarview-separator-color);
@@ -1254,8 +1260,8 @@
      row label in the next row. */
   margin-block: var(--urlbarview-row-padding-block) calc(5 * var(--urlbarview-row-padding-block));
   padding-block: 0;
-  border-block: none;
   border-radius: var(--border-radius-medium);
+  background-clip: content-box;
 
   @media not (prefers-contrast) {
     background-color: color-mix(in srgb, var(--button-background-color) 30%, transparent);
@@ -1312,13 +1318,14 @@
 
 .urlbarView-row[dynamicType^="realtime-"]:not([row-selectable]) {
   /* When a realtime row contains multiple items, each item is individually
-     selectable rather than the row. Set borders on the items so that the gutter
-     and selection styling applies to them and not the row. */
-  border: none;
-  > .urlbarView-realtime-root > .urlbarView-realtime-item {
-    border: var(--urlbarView-row-border);
-    border-radius: var(--urlbarView-row-border-radius);
-    background-clip: var(--urlbarView-row-background-clip);
+     selectable rather than the row. Space the items apart by twice the gutter so
+     that the gap and the selection styling apply to them and not to the row. */
+  > .urlbarView-realtime-root {
+    gap: calc(2 * var(--urlbarView-row-gutter));
+
+    > .urlbarView-realtime-item {
+      border-radius: var(--urlbarView-row-border-radius);
+    }
   }
 }
 
