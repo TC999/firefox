@@ -23,7 +23,7 @@
 #include "nss.h"
 #include "pk11pub.h"
 #include "sdp/HybridSdpParser.h"
-#include "sdp/SipccSdp.h"
+#include "sdp/SdpImpl.h"
 #include "transport/logging.h"
 
 namespace mozilla {
@@ -2309,7 +2309,7 @@ nsresult JsepSessionImpl::CreateGenericSDP(UniquePtr<Sdp>* sdpp) {
   auto origin = SdpOrigin("mozilla...THIS_IS_SDPARTA-99.0", mSessionId,
                           mSessionVersion, sdp::kIPv4, "0.0.0.0");
 
-  UniquePtr<Sdp> sdp = MakeUnique<SipccSdp>(origin);
+  UniquePtr<Sdp> sdp = MakeUnique<SdpImpl>(origin);
 
   if (mDtlsFingerprints.empty()) {
     JSEP_SET_ERROR("Missing DTLS fingerprint");
