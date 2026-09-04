@@ -762,6 +762,9 @@ skip-if = [
 support-files = [
   "file_wasm_offthread_module.sjs",
 ]
+skip-if = [
+  "!nightly_build",
+]
 
 ["test_window_close.html"]
 
