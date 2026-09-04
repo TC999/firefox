@@ -153,14 +153,14 @@ section of `docs/config.yml` so old links continue to work.
 
 Link to the **source file**, not to the generated URL:
 
--   Good: `[mots](/mots/index.md)`, `[Coding style](/code-quality/coding-style/index.rst)`
+-   Good: `[mots](/mots/index.md)`, `[Coding style](/code-quality/coding-style/index.md)`
 -   Bad: `[mots](/mots/index.html)` -- produces
     `WARNING: 'myst' cross-reference target not found: '/mots/index.html' [myst.xref_missing]`
 -   Bad: a full `https://firefox-source-docs.mozilla.org/...` URL for in-tree
     documentation -- it bypasses link validation and breaks when pages move.
 
 The path is rooted at the documentation tree (leading `/`), and the extension
-must match the actual source file (`.md` or `.rst`). To link to a section, append
+must match the actual source file (always `.md`). To link to a section, append
 the anchor: `/mots/index.md#desktop-theme`.
 
 A `{doc}` role with no link text renders the target page's *title*, so a noun
