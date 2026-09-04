@@ -202,7 +202,8 @@ class MediaDataEncoderTest : public testing::Test {
 
 already_AddRefed<MediaDataEncoder> CreateVideoEncoder(
     CodecType aCodec, Usage aUsage, EncoderConfig::SampleFormat aFormat,
-    gfx::IntSize aSize, ScalabilityMode aScalabilityMode,
+    gfx::IntSize aSize, HardwarePreference aHardwarePreference,
+    ScalabilityMode aScalabilityMode,
     const EncoderConfig::CodecSpecific& aSpecific) {
   RefPtr<PEMFactory> f(new PEMFactory());
 
@@ -213,8 +214,7 @@ already_AddRefed<MediaDataEncoder> CreateVideoEncoder(
   const EncoderConfig config(
       aCodec, aSize, aUsage, aFormat, FRAME_RATE /* FPS */,
       KEYFRAME_INTERVAL /* keyframe interval */, BIT_RATE /* bitrate */, 0, 0,
-      BIT_RATE_MODE, HardwarePreference::None /* hardware preference */,
-      aScalabilityMode, aSpecific);
+      BIT_RATE_MODE, aHardwarePreference, aScalabilityMode, aSpecific);
   if (f->Supports(config).isEmpty()) {
     return nullptr;
   }
@@ -428,7 +428,8 @@ static already_AddRefed<MediaDataEncoder> CreateH264Encoder(
     const EncoderConfig::CodecSpecific& aSpecific =
         AsVariant(kH264SpecificAnnexB)) {
   return CreateVideoEncoder(CodecType::H264, aUsage, aFormat, aSize,
-                            aScalabilityMode, aSpecific);
+                            HardwarePreference::None, aScalabilityMode,
+                            aSpecific);
 }
 
 TEST_F(MediaDataEncoderTest, H264Create) {
@@ -853,7 +854,8 @@ static already_AddRefed<MediaDataEncoder> CreateVP8Encoder(
     ScalabilityMode aScalabilityMode = ScalabilityMode::None,
     const EncoderConfig::CodecSpecific& aSpecific = AsVariant(VP8Specific())) {
   return CreateVideoEncoder(CodecType::VP8, aUsage, aFormat, aSize,
-                            aScalabilityMode, aSpecific);
+                            HardwarePreference::None, aScalabilityMode,
+                            aSpecific);
 }
 
 static already_AddRefed<MediaDataEncoder> CreateVP9Encoder(
@@ -864,7 +866,8 @@ static already_AddRefed<MediaDataEncoder> CreateVP9Encoder(
     ScalabilityMode aScalabilityMode = ScalabilityMode::None,
     const EncoderConfig::CodecSpecific& aSpecific = AsVariant(VP9Specific())) {
   return CreateVideoEncoder(CodecType::VP9, aUsage, aFormat, aSize,
-                            aScalabilityMode, aSpecific);
+                            HardwarePreference::None, aScalabilityMode,
+                            aSpecific);
 }
 
 TEST_F(MediaDataEncoderTest, VP8Create) {
@@ -1373,7 +1376,8 @@ TEST_F(MediaDataEncoderTest, AV1SignalsColorConfigInSequenceHeader) {
             EncoderConfig::VideoColorSpace(
                 gfx::ColorRange::FULL, gfx::YUVColorSpace::BT2020,
                 gfx::ColorSpace2::BT2020, gfx::TransferFunction::PQ)),
-        kImageSize, ScalabilityMode::None, AsVariant(void_t{}));
+        kImageSize, HardwarePreference::None, ScalabilityMode::None,
+        AsVariant(void_t{}));
     EXPECT_TRUE(EnsureInit(e));
 
     MediaDataEncoder::EncodedData output =
