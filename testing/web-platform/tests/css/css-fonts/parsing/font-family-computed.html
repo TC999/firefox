@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <title>CSS Fonts Module Level 3: getComputedStyle().fontFamily</title>
 <link rel="help" href="https://www.w3.org/TR/css-fonts-3/#font-family-prop">
+<link rel="help" href="https://drafts.csswg.org/css-fonts-4/#generic-font-families">
 <meta name="assert" content="font-family computed value is as specified.">
 <script src="/resources/testharness.js"></script>
 <script src="/resources/testharnessreport.js"></script>
@@ -17,6 +18,8 @@ test_computed_value('font-family', 'sans-serif');
 test_computed_value('font-family', 'cursive');
 test_computed_value('font-family', 'fantasy');
 test_computed_value('font-family', 'monospace');
+test_computed_value('font-family', 'generic(fangsong)');
+test_computed_value('font-family', 'generic(kai)');
 test_computed_value('font-family', 'serif, sans-serif, cursive, fantasy, monospace');
 
 test_computed_value('font-family', 'Helvetica, Verdana, sans-serif');
