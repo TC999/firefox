@@ -167,6 +167,9 @@ export class PreferencesBackupResource extends BackupResource {
     // current prefs state to disk off of the main thread.
     let prefsDestPath = PathUtils.join(stagingPath, "prefs.js");
     let prefsDestFile = await IOUtils.getFile(prefsDestPath);
+
+    // NB: withUpdateLock() will throw if it is not able to acquire the lock
+    // before shutdown begins.
     await lazy.ExperimentAPI._rsLoader.withUpdateLock(async () => {
       await Services.prefs.backupPrefFile(
         prefsDestFile,
