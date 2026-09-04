@@ -6,6 +6,7 @@
 #define mozilla_widget_AsyncDBus_h
 
 #include <utility>
+
 #include "mozilla/GRefPtr.h"
 #include "mozilla/GUniquePtr.h"
 #include "mozilla/MozPromise.h"
