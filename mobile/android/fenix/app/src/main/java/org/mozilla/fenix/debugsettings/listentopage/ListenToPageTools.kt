@@ -14,6 +14,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.tooling.preview.PreviewLightDark
 import mozilla.components.compose.base.button.FilledButton
+import mozilla.components.feature.listentopage.ListenAction
 import mozilla.components.feature.listentopage.ListenState
 import mozilla.components.feature.listentopage.ListenStore
 import mozilla.components.feature.listentopage.listenReducer
@@ -33,7 +34,8 @@ fun ListenToPageTools(listenStore: ListenStore) {
             VoiceSelection(
                 expanded = voicesExpanded,
                 availableVoices = listenState.voiceState.availableVoices,
-                onVoiceClick = {},
+                selectedVoice = listenState.voiceState.selectedVoice,
+                onVoiceClick = { listenStore.dispatch(ListenAction.Voices.VoiceSelected(it)) },
                 onDismissRequest = { voicesExpanded = !voicesExpanded },
             )
         }
