@@ -116,7 +116,7 @@ already_AddRefed<Buffer> Buffer::Create(Device* aDevice, RawId aDeviceId,
     return nullptr;
   }
 
-  ffi::WGPUBufferDescriptor desc = {};
+  ffi::WGPUFfiBufferDescriptor desc = {};
   webgpu::StringHelper label(aDesc.mLabel);
   desc.label = label.Get();
   desc.size = aDesc.mSize;
