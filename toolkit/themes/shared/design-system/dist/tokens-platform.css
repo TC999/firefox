@@ -88,8 +88,8 @@
     --toolbar-text-color: -moz-dialogtext;
 
     /** toolbarbutton **/
-    --toolbarbutton-background-color-hover: var(--button-background-color-ghost-hover);
-    --toolbarbutton-background-color-active: var(--button-background-color-ghost-active);
+    --toolbarbutton-background-color-hover: color-mix(in srgb, currentColor 17%, transparent);
+    --toolbarbutton-background-color-active: color-mix(in srgb, currentColor 30%, transparent);
     --toolbarbutton-icon-fill: currentColor;
     --toolbarbutton-icon-fill-attention: AccentColor;
     --toolbarbutton-icon-fill-attention-text: AccentColorText;
@@ -143,8 +143,8 @@
       --toolbar-field-text-color-focus: FieldText;
 
       /** toolbarbutton **/
-      --toolbarbutton-background-color-hover: var(--button-background-color-ghost-hover);
-      --toolbarbutton-background-color-active: var(--button-background-color-ghost-active);
+      --toolbarbutton-background-color-hover: color-mix(in srgb, currentColor 17%, transparent);
+      --toolbarbutton-background-color-active: color-mix(in srgb, currentColor 30%, transparent);
       --toolbarbutton-icon-fill: currentColor;
       --toolbarbutton-icon-fill-attention: AccentColor;
 

@@ -545,9 +545,9 @@ export const tokensTable = {
       value: {
         default: "color-mix(in srgb, currentColor 17%, transparent)",
         forcedColors: "var(--button-background-color-ghost-hover)",
-        nativeTheme: "var(--button-background-color-ghost-hover)",
+        nativeTheme: "color-mix(in srgb, currentColor 17%, transparent)",
         platform: {
-          default: "var(--button-background-color-ghost-hover)",
+          default: "color-mix(in srgb, currentColor 17%, transparent)",
           browserTheme: {
             default: "color-mix(in srgb, currentColor 17%, transparent)",
           },
@@ -559,9 +559,9 @@ export const tokensTable = {
       value: {
         default: "color-mix(in srgb, currentColor 30%, transparent)",
         forcedColors: "var(--button-background-color-ghost-active)",
-        nativeTheme: "var(--button-background-color-ghost-active)",
+        nativeTheme: "color-mix(in srgb, currentColor 30%, transparent)",
         platform: {
-          default: "var(--button-background-color-ghost-active)",
+          default: "color-mix(in srgb, currentColor 30%, transparent)",
           browserTheme: {
             default: "color-mix(in srgb, currentColor 30%, transparent)",
           },
@@ -4946,9 +4946,9 @@ export const variableLookupTable = {
   "toolbarbutton-background-color-hover": {
     default: "color-mix(in srgb, currentColor 17%, transparent)",
     forcedColors: "var(--button-background-color-ghost-hover)",
-    nativeTheme: "var(--button-background-color-ghost-hover)",
+    nativeTheme: "color-mix(in srgb, currentColor 17%, transparent)",
     platform: {
-      default: "var(--button-background-color-ghost-hover)",
+      default: "color-mix(in srgb, currentColor 17%, transparent)",
       browserTheme: {
         default: "color-mix(in srgb, currentColor 17%, transparent)",
       },
@@ -4957,9 +4957,9 @@ export const variableLookupTable = {
   "toolbarbutton-background-color-active": {
     default: "color-mix(in srgb, currentColor 30%, transparent)",
     forcedColors: "var(--button-background-color-ghost-active)",
-    nativeTheme: "var(--button-background-color-ghost-active)",
+    nativeTheme: "color-mix(in srgb, currentColor 30%, transparent)",
     platform: {
-      default: "var(--button-background-color-ghost-active)",
+      default: "color-mix(in srgb, currentColor 30%, transparent)",
       browserTheme: {
         default: "color-mix(in srgb, currentColor 30%, transparent)",
       },
