@@ -124,6 +124,10 @@ export class BasePopup {
     this.browserLoadedDeferred.reject(new Error("Popup destroyed"));
     // Ignore unhandled rejections if the "attach" method is not called.
     this.browserLoaded.catch(() => {});
+    // Whoever is waiting to show this popup has to be able to resume and see
+    // that it is destroyed, even if the content never got as far as reporting
+    // its size.
+    this._resolveContentReady();
 
     BasePopup.instances.get(this.window).delete(this.extension);
 
@@ -523,6 +527,13 @@ export class PanelPopup extends BasePopup {
   }
 
   closePopup() {
+    if (this.viewNode.state == "closed") {
+      // The popup has not started opening, so there is no popupshown event
+      // coming and nothing will ever hide it: tear it down instead, and let
+      // whoever was about to show it notice that it is destroyed.
+      this.destroy();
+      return;
+    }
     promisePopupShown(this.viewNode).then(() => {
       // Make sure we're not already destroyed, or removed from the DOM.
       if (this.viewNode && this.viewNode.hidePopup) {

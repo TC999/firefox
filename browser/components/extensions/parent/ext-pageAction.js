@@ -329,6 +329,15 @@ this.pageAction = class extends ExtensionAPIPersistent {
         { once: true }
       );
       await popup.contentReady;
+      if (popup.destroyed) {
+        // The extension shut down while its popup was loading, which destroyed
+        // the popup and removed the page action we would anchor it to.
+        if (this.popupNode === popup) {
+          this.popupNode = undefined;
+        }
+        ExtensionTelemetry.pageActionPopupOpen.stopwatchCancel(extension, this);
+        return;
+      }
       try {
         window.BrowserPageActions.togglePanelForAction(
           this.browserPageAction,
