@@ -772,11 +772,18 @@ add_task(async function test_resume_prompt_click_shows_confirmation_card() {
     const fetchWithHistoryStub = sb.stub(Chat, "fetchWithHistory").resolves();
 
     await testResumeActivityClick(sb, async ({ aiWindow, buttons }) => {
+      const conversationIdAtClick = aiWindow.conversationId;
       buttons[0].click();
 
       await TestUtils.waitForCondition(
         () => fetchWithHistoryStub.calledOnce,
         "Should generate a response for the resume-activity conversation"
+      );
+
+      Assert.equal(
+        aiWindow.conversationId,
+        conversationIdAtClick,
+        "Should resume in the conversation the pill was clicked in"
       );
 
       const assistantMessage = aiWindow.conversation.messages.at(-1);
@@ -856,11 +863,18 @@ add_task(
           "Memories toggle should turn off"
         );
 
+        const conversationIdAtClick = aiWindow.conversationId;
         buttons[0].click();
 
         await TestUtils.waitForCondition(
           () => fetchWithHistoryStub.calledOnce,
           "Should generate a response for the resume-activity conversation"
+        );
+
+        Assert.equal(
+          aiWindow.conversationId,
+          conversationIdAtClick,
+          "Should resume in the conversation the pill was clicked in on the memory-free path"
         );
 
         const assistantMessage = aiWindow.conversation.messages.at(-1);

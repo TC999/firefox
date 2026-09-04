@@ -1397,6 +1397,22 @@ add_task(async function test_constructConversationToResumeActivity() {
         true,
         "untrustedInput should be set"
       );
+
+      const originatingId = "originating-conversation-id";
+      const conversationWithId = await constructConversationToResumeActivity(
+        resumeActivitySuggestion,
+        originatingId
+      );
+      Assert.equal(
+        conversationWithId.id,
+        originatingId,
+        "Should reuse the id of the conversation the resume pill was clicked in"
+      );
+      Assert.notEqual(
+        conversation.id,
+        originatingId,
+        "Should generate a new id when no originating id is passed"
+      );
     } finally {
       mockEngineManager.cleanupMocks();
     }
