@@ -26,6 +26,7 @@ UNIFIED_SOURCES += [
     "SdpHelper.cpp",
     "SdpLog.cpp",
     "SdpMediaSection.cpp",
+    "SdpMediaSectionImpl.cpp",
     "SdpPref.cpp",
     "SipccSdp.cpp",
     "SipccSdpAttributeList.cpp",

@@ -68,7 +68,7 @@ class SipccSdp final : public Sdp {
   bool LoadOrigin(sdp_t* sdp, InternalResults& results);
 
   SdpOrigin mOrigin{"", 0, 0, sdp::kIPv4, ""};
-  SipccSdpBandwidths mBandwidths;
+  SdpBandwidths mBandwidths;
   SipccSdpAttributeList mAttributeList{nullptr};
   std::vector<UniquePtr<SipccSdpMediaSection>> mMediaSections;
 };

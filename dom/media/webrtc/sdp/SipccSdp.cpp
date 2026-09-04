@@ -120,7 +120,7 @@ bool SipccSdp::Load(sdp_t* sdp, InternalResults& results) {
     return false;
   }
 
-  if (!mBandwidths.Load(sdp, SDP_SESSION_LEVEL, results)) {
+  if (!LoadBandwidths(sdp, SDP_SESSION_LEVEL, results, mBandwidths)) {
     return false;
   }
 
@@ -154,27 +154,6 @@ void SipccSdp::Serialize(std::ostream& os) const {
   // media sections
   for (const auto& msection : mMediaSections) {
     os << *msection;
-  }
-}
-
-bool SipccSdpBandwidths::Load(sdp_t* sdp, const uint16_t level,
-                              InternalResults& results) {
-  size_t count = sdp_get_num_bw_lines(sdp, level);
-  for (size_t i = 1; i <= count; ++i) {
-    sdp_bw_modifier_e bwtype = sdp_get_bw_modifier(sdp, level, i);
-    uint32_t bandwidth = sdp_get_bw_value(sdp, level, i);
-    if (bwtype != SDP_BW_MODIFIER_UNSUPPORTED) {
-      const char* typeName = sdp_get_bw_modifier_name(bwtype);
-      (*this)[typeName] = bandwidth;
-    }
-  }
-
-  return true;
-}
-
-void SipccSdpBandwidths::Serialize(std::ostream& os) const {
-  for (auto i = begin(); i != end(); ++i) {
-    os << "b=" << i->first << ":" << i->second << CRLF;
   }
 }
 
