@@ -2,8 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-import { AITabStore } from "moz-src:///browser/components/aiwindow/ui/modules/AITabStore.sys.mjs";
-
 const PAGE_NAME_REGEX = /^[\w-]+(\.html)?$/;
 
 /**
@@ -20,7 +18,7 @@ export class AITabParent extends JSWindowActorParent {
     return this.#handleGetPage(data);
   }
 
-  async #handleGetPage({ pageName } = {}) {
+  #handleGetPage({ pageName } = {}) {
     if (!pageName) {
       return { success: false, error: "Missing page name" };
     }
@@ -29,12 +27,8 @@ export class AITabParent extends JSWindowActorParent {
       return { success: false, error: "Invalid page name" };
     }
 
-    try {
-      const page = await AITabStore.getBySlug(pageName);
-      return { success: true, page };
-    } catch (error) {
-      console.error("Failed to retrieve AI Tab page:", error);
-      return { success: false, error: "Failed to retrieve page" };
-    }
+    // The AITab database lands in bug 2061040, so there is nothing to look up
+    // yet and every name resolves to an unavailable page.
+    return { success: true, page: null };
   }
 }
