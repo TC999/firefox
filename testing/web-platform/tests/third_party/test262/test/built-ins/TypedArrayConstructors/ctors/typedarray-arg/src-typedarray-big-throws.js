@@ -17,7 +17,7 @@ info: |
     c. If one of srcType and elementType contains the substring "Big" and the other
        does not, throw a TypeError exception.
 
-includes: [testTypedArray.js]
+includes: [testTypedArray.js, testTypedArray.js]
 features: [BigInt, TypedArray]
 ---*/
 
@@ -34,3 +34,4 @@ testWithBigIntTypedArrayConstructors(function(BTA, makeCtorArg) {
   });
 
 });
+
