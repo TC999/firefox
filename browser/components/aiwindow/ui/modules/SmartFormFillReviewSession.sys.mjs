@@ -174,6 +174,7 @@ export class SmartFormFillReviewSession {
       return {
         hasErrors: false,
         cancelled: true,
+        filledFieldCount: 0,
       };
     }
 
@@ -185,6 +186,7 @@ export class SmartFormFillReviewSession {
       return {
         hasErrors: true,
         cancelled: false,
+        filledFieldCount: 0,
       };
     }
 

@@ -46,6 +46,7 @@ export class AiSffFormReview extends MozLitElement {
     fields: { type: Array },
     state: { type: String },
     errorType: { type: String },
+    filledFieldCount: { type: Number },
     filling: { type: Boolean },
   };
 
@@ -91,6 +92,9 @@ export class AiSffFormReview extends MozLitElement {
 
     /** @type {FormReviewErrorType | null} */
     this.errorType = null;
+
+    /** @type {number | null} */
+    this.filledFieldCount = null;
 
     /** @type {boolean} */
     this.filling = false;
@@ -562,6 +566,10 @@ export class AiSffFormReview extends MozLitElement {
 
     let headingId = "ai-smart-form-fill-success-heading";
     let descriptionId = "ai-smart-form-fill-success-description";
+    let icon =
+      hasErrors || this.filledFieldCount === 0
+        ? "chrome://browser/content/aiwindow/assets/warning.svg"
+        : "chrome://browser/content/aiwindow/assets/applied-policy.svg";
 
     if (this.errorType === FORM_REVIEW_ERRORS.NO_SUGGESTIONS) {
       headingId = "ai-smart-form-fill-no-suggestions-heading";
@@ -572,11 +580,10 @@ export class AiSffFormReview extends MozLitElement {
     } else if (hasErrors) {
       headingId = "ai-smart-form-fill-error-heading";
       descriptionId = "ai-smart-form-fill-error-description";
+    } else if (this.filledFieldCount === 0) {
+      headingId = "ai-smart-form-fill-no-changes-heading";
+      descriptionId = "ai-smart-form-fill-no-changes-description";
     }
-
-    const icon = hasErrors
-      ? "chrome://browser/content/aiwindow/assets/warning.svg"
-      : "chrome://browser/content/aiwindow/assets/applied-policy.svg";
 
     return html`
       <section

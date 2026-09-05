@@ -86,6 +86,17 @@ describe("Smart Form Fill form review filling", () => {
       "The generated suggestion should be filled into the form"
     );
 
+    const snapshot = await getFormReviewSnapshot(reviewBrowser);
+    Assert.equal(
+      snapshot.filledFieldCount,
+      1,
+      "One field should have been filled"
+    );
+    Assert.ok(
+      snapshot.l10nIds.includes("ai-smart-form-fill-success-heading"),
+      "The success heading should be rendered"
+    );
+
     const dialogClosed = waitForFormReviewClose(context.win, dialog);
     await activateFormReviewButton(
       reviewBrowser,
@@ -112,6 +123,22 @@ describe("Smart Form Fill form review filling", () => {
       await getFormFieldValue(context.win.gBrowser.selectedBrowser, "#email"),
       "user@example.com",
       "Filling should not replace the value already in the field"
+    );
+
+    const snapshot = await getFormReviewSnapshot(reviewBrowser);
+    Assert.equal(
+      snapshot.errorType,
+      null,
+      "Skipping a field that is no longer fillable should not be an error"
+    );
+    Assert.equal(
+      snapshot.filledFieldCount,
+      0,
+      "No fields should have been filled"
+    );
+    Assert.ok(
+      snapshot.l10nIds.includes("ai-smart-form-fill-no-changes-heading"),
+      "The no-changes heading should be rendered"
     );
 
     const dialogClosed = waitForFormReviewClose(context.win, dialog);

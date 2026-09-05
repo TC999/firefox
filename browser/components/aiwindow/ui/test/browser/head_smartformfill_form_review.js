@@ -50,6 +50,7 @@ const { NonPrivateTabs } = ChromeUtils.importESModule(
  * @typedef {object} FormReviewSnapshot
  * @property {string} state - Current form review state.
  * @property {string|null} errorType - Current error result, if any.
+ * @property {number|null} filledFieldCount - Number of fields filled, if known.
  * @property {Array<object>} fields - Fields currently held by the component.
  * @property {string[]} l10nIds - Localization IDs rendered by the component.
  * @property {boolean|null} fillButtonDisabled - Fill button state, if rendered.
@@ -385,6 +386,7 @@ async function getFormReviewSnapshot(reviewBrowser) {
     return {
       state: review.state,
       errorType: review.errorType,
+      filledFieldCount: review.filledFieldCount,
       fields: review.fields.map(field => ({ ...field })),
       l10nIds: [...review.renderRoot.querySelectorAll("[data-l10n-id]")].map(
         element => element.getAttribute("data-l10n-id")

@@ -78,6 +78,7 @@ export class SmartFormFillReviewChild extends JSWindowActorChild {
       case "SmartFormFillReview:Initialize":
         review.fields = Cu.cloneInto([], this.contentWindow);
         review.errorType = null;
+        review.filledFieldCount = null;
         review.filling = false;
         review.state = FORM_REVIEW_STATES.PROGRESS;
         break;
@@ -88,6 +89,7 @@ export class SmartFormFillReviewChild extends JSWindowActorChild {
         }
         review.fields = Cu.cloneInto(data.fields, this.contentWindow);
         review.errorType = null;
+        review.filledFieldCount = null;
         review.filling = false;
         review.state = FORM_REVIEW_STATES.REVIEW;
         break;
@@ -97,6 +99,7 @@ export class SmartFormFillReviewChild extends JSWindowActorChild {
           return false;
         }
         review.errorType = data.errorType;
+        review.filledFieldCount = null;
         review.filling = false;
         review.state = FORM_REVIEW_STATES.FINAL;
         break;
@@ -210,9 +213,11 @@ export class SmartFormFillReviewChild extends JSWindowActorChild {
       return;
     }
 
-    this.#showResult(
-      result && !result.hasErrors ? null : FORM_REVIEW_ERRORS.FILL_FAILED
-    );
+    const errorType =
+      result && !result.hasErrors ? null : FORM_REVIEW_ERRORS.FILL_FAILED;
+    const filledFieldCount = result?.filledFieldCount ?? null;
+
+    this.#showResult(errorType, filledFieldCount);
   }
 
   /**
@@ -220,9 +225,11 @@ export class SmartFormFillReviewChild extends JSWindowActorChild {
    *
    * @param {FormReviewErrorType | null} errorType
    *   The fill failure reason, or null when filling succeeded.
+   * @param {number | null} [filledFieldCount]
+   *   The number of fields successfully filled.
    * @returns {void}
    */
-  #showResult(errorType) {
+  #showResult(errorType, filledFieldCount = null) {
     if (this.#destroyed) {
       return;
     }
@@ -235,6 +242,7 @@ export class SmartFormFillReviewChild extends JSWindowActorChild {
     this.#fillPending = false;
     review.filling = false;
     review.errorType = errorType;
+    review.filledFieldCount = filledFieldCount;
     review.state = FORM_REVIEW_STATES.FINAL;
   }
 

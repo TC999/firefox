@@ -78,6 +78,9 @@ export default {
       control: "select",
       options: [null, ...Object.values(FORM_REVIEW_ERRORS)],
     },
+    filledFieldCount: {
+      control: "number",
+    },
   },
   parameters: {
     status: "in-development",
@@ -98,6 +101,8 @@ ai-smart-form-fill-stop-finding-suggestions =
     .aria-label = Stop finding suggestions
 ai-smart-form-fill-success-heading = Form filled with suggestions
 ai-smart-form-fill-success-description = Check the form. Review the filled fields and update anything that looks off or missing before submitting.
+ai-smart-form-fill-no-changes-heading = No changes applied
+ai-smart-form-fill-no-changes-description = Smart Form Fill didn’t fill any fields. Check the form and try again.
 ai-smart-form-fill-no-suggestions-heading = No suggestions found
 ai-smart-form-fill-no-suggestions-description = Smart Form Fill wasn’t able to generate any suggestions for this form.
 ai-smart-form-fill-error-heading = Something happened catch-all headline
@@ -108,11 +113,17 @@ ai-smart-form-fill-close-review =
   },
 };
 
-const Template = ({ fields, state, errorType }) => html`
+const Template = ({
+  fields,
+  state,
+  errorType,
+  filledFieldCount = null,
+}) => html`
   <ai-sff-form-review
     .fields=${fields}
     .state=${state}
     .errorType=${errorType}
+    .filledFieldCount=${filledFieldCount}
   ></ai-sff-form-review>
 `;
 
@@ -142,6 +153,15 @@ Success.args = {
   fields: FIELDS,
   state: FORM_REVIEW_STATES.FINAL,
   errorType: null,
+  filledFieldCount: 1,
+};
+
+export const NoChanges = Template.bind({});
+NoChanges.args = {
+  fields: FIELDS,
+  state: FORM_REVIEW_STATES.FINAL,
+  errorType: null,
+  filledFieldCount: 0,
 };
 
 export const FromReviewError = Template.bind({});

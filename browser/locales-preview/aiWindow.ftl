@@ -316,6 +316,9 @@ ai-smart-form-fill-stop-finding-suggestions =
 ai-smart-form-fill-success-heading = Suggestions added to form
 ai-smart-form-fill-success-description = Review the form and fill any remaining fields before you submit.
 
+ai-smart-form-fill-no-changes-heading = No changes applied
+ai-smart-form-fill-no-changes-description = Smart Form Fill didn’t fill any fields. Check the form and try again.
+
 ai-smart-form-fill-no-suggestions-heading = No suggestions found
 ai-smart-form-fill-no-suggestions-description = Smart Form Fill wasn’t able to generate any suggestions for this form.
 
