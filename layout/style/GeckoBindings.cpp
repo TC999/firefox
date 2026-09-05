@@ -1806,10 +1806,6 @@ void StyleSingleFontFamily::AppendToString(nsACString& aName,
       return aName.AppendLiteral("cursive");
     case StyleGenericFontFamily::Fantasy:
       return aName.AppendLiteral("fantasy");
-    case StyleGenericFontFamily::Fangsong:
-      return aName.AppendLiteral("generic(fangsong)");
-    case StyleGenericFontFamily::Kai:
-      return aName.AppendLiteral("generic(kai)");
     case StyleGenericFontFamily::Math:
       return aName.AppendLiteral("math");
     case StyleGenericFontFamily::SystemUi:

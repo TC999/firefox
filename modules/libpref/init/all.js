@@ -1637,22 +1637,16 @@ pref("font.name.serif.zh-CN", "");
 pref("font.name.sans-serif.zh-CN", "");
 pref("font.name.monospace.zh-CN", "");
 pref("font.name.cursive.zh-CN", "");
-pref("font.name.fangsong.zh-CN", "");
-pref("font.name.kai.zh-CN", "");
 
 pref("font.name.serif.zh-TW", "");
 pref("font.name.sans-serif.zh-TW", "");
 pref("font.name.monospace.zh-TW", "");
 pref("font.name.cursive.zh-TW", "");
-pref("font.name.fangsong.zh-TW", "");
-pref("font.name.kai.zh-TW", "");
 
 pref("font.name.serif.zh-HK", "");
 pref("font.name.sans-serif.zh-HK", "");
 pref("font.name.monospace.zh-HK", "");
 pref("font.name.cursive.zh-HK", "");
-pref("font.name.fangsong.zh-HK", "");
-pref("font.name.kai.zh-HK", "");
 
 pref("font.name.serif.x-devanagari", "");
 pref("font.name.sans-serif.x-devanagari", "");
@@ -2126,8 +2120,6 @@ pref("font.size.monospace.x-math", 13);
   pref("font.name-list.sans-serif.zh-CN", "Microsoft YaHei, SimHei, Noto Sans CJK SC, Noto Sans SC");
   pref("font.name-list.monospace.zh-CN", "NSimSun, SimSun, MS Song, SimSun-ExtB");
   pref("font.name-list.cursive.zh-CN", "KaiTi, KaiTi_GB2312");
-  pref("font.name-list.fangsong.zh-CN", "FangSong, FangSong_GB2312");
-  pref("font.name-list.kai.zh-CN", "KaiTi, KaiTi_GB2312");
 
   // Per Taiwanese users' demand. They don't want to use TC fonts for
   // rendering Latin letters. (bug 88579)
@@ -2135,7 +2127,6 @@ pref("font.size.monospace.x-math", 13);
   pref("font.name-list.sans-serif.zh-TW", "Arial, Microsoft JhengHei, PMingLiU, MingLiU, MingLiU-ExtB, Noto Sans CJK TC, Noto Sans TC");
   pref("font.name-list.monospace.zh-TW", "MingLiU, MingLiU-ExtB");
   pref("font.name-list.cursive.zh-TW", "DFKai-SB");
-  pref("font.name-list.kai.zh-TW", "DFKai-SB");
 
   // hkscsm3u.ttf (HKSCS-2001) :  http://www.microsoft.com/hk/hkscs
   // Hong Kong users have the same demand about glyphs for Latin letters (bug 88579)
@@ -2143,7 +2134,6 @@ pref("font.size.monospace.x-math", 13);
   pref("font.name-list.sans-serif.zh-HK", "Arial, MingLiU_HKSCS, Ming(for ISO10646), MingLiU, MingLiU_HKSCS-ExtB, Microsoft JhengHei, Noto Sans CJK HK, Noto Sans HK");
   pref("font.name-list.monospace.zh-HK", "MingLiU_HKSCS, Ming(for ISO10646), MingLiU, MingLiU_HKSCS-ExtB, Microsoft JhengHei");
   pref("font.name-list.cursive.zh-HK", "DFKai-SB");
-  pref("font.name-list.kai.zh-HK", "DFKai-SB");
 
   pref("font.name-list.serif.x-devanagari", "Kokila, Raghindi");
   pref("font.name-list.sans-serif.x-devanagari", "Nirmala UI, Mangal");
@@ -2478,20 +2468,16 @@ pref("font.size.monospace.x-math", 13);
   pref("font.name-list.sans-serif.zh-CN", "Arial, PingFang SC, STHeiti, Heiti SC");
   pref("font.name-list.monospace.zh-CN", "Menlo, PingFang SC, STHeiti, Heiti SC");
   pref("font.name-list.cursive.zh-CN", "Kaiti SC");
-  pref("font.name-list.fangsong.zh-CN", "STFangsong");
-  pref("font.name-list.kai.zh-CN", "Kaiti SC, STKaiti");
 
   pref("font.name-list.serif.zh-TW", "Times New Roman, Songti TC, LiSong Pro, Heiti TC");
   pref("font.name-list.sans-serif.zh-TW", "Arial, PingFang TC, Heiti TC, LiHei Pro");
   pref("font.name-list.monospace.zh-TW", "Menlo, PingFang TC, Heiti TC, LiHei Pro");
   pref("font.name-list.cursive.zh-TW", "Kaiti TC");
-  pref("font.name-list.kai.zh-TW", "Kaiti TC, BiauKaiTC");
 
   pref("font.name-list.serif.zh-HK", "Times New Roman, Songti TC, LiSong Pro, Heiti TC");
   pref("font.name-list.sans-serif.zh-HK", "Arial, PingFang TC, Heiti TC, LiHei Pro");
   pref("font.name-list.monospace.zh-HK", "Menlo, PingFang TC, Heiti TC, LiHei Pro");
   pref("font.name-list.cursive.zh-HK", "Kaiti TC");
-  pref("font.name-list.kai.zh-HK", "Kaiti TC, BiauKaiHK");
 
   // XP_MACOSX changes to default font sizes
   pref("font.minimum-size.th", 10);
@@ -2654,18 +2640,14 @@ pref("font.size.monospace.x-math", 13);
   pref("font.name-list.serif.zh-CN", "Times New Roman, PingFang SC");
   pref("font.name-list.sans-serif.zh-CN", "Arial, PingFang SC");
   pref("font.name-list.monospace.zh-CN", "Menlo, PingFang SC");
-  pref("font.name-list.fangsong.zh-CN", "STFangsong");
-  pref("font.name-list.kai.zh-CN", "Kaiti SC, STKaiti");
 
   pref("font.name-list.serif.zh-TW", "Times New Roman, PingFang TC");
   pref("font.name-list.sans-serif.zh-TW", "Arial, PingFang TC");
   pref("font.name-list.monospace.zh-TW", "Menlo, PingFang TC");
-  pref("font.name-list.kai.zh-TW", "Kaiti TC, BiauKaiTC");
 
   pref("font.name-list.serif.zh-HK", "Times New Roman, PingFang HK");
   pref("font.name-list.sans-serif.zh-HK", "Arial, PingFang HK");
   pref("font.name-list.monospace.zh-HK", "Menlo, PingFang HK");
-  pref("font.name-list.kai.zh-HK", "Kaiti TC, BiauKaiHK");
 
   pref("font.name-list.serif.x-math", "STIX Two Math, Symbol, Apple Symbols");
   pref("font.name-list.sans-serif.x-math", "Arial");
@@ -2854,22 +2836,16 @@ pref("font.size.monospace.x-math", 13);
   pref("font.name-list.sans-serif.zh-CN", "sans-serif");
   pref("font.name-list.monospace.zh-CN", "monospace");
   pref("font.name-list.cursive.zh-CN", "cursive");
-  pref("font.name-list.fangsong.zh-CN", "serif");
-  pref("font.name-list.kai.zh-CN", "LXGW WenKai, AR PL KaitiM GB, AR PL UKai CN");
 
   pref("font.name-list.serif.zh-HK", "serif");
   pref("font.name-list.sans-serif.zh-HK", "sans-serif");
   pref("font.name-list.monospace.zh-HK", "monospace");
   pref("font.name-list.cursive.zh-HK", "cursive");
-  pref("font.name-list.fangsong.zh-HK", "cwTeXFangSong");
-  pref("font.name-list.kai.zh-HK", "cwTeXKai, AR PL KaitiM Big5, AR PL UKai HK");
 
   pref("font.name-list.serif.zh-TW", "serif");
   pref("font.name-list.sans-serif.zh-TW", "sans-serif");
   pref("font.name-list.monospace.zh-TW", "monospace");
   pref("font.name-list.cursive.zh-TW", "cursive");
-  pref("font.name-list.fangsong.zh-TW", "cwTeXFangSong");
-  pref("font.name-list.kai.zh-TW", "cwTeXKai, AR PL KaitiM Big5, AR PL UKai TW");
 
   pref("intl.ime.use_simple_context_on_password_field", false);
 

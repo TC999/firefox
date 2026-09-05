@@ -2712,10 +2712,6 @@ nsAtom* gfxPlatformFontList::GetLangGroup(nsAtom* aLanguage) {
       return "cursive";
     case StyleGenericFontFamily::Fantasy:
       return "fantasy";
-    case StyleGenericFontFamily::Fangsong:
-      return "fangsong";
-    case StyleGenericFontFamily::Kai:
-      return "kai";
     case StyleGenericFontFamily::Math:
       return "math";
     case StyleGenericFontFamily::SystemUi:

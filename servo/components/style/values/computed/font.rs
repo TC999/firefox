@@ -23,7 +23,7 @@ use crate::values::specified::font::{
 use crate::values::specified::length::{FontBaseSize, LineHeightBase};
 use crate::values::CSSInteger;
 use crate::Atom;
-use cssparser::{match_ignore_ascii_case, serialize_identifier, CssStringWriter, Parser, Token};
+use cssparser::{match_ignore_ascii_case, serialize_identifier, CssStringWriter, Parser};
 use malloc_size_of::{MallocSizeOf, MallocSizeOfOps};
 use num_traits::abs;
 use num_traits::cast::AsPrimitive;
@@ -452,8 +452,6 @@ impl FontFamily {
         #[cfg(feature = "gecko")]
         generic_font_family!(MOZ_EMOJI, MozEmoji);
         generic_font_family!(SYSTEM_UI, SystemUi);
-        generic_font_family!(FANGSONG, Fangsong);
-        generic_font_family!(KAI, Kai);
 
         let family = match generic {
             GenericFontFamily::None => {
@@ -470,8 +468,6 @@ impl FontFamily {
             #[cfg(feature = "gecko")]
             GenericFontFamily::MozEmoji => &*MOZ_EMOJI,
             GenericFontFamily::SystemUi => &*SYSTEM_UI,
-            GenericFontFamily::Fangsong => &*FANGSONG,
-            GenericFontFamily::Kai => &*KAI,
         };
         debug_assert_eq!(
             *family.families.iter().next().unwrap(),
@@ -662,6 +658,7 @@ fn math_enabled(context: &ParserContext) -> bool {
     Hash,
     MallocSizeOf,
     PartialEq,
+    Parse,
     Serialize,
     ToCss,
     ToComputedValue,
@@ -678,16 +675,15 @@ pub enum GenericFontFamily {
     None = 0,
     Serif,
     SansSerif,
+    #[parse(aliases = "-moz-fixed")]
     Monospace,
     Cursive,
     Fantasy,
     #[cfg(feature = "gecko")]
+    #[parse(condition = "math_enabled")]
     Math,
+    #[parse(condition = "system_ui_enabled")]
     SystemUi,
-    #[css(keyword = "generic(fangsong)")]
-    Fangsong,
-    #[css(keyword = "generic(kai)")]
-    Kai,
     /// An internal value for emoji font selection.
     #[css(skip)]
     #[cfg(feature = "gecko")]
@@ -700,45 +696,10 @@ impl GenericFontFamily {
     /// the user. See bug 789788 and bug 1730098.
     pub(crate) fn valid_for_user_font_prioritization(self) -> bool {
         match self {
-            Self::None
-            | Self::Cursive
-            | Self::Fantasy
-            | Self::SystemUi
-            | Self::Fangsong
-            | Self::Kai => false,
+            Self::None | Self::Cursive | Self::Fantasy | Self::SystemUi => false,
             #[cfg(feature = "gecko")]
             Self::Math | Self::MozEmoji => false,
             Self::Serif | Self::SansSerif | Self::Monospace => true,
-        }
-    }
-}
-
-impl Parse for GenericFontFamily {
-    fn parse(context: &ParserContext, input: &mut Parser) -> Result<Self, ParseError> {
-        match input.next()? {
-            Token::Function(name)
-                if name.eq_ignore_ascii_case("generic")
-                    && static_prefs::pref!("layout.css.generic-font-family-function.enabled") =>
-            {
-                input.parse_nested_block(|input| {
-                    Ok(try_match_ident_ignore_ascii_case! { input,
-                        "fangsong" => Self::Fangsong,
-                        "kai" => Self::Kai,
-                    })
-                })
-            },
-            Token::Ident(ident) => Ok(match_ignore_ascii_case! { ident,
-                "serif" => Self::Serif,
-                "sans-serif" => Self::SansSerif,
-                "monospace" | "-moz-fixed" => Self::Monospace,
-                "cursive" => Self::Cursive,
-                "fantasy" => Self::Fantasy,
-                #[cfg(feature = "gecko")]
-                "math" if math_enabled(context) => Self::Math,
-                "system-ui" if system_ui_enabled(context) => Self::SystemUi,
-                _ => return Err(ParseError::unexpected_token()),
-            }),
-            _ => Err(ParseError::unexpected_token()),
         }
     }
 }

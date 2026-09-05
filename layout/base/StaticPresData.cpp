@@ -46,8 +46,6 @@ static const char* const kGenericFont[] = {
   ".monospace.",
   ".cursive.",
   ".fantasy.",
-  ".fangsong.",
-  ".kai.",
   ".system-ui.",
 };
 // clang-format on
@@ -59,8 +57,6 @@ enum class DefaultFont {
   Monospace,
   Cursive,
   Fantasy,
-  Fangsong,
-  Kai,
   SystemUi,
   COUNT
 };
@@ -114,8 +110,6 @@ void LangGroupFontPrefs::Initialize() {
     &mDefaultMonospaceFont,
     &mDefaultCursiveFont,
     &mDefaultFantasyFont,
-    &mDefaultFangsongFont,
-    &mDefaultKaiFont,
     &mDefaultSystemUiFont,
   };
   // clang-format on

@@ -10860,13 +10860,6 @@
   mirror: always
   rust: true
 
-# Whether generic() font families are enabled.
-- name: layout.css.generic-font-family-function.enabled
-  type: RelaxedAtomicBool
-  value: true
-  mirror: always
-  rust: true
-
 # Set the number of device pixels per CSS pixel. A value <= 0 means choose
 # automatically based on user settings for the platform (e.g., "UI scale factor"
 # on Mac). If browser.display.os-zoom-behavior == 1, then a positive value

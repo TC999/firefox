@@ -4,7 +4,6 @@
 <meta charset="utf-8">
 <title>CSS Fonts Module Level 3: parsing font-family with valid values</title>
 <link rel="help" href="https://www.w3.org/TR/css-fonts-3/#font-family-prop">
-<link rel="help" href="https://drafts.csswg.org/css-fonts-4/#generic-font-families">
 <meta name="assert" content="font-family supports the full grammar '[ <family-name> | <generic-family> ] #'.">
 <script src="/resources/testharness.js"></script>
 <script src="/resources/testharnessreport.js"></script>
@@ -18,8 +17,6 @@ test_valid_value('font-family', 'Cursive', 'cursive');
 test_valid_value('font-family', 'Fantasy', 'fantasy');
 test_valid_value('font-family', 'Monospace', 'monospace');
 test_valid_value('font-family', 'System-UI', 'system-ui');
-test_valid_value('font-family', 'generic(fangsong)');
-test_valid_value('font-family', 'generic(kai)');
 test_valid_value('font-family', 'serif, sans-serif, cursive, fantasy, monospace, system-ui');
 
 test_valid_value('font-family', 'Helvetica, Verdana, sans-serif');
