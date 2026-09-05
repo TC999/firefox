@@ -596,7 +596,6 @@ ImageTestCase GreenJXLTestCase();
 ImageTestCase ProgressiveJXLTestCase();
 ImageTestCase DownscaledJXLTestCase();
 ImageTestCase LargeJXLTestCase();
-ImageTestCase LargeJXLReferenceWebPTestCase();
 ImageTestCase TransparentJXLTestCase();
 ImageTestCase CorruptJXLTestCase();
 ImageTestCase PerfRgbLosslessJXLTestCase();

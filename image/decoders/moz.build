@@ -34,7 +34,6 @@ if CONFIG["MOZ_SYSTEM_AV1"]:
 
 if CONFIG["MOZ_JXL"]:
     UNIFIED_SOURCES += [
-        "JxlDecodePool.cpp",
         "nsJXLDecoder.cpp",
     ]
 
