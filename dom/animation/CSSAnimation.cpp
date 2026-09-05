@@ -5,6 +5,7 @@
 #include "CSSAnimation.h"
 
 #include "mozilla/AnimationEventDispatcher.h"
+#include "mozilla/KeyframeUtils.h"
 #include "mozilla/TimeStamp.h"
 #include "mozilla/dom/CSSAnimationBinding.h"
 #include "mozilla/dom/KeyframeEffectBinding.h"
@@ -528,6 +529,11 @@ bool CSSAnimationKeyframeEffect::GetComputedKeyframes(
 
     AnimatedPropertyIDSet currentProperties;
     for (const auto& pair : keyframe.mPropertyValues) {
+      MOZ_ASSERT(
+          !pair.mProperty.IsShorthand(),
+          "The shorthands should be expanded already for CSS Animations");
+      MOZ_ASSERT(KeyframeUtils::IsAnimatableProperty(pair.mProperty),
+                 "It should be animatable for CSS Animations");
       currentProperties.AddProperty(pair.mProperty);
     }
     allProperties.AddProperties(currentProperties);
