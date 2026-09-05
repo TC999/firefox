@@ -4449,7 +4449,7 @@ ${
     // Make sure the domain name stays visible for spoof protection and
     // usability. The browser itself is focused parent-side, where the load
     // runs against the chrome window.
-    if (!params.avoidBrowserFocus) {
+    if (this.#isAddressbar && !params.avoidBrowserFocus) {
       this.inputField.setSelectionRange(0, 0);
     }
 
@@ -6127,7 +6127,11 @@ ${
           // focusBrowser resolves asynchronously; if the user began a fresh
           // search since this Enter (a later input bumped the epoch), its
           // caret must be left alone -- only keep the domain visible for our load.
-          if (focused && keyDownEnterDeferred.inputEpoch === this.#inputEpoch) {
+          if (
+            this.#isAddressbar &&
+            focused &&
+            keyDownEnterDeferred.inputEpoch === this.#inputEpoch
+          ) {
             // Make sure the domain name stays visible for spoof protection and usability.
             this.inputField.setSelectionRange(0, 0);
           }

@@ -15,6 +15,9 @@ skip-if = ["debug"]
 
 ["browser_bounceTelemetry.js"]
 
+["browser_caret.js"]
+support-files = ["../browser/slow-page.sjs"]
+
 ["browser_disableTelemetry.js"]
 
 ["browser_engagementTelemetry.js"]
