@@ -855,7 +855,8 @@ impl ServoElementSnapshot {
 
     fn get_attr(&self, namespace: &Namespace, name: &LocalName) -> Option<&AttrValue> {
         self.attrs
-            .as_ref()?
+            .as_ref()
+            .unwrap()
             .iter()
             .find(|&&(ref ident, _)| ident.local_name == *name && ident.namespace == *namespace)
             .map(|&(_, ref v)| v)
@@ -878,10 +879,9 @@ impl ServoElementSnapshot {
     {
         self.attrs
             .as_ref()
-            .is_some_and(|attrs| attrs
-                .iter()
-                .any(|&(ref ident, ref v)| ident.local_name == *name && f(v))
-            )
+            .unwrap()
+            .iter()
+            .any(|&(ref ident, ref v)| ident.local_name == *name && f(v))
     }
 }
 
