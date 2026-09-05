@@ -18,7 +18,8 @@
 
   /* Usually we wouldn't need snapping border widths manually, but we use this
    * for other layout calculations too */
-  --urlbar-input-container-border-width: max(env(hairline), round(down, 1px, env(hairline)));
+  --urlbar-snapped-1px-border-width: max(env(hairline), round(down, 1px, env(hairline)));
+  --urlbar-input-container-border-width: var(--urlbar-snapped-1px-border-width);
   --urlbar-input-container-border-width-breakout: calc(2 * var(--urlbar-input-container-border-width));
   --urlbar-input-container-padding: round(nearest, var(--space-xxsmall) + var(--urlbar-input-container-border-width-breakout), 1px);
 
