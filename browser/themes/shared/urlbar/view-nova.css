@@ -1198,7 +1198,6 @@
   font-size: smaller;
   font-weight: var(--font-weight-semibold);
   border-radius: var(--urlbar-border-radius);
-  border: 1px solid transparent;
   padding: 0.4em 0.6em;
   display: inline-flex;
   align-items: center;
