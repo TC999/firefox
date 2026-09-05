@@ -2501,13 +2501,9 @@ impl MallocSizeOf for ExtraStyleData {
 }
 
 /// SelectorMapEntry implementation for use in our revalidation selector map.
-#[cfg_attr(feature = "gecko", derive(MallocSizeOf))]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, MallocSizeOf)]
 struct RevalidationSelectorAndHashes {
-    #[cfg_attr(
-        feature = "gecko",
-        ignore_malloc_size_of = "CssRules have primary refs, we measure there"
-    )]
+    #[ignore_malloc_size_of = "CssRules have primary refs, we measure there"]
     selector: Selector<SelectorImpl>,
     selector_offset: usize,
     hashes: AncestorHashes,
