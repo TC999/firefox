@@ -10,7 +10,6 @@
 #include "mozilla/Atomics.h"
 #include "mozilla/StaticPrefs_network.h"
 #include "mozilla/SyncRunnable.h"
-#include "mozilla/TimeStamp.h"
 #include "mozilla/dom/PContent.h"
 #include "mozilla/glean/NetwerkProtocolHttpMetrics.h"
 #include "mozilla/net/AltSvcTransactionChild.h"
@@ -813,13 +812,8 @@ already_AddRefed<AltSvcMapping> AltSvcCache::LookupMapping(
     return nullptr;
   }
 
-  int32t ttl = mapping->TTL();
-  if (ttl <= 0) {
+  if (mapping->TTL() <= 0) {
     LOG(("AltSvcCache::LookupMapping %p expired hit - MISS\n", this));
-    if (mapping->IsHttp3() && mapping->NPNToken() == "h3"_ns) {
-      glean::http::altsvc_h3_expired_staleness.AccumulateRawDuration(
-          TimeDuration::FromSeconds(-ttl);
-    }
     (void)mStorage->Remove(key, mapping->Private()
                                     ? nsIDataStorage::DataType::Private
                                     : nsIDataStorage::DataType::Persistent);
