@@ -47,7 +47,8 @@ void gfxConfigManager::Init() {
                   mWrAngleEnabled);
 #ifdef XP_WIN
   mWrRequireAngle = StaticPrefs::gfx_webrender_require_angle_AtStartup();
-  mWrDCompWinEnabled = StaticPrefs::gfx_webrender_dcomp_win_enabled_AtStartup();
+  mWrDCompWinEnabled =
+      Preferences::GetBool("gfx.webrender.dcomp-win.enabled", false);
 #endif
 
   mWrEnvForceEnabled = gfxPlatform::WebRenderEnvvarEnabled();

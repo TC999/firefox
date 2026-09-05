@@ -398,6 +398,12 @@ pref("gfx.downloadable_fonts.fallback_delay_short", 100);
 pref("gfx.canvas.azure.backends", "skia");
 pref("gfx.content.azure.backends", "skia");
 
+#ifdef XP_WIN
+  pref("gfx.webrender.flip-sequential", false);
+  pref("gfx.webrender.dcomp-win.enabled", true);
+  pref("gfx.webrender.triple-buffering.enabled", true);
+#endif
+
 // WebRender debugging utilities.
 pref("gfx.webrender.debug.texture-cache", false);
 pref("gfx.webrender.debug.texture-cache.clear-evicted", true);

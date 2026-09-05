@@ -565,7 +565,9 @@ static void WebRenderDebugPrefChangeCallback(const char* aPrefName, void*) {
 #undef GFX_WEBRENDER_DEBUG
   gfx::gfxVars::SetWebRenderDebugFlags(flags._0);
 
-  float threshold = StaticPrefs::gfx_webrender_debug_slow_cpu_frame_threshold();
+  uint32_t threshold = Preferences::GetFloat(
+      StaticPrefs::GetPrefName_gfx_webrender_debug_slow_cpu_frame_threshold(),
+      10.0);
   gfx::gfxVars::SetWebRenderSlowCpuFrameThreshold(threshold);
 }
 
@@ -574,19 +576,25 @@ static void WebRenderQualityPrefChangeCallback(const char* aPref, void*) {
 }
 
 static void WebRenderBatchingPrefChangeCallback(const char* aPrefName, void*) {
-  uint32_t count = StaticPrefs::gfx_webrender_batching_lookback();
+  uint32_t count = Preferences::GetUint(
+      StaticPrefs::GetPrefName_gfx_webrender_batching_lookback(), 10);
+
   gfx::gfxVars::SetWebRenderBatchingLookback(count);
 }
 
 static void WebRenderBlobTileSizePrefChangeCallback(const char* aPrefName,
                                                     void*) {
-  uint32_t tileSize = StaticPrefs::gfx_webrender_blob_tile_size();
+  uint32_t tileSize = Preferences::GetUint(
+      StaticPrefs::GetPrefName_gfx_webrender_blob_tile_size(), 256);
   gfx::gfxVars::SetWebRenderBlobTileSize(tileSize);
 }
 
 static void WebRenderUploadThresholdPrefChangeCallback(const char* aPrefName,
                                                        void*) {
-  int value = StaticPrefs::gfx_webrender_batched_upload_threshold();
+  int value = Preferences::GetInt(
+      StaticPrefs::GetPrefName_gfx_webrender_batched_upload_threshold(),
+      512 * 512);
+
   gfxVars::SetWebRenderBatchedUploadThreshold(value);
 }
 
@@ -2875,14 +2883,16 @@ void gfxPlatform::InitWebRenderConfig() {
     gfxVars::SetReuseDecoderDevice(true);
   }
 
-  if (StaticPrefs::gfx_webrender_flip_sequential_AtStartup() &&
-      gfxVars::UseWebRenderANGLE()) {
-    gfxVars::SetUseWebRenderFlipSequentialWin(true);
+  if (Preferences::GetBool("gfx.webrender.flip-sequential", false)) {
+    if (gfxVars::UseWebRenderANGLE()) {
+      gfxVars::SetUseWebRenderFlipSequentialWin(true);
+    }
   }
-  if (StaticPrefs::gfx_webrender_triple_buffering_enabled_AtStartup() &&
-      (gfxVars::UseWebRenderDCompWin() ||
-       gfxVars::UseWebRenderFlipSequentialWin())) {
-    gfxVars::SetUseWebRenderTripleBufferingWin(true);
+  if (Preferences::GetBool("gfx.webrender.triple-buffering.enabled", false)) {
+    if (gfxVars::UseWebRenderDCompWin() ||
+        gfxVars::UseWebRenderFlipSequentialWin()) {
+      gfxVars::SetUseWebRenderTripleBufferingWin(true);
+    }
   }
 
   if (StaticPrefs::
