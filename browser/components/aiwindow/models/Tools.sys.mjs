@@ -327,11 +327,12 @@ export const toolsConfig = [
             items: {
               type: "string",
               description:
-                "A URL token that appeared in the conversation, formatted as §url_token: DOMAIN_TLD_PATH_n§. " +
+                "A URL token formatted as §url_token: DOMAIN_TLD_PATH_n§. " +
                 "Do NOT fabricate tokens. Only use tokens from user messages and tool results.",
             },
             minItems: 1,
-            description: "List of URL tokens to fetch content from.",
+            description:
+              "List of URL tokens to fetch content from. Typically URL tokens are referenced in the conversation or found by searching open tabs.",
           },
         },
         required: ["url_list"],
@@ -1317,8 +1318,8 @@ export async function createAITab({ url_list, focus }, conversation, signal) {
   if (result.error) {
     return `The page could not be created: ${result.error}.`;
   }
+  const viewerURL = lazy.AITab.buildViewerURL(viewerBase, result.surface);
 
-  const viewerURL = lazy.AITab.buildViewerURL(viewerBase, result.page);
   // Mark the viewer URL as seen so the chat renders it as a trusted, labeled
   // link. Unseen links are unfurled as "label (full URL)" for disclosure, and
   // this URL's hash carries the whole page config, so the full URL is very long.
