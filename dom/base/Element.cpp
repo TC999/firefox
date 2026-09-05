@@ -5049,6 +5049,30 @@ bool Element::Matches(const nsACString& aSelector, ErrorResult& aResult) {
   return Servo_SelectorList_Matches(this, list);
 }
 
+static constexpr nsAttrValue::EnumTableEntry kReferrerPolicyTable[] = {
+    {GetEnumString(ReferrerPolicy::No_referrer).get(),
+     static_cast<int16_t>(ReferrerPolicy::No_referrer)},
+    {GetEnumString(ReferrerPolicy::Origin).get(),
+     static_cast<int16_t>(ReferrerPolicy::Origin)},
+    {GetEnumString(ReferrerPolicy::Origin_when_cross_origin).get(),
+     static_cast<int16_t>(ReferrerPolicy::Origin_when_cross_origin)},
+    {GetEnumString(ReferrerPolicy::No_referrer_when_downgrade).get(),
+     static_cast<int16_t>(ReferrerPolicy::No_referrer_when_downgrade)},
+    {GetEnumString(ReferrerPolicy::Unsafe_url).get(),
+     static_cast<int16_t>(ReferrerPolicy::Unsafe_url)},
+    {GetEnumString(ReferrerPolicy::Strict_origin).get(),
+     static_cast<int16_t>(ReferrerPolicy::Strict_origin)},
+    {GetEnumString(ReferrerPolicy::Same_origin).get(),
+     static_cast<int16_t>(ReferrerPolicy::Same_origin)},
+    {GetEnumString(ReferrerPolicy::Strict_origin_when_cross_origin).get(),
+     static_cast<int16_t>(ReferrerPolicy::Strict_origin_when_cross_origin)},
+};
+
+bool Element::ParseReferrerAttribute(const nsAString& aString,
+                                     nsAttrValue& aResult) {
+  return aResult.ParseEnumValue(aString, kReferrerPolicyTable, false);
+}
+
 static constexpr nsAttrValue::EnumTableEntry kCORSAttributeTable[] = {
     // Order matters here
     // See ParseCORSValue
@@ -6030,7 +6054,7 @@ Element* Element::GetPseudoElement(const PseudoStyleRequest& aRequest) const {
 }
 
 ReferrerPolicy Element::GetReferrerPolicyAsEnum() const {
-  if (IsHTMLElement()) {
+  if (IsHTMLElement() || IsSVGElement()) {
     return ReferrerPolicyFromAttr(GetParsedAttr(nsGkAtoms::referrerpolicy));
   }
   return ReferrerPolicy::_empty;

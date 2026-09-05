@@ -2154,6 +2154,9 @@ class Element : public FragmentOrElement {
     return mAttrs.AttrInfoAt(index);
   }
 
+  static bool ParseReferrerAttribute(const nsAString& aString,
+                                     nsAttrValue& aResult);
+
   /**
    * Parse a string into an nsAttrValue for a CORS attribute.  This
    * never fails.  The resulting value is an enumerated value whose
