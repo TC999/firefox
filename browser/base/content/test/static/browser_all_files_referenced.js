@@ -202,11 +202,6 @@ var allowlist = [
   // SpiderMonkey parser API, currently unused in browser/ and toolkit/
   { file: "moz-src:///toolkit/components/reflect/reflect.sys.mjs" },
 
-  // TODO Bug 2065560: Connect AITabStore to Tool calls
-  {
-    file: "moz-src:///browser/components/aiwindow/ui/modules/AITabStore.sys.mjs",
-  },
-
   // TODO Bug 2064553: Integrate ConversationStore into the Conversation model
   {
     file: "moz-src:///browser/components/aiwindow/ui/modules/ConversationStore.sys.mjs",
