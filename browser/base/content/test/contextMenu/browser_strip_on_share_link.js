@@ -10,10 +10,7 @@ let url =
 
 add_setup(async function () {
   await SpecialPowers.pushPrefEnv({
-    set: [
-      ["test.wait300msAfterTabSwitch", true],
-      ["privacy.query_stripping.strip_list", "stripParam"],
-    ],
+    set: [["privacy.query_stripping.strip_list", "stripParam"]],
   });
 
   // Get the list service so we can wait for it to be fully initialized before running tests.

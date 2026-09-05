@@ -38,10 +38,6 @@ let oldDefaultEngine;
 let oldDefaultPrivateEngine;
 
 add_setup(async function () {
-  await SpecialPowers.pushPrefEnv({
-    set: [["test.wait300msAfterTabSwitch", true]],
-  });
-
   await SearchService.init();
 
   for (let [name, search_url] of ENGINE_DATA) {
