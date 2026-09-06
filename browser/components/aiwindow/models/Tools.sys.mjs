@@ -1415,7 +1415,8 @@ export async function manageTabs(
     message_seq: conversation.messageCount,
     model,
     prompt_version: conversation.systemPromptVersion,
-    action_type: actionTrigger,
+    action: TAB_ACTIONS.includes(action) ? action : "unsupported",
+    trigger: actionTrigger,
   };
 
   lazy.ToolUITelemetry.recordBrowserActionSubmit({

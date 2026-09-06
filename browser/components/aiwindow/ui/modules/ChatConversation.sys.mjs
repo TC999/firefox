@@ -322,6 +322,16 @@ export class ChatConversation extends Conversation {
   }
 
   /**
+   * Number of stashed browser_action_submit contexts awaiting a confirmation.
+   * Exposed for tests.
+   *
+   * @type {number}
+   */
+  get pendingBrowserActionTelemetryCount() {
+    return this.#pendingBrowserActionTelemetry.size;
+  }
+
+  /**
    * Converts a URL into a token. It first computes a base token from
    * the hostname and path parts, then appends a monotonically increasing number on the
    * end to make it unique. This token is cached to the conversation while

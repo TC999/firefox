@@ -2057,7 +2057,7 @@ add_task(async function test_undo_tab_group_error_telemetry() {
   ToolUITelemetry.recordBrowserActionUndo = originalRecordUndo;
 
   Assert.equal(result, false, "Should return false when an operation fails");
-  Assert.equal(undo.action_type, "group_tabs", "Records the group action type");
+  Assert.equal(undo.action, "group_tabs", "Records the group action type");
   Assert.equal(undo.result, "error", "Records an error result");
   Assert.equal(undo.error, "group_not_found", "Propagates the failure reason");
   Assert.equal(
