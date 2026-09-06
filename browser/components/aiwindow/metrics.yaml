@@ -1420,15 +1420,15 @@ smart_window:
       location: *location
       chat_id: *chat_id
       message_seq: *message_seq
-      action_type:
+      action_type: &browser_action_type
         type: string
-        description: Type of browser action requested
+        description: The requested browser action
       prompt_type:
         type: string
         description: Type of prompt shown - disambiguation, batch_preview, or safety_confirmation
       reason:
         type: string
-        description: Why the prompt was shown - multiple_matches, low_confidence, batch_action, pinned_tab, active_tab, last_tab
+        description: Why the prompt was shown - multiple_matches, low_confidence, batch_action, pinned_tab, active_tab, last_tab, user_action
       candidates:
         type: quantity
         unit: count
@@ -1454,10 +1454,7 @@ smart_window:
       location: *location
       chat_id: *chat_id
       message_seq: *message_seq
-      action_type:
-        type: string
-        description: >
-          Type of browser action requested
+      action_type: *browser_action_type
       prompt_type:
         type: string
         description: >
@@ -1492,10 +1489,7 @@ smart_window:
       location: *location
       chat_id: *chat_id
       message_seq: *message_seq
-      action_type:
-        type: string
-        description: >
-          Type of browser action that was undone
+      action_type: *browser_action_type
       tabs_restored:
         type: quantity
         unit: count
@@ -1521,8 +1515,10 @@ smart_window:
       Recorded when the model invokes a browser action tool (e.g., manage_tabs).
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2037203
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2061465
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2037203
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2061465
     data_sensitivity:
       - interaction
     notification_emails: *emails
@@ -1558,8 +1554,10 @@ smart_window:
       Recorded when a browser action initiated by the model has completed, errored, or been cancelled.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2037203
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2061465
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2037203
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2061465
     data_sensitivity:
       - interaction
     notification_emails: *emails
@@ -1583,7 +1581,7 @@ smart_window:
         type: quantity
         unit: count
         description: >
-          Number of tabs actually closed.
+          Number of tabs the action affected successfully.
       undo_available:
         type: boolean
         description: >
@@ -1591,7 +1589,8 @@ smart_window:
       error:
         type: string
         description: >
-          Error code if the action was unsuccessful.
+          Error code if the action was unsuccessful. auto_cancel when a pending
+          confirmation was followed by a new user prompt.
 
   topsites_enabled:
     lifetime: application

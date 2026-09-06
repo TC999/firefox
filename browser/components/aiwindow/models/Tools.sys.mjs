@@ -1362,13 +1362,13 @@ function countOpenAIWindowTabs() {
 }
 
 /**
- * Determines the telemetry action_type for a manage_tabs invocation.
+ * Determines the telemetry trigger for a manage_tabs invocation.
  *
  * @param {ChatConversation} conversation
  * @param {string} action
  * @returns {"unsupported" | "tab_mention" | "description"}
  */
-function getActionType(conversation, action) {
+function getActionTrigger(conversation, action) {
   if (!TAB_ACTIONS.includes(action)) {
     return "unsupported";
   }
@@ -1407,31 +1407,25 @@ export async function manageTabs(
     label = "",
   } = params;
 
-  const actionType = getActionType(conversation, action);
-
-  if (conversation) {
-    conversation.lastBrowserActionType = actionType;
-  }
-
-  const promptVersion = conversation?.systemPromptVersion ?? "";
+  const actionTrigger = getActionTrigger(conversation, action);
 
   const baseTelemetryInfo = {
     location: mode,
-    chat_id: conversation?.id || "",
-    message_seq: conversation?.messageCount ?? 0,
+    chat_id: conversation.id,
+    message_seq: conversation.messageCount,
     model,
-    prompt_version: promptVersion,
-    action_type: actionType,
+    prompt_version: conversation.systemPromptVersion,
+    action_type: actionTrigger,
   };
 
   lazy.ToolUITelemetry.recordBrowserActionSubmit({
     ...baseTelemetryInfo,
     tabs_open: countOpenAIWindowTabs(),
     mentions: conversation.getLatestUserMentionCount(),
-    submit_type: conversation?.lastSubmitType || "",
+    submit_type: conversation.lastSubmitType || "",
   });
 
-  if (actionType === "unsupported") {
+  if (actionTrigger === "unsupported") {
     lazy.ToolUITelemetry.recordBrowserActionComplete({
       ...baseTelemetryInfo,
       result: "error",

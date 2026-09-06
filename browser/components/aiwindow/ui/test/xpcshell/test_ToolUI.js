@@ -1917,6 +1917,9 @@ add_task(async function test_undo_tab_close_partial_success() {
   const conversation = {
     id: "chat-1",
     messages: [message],
+    get messageCount() {
+      return this.messages.length;
+    },
     updateToolUI: (m, data) => (m.toolUIData = data),
   };
 
@@ -2024,6 +2027,9 @@ add_task(async function test_undo_tab_group_error_telemetry() {
   const conversation = {
     id: "chat-1",
     messages: [message],
+    get messageCount() {
+      return this.messages.length;
+    },
     updateToolUI: (m, data) => (m.toolUIData = data),
   };
 
