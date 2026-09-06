@@ -9204,7 +9204,7 @@
 # does not add threads.
 - name: image.jxl.decode_participants
   type: RelaxedAtomicUint32
-  value: 1
+  value: 0
   mirror: always
   rust: true
 
