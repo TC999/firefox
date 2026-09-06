@@ -6086,7 +6086,7 @@ ${
     });
   }
 
-  async _on_keyup(event) {
+  _on_keyup(event) {
     if (event.currentTarget == this.window) {
       this._untrimOnFocusAfterKeydown = false;
       return;
@@ -6115,9 +6115,24 @@ ${
     // Pressing Enter key while pressing Meta key, and next, even when releasing
     // Enter key before releasing Meta key, the keyup event is not fired.
     // Therefore, if Enter keydown is detecting, continue the post processing
-    // for Enter key when any keyup event is detected.
+    // for Enter key when any keyup event is detected. Keep this handler
+    // synchronous -- only the rare deferred-Enter path awaits, so it runs as a
+    // fire-and-forget task instead of allocating a microtask on every keyup.
+    if (this._keyDownEnterDeferred && !this._finishingDeferredEnter) {
+      this.#finishDeferredEnter();
+    }
+  }
+
+  /**
+   * Completes the deferred handling of an Enter keypress once a keyup arrives.
+   * Split out of `_on_keyup` so the common keyup path stays synchronous.
+   */
+  async #finishDeferredEnter() {
+    // Guard against a second keyup re-entering while the awaits below are
+    // pending; released in the finally along with the deferred.
+    this._finishingDeferredEnter = true;
     let keyDownEnterDeferred = this._keyDownEnterDeferred;
-    if (keyDownEnterDeferred) {
+    try {
       if (keyDownEnterDeferred.loadedContent) {
         try {
           const browserId = await keyDownEnterDeferred.promise;
@@ -6138,15 +6153,18 @@ ${
         } catch (ex) {
           // Not all the Enter actions in the urlbar will cause a navigation, then it
           // is normal for this to be rejected.
-          // If _keyDownEnterDeferred was rejected on keydown, we don't nullify it here
-          // to ensure not overwriting the new value created by keydown.
         }
       } else {
         // Discard the _keyDownEnterDeferred promise to receive any key inputs immediately.
         keyDownEnterDeferred.resolve();
       }
-
-      this._keyDownEnterDeferred = null;
+    } finally {
+      // Only clear if a newer Enter keydown hasn't already replaced it, so we
+      // don't overwrite that fresh deferred; then release the re-entry guard.
+      if (this._keyDownEnterDeferred === keyDownEnterDeferred) {
+        this._keyDownEnterDeferred = null;
+      }
+      this._finishingDeferredEnter = false;
     }
   }
 
