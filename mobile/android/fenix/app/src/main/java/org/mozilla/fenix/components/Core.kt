@@ -590,7 +590,11 @@ class Core(
         PocketStoriesConfig(
             client,
             contentRecommendationsParams =
-                ContentRecommendationsRequestConfig(locale = LocaleManager.getSelectedLocale(context)),
+                ContentRecommendationsRequestConfig(
+                    locale = LocaleManager.getSelectedLocale(context),
+                    userAgent = engine.settings.userAgentString.orEmpty(),
+                    useMerinoClient = context.components.settings.enableMerinoClient,
+                ),
             marsSponsoredContentsParams =
                 MarsSpocsRequestConfig(
                     contextId = context.components.settings.contileContextId,
@@ -605,7 +609,13 @@ class Core(
                 ),
         )
     }
-    val pocketStoriesService by lazyMonitored { PocketStoriesService(context, pocketStoriesConfig) }
+    val pocketStoriesService by lazyMonitored {
+        PocketStoriesService(
+            context = context,
+            pocketStoriesConfig = pocketStoriesConfig,
+            crashReporter = crashReporter,
+        )
+    }
 
     val macTopSitesProvider by lazyMonitored {
         MacTopSitesProvider(
