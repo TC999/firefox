@@ -186,7 +186,7 @@ mozilla::ipc::IPCResult SpeechRecognitionParent::RecvInstallModels(
       utilityChild ? utilityChild->GetHWInferenceChild() : nullptr;
   if (!hwInferenceChild) {
     LOGE("{} No HWInferenceChild available", __func__);
-    aResolver(false);
+    aResolver(hwinference::ModelInstallResult::Failed);
     return IPC_OK();
   }
 
@@ -201,7 +201,9 @@ mozilla::ipc::IPCResult SpeechRecognitionParent::RecvInstallModels(
                  PHWInferenceChild::InstallModelPromise::ResolveOrRejectValue&&
                      aValue) mutable {
                self->mInstallModelRequest.Complete();
-               aResolver(aValue.IsResolve() && aValue.ResolveValue());
+               aResolver(aValue.IsResolve()
+                             ? aValue.ResolveValue()
+                             : hwinference::ModelInstallResult::Failed);
              })
       ->Track(mInstallModelRequest);
 

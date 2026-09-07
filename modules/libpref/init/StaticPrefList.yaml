@@ -2381,11 +2381,7 @@
 # back from the in-process clipboard cache is unaffected).
 - name: clipboard.readCustomFormatsFromClipboard.enabled
   type: RelaxedAtomicBool
-#if defined(ANDROID)
-  value: false
-#else
   value: @IS_NIGHTLY_BUILD@
-#endif
   mirror: always
 
 #---------------------------------------------------------------------------
@@ -2721,11 +2717,7 @@
 # Master gate for the web custom format support in the Async Clipboard API.
 - name: dom.clipboard.customFormatSupport.enabled
   type: RelaxedAtomicBool
-#if defined(ANDROID)
-  value: false
-#else
   value: @IS_NIGHTLY_BUILD@
-#endif
   mirror: always
 
 # HTML specification says the level should be 5
@@ -8168,6 +8160,21 @@
   type: bool
   value: true
   mirror: once
+
+- name: gfx.webrender.flip-sequential
+  type: bool
+  value: false
+  mirror: once
+
+- name: gfx.webrender.dcomp-win.enabled
+  type: bool
+  value: true
+  mirror: once
+
+- name: gfx.webrender.triple-buffering.enabled
+  type: bool
+  value: true
+  mirror: once
 #endif
 
 - name: gfx.webrender.svg-filter-effects
@@ -9186,6 +9193,20 @@
   type: RelaxedAtomicBool
   value: @IS_NIGHTLY_BUILD@
   mirror: always
+
+# How many threads may work on a single JXL image decode, counting the thread doing the
+# decode, which takes a share of the work as well as waiting for the others. The pool is
+# asked for one fewer than this because of that. 0 means decide based on the machines
+# number of cpus clamped to between 2 and 8. 1 means the decoding thread by itself, so
+# parallel decoding is off. Any other value is taken literally. Takes effect on the next
+# decode, but the pool's thread limit is fixed by the first parallel decode of the
+# process, so lowering this later uses less of the pool while raising it past that limit
+# does not add threads.
+- name: image.jxl.decode_participants
+  type: RelaxedAtomicUint32
+  value: 0
+  mirror: always
+  rust: true
 
 #endif
 
@@ -12247,6 +12268,16 @@
   value: @IS_NIGHTLY_BUILD@
   mirror: always
 
+# When true, MediaCapabilities answers non-WebRTC decoding support queries from
+# the cached codec-support snapshot (PDMFactorySupport), waiting asynchronously
+# for remote processes to report their support. When false, it falls back to
+# the original behaviour of creating a decoder and querying it (video) or a
+# synchronous PDMFactorySupport query (audio).
+- name: media.mediacapabilities.codec-support-cache.enabled
+  type: RelaxedAtomicBool
+  value: false
+  mirror: always
+
 # Enable WebRTC type support in Media Capabilities API.
 - name: media.mediacapabilities.webrtc.enabled
   type: RelaxedAtomicBool
@@ -13240,6 +13271,16 @@
 - name: media.webspeech.recognition.enable
   type: bool
   value: false
+  mirror: always
+
+# Whether start() offers to download the on-device model for its language when
+# that model is supported but not installed yet, instead of failing the session
+# with service-not-allowed. The prompt and the download are install()'s; every
+# event, "start" included, waits for the model. Pages predating install() only
+# ever call start(), hence the default.
+- name: media.webspeech.recognition.install_on_start
+  type: bool
+  value: true
   mirror: always
 
 # How long the HWInference connection (and with it the utility process, when
@@ -18618,6 +18659,12 @@
 -   name: security.sandbox.gpu.shadow-stack.enabled
     type: RelaxedAtomicBool
     value: true
+    mirror: always
+
+# If enabled, excepts all JOB_OBJECT_UILIMIT_* flags from the GPU process's job.
+-   name: security.sandbox.gpu.disable-job-uilimits
+    type: RelaxedAtomicBool
+    value: false
     mirror: always
 
 -   name: security.sandbox.gmp.shadow-stack.enabled

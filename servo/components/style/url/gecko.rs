@@ -13,7 +13,7 @@ use crate::values::computed::{Context, ToComputedValue};
 use malloc_size_of::{MallocSizeOf, MallocSizeOfOps};
 use nsstring::nsCString;
 use servo_arc::Arc;
-use std::collections::HashMap;
+use hashbrown::HashMap;
 use std::fmt::{self, Write};
 use std::mem::ManuallyDrop;
 use std::sync::{LazyLock, RwLock};

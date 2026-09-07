@@ -27,10 +27,10 @@ use crate::thread_state::{self, ThreadState};
 use crate::traversal::DomTraversal;
 use crate::traversal_flags::TraversalFlags;
 use crate::values::computed::TreeCountingResult;
+use crate::FxHashMap;
 use app_units::Au;
 use euclid::default::Size2D;
 use euclid::Scale;
-use rustc_hash::FxHashMap;
 use selectors::context::SelectorCaches;
 use selectors::OpaqueElement;
 #[cfg(feature = "gecko")]

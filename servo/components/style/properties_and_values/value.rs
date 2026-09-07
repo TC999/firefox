@@ -21,9 +21,9 @@ use crate::values::{
     computed::{self, ToComputedValue},
     specified, CustomIdent,
 };
+use crate::FxHashMap;
 use crate::{Namespace, Prefix};
 use cssparser::{BasicParseErrorKind, ParseErrorKind, Parser as CSSParser, TokenSerializationType};
-use rustc_hash::FxHashMap;
 use selectors::matching::QuirksMode;
 use servo_arc::Arc;
 use smallvec::SmallVec;

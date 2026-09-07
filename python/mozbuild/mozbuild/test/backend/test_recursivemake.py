@@ -1339,6 +1339,33 @@ class TestRecursiveMakeBackend(BackendTester):
         found = [str for str in lines if "DIST_FILES" in str]
         self.assertEqual(found, expected)
 
+    def test_final_target_files_absolute(self):
+        """Absolute FINAL_TARGET_FILES are installed, and libraries checked."""
+        env = self._get_environment("final-target-files-absolute")
+
+        # The files only need to exist for the moz.build to be read, and *.pdb
+        # is ignored tree-wide, so create them in the objdir rather than
+        # checking them in.
+        so = mozpath.join(env.topobjdir, "libfoo.so")
+        pdb = mozpath.join(env.topobjdir, "libfoo.pdb")
+        for path in (so, pdb):
+            open(path, "a").close()
+
+        self._consume("final-target-files-absolute", RecursiveMakeBackend, env=env)
+
+        backend_path = mozpath.join(env.topobjdir, "backend.mk")
+        lines = [l.strip() for l in open(backend_path).readlines()[2:]]
+
+        expected = [
+            # Debug information is installed, but there is nothing to check.
+            f"$(INSTALL) {pdb} $(DEPTH)/dist/bin/",
+            f"$(INSTALL) {so} $(DEPTH)/dist/bin/",
+            "$(call py_action,check_binary libfoo.so,$(DEPTH)/dist/bin/libfoo.so)",
+        ]
+
+        found = [str for str in lines if "libfoo." in str]
+        self.assertEqual(found, expected)
+
     def test_pp_files_extra_deps(self):
         """Ensure PP_FILES_EXTRA_DEPS is written to backend.mk correctly."""
         env = self._consume("pp-files-extra-deps", RecursiveMakeBackend)
@@ -1561,7 +1588,7 @@ class TestRecursiveMakeBackend(BackendTester):
         with open(root_deps_path) as fh:
             lines = [l.strip() for l in fh.readlines()]
 
-        self.assertIn("rust/uniffi-target: archive/target", lines)
+        self.assertIn("rust/uniffi-target: archive/target middle/target-objects", lines)
         self.assertIn("archive/target: archive/target-objects", lines)
 
         backend_path = mozpath.join(env.topobjdir, "archive", "backend.mk")
@@ -1657,6 +1684,34 @@ class TestRecursiveMakeBackend(BackendTester):
         with open(root_backend) as fh:
             root_content = fh.read()
         self.assertNotIn("generated.plist:", root_content)
+
+        sharedlib_backend = mozpath.join(env.topobjdir, "sharedlib", "backend.mk")
+        with open(sharedlib_backend) as fh:
+            sharedlib_content = fh.read()
+        self.assertIn(
+            "libextra-link-deps-lib.so: generated.rsp",
+            sharedlib_content,
+        )
+        self.assertIn("COMPUTED_LDFLAGS += @generated.rsp", sharedlib_content)
+        # A response file the link reads has to be written before the link, so
+        # its rule belongs to the directory rather than the top level.
+        self.assertIn("generated.rsp:", sharedlib_content)
+        self.assertNotIn("generated.rsp:", root_content)
+
+        # A response file no link reads keeps its rule at the top level, where
+        # a consumer in another directory can still see it.
+        unrelated_backend = mozpath.join(env.topobjdir, "unrelated", "backend.mk")
+        with open(unrelated_backend) as fh:
+            unrelated_content = fh.read()
+        self.assertIn("unrelated.rsp:", root_content)
+        self.assertNotIn("unrelated.rsp:", unrelated_content)
+
+        # nested/deep.rsp and other/deep.rsp share a base name and only the
+        # first is linked against, so the two are told apart by path.
+        self.assertIn("nested/deep.rsp:", sharedlib_content)
+        self.assertNotIn("sharedlib/nested/deep.rsp:", root_content)
+        self.assertNotIn("other/deep.rsp:", sharedlib_content)
+        self.assertIn("sharedlib/other/deep.rsp:", root_content)
 
     def test_shared_library_output_category(self):
         """SharedLibrary with output_category should be excluded from

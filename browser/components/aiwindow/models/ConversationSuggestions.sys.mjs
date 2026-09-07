@@ -872,10 +872,14 @@ export async function generateResumeActivityConversationStarters() {
  * @param {Array<object>} resumeActivitySuggestion.content.previewTabs - Array of preview tabs
  * @param {string} resumeActivitySuggestion.content.previewTabs[].url - URL of a preview tab
  * @param {string} resumeActivitySuggestion.content.previewTabs[].title - Title of a preview tab
+ * @param {string} [conversationId] - Id to reuse for the new conversation, so
+ *   telemetry keeps the chat_id of the conversation the pill was clicked in.
+ *   A new id is generated when omitted.
  * @returns {Promise<ChatConversation>} ChatConversation instance initialized with the resume activity context
  */
 export async function constructConversationToResumeActivity(
-  resumeActivitySuggestion
+  resumeActivitySuggestion,
+  conversationId
 ) {
   if (
     !resumeActivitySuggestion ||
@@ -904,6 +908,7 @@ export async function constructConversationToResumeActivity(
   }
 
   const conversation = new lazy.ChatConversation({
+    ...(conversationId ? { id: conversationId } : {}),
     title: resumeActivitySuggestion.content.headline,
   });
 

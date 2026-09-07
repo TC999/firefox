@@ -970,6 +970,7 @@ export class SmartFormFillParent extends JSWindowActorParent {
       return {
         hasErrors: true,
         cancelled: false,
+        filledFieldCount: 0,
       };
     }
 
@@ -983,12 +984,14 @@ export class SmartFormFillParent extends JSWindowActorParent {
         return {
           hasErrors: true,
           cancelled: false,
+          filledFieldCount: 0,
         };
       }
 
       return {
         hasErrors: !!result.hasErrors,
         cancelled: !!result.cancelled,
+        filledFieldCount: result.filledFieldCount,
       };
     } catch (error) {
       if (!this.#destroyed) {
@@ -997,6 +1000,7 @@ export class SmartFormFillParent extends JSWindowActorParent {
       return {
         hasErrors: true,
         cancelled: false,
+        filledFieldCount: 0,
       };
     }
   }

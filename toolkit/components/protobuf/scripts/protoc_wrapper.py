@@ -6,6 +6,7 @@ import platform
 import subprocess
 import sys
 from pathlib import Path
+from typing import Optional
 
 import buildconfig
 from mach.util import get_state_dir
@@ -16,7 +17,7 @@ TOPSRCDIR = Path(buildconfig.topsrcdir)
 COMPONENT_DIR = Path(__file__).parent.parent
 
 
-def protoc_binary(revision: None | str = None) -> Path:
+def protoc_binary(revision: Optional[str] = None) -> Path:
     if not revision:
         revision = _get_protobuf_revision_from_moz_yaml()
 

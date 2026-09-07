@@ -50,6 +50,7 @@ const { NonPrivateTabs } = ChromeUtils.importESModule(
  * @typedef {object} FormReviewSnapshot
  * @property {string} state - Current form review state.
  * @property {string|null} errorType - Current error result, if any.
+ * @property {number|null} filledFieldCount - Number of fields filled, if known.
  * @property {Array<object>} fields - Fields currently held by the component.
  * @property {string[]} l10nIds - Localization IDs rendered by the component.
  * @property {boolean|null} fillButtonDisabled - Fill button state, if rendered.
@@ -385,6 +386,7 @@ async function getFormReviewSnapshot(reviewBrowser) {
     return {
       state: review.state,
       errorType: review.errorType,
+      filledFieldCount: review.filledFieldCount,
       fields: review.fields.map(field => ({ ...field })),
       l10nIds: [...review.renderRoot.querySelectorAll("[data-l10n-id]")].map(
         element => element.getAttribute("data-l10n-id")
@@ -475,7 +477,14 @@ async function scrollFormReviewFieldsToBottom(reviewBrowser) {
       throw new Error("Could not find form review fields");
     }
 
+    // The list sets scroll-behavior: smooth, so the position animates and only
+    // lands a few frames later.
     fields.scrollTop = fields.scrollHeight;
+    await ContentTaskUtils.waitForCondition(
+      () => fields.scrollHeight - fields.scrollTop - fields.clientHeight <= 1,
+      "Waiting for the review fields to reach their maximum scroll position"
+    );
+
     fields.dispatchEvent(new content.Event("scroll"));
     await review.updateComplete;
   });

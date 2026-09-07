@@ -9,7 +9,7 @@
 use api::units::*;
 use crate::box_shadow::BLUR_SAMPLE_SCALE;
 use crate::command_buffer::{CommandBufferBuilderKind, CommandBufferList, CommandBufferBuilder, CommandBufferIndex};
-use crate::internal_types::{FastHashMap, Filter};
+use crate::internal_types::{FastHashMap, FastHashSet, Filter};
 use crate::picture_composite_mode::PictureCompositeMode;
 use crate::tile_cache::{TileKey, SubSliceIndex, MAX_COMPOSITOR_SURFACES};
 use crate::prim_store::PictureIndex;
@@ -35,23 +35,30 @@ pub use crate::picture_composite_mode::get_surface_rects;
 ///    sample that one task.
 ///  - SVG filter graph: potentially several, since any node in the graph may
 ///    take SourceGraphic as an input.
-///
-/// Filter chains are small and acyclic, so a plain recursive walk is enough.
 fn order_readers_after(
     rg_builder: &mut RenderTaskGraphBuilder,
     task_id: RenderTaskId,
     src_task_id: RenderTaskId,
     dep_task_id: RenderTaskId,
 ) {
-    let children = rg_builder.get_task(task_id).children.clone();
+    let mut visited = FastHashSet::default();
+    let mut pending = FastHashSet::default();
+    pending.insert(task_id);
 
-    if children.contains(&src_task_id) {
-        rg_builder.add_dependency(task_id, dep_task_id);
-    }
+    while !pending.is_empty() {
+        for task_id in std::mem::take(&mut pending) {
+            visited.insert(task_id);
 
-    for child_id in children {
-        if child_id != src_task_id {
-            order_readers_after(rg_builder, child_id, src_task_id, dep_task_id);
+            let children = rg_builder.get_task(task_id).children.clone();
+
+            if children.contains(&src_task_id) {
+                rg_builder.add_dependency(task_id, dep_task_id);
+            }
+            for child_id in children {
+                if child_id != src_task_id && !visited.contains(&child_id) {
+                    pending.insert(child_id);
+                }
+            }
         }
     }
 }
@@ -115,6 +122,27 @@ fn resolve_dest_to_src_raster(
             ScaleOffset::identity()
         }
     }
+}
+
+/// The spatial node that visibility, clipping, dirty-region and invalidation
+/// calculations for a surface are performed relative to.
+///
+/// Everything downstream treats `VisPixel` as the local space of the returned
+/// node, so a surface's culling rect and every primitive or clip rect projected
+/// for a culling decision must be built against the same node.
+///
+/// This is the root reference frame rather than the surface's own raster node,
+/// which means content drawn into an off-screen surface is culled against a
+/// region of the screen rather than a region of that surface's render target.
+/// Moving it to the raster node is the point of the migration described in
+/// `plan-wr-culling-in-raster-space.md`; this is the one place that decides.
+pub fn visibility_node(
+    raster_spatial_node_index: SpatialNodeIndex,
+    spatial_tree: &SpatialTree,
+) -> SpatialNodeIndex {
+    debug_assert_ne!(raster_spatial_node_index, SpatialNodeIndex::INVALID);
+
+    spatial_tree.root_reference_frame_index()
 }
 
 /// Maximum blur radius for blur filter
@@ -252,8 +280,8 @@ impl SurfaceInfo {
             pic_bounds,
         );
 
-        // TODO: replace the root with raster space.
-        let visibility_spatial_node_index = spatial_tree.root_reference_frame_index();
+        let visibility_spatial_node_index =
+            visibility_node(raster_spatial_node_index, spatial_tree);
 
         SurfaceInfo {
             unclipped_local_rect: PictureRect::zero(),
@@ -318,8 +346,7 @@ impl SurfaceInfo {
             if *should_inflate {
                 // Space mapping vis <-> picture space
                 let map_surface_to_vis = SpaceMapper::new_with_target(
-                    // TODO: switch from root to raster space.
-                    frame_context.root_spatial_node_index,
+                    self.visibility_spatial_node_index,
                     self.surface_spatial_node_index,
                     parent_culling_rect,
                     frame_context.spatial_tree,

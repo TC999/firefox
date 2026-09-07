@@ -18,11 +18,11 @@ use crate::stylesheets::{
     CssRule, CssRules, CustomMediaEvaluator, CustomMediaMap, Origin, UrlExtraData,
 };
 use crate::use_counters::UseCounters;
+use crate::FxHashMap;
 use crate::{Namespace, Prefix};
 use cssparser::{Parser, StyleSheetParser};
 #[cfg(feature = "gecko")]
 use malloc_size_of::{MallocSizeOfOps, MallocUnconditionalShallowSizeOf};
-use rustc_hash::FxHashMap;
 use servo_arc::Arc;
 use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, Ordering};

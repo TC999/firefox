@@ -1236,7 +1236,8 @@ export class Tabbrowser {
    *   The tab to pin.
    * @param {object} [options]
    * @param {TabMetricsContext} [options.metricsContext]
-   *   The context for the operation for telemetry purposes, defaults to an unknown context.
+   *   The context for the operation for telemetry purposes. Defaults to an
+   *   unknown context.
    */
   pinTab(aTab, { metricsContext = this.TabMetrics.UNKNOWN_CONTEXT } = {}) {
     if (aTab.pinned || aTab == this.documentGlobal.FirefoxViewHandler.tab) {
@@ -1264,7 +1265,8 @@ export class Tabbrowser {
    *   The tab to pin.
    * @param {object} [options]
    * @param {TabMetricsContext} [options.metricsContext]
-   *   The context for the operation for telemetry purposes, defaults to an unknown context.
+   *   The context for the operation for telemetry purposes. Defaults to an
+   *   unknown context.
    */
   unpinTab(aTab, { metricsContext = this.TabMetrics.UNKNOWN_CONTEXT } = {}) {
     if (!aTab.pinned) {
@@ -2371,12 +2373,33 @@ export class Tabbrowser {
     };
   }
 
-  setInitialTabTitle(aTab, aTitle, aOptions = {}) {
+  /**
+   * Labels a tab before it has loaded anything, as when restoring a session.
+   * A tab that had no label keeps this one until it has a content title of its
+   * own, rather than showing its URL while it loads.
+   *
+   * @param {MozTabbrowserTab} aTab
+   *   The tab to label.
+   * @param {string} aTitle
+   *   The label. A blank page's URL is replaced with the empty tab title.
+   * @param {object} [options]
+   * @param {boolean} [options.beforeTabOpen]
+   *   Whether the tab is yet to dispatch TabOpen, in which case no
+   *   TabAttrModified event is dispatched for the label.
+   * @param {boolean} [options.isContentTitle]
+   *   Whether the label is the content's title. Anything else has its
+   *   protocol and leading "www." stripped.
+   * @param {boolean} [options.isURL]
+   *   Whether the label is a URL, which truncates a long base64 `data:` URL
+   *   and leaves an `about:reader` URL unset.
+   */
+  setInitialTabTitle(
+    aTab,
+    aTitle,
+    { beforeTabOpen, isContentTitle, isURL } = {}
+  ) {
     // Convert some non-content title (actually a url) to human readable title
-    if (
-      !aOptions.isContentTitle &&
-      this.documentGlobal.isBlankPageURL(aTitle)
-    ) {
+    if (!isContentTitle && this.documentGlobal.isBlankPageURL(aTitle)) {
       aTitle = this.tabContainer.emptyTabTitle;
     }
 
@@ -2385,7 +2408,11 @@ export class Tabbrowser {
         aTab._labelIsInitialTitle = true;
       }
 
-      this.#setTabLabel(aTab, aTitle, aOptions);
+      this.#setTabLabel(aTab, aTitle, {
+        beforeTabOpen,
+        isContentTitle,
+        isURL,
+      });
     }
   }
 
@@ -2920,7 +2947,24 @@ export class Tabbrowser {
     return true;
   }
 
-  updateBrowserRemotenessByURL(aBrowser, aURL, aOptions = {}) {
+  /**
+   * Moves a browser to the content process a URL needs, unless it is already
+   * in that one.
+   *
+   * @param {MozBrowser} aBrowser
+   *   The browser to switch.
+   * @param {string} aURL
+   *   The URL the browser is about to load.
+   * @param {object} [options]
+   *   Passed on to `updateBrowserRemoteness`.
+   * @param {boolean} [options.newFrameloader]
+   *   Replace the frameloader even if the remote type stays the same.
+   * @param {string} [options.remoteType]
+   *   Overwritten with the remote type predicted for the URL.
+   * @returns {boolean}
+   *   Whether the browser changed.
+   */
+  updateBrowserRemotenessByURL(aBrowser, aURL, options = {}) {
     if (!this.documentGlobal.gMultiProcessBrowser) {
       return this.updateBrowserRemoteness(aBrowser, {
         remoteType: lazy.E10SUtils.NOT_REMOTE,
@@ -2929,16 +2973,16 @@ export class Tabbrowser {
 
     let oldRemoteType = aBrowser.remoteType;
 
-    aOptions.remoteType = ChromeUtils.predictRemoteTypeForURI(aURL, {
+    options.remoteType = ChromeUtils.predictRemoteTypeForURI(aURL, {
       window: this.documentGlobal,
-      userContextId: aBrowser.getAttribute("usercontextid") ?? 0,
+      userContextId: this.getTabForBrowser(aBrowser).userContextId,
       preferredRemoteType: oldRemoteType,
     });
 
     // If this URL can't load in the current browser then flip it to the
     // correct type.
-    if (oldRemoteType != aOptions.remoteType || aOptions.newFrameloader) {
-      return this.updateBrowserRemoteness(aBrowser, aOptions);
+    if (oldRemoteType != options.remoteType || options.newFrameloader) {
+      return this.updateBrowserRemoteness(aBrowser, options);
     }
 
     return false;
@@ -3620,12 +3664,12 @@ export class Tabbrowser {
    *   related metadata for the load.
    * @param {string} [options.triggeringRemoteType]
    *   The remoteType triggering this load.
-   * @param {nsILoadInfo_SchemelessInputType} [options.schemelessInput]
+   * @param {nsILoadInfo.SchemelessInputType} [options.schemelessInput]
    *   Whether the search/URL term was without an explicit scheme.
-   * @param {boolean} [options.hasValidUserGestureActivation=false]
+   * @param {boolean} [options.hasValidUserGestureActivation]
    *   Indicates if a valid user gesture caused this load. This informs
    *   e.g. popup blocker decisions.
-   * @param {boolean} [options.textDirectiveUserActivation=false]
+   * @param {boolean} [options.textDirectiveUserActivation]
    *   Whether a user gesture allows the load to scroll to a text fragment.
    * @returns {MozTabbrowserTab|null}
    *    The new tab. The return value will be null if the tab couldn't be
@@ -4404,7 +4448,7 @@ export class Tabbrowser {
    * @param {object} [options]
    * @param {boolean} [options.sortByLastSeenActive]
    *   Sort groups so that groups that have more recently seen and active
-   *   tabs appear first. Defaults to false.
+   *   tabs appear first.
    */
   getAllTabGroups({ sortByLastSeenActive = false } = {}) {
     let groups = lazy.BrowserWindowTracker.getOrderedWindows({
@@ -4497,7 +4541,7 @@ export class Tabbrowser {
     // Related tab inherits current tab's user context unless a different
     // usercontextid is specified
     if (userContextId == null && openerTab) {
-      userContextId = openerTab.getAttribute("usercontextid") || 0;
+      userContextId = openerTab.userContextId;
     }
 
     if (!noInitialLabel) {
@@ -4736,7 +4780,7 @@ export class Tabbrowser {
    *   related metadata for the load.
    * @param {string} [options.triggeringRemoteType]
    *   The remoteType triggering this load.
-   * @param {nsILoadInfo_SchemelessInputType} [options.schemelessInput]
+   * @param {nsILoadInfo.SchemelessInputType} [options.schemelessInput]
    *   Whether the search/URL term was without an explicit scheme.
    * @param {boolean} [options.hasValidUserGestureActivation]
    *   Indicates if a valid user gesture caused this load. This informs
@@ -5209,7 +5253,7 @@ export class Tabbrowser {
         null,
         null,
         null,
-        {}
+        { value: false }
       );
       return buttonPressed == 0;
     }
@@ -5649,7 +5693,7 @@ export class Tabbrowser {
    *   What the "closed N tabs" hint should point at. Callers outside the All
    *   Tabs menu need to pass their own button, since the All Tabs button is
    *   not necessarily on the toolbar and the hint lands in the window's
-   *   corner without an anchor.
+   *   corner without an anchor. Defaults to the All Tabs button.
    */
   removeAllDuplicateTabs({
     confirmationAnchor = this.document.getElementById("alltabs-button"),
@@ -5705,18 +5749,22 @@ export class Tabbrowser {
    *
    * @param {MozTabbrowserTab} aTab
    *   The tab we will skip removing
-   * @param {object} [aParams]
+   * @param {object} [options]
    *   An optional set of parameters that will be passed to the
    *   `removeTabs` function.
-   * @param {boolean} [aParams.skipWarnAboutClosingTabs=false]
+   * @param {boolean} [options.skipWarnAboutClosingTabs]
    *   Skip showing the tab close warning prompt.
-   * @param {boolean} [aParams.skipPinnedOrSelectedTabs=true]
+   * @param {boolean} [options.skipPinnedOrSelectedTabs=true]
    *   Skip closing tabs that are selected or pinned.
    */
-  removeAllTabsBut(aTab, aParams = {}) {
-    let { skipWarnAboutClosingTabs = false, skipPinnedOrSelectedTabs = true } =
-      aParams;
-
+  removeAllTabsBut(
+    aTab,
+    {
+      skipWarnAboutClosingTabs = false,
+      skipPinnedOrSelectedTabs = true,
+      ...removeTabsOptions
+    } = {}
+  ) {
     /** @type {function(MozTabbrowserTab):boolean} */
     let filterFn;
 
@@ -5745,7 +5793,7 @@ export class Tabbrowser {
       return;
     }
 
-    this.removeTabs(tabsToRemove, aParams);
+    this.removeTabs(tabsToRemove, removeTabsOptions);
   }
 
   /**
@@ -6011,14 +6059,14 @@ export class Tabbrowser {
    * @param {MozTabbrowserTab[]} tabs
    *   The set of tabs to remove.
    * @param {object} [options]
-   * @param {boolean} [options.animate]
-   *   Whether or not to animate closing, defaults to true.
+   * @param {boolean} [options.animate=true]
+   *   Whether or not to animate closing.
    * @param {boolean} [options.suppressWarnAboutClosingWindow]
    *   This will suppress the warning about closing a window with the last tab.
    * @param {boolean} [options.skipPermitUnload]
    *   Skips the before unload checks for the tabs. Only set this to true when
    *   using it in tandem with `runBeforeUnloadForTabs`.
-   * @param {boolean}  [options.skipSessionStore]
+   * @param {boolean} [options.skipSessionStore]
    *   If true, don't record the closed tabs in SessionStore.
    * @param {boolean} [options.skipGroupCheck]
    *   Skip separate processing of whole tab groups from the set of tabs.
@@ -6122,7 +6170,7 @@ export class Tabbrowser {
         }
       }
 
-      let aParams = {
+      let removeTabOptions = {
         animate,
         prewarmed: true,
         skipPermitUnload,
@@ -6132,7 +6180,7 @@ export class Tabbrowser {
 
       // Now run again sequentially the beforeunload listeners that will result in a prompt.
       for (let tab of tabsWithBeforeUnloadPrompt) {
-        this.removeTab(tab, aParams);
+        this.removeTab(tab, removeTabOptions);
         if (!tab.closing) {
           // If we abort the closing of the tab.
           tab._closedInMultiselection = false;
@@ -6143,7 +6191,7 @@ export class Tabbrowser {
       // Avoid changing the selected browser several times by removing it,
       // if appropriate, lastly.
       if (lastToClose) {
-        this.removeTab(lastToClose, aParams);
+        this.removeTab(lastToClose, removeTabOptions);
         if (!lastToClose.closing) {
           closedTabCount -= 1;
         }
@@ -6164,8 +6212,14 @@ export class Tabbrowser {
     this.#avoidSingleSelectedTab();
   }
 
-  removeCurrentTab(aParams) {
-    this.removeTab(this.selectedTab, aParams);
+  /**
+   * Removes the selected tab.
+   *
+   * @param {object} [options]
+   *   Passed on to `removeTab`.
+   */
+  removeCurrentTab(options) {
+    this.removeTab(this.selectedTab, options);
   }
 
   /**
@@ -6402,7 +6456,8 @@ export class Tabbrowser {
    * @param {boolean} [options.skipSessionStore]
    *   If true, don't record the closed tab in SessionStore.
    * @param {TabMetricsContext} [options.metricsContext]
-   *   The context for the operation for telemetry purposes.
+   *   The context for the operation for telemetry purposes. Defaults to an
+   *   unknown context.
    * @returns {boolean}
    *   Whether the caller should go on to finish removing the tab.
    * @see Tabbrowser.runBeforeUnloadForTabs
@@ -7139,7 +7194,7 @@ export class Tabbrowser {
       modifiedAttrs.push("soundplaying");
     }
     if (aOtherTab.hasAttribute("usercontextid")) {
-      aOurTab.setUserContextId(aOtherTab.getAttribute("usercontextid"));
+      aOurTab.setUserContextId(aOtherTab.userContextId);
       modifiedAttrs.push("usercontextid");
     }
     if (aOtherTab.hasAttribute("sharing")) {
@@ -7588,10 +7643,10 @@ export class Tabbrowser {
    * in the current window, in which case this will do nothing.
    *
    * @param {MozTabbrowserTab|MozTabbrowserTabGroup|MozTabbrowserTabGroupLabel} aTab
-   * @param {object} [aOptions={}]
+   * @param {object} [options={}]
    *   Key-value pairs that will be serialized into the features string.
    */
-  replaceTabWithWindow(aTab, aOptions = {}) {
+  replaceTabWithWindow(aTab, options = {}) {
     if (this.tabs.length == 1) {
       return null;
     }
@@ -7610,7 +7665,7 @@ export class Tabbrowser {
     args.appendElement(/** @type {nsISupports} */ (aTab.splitview ?? aTab));
     return lazy.BrowserWindowTracker.openWindow({
       private: lazy.PrivateBrowsingUtils.isWindowPrivate(this.documentGlobal),
-      features: Object.entries(aOptions)
+      features: Object.entries(options)
         .map(([key, value]) => `${key}=${value}`)
         .join(","),
       openerWindow: this.documentGlobal,
@@ -7625,13 +7680,13 @@ export class Tabbrowser {
    *
    * @param {MozTabbrowserTab} contextTab
    *   The tab the command applies to, which need not be selected.
-   * @param {object} [aOptions]
+   * @param {object} [options]
    *   Key-value pairs that will be serialized into the features string.
    */
-  replaceTabsWithWindow(contextTab, aOptions = {}) {
+  replaceTabsWithWindow(contextTab, options = {}) {
     if (this.isTabGroupLabel(contextTab)) {
       // TODO bug 1967937: Pass contextTab.group instead.
-      return this.replaceTabWithWindow(contextTab, aOptions);
+      return this.replaceTabWithWindow(contextTab, options);
     }
 
     let elements;
@@ -7647,12 +7702,12 @@ export class Tabbrowser {
 
     this.recordTabMetrics(
       this.TabMetrics.METRIC_ACTION.DETACH,
-      aOptions.metricsContext,
+      options.metricsContext,
       { tabCount: elements.length }
     );
 
     if (elements.length == 1) {
-      return this.replaceTabWithWindow(elements[0], aOptions);
+      return this.replaceTabWithWindow(elements[0], options);
     }
 
     // Play the closing animation for all selected tabs to give
@@ -7680,7 +7735,7 @@ export class Tabbrowser {
         : elements[0];
     }
 
-    let win = this.replaceTabWithWindow(selectedTab, aOptions);
+    let win = this.replaceTabWithWindow(selectedTab, options);
     win.addEventListener(
       "before-initial-tab-adopted",
       () => {
@@ -7805,7 +7860,7 @@ export class Tabbrowser {
    * @param {number} [options.elementIndex]
    *   The desired position, expressed as the index within the
    *   `MozTabbrowserTabs::dragAndDropElements` array.
-   * @param {boolean} [options.forceUngrouped=false]
+   * @param {boolean} [options.forceUngrouped]
    *   Force `element` to move into position as a standalone tab, overriding
    *   any possibility of entering a tab group. For example, setting `true`
    *   ensures that a pinned tab will not accidentally be placed inside of
@@ -8317,7 +8372,7 @@ export class Tabbrowser {
    *   `MozTabbrowserTabs::dragAndDropElements` array.
    * @param {number} [options.tabIndex]
    *   The desired position, expressed as the index within the `tabs` array.
-   * @param {boolean} [options.selectTab=false]
+   * @param {boolean} [options.selectTab]
    *   Whether to make the adopted tab the new active tab.
    * @returns {object}
    *    The new tab in the current window, null if the tab couldn't be adopted.
@@ -8525,18 +8580,18 @@ export class Tabbrowser {
    *          Can be from a different window as well
    * @param   {boolean} aRestoreTabImmediately
    *          Can defer loading of the tab contents
-   * @param   {object} [aOptions]
+   * @param   {object} [options]
    *          Takes `inBackground` and `tabIndex`, as
    *          `SessionStore.duplicateTab` does
    * @returns {MozTabbrowserTab}
    */
-  duplicateTab(aTab, aRestoreTabImmediately, aOptions) {
+  duplicateTab(aTab, aRestoreTabImmediately, options) {
     let newTab = lazy.SessionStore.duplicateTab(
       this.documentGlobal,
       aTab,
       0,
       aRestoreTabImmediately,
-      aOptions
+      options
     );
     if (aTab.group) {
       Glean.tabgroup.tabInteractions.duplicate.add();
@@ -8883,7 +8938,8 @@ export class Tabbrowser {
    *
    * @param {object} [options]
    * @param {TabMetricsContext} [options.metricsContext]
-   *   The context for the operation for telemetry purposes.
+   *   The context for the operation for telemetry purposes. Defaults to an
+   *   unknown context.
    */
   pinMultiSelectedTabs({
     metricsContext = this.TabMetrics.UNKNOWN_CONTEXT,

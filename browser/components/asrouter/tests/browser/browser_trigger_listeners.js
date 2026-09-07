@@ -240,6 +240,36 @@ add_task(async function test_openURL_visit_counter_withPattern() {
   );
 });
 
+add_task(async function test_openURL_total_visit_counter() {
+  const trigger = ASRouterTriggerListeners.get("openURL");
+  const stub = sinon.stub();
+  trigger.uninit();
+
+  // Match any valid URL
+  trigger.init(stub, [], ["*://*/*"]);
+
+  await waitForUrlLoad("about:blank");
+  await waitForUrlLoad("https://example.com/");
+  await waitForUrlLoad("about:blank");
+  await waitForUrlLoad("http://example.com/");
+  await waitForUrlLoad("about:blank");
+  await waitForUrlLoad("https://example.com/?v=2");
+
+  Assert.equal(stub.callCount, 3, "Stub called for each matched page load");
+  Assert.deepEqual(
+    stub.getCalls().map(call => call.args[1].context.totalVisitsCount),
+    [1, 2, 3],
+    "totalVisitsCount accumulates across distinct URLs matching the pattern"
+  );
+  Assert.deepEqual(
+    stub.getCalls().map(call => call.args[1].context.visitsCount),
+    [1, 1, 1],
+    "visitsCount stays per-URL"
+  );
+
+  trigger.uninit();
+});
+
 add_task(async function test_captivePortalLogin() {
   const stub = sinon.stub();
   const captivePortalTrigger =

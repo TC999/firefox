@@ -19,6 +19,8 @@ support-files = [
   "ctxmenu-image.png",
 ]
 
+["browser_ext_action_openPopup_tabPreview.js"]
+
 ["browser_ext_action_popup_allowed_urls.js"]
 
 ["browser_ext_browserAction_activeTab.js"]
@@ -86,6 +88,8 @@ https_first_disabled = true
 ["browser_ext_pageAction_contextMenu.js"]
 
 ["browser_ext_pageAction_popup.js"]
+
+["browser_ext_pageAction_popup_anchor.js"]
 
 ["browser_ext_pageAction_popup_resize.js"]
 

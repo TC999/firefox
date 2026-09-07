@@ -4,6 +4,7 @@ pdfjs.jar:
  content/PdfJsNetwork.sys.mjs (content/PdfJsNetwork.sys.mjs)
  content/PdfJsPrint.sys.mjs (content/PdfJsPrint.sys.mjs)
  content/PdfJsTelemetry.sys.mjs (content/PdfJsTelemetry.sys.mjs)
+ content/PdfJsVersion.sys.mjs (content/PdfJsVersion.sys.mjs)
  content/PdfEmbedFallbackStreamConverter.sys.mjs (content/PdfEmbedFallbackStreamConverter.sys.mjs)
  content/PdfSandbox.sys.mjs (content/PdfSandbox.sys.mjs)
  content/PdfStreamConverter.sys.mjs (content/PdfStreamConverter.sys.mjs)

@@ -12,3 +12,11 @@ support-files = [
 ]
 
 ["test_nested_modules.html"]
+
+["test_scriptDisabled_modules.html"]
+support-files = [
+  "module_large1.mjs",
+  "scriptDisabledDiskCache_module.sjs",
+  "scriptDisabled_frame.html",
+  "scriptDisabled_module.mjs",
+]

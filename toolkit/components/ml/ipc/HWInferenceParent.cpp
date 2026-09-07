@@ -3,6 +3,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include "mozilla/Preferences.h"
 #include "mozilla/StaticPrefs_browser.h"
 #include "mozilla/StaticPtr.h"
 #include "nsTHashSet.h"
@@ -51,6 +52,15 @@ extern LazyLogModule gHWInferenceLog;
 StaticRefPtr<HWInferenceParent> HWInferenceParent::sInstance;
 
 static StaticAutoPtr<nsTHashSet<nsCString>> sMockInstalledModels;
+
+// The mock hub's contents live only as long as browser.ml.modelHub.testing is
+// on, so a test that pushes that pref starts from an empty hub rather than
+// inheriting whatever an earlier test in the same run installed.
+static void ClearMockInstalledModels(const char*, void*) {
+  if (sMockInstalledModels) {
+    sMockInstalledModels->Clear();
+  }
+}
 
 static nsCString MockModelKey(const nsACString& aModel,
                               const nsACString& aRevision,
@@ -119,7 +129,7 @@ class ModelDownloadCallbacks final
     LOGD("{} - model={} revision={}", __func__, NS_ConvertUTF16toUTF8(aModel),
          NS_ConvertUTF16toUTF8(aRevision));
     Notify(100, 0, 0, 0, true, true);
-    mResolver(true);
+    mResolver(ModelInstallResult::Installed);
     return NS_OK;
   }
 
@@ -127,7 +137,7 @@ class ModelDownloadCallbacks final
     LOGE("{} - Error when downloading {}", __func__,
          NS_ConvertUTF16toUTF8(aError));
     Notify(0, 0, 0, 0, true, false);
-    mResolver(false);
+    mResolver(ModelInstallResult::Failed);
     return NS_OK;
   }
 
@@ -356,11 +366,13 @@ static void PerformModelInstall(
     if (!sMockInstalledModels) {
       sMockInstalledModels = new nsTHashSet<nsCString>();
       ClearOnShutdown(&sMockInstalledModels);
+      Preferences::RegisterCallback(ClearMockInstalledModels,
+                                    "browser.ml.modelHub.testing");
     }
     sMockInstalledModels->Insert(MockModelKey(aModel, aRevision, aFilename));
     LOGD("PerformModelInstall - testing mock: installed {}",
          MockModelKey(aModel, aRevision, aFilename));
-    aResolver(true);
+    aResolver(ModelInstallResult::Installed);
     return;
   }
 
@@ -369,7 +381,7 @@ static void PerformModelInstall(
 
   if (!modelHubService) {
     LOGE("PerformModelInstall - Failed to get ModelHub XPCOM service");
-    aResolver(false);
+    aResolver(ModelInstallResult::Failed);
     return;
   }
 
@@ -427,7 +439,7 @@ class ModelDownloadAuthorizationCallback final
     if (!aAllow) {
       LOGD("ModelDownloadAuthorizationCallback - download of {} not authorized",
            mModel);
-      resolver(false);
+      resolver(ModelInstallResult::Denied);
       return NS_OK;
     }
     PerformModelInstall(mEngine, mTask, mModel, mRevision, mFilename,
@@ -438,7 +450,7 @@ class ModelDownloadAuthorizationCallback final
  private:
   ~ModelDownloadAuthorizationCallback() {
     if (mResolver) {
-      mResolver(false);
+      mResolver(ModelInstallResult::Failed);
     }
   }
 
@@ -463,7 +475,7 @@ ipc::IPCResult HWInferenceParent::RecvInstallModel(
   nsCOMPtr<nsIMLModelResolver> resolver =
       ResolveModelId(aTask, aId, engine, model, revision, filename);
   if (!resolver) {
-    aResolver(false);
+    aResolver(ModelInstallResult::Failed);
     return IPC_OK();
   }
 
@@ -474,7 +486,7 @@ ipc::IPCResult HWInferenceParent::RecvInstallModel(
   if (aContentId != 0 && (!window || window->ContentParentId() != aContentId)) {
     LOGE("{} - window {} not owned by requester {}", __func__, aInnerWindowId,
          uint64_t(aContentId));
-    aResolver(false);
+    aResolver(ModelInstallResult::Failed);
     return IPC_OK();
   }
 
@@ -483,7 +495,7 @@ ipc::IPCResult HWInferenceParent::RecvInstallModel(
   if (StaticPrefs::browser_ml_modelHub_testing() && sMockInstalledModels &&
       sMockInstalledModels->Contains(MockModelKey(model, revision, filename))) {
     LOGD("{} - testing mock: already installed", __func__);
-    aResolver(true);
+    aResolver(ModelInstallResult::Installed);
     return IPC_OK();
   }
 

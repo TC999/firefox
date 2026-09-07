@@ -3294,8 +3294,8 @@ dependencies = [
 
 [[package]]
 name = "happy-eyeballs"
-version = "0.11.0"
-source = "git+https://github.com/mozilla/happy-eyeballs?tag=v0.11.0#8a0ae3029229ac13f03792af1dbaa5ff92ce45ee"
+version = "1.0.0"
+source = "git+https://github.com/mozilla/happy-eyeballs?tag=v1.0.0#2e1a2d7a7a30dd07ca3c0fc6fa2475565e5c39a8"
 dependencies = [
  "log",
  "thiserror 2.0.12",
@@ -4067,7 +4067,7 @@ dependencies = [
 
 [[package]]
 name = "js-sys"
-version = "0.3.100"
+version = "0.3.200"
 
 [[package]]
 name = "jsrust"
@@ -4131,6 +4131,9 @@ version = "0.1.0"
 dependencies = [
  "jxl",
  "log",
+ "moz_task",
+ "static_prefs",
+ "xpcom",
 ]
 
 [[package]]
@@ -4484,15 +4487,13 @@ version = "0.1.0"
 dependencies = [
  "base64 0.21.999",
  "kvstore",
- "nserror",
+ "mozbuild",
  "nss-rs",
- "nsstring",
  "rusqlite 0.31.999",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror 1.999.999",
- "xpcom",
  "zeroize",
 ]
 
@@ -4580,6 +4581,7 @@ dependencies = [
  "app_units",
  "cssparser",
  "euclid",
+ "hashbrown 0.17.1",
  "selectors",
  "servo_arc",
  "smallbitvec",
@@ -5439,7 +5441,7 @@ checksum = "a2983372caf4480544083767bf2d27defafe32af49ab4df3a0b7fc90793a3664"
 [[package]]
 name = "naga"
 version = "30.0.0"
-source = "git+https://github.com/gfx-rs/wgpu?rev=f7ebc076619e8e6f55def9a13199c1ccc02cc4b4#f7ebc076619e8e6f55def9a13199c1ccc02cc4b4"
+source = "git+https://github.com/gfx-rs/wgpu?rev=9b095f553c0701329b92a347f5ab02ec02e133fc#9b095f553c0701329b92a347f5ab02ec02e133fc"
 dependencies = [
  "arrayvec",
  "bit-set",
@@ -5465,7 +5467,7 @@ dependencies = [
 [[package]]
 name = "naga-types"
 version = "30.0.0"
-source = "git+https://github.com/gfx-rs/wgpu?rev=f7ebc076619e8e6f55def9a13199c1ccc02cc4b4#f7ebc076619e8e6f55def9a13199c1ccc02cc4b4"
+source = "git+https://github.com/gfx-rs/wgpu?rev=9b095f553c0701329b92a347f5ab02ec02e133fc#9b095f553c0701329b92a347f5ab02ec02e133fc"
 dependencies = [
  "hashbrown 0.17.1",
  "indexmap",
@@ -6646,6 +6648,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "pushnotificationhelper"
+version = "0.1.0"
+dependencies = [
+ "mozilla-central-workspace-hack",
+]
+
+[[package]]
 name = "qcms"
 version = "0.3.0"
 dependencies = [
@@ -7266,6 +7275,7 @@ dependencies = [
  "bitflags 2.10.0",
  "cssparser",
  "derive_more",
+ "hashbrown 0.17.1",
  "log",
  "new_debug_unreachable",
  "precomputed-hash",
@@ -7762,6 +7772,7 @@ dependencies = [
  "dom",
  "euclid",
  "gecko-profiler",
+ "hashbrown 0.17.1",
  "icu_segmenter",
  "indexmap",
  "itertools 0.14.999",
@@ -8178,6 +8189,7 @@ name = "to_shmem"
 version = "0.1.0"
 dependencies = [
  "cssparser",
+ "hashbrown 0.17.1",
  "servo_arc",
  "smallbitvec",
  "smallvec",
@@ -8968,7 +8980,7 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen"
-version = "0.2.100"
+version = "0.2.200"
 
 [[package]]
 name = "wasm-encoder"
@@ -9018,7 +9030,7 @@ dependencies = [
 
 [[package]]
 name = "web-sys"
-version = "0.3.100"
+version = "0.3.200"
 
 [[package]]
 name = "webdriver"
@@ -9201,7 +9213,7 @@ dependencies = [
 [[package]]
 name = "wgpu-core"
 version = "30.0.0"
-source = "git+https://github.com/gfx-rs/wgpu?rev=f7ebc076619e8e6f55def9a13199c1ccc02cc4b4#f7ebc076619e8e6f55def9a13199c1ccc02cc4b4"
+source = "git+https://github.com/gfx-rs/wgpu?rev=9b095f553c0701329b92a347f5ab02ec02e133fc#9b095f553c0701329b92a347f5ab02ec02e133fc"
 dependencies = [
  "arrayvec",
  "bit-set",
@@ -9216,8 +9228,7 @@ dependencies = [
  "macro_rules_attribute",
  "naga",
  "naga-types",
- "once_cell",
- "parking_lot",
+ "num-traits",
  "profiling",
  "raw-window-handle",
  "ron",
@@ -9230,13 +9241,14 @@ dependencies = [
  "wgpu-core-deps-windows",
  "wgpu-hal",
  "wgpu-naga-bridge",
+ "wgpu-sync",
  "wgpu-types",
 ]
 
 [[package]]
 name = "wgpu-core-deps-apple"
 version = "30.0.0"
-source = "git+https://github.com/gfx-rs/wgpu?rev=f7ebc076619e8e6f55def9a13199c1ccc02cc4b4#f7ebc076619e8e6f55def9a13199c1ccc02cc4b4"
+source = "git+https://github.com/gfx-rs/wgpu?rev=9b095f553c0701329b92a347f5ab02ec02e133fc#9b095f553c0701329b92a347f5ab02ec02e133fc"
 dependencies = [
  "wgpu-hal",
 ]
@@ -9244,7 +9256,7 @@ dependencies = [
 [[package]]
 name = "wgpu-core-deps-linux-android-bsd"
 version = "30.0.0"
-source = "git+https://github.com/gfx-rs/wgpu?rev=f7ebc076619e8e6f55def9a13199c1ccc02cc4b4#f7ebc076619e8e6f55def9a13199c1ccc02cc4b4"
+source = "git+https://github.com/gfx-rs/wgpu?rev=9b095f553c0701329b92a347f5ab02ec02e133fc#9b095f553c0701329b92a347f5ab02ec02e133fc"
 dependencies = [
  "wgpu-hal",
 ]
@@ -9252,15 +9264,38 @@ dependencies = [
 [[package]]
 name = "wgpu-core-deps-windows"
 version = "30.0.0"
-source = "git+https://github.com/gfx-rs/wgpu?rev=f7ebc076619e8e6f55def9a13199c1ccc02cc4b4#f7ebc076619e8e6f55def9a13199c1ccc02cc4b4"
+source = "git+https://github.com/gfx-rs/wgpu?rev=9b095f553c0701329b92a347f5ab02ec02e133fc#9b095f553c0701329b92a347f5ab02ec02e133fc"
 dependencies = [
  "wgpu-hal",
 ]
 
 [[package]]
+name = "wgpu-core-remote"
+version = "30.0.0"
+source = "git+https://github.com/gfx-rs/wgpu?rev=9b095f553c0701329b92a347f5ab02ec02e133fc#9b095f553c0701329b92a347f5ab02ec02e133fc"
+dependencies = [
+ "raw-window-handle",
+ "serde",
+ "wgpu-core",
+ "wgpu-core-remote-types",
+ "wgpu-hal",
+ "wgpu-types",
+]
+
+[[package]]
+name = "wgpu-core-remote-types"
+version = "30.0.0"
+source = "git+https://github.com/gfx-rs/wgpu?rev=9b095f553c0701329b92a347f5ab02ec02e133fc#9b095f553c0701329b92a347f5ab02ec02e133fc"
+dependencies = [
+ "hashbrown 0.17.1",
+ "serde",
+ "wgpu-types",
+]
+
+[[package]]
 name = "wgpu-hal"
 version = "30.0.0"
-source = "git+https://github.com/gfx-rs/wgpu?rev=f7ebc076619e8e6f55def9a13199c1ccc02cc4b4#f7ebc076619e8e6f55def9a13199c1ccc02cc4b4"
+source = "git+https://github.com/gfx-rs/wgpu?rev=9b095f553c0701329b92a347f5ab02ec02e133fc#9b095f553c0701329b92a347f5ab02ec02e133fc"
 dependencies = [
  "android_system_properties",
  "arrayvec",
@@ -9284,9 +9319,7 @@ dependencies = [
  "objc2-foundation",
  "objc2-metal",
  "objc2-quartz-core",
- "once_cell",
  "ordered-float",
- "parking_lot",
  "profiling",
  "range-alloc",
  "raw-window-handle",
@@ -9295,6 +9328,7 @@ dependencies = [
  "static_assertions",
  "thiserror 2.0.12",
  "wgpu-naga-bridge",
+ "wgpu-sync",
  "wgpu-types",
  "windows",
  "windows-core",
@@ -9303,16 +9337,27 @@ dependencies = [
 [[package]]
 name = "wgpu-naga-bridge"
 version = "30.0.0"
-source = "git+https://github.com/gfx-rs/wgpu?rev=f7ebc076619e8e6f55def9a13199c1ccc02cc4b4#f7ebc076619e8e6f55def9a13199c1ccc02cc4b4"
+source = "git+https://github.com/gfx-rs/wgpu?rev=9b095f553c0701329b92a347f5ab02ec02e133fc#9b095f553c0701329b92a347f5ab02ec02e133fc"
 dependencies = [
  "naga",
  "wgpu-types",
 ]
 
 [[package]]
+name = "wgpu-sync"
+version = "30.0.0"
+source = "git+https://github.com/gfx-rs/wgpu?rev=9b095f553c0701329b92a347f5ab02ec02e133fc#9b095f553c0701329b92a347f5ab02ec02e133fc"
+dependencies = [
+ "cfg-if",
+ "lock_api",
+ "once_cell",
+ "parking_lot",
+]
+
+[[package]]
 name = "wgpu-types"
 version = "30.0.0"
-source = "git+https://github.com/gfx-rs/wgpu?rev=f7ebc076619e8e6f55def9a13199c1ccc02cc4b4#f7ebc076619e8e6f55def9a13199c1ccc02cc4b4"
+source = "git+https://github.com/gfx-rs/wgpu?rev=9b095f553c0701329b92a347f5ab02ec02e133fc#9b095f553c0701329b92a347f5ab02ec02e133fc"
 dependencies = [
  "bitflags 2.10.0",
  "bytemuck",
@@ -9335,6 +9380,7 @@ dependencies = [
  "bincode",
  "firefox-on-glean",
  "futures-channel",
+ "futures-util",
  "glean",
  "log",
  "moz_task",
@@ -9347,7 +9393,10 @@ dependencies = [
  "serde",
  "serde_json",
  "static_prefs",
+ "thiserror 2.0.12",
  "wgpu-core",
+ "wgpu-core-remote",
+ "wgpu-core-remote-types",
  "wgpu-hal",
  "wgpu-types",
  "windows",

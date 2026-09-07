@@ -676,8 +676,8 @@ ModuleLoaderBase::SetModuleFetchFinishedAndGetWaitingRequests(
     ModuleLoadRequest* aRequest, nsresult aResult) {
   // Update module map with the result of fetching a single module script.
   //
-  // If any requests for the same URL are waiting on this one to complete, call
-  // ModuleLoaded or LoadFailed to resume or fail them as appropriate.
+  // If any requests for the same URL are waiting on this one to complete, they
+  // are returned so they can be resumed or failed as appropriate.
 
   MOZ_ASSERT(aRequest->mLoader == this);
 
@@ -785,8 +785,8 @@ ModuleScript* ModuleLoaderBase::GetFetchedModule(
   return ms;
 }
 
-nsresult ModuleLoaderBase::OnFetchComplete(ModuleLoadRequest* aRequest,
-                                           nsresult aRv) {
+void ModuleLoaderBase::OnFetchComplete(ModuleLoadRequest* aRequest,
+                                       nsresult aRv) {
   LOG(("ScriptLoadRequest (%p): OnFetchComplete result %x", aRequest,
        (unsigned)aRv));
   MOZ_ASSERT(aRequest->mLoader == this);
@@ -809,8 +809,11 @@ nsresult ModuleLoaderBase::OnFetchComplete(ModuleLoadRequest* aRequest,
     }
 
     if (NS_FAILED(rv)) {
-      aRequest->LoadFailed();
-      return rv;
+      // Failing to create a module script leaves the request errored (its
+      // module script is null), which the shared error path below handles the
+      // same way as a failed fetch. A failed fetch is reported to the console
+      // by the caller, so report this failure here.
+      mLoader->ReportErrorToConsole(aRequest, rv);
     }
   }
 
@@ -837,11 +840,10 @@ nsresult ModuleLoaderBase::OnFetchComplete(ModuleLoadRequest* aRequest,
   }
 
   if (!waitingRequests) {
-    return NS_OK;
+    return;
   }
 
   ResumeWaitingRequests(waitingRequests, success);
-  return NS_OK;
 }
 
 void ModuleLoaderBase::OnFetchSucceeded(ModuleLoadRequest* aRequest) {
@@ -1368,12 +1370,18 @@ void ModuleLoaderBase::StartFetchingModuleDependencies(
 
   bool result = false;
 
-  // A microtask job is not executed if the global is being
-  // destroyed. As a result, the promise returned by LoadRequestedModules may
-  // neither resolve nor reject. To ensure module loading completes reliably in
-  // chrome pages, we use the synchronous variant of LoadRequestedModules.
+  // A microtask job is dropped if the global is being destroyed or if scripting
+  // is disabled. As a result, the promise returned by LoadRequestedModules
+  // never settles: module loading stalls, document loading is blocked, and the
+  // ModuleLoadRequest above is never released.
+  //
+  // Use the synchronous variant of LoadRequestedModules in those cases. The
+  // scheme checks cover chrome pages, whose global can be torn down after
+  // this point, while the dependency is still fetching.
+  Rooted<JSObject*> global(cx, mGlobalObject->GetGlobalJSObject());
   bool isSync = aRequest->URI()->SchemeIs("chrome") ||
-                aRequest->URI()->SchemeIs("resource");
+                aRequest->URI()->SchemeIs("resource") ||
+                !mGlobalObject->CanRunJSMicroTask(global);
 
   // TODO: Bug1973660: Use Promise version of LoadRequestedModules on Workers.
   if (aRequest->HasScriptLoadContext() && !isSync) {
@@ -1596,14 +1604,20 @@ void ModuleLoaderBase::CancelFetchingModules() {
 }
 
 void ModuleLoaderBase::Shutdown() {
-  CancelAndClearDynamicImports();
-
+  // Resume the waiting requests before cancelling the dynamic imports. A
+  // dynamic import waiting on another request's fetch is in both lists, and
+  // cancelling it first completes it and clears its import, which leaves
+  // ResumeWaitingRequest() calling OnFetchFailed() with no payload. Resuming
+  // first errors it through OnFetchFailed(), which rejects its promise and
+  // removes it from mDynamicImportRequests.
   for (const auto& entry : mFetchingModules) {
     RefPtr<LoadingRequest> loadingRequest(entry.GetData());
     if (loadingRequest) {
       ResumeWaitingRequests(loadingRequest, false);
     }
   }
+
+  CancelAndClearDynamicImports();
 
   for (const auto& entry : mFetchedModules) {
     if (entry.GetData()) {

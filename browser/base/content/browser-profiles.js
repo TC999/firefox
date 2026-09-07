@@ -685,6 +685,10 @@ var gProfiles = {
         document,
         "profiles-subview-list-start-separator"
       )?.remove();
+      PanelMultiView.getViewNode(
+        document,
+        "profiles-subview-list-header"
+      )?.remove();
       PanelMultiView.getViewNode(document, "profiles-subview-list")?.remove();
 
       let hasOtherProfiles = false;
@@ -694,6 +698,16 @@ var gProfiles = {
         profilesListStartSeparator.id = "profiles-subview-list-start-separator";
 
         subview.appendChild(profilesListStartSeparator);
+
+        let profilesListHeader = document.createXULElement("label");
+        profilesListHeader.id = "profiles-subview-list-header";
+        profilesListHeader.classList.add("subview-subheader");
+        profilesListHeader.setAttribute("crop", "end");
+        profilesListHeader.setAttribute(
+          "data-l10n-id",
+          "appmenu-other-profiles"
+        );
+        subview.appendChild(profilesListHeader);
 
         let profilesList = document.createXULElement("vbox");
         profilesList.id = "profiles-subview-list";
@@ -723,6 +737,7 @@ var gProfiles = {
         // With no other profiles the list is empty, so hide it and the footer
         // separator to avoid rendering two adjacent separators.
         profilesList.hidden = !hasOtherProfiles;
+        profilesListHeader.hidden = !hasOtherProfiles;
       }
 
       footerSeparator.hidden = displayProfile === null && !hasOtherProfiles;

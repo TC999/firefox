@@ -2055,10 +2055,13 @@ export class AIWindow extends MozLitElement {
     try {
       if (this.#resumeActivityMemoriesEnabled) {
         try {
-          conversation = await lazy.constructConversationToResumeActivity({
-            memory: resumePrompt.memory,
-            content: resumePrompt.content,
-          });
+          conversation = await lazy.constructConversationToResumeActivity(
+            {
+              memory: resumePrompt.memory,
+              content: resumePrompt.content,
+            },
+            conversationAtClick?.id
+          );
         } catch (e) {
           lazy.log.error(
             "[Prompts] Failed to create resume-activity conversation:",
@@ -2068,7 +2071,10 @@ export class AIWindow extends MozLitElement {
       }
       if (!conversation) {
         try {
-          conversation = await this.#buildPlainResumeConversation(resumePrompt);
+          conversation = await this.#buildPlainResumeConversation(
+            resumePrompt,
+            conversationAtClick?.id
+          );
         } catch (e) {
           lazy.log.error(
             "[Prompts] Failed to create plain resume-activity conversation:",
@@ -2120,14 +2126,18 @@ export class AIWindow extends MozLitElement {
    * toggled off, or as a fallback if the memory-driven builder fails.
    *
    * @param {object} resumePrompt
+   * @param {string} [conversationId] - Id to reuse for the new conversation,
+   *   so telemetry keeps the chat_id of the conversation the pill was clicked
+   *   in. A new id is generated when omitted.
    * @returns {Promise<ChatConversation>}
    */
-  async #buildPlainResumeConversation(resumePrompt) {
+  async #buildPlainResumeConversation(resumePrompt, conversationId) {
     const { engine, parameters } = await lazy.buildEngineForFeature(
       lazy.MODEL_FEATURES.CHAT,
       { flowId: null, modelChoiceIdOverride: this.#selectedModelChoiceId }
     );
     const conversation = new lazy.ChatConversation({
+      ...(conversationId ? { id: conversationId } : {}),
       title: resumePrompt.content.headline,
     });
     conversation.engine = engine;

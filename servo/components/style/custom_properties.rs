@@ -27,9 +27,9 @@ use crate::typed_om::{
 use crate::values::computed;
 use crate::values::generics::calc::SortKey as AttrUnit;
 use crate::values::specified::{NoCalcLength, ParsedNamespace};
+use crate::FxHashMap;
 use crate::{derives::*, Atom, LocalName, Namespace, Prefix};
 use cssparser::{CowRcStr, Delimiter, Parser, SourcePosition, Token, TokenSerializationType};
-use rustc_hash::FxHashMap;
 use selectors::parser::SelectorParseErrorKind;
 use servo_arc::Arc;
 use smallvec::SmallVec;
@@ -1088,8 +1088,8 @@ impl VariableValue {
                 // references here.
                 references.insert(r.name.clone().into());
                 let lowercase = r.name.to_ascii_lowercase();
-                if r.name != lowercase {
-                    references.insert(lowercase.into());
+                if *lowercase != *r.name {
+                    references.insert(Atom::from(lowercase).into());
                 }
             }
         })

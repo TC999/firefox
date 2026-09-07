@@ -453,6 +453,7 @@ class HomeFragment : Fragment(), UserInteractionHandler, OnLongPressedListener {
         homeNavigationBar =
             HomeNavigationBar(
                 toolbarStore = toolbarStore,
+                appStore = activity.components.appStore,
                 browsingModeManager = activity.browsingModeManager,
                 settings = activity.components.settings,
                 hideWhenKeyboardShown = true,

@@ -62,12 +62,23 @@ add_task(async function testWindowUpdate() {
         browser.runtime.getManifest().description
       );
       let _checkWindowPromise;
+      let _sizeReachedPromise;
       browser.test.onMessage.addListener(msg => {
         if (msg == "checked-window") {
           _checkWindowPromise.resolve();
           _checkWindowPromise = null;
+        } else if (msg == "size-reached") {
+          _sizeReachedPromise.resolve();
+          _sizeReachedPromise = null;
         }
       });
+
+      function waitForSize(expected) {
+        return new Promise(resolve => {
+          _sizeReachedPromise = { resolve };
+          browser.test.sendMessage("wait-for-size", expected);
+        });
+      }
 
       let os;
       function checkWindow(expected) {
@@ -103,6 +114,15 @@ add_task(async function testWindowUpdate() {
           }
         }
         if (otherChecks) {
+          if (os == "linux") {
+            // Window managers apply the geometry of a restored size mode in
+            // several steps, so windows.update() can resolve part-way through
+            // one. Wait for the size the window is restoring to, rather than
+            // asserting on the first value we see. A window manager that never
+            // gets there, a tiling one for instance, fails this by timing out.
+            await waitForSize(otherChecks);
+            window = await browser.windows.get(windowId);
+          }
           for (let key of Object.keys(otherChecks)) {
             browser.test.assertEq(
               otherChecks[key],
@@ -190,10 +210,9 @@ add_task(async function testWindowUpdate() {
         windowState = window.STATE_FULLSCREEN;
       }
 
-      // Temporarily accepting STATE_MAXIMIZED on Linux because of bug 1307759.
       if (
         expected.state == "STATE_NORMAL" &&
-        (AppConstants.platform == "macosx" || AppConstants.platform == "linux")
+        AppConstants.platform == "macosx"
       ) {
         ok(
           windowState == window.STATE_NORMAL ||
@@ -210,6 +229,16 @@ add_task(async function testWindowUpdate() {
     }
 
     extension.sendMessage("checked-window");
+  });
+
+  extension.onMessage("wait-for-size", async expected => {
+    await TestUtils.waitForCondition(
+      () =>
+        window.outerWidth == expected.width &&
+        window.outerHeight == expected.height,
+      `window to be restored to ${expected.width}x${expected.height}`
+    );
+    extension.sendMessage("size-reached");
   });
 
   await extension.startup();
@@ -313,12 +342,12 @@ add_task(async function testPositionBoundaryCheck() {
       await browser.test.sendMessage("regular");
       await waitMessage();
       await browser.windows.update(win.id, {
-        left: 123,
+        left: 234,
       });
       await browser.test.sendMessage("only-left");
       await waitMessage();
       await browser.windows.update(win.id, {
-        top: 123,
+        top: 234,
       });
       await browser.test.sendMessage("only-top");
       await waitMessage();
@@ -353,6 +382,8 @@ add_task(async function testPositionBoundaryCheck() {
   const regularScreen = getScreenAt(0, 0, 150, 150);
   const roundedX = roundCssPixcel(123, regularScreen);
   const roundedY = roundCssPixcel(123, regularScreen);
+  const movedX = roundCssPixcel(234, regularScreen);
+  const movedY = roundCssPixcel(234, regularScreen);
 
   const availRectLarge = getCssAvailRect(
     getScreenAt(screen.width * 100, screen.height * 100, 150, 150)
@@ -366,31 +397,37 @@ add_task(async function testPositionBoundaryCheck() {
   const minLeft = availRectSmall.left;
   const minTop = availRectSmall.top;
 
-  const expectedCoordinates = [
-    `${roundedX},${roundedY}`,
-    `${roundedX},${win.screenY}`,
-    `${win.screenX},${roundedY}`,
-  ];
+  // windows.update() deliberately does not wait for a move, so the window is
+  // not there yet when it resolves: poll for the position instead of reading it
+  // right away, and let a window manager that declines the move fail the
+  // assertion. Each step asks for a position neither the window nor the request
+  // before it used, so waiting for it cannot be satisfied by a move that has
+  // not happened yet.
+  async function checkPosition(x, y, description) {
+    const expected = `${x},${y}`;
+    // Swallow the timeout: the assertion reports where the window ended up.
+    await TestUtils.waitForCondition(
+      () => `${win.screenX},${win.screenY}` == expected,
+      description
+    ).catch(() => {});
+    is(`${win.screenX},${win.screenY}`, expected, description);
+  }
 
   await extension.awaitMessage("ready");
 
-  const actualCoordinates = [];
   extension.sendMessage("continue");
   await extension.awaitMessage("regular");
-  actualCoordinates.push(`${win.screenX},${win.screenY}`);
-  win.moveTo(50, 50);
+  await checkPosition(
+    roundedX,
+    roundedY,
+    "window is placed at the given coordinates"
+  );
   extension.sendMessage("continue");
   await extension.awaitMessage("only-left");
-  actualCoordinates.push(`${win.screenX},${win.screenY}`);
-  win.moveTo(50, 50);
+  await checkPosition(movedX, roundedY, "updating only left keeps top");
   extension.sendMessage("continue");
   await extension.awaitMessage("only-top");
-  actualCoordinates.push(`${win.screenX},${win.screenY}`);
-  is(
-    actualCoordinates.join(" / "),
-    expectedCoordinates.join(" / "),
-    "expected window is placed at given coordinates"
-  );
+  await checkPosition(movedX, movedY, "updating only top keeps left");
 
   const actualRect = {};
   const maxRect = {

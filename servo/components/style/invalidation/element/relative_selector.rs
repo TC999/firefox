@@ -27,8 +27,8 @@ use crate::invalidation::element::state_and_attributes::{
 #[cfg(feature = "servo")]
 use crate::selector_parser::SnapshotMap as ServoElementSnapshotTable;
 use crate::stylist::{CascadeData, Stylist};
+use crate::FxHashMap;
 use dom::ElementState;
-use rustc_hash::FxHashMap;
 use selectors::matching::{
     early_reject_by_local_name, matches_selector, ElementSelectorFlags, MatchingContext,
     MatchingForInvalidation, MatchingMode, NeedsSelectorFlags, QuirksMode, SelectorCaches,

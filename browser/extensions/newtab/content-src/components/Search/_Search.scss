@@ -47,9 +47,6 @@ $glyph-forward: url('chrome://browser/skin/forward.svg');
 
     margin: 0 auto;
     position: relative;
-
-    // The name <moz-urlbar> anchors its top-layer popover to.
-    anchor-name: --urlbar-anchor;
     width: 304px;
 
     @media (min-width: $break-point-medium) {

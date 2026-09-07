@@ -906,7 +906,12 @@ address:
         type: string
       mlversion:
         description: >
-          ml model version
+          Revision of the ML field classifier configured for this client, or
+          empty when the feature is off. Recorded on every detection, including
+          forms the classifier did not label, so that version cohorts are not
+          conditioned on the model having succeeded. The two-engine classifier
+          reports both revisions joined by "/", the single-engine one reports a
+          single revision.
         type: string
 
   filled_address_form_ext:

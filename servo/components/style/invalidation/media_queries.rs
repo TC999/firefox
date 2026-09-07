@@ -10,7 +10,7 @@ use crate::device::Device;
 use crate::shared_lock::SharedRwLockReadGuard;
 use crate::stylesheets::{CustomMediaMap, DocumentRule, ImportRule, MediaRule};
 use crate::stylesheets::{NestedRuleIterationCondition, StylesheetContents, SupportsRule};
-use rustc_hash::FxHashSet;
+use crate::FxHashSet;
 
 /// A key for a given media query result.
 ///

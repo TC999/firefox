@@ -84,6 +84,18 @@ already_AddRefed<DOMMatrix> CSSTransformComponent::ToMatrix(ErrorResult& aRv) {
         return GetAsCSSScale().ToMatrix(aRv);
       }
 
+      case TransformComponentType::Skew: {
+        return GetAsCSSSkew().ToMatrix(aRv);
+      }
+
+      case TransformComponentType::SkewX: {
+        return GetAsCSSSkewX().ToMatrix(aRv);
+      }
+
+      case TransformComponentType::SkewY: {
+        return GetAsCSSSkewY().ToMatrix(aRv);
+      }
+
       default:
         aRv.Throw(NS_ERROR_NOT_IMPLEMENTED);
         return nullptr;

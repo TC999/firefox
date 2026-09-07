@@ -73,10 +73,10 @@
     --button-background-color-primary-disabled: var(--button-background-color-primary);
     --button-background-color-primary-selected: var(--button-background-color-primary-active);
     --button-background-color-selected: var(--button-background-color-active);
-    --button-background-color-toolbar: transparent;
+    --button-background-color-toolbar: var(--toolbarbutton-background-color);
     --button-background-color-toolbar-hover: var(--toolbarbutton-background-color-hover);
     --button-background-color-toolbar-active: var(--toolbarbutton-background-color-active);
-    --button-background-color-toolbar-disabled: var(--button-background-color-ghost);
+    --button-background-color-toolbar-disabled: var(--toolbarbutton-background-color);
     --button-background-color-toolbar-selected: var(--button-background-color-ghost-active);
     --button-badge-background-color: var(--color-accent-attention);
     --button-badge-size: 6px;
@@ -111,9 +111,9 @@
     --button-border-color-primary-disabled: var(--button-border-color-primary);
     --button-border-color-primary-selected: var(--button-border-color-primary-active);
     --button-border-color-selected: var(--button-border-color-active);
-    --button-border-color-toolbar: var(--button-border-color);
-    --button-border-color-toolbar-hover: var(--button-border-color-hover);
-    --button-border-color-toolbar-active: var(--button-border-color-active);
+    --button-border-color-toolbar: var(--toolbarbutton-outline-color);
+    --button-border-color-toolbar-hover: var(--toolbarbutton-outline-color-hover);
+    --button-border-color-toolbar-active: var(--toolbarbutton-outline-color-active);
     --button-border-color-toolbar-disabled: var(--button-border-color-disabled);
     --button-border-color-toolbar-selected: var(--button-border-color-ghost-active);
     --button-border-radius: var(--border-radius-medium);
@@ -169,10 +169,10 @@
     --button-text-color-primary-disabled: var(--button-text-color-primary);
     --button-text-color-primary-selected: var(--button-text-color-primary-active);
     --button-text-color-selected: var(--button-text-color-active);
-    --button-text-color-toolbar: inherit;
-    --button-text-color-toolbar-hover: inherit;
-    --button-text-color-toolbar-active: inherit;
-    --button-text-color-toolbar-disabled: inherit;
+    --button-text-color-toolbar: currentColor;
+    --button-text-color-toolbar-hover: currentColor;
+    --button-text-color-toolbar-active: currentColor;
+    --button-text-color-toolbar-disabled: var(--button-text-color-disabled);
     --button-text-color-toolbar-selected: var(--button-text-color-ghost-active);
 
     /** card **/
@@ -521,6 +521,7 @@
     --toolbar-text-color: light-dark(var(--color-gray-100), var(--color-gray-0));
 
     /** toolbarbutton **/
+    --toolbarbutton-background-color: transparent;
     --toolbarbutton-background-color-hover: color-mix(in srgb, currentColor 17%, transparent);
     --toolbarbutton-background-color-active: color-mix(in srgb, currentColor 30%, transparent);
     --toolbarbutton-badge-background-color: light-dark(var(--color-red-60), var(--color-red-40));
@@ -555,6 +556,8 @@
     --toolbox-background-color: light-dark(rgb(234, 234, 237), var(--color-gray-90));
     --toolbox-background-color-inactive: var(--toolbox-background-color);
     --toolbox-text-color: light-dark(var(--color-gray-100), var(--color-gray-0));
+    /* Figma aliases this to toolbox/text/color so designers see a real color, but CSS must use currentColor: the tab inherits --lwt-text-color under an lwtheme and --toolbox-text-color-inactive in a background window, neither of which --toolbox-text-color tracks. Listed in figma-import.mjs's FIGMA_IGNORES so the alias doesn't overwrite this. */
+    --toolbox-text-color-current: currentColor;
     --toolbox-text-color-inactive: var(--toolbox-text-color);
   }
 
@@ -582,8 +585,6 @@
       --button-border-color-ghost: var(--button-border-color);
       --button-text-color-ghost-hover: var(--button-text-color-hover);
       --button-text-color-ghost-active: var(--button-text-color-active);
-      --button-text-color-toolbar-hover: var(--button-text-color-hover);
-      --button-text-color-toolbar-active: var(--button-text-color-active);
 
       /** card **/
       --card-border-color: color-mix(in srgb, currentColor 41%, transparent);
@@ -659,6 +660,7 @@
       --button-background-color-primary-hover: SelectedItem;
       --button-background-color-primary-active: var(--button-background-color-primary-hover);
       --button-background-color-primary-disabled: var(--button-text-color-disabled);
+      --button-background-color-toolbar-disabled: var(--button-background-color-disabled);
       --button-border-color: var(--border-color-interactive);
       --button-border-color-hover: var(--border-color-interactive-hover);
       --button-border-color-active: var(--border-color-interactive-active);
@@ -686,6 +688,7 @@
       --button-text-color-menu-selected: var(--button-text-color-primary-selected);
       --button-text-color-primary: ButtonFace;
       --button-text-color-primary-hover: SelectedItemText;
+      --button-text-color-toolbar: var(--button-text-color);
       --button-text-color-toolbar-hover: var(--button-text-color-hover);
       --button-text-color-toolbar-active: var(--button-text-color-active);
 
@@ -732,8 +735,9 @@
       --text-color-accent-primary-selected: SelectedItemText;
 
       /** toolbarbutton **/
-      --toolbarbutton-background-color-hover: var(--button-background-color-hover);
-      --toolbarbutton-background-color-active: var(--button-background-color-active);
+      --toolbarbutton-background-color: var(--button-background-color);
+      --toolbarbutton-background-color-hover: var(--button-background-color-ghost-hover);
+      --toolbarbutton-background-color-active: var(--button-background-color-ghost-active);
       --toolbarbutton-outline-color: ButtonText;
       --toolbarbutton-outline-color-hover: SelectedItem;
       --toolbarbutton-outline-color-active: ButtonText;
@@ -744,23 +748,16 @@
   @media -moz-pref("browser.nova.enabled") {
     @layer tokens-foundation-nova {
       /** background-color **/
-      --background-color-box: light-dark(var(--color-white), var(--color-gray-70));
-      --background-color-box-info: light-dark(var(--color-gray-15), var(--color-gray-65));
-      --background-color-canvas: light-dark(var(--color-gray-05), var(--color-gray-85));
       --background-color-critical: light-dark(var(--color-red-10), var(--color-red-70));
       --background-color-information: light-dark(var(--color-violet-10), var(--color-violet-70));
       --background-color-success: light-dark(var(--color-green-10), var(--color-green-70));
       --background-color-warning: light-dark(var(--color-yellow-10), var(--color-yellow-70));
 
       /** border **/
-      --border-color: light-dark(var(--color-gray-30), var(--color-gray-40));
-      --border-color-deemphasized: light-dark(var(--color-gray-20), var(--color-gray-50));
       --border-color-error: light-dark(var(--color-red-50), var(--color-red-20));
-      --border-color-interactive: light-dark(var(--color-gray-35), var(--color-gray-40));
       --border-color-interactive-hover: light-dark(var(--color-gray-45), var(--color-gray-20));
       --border-color-interactive-active: light-dark(var(--color-gray-50), var(--color-gray-15));
       --border-color-interactive-disabled: light-dark(var(--color-gray-25), var(--color-gray-55));
-      --border-color-transparent: transparent;
       --border-radius-xsmall: 4px;
       --border-radius-small: 8px;
       --border-radius-medium: 12px;
@@ -782,7 +779,6 @@
       --button-background-color-destructive-hover: light-dark(var(--color-red-60), var(--color-red-20));
       --button-background-color-destructive-active: light-dark(var(--color-red-70), var(--color-red-10));
       --button-background-color-ghost: var(--button-background-color);
-      --button-background-color-ghost-disabled: var(--button-background-color-ghost);
       --button-background-color-ghost-selected: var(--button-background-color-selected);
       --button-background-color-menu: var(--button-background-color-ghost);
       --button-background-color-muted: light-dark(var(--color-gray-20), var(--color-gray-55));
@@ -821,10 +817,8 @@
       --button-text-color-destructive: light-dark(var(--color-white), var(--button-text-color-primary));
       --button-text-color-destructive-disabled: var(--button-text-color-destructive);
       --button-text-color-destructive-selected: light-dark(var(--button-text-color-destructive), var(--button-text-color-destructive-active));
-      --button-text-color-ghost: var(--button-text-color);
       --button-text-color-ghost-hover: var(--button-text-color-ghost);
       --button-text-color-ghost-active: var(--button-text-color-ghost);
-      --button-text-color-ghost-disabled: var(--button-text-color-ghost);
       --button-text-color-menu-hover: light-dark(var(--button-text-color-ghost-hover), var(--button-text-color-hover));
       --button-text-color-menu-active: light-dark(var(--button-text-color-ghost-active), var(--button-text-color-active));
       --button-text-color-menu-disabled: light-dark(var(--button-text-color-ghost-disabled), var(--button-text-color-disabled));
@@ -839,7 +833,6 @@
       --button-text-color-selected: var(--button-text-color);
 
       /** card **/
-      --card-border-color: light-dark(rgba(0, 0, 0, 0.06), rgba(255, 255, 255, 0.04));
       --card-gap: var(--space-medium);
       --card-header-background-color: var(--button-background-color);
       --card-header-border-color: transparent;
@@ -1002,13 +995,8 @@
       --panel-text-color: var(--text-color);
 
       /** popup **/
-      --popup-border-color: light-dark(var(--color-gray-10), var(--color-gray-65));
+      --popup-border-color: var(--border-color-deemphasized);
       --popup-border-radius: var(--border-radius-xlarge);
-
-      /** table **/
-      --table-row-background-color: var(--background-color-canvas);
-      /* TODO Bug 1821203 - Gray use needs to be consolidated */
-      --table-row-background-color-alternate: light-dark(var(--color-gray-20), var(--color-gray-65));
 
       /** text-color **/
       --text-color: light-dark(var(--color-violet-desaturated-90), var(--color-violet-desaturated-0));
@@ -1025,12 +1013,12 @@
       --toolbar-padding-inline: 6px;
 
       /** toolbarbutton **/
+      --toolbarbutton-background-color-hover: light-dark(rgba(117, 102, 159, 0.25), rgba(182, 170, 217, 0.25));
+      --toolbarbutton-background-color-active: light-dark(rgba(117, 102, 159, 0.4), rgba(182, 170, 217, 0.4));
       --toolbarbutton-icon-fill: light-dark(var(--color-violet-desaturated-50), var(--color-violet-desaturated-10));
       --toolbarbutton-icon-fill-attention: var(--color-accent-primary);
       --toolbarbutton-opacity-disabled: 0.4;
       --toolbarbutton-outline-color: transparent;
-      --toolbarbutton-outline-color-hover: transparent;
-      --toolbarbutton-outline-color-active: transparent;
       --toolbarbutton-outline-color-selected: var(--toolbarbutton-outline-color-active);
       --toolbarbutton-outline-offset: -1px;
 
@@ -1045,6 +1033,8 @@
         color-mix(var(--toolbox-background-color-gradient-trailing) 50%, transparent) 101.72%
       );
       --toolbox-text-color: var(--text-color);
+      /* Figma aliases this to toolbox/text/color so designers see a real color, but CSS must use currentColor: the tab inherits --lwt-text-color under an lwtheme and --toolbox-text-color-inactive in a background window, neither of which --toolbox-text-color tracks. Listed in figma-import.mjs's FIGMA_IGNORES so the alias doesn't overwrite this. */
+      --toolbox-text-color-current: var(--toolbox-text-color);
     }
 
     @layer tokens-prefers-contrast-nova {
@@ -1060,24 +1050,11 @@
 
     @layer tokens-forced-colors-nova {
       @media (forced-colors) {
-        /** background-color **/
-        --background-color-box: var(--background-color-canvas);
-        --background-color-box-info: var(--background-color-canvas);
-        --background-color-canvas: Canvas;
-        --background-color-critical: var(--background-color-canvas);
-        --background-color-information: var(--background-color-canvas);
-        --background-color-success: var(--background-color-canvas);
-        --background-color-warning: var(--background-color-canvas);
-
         /** border **/
-        --border-color: CanvasText;
         --border-color-deemphasized: CanvasText;
-        --border-color-error: var(--border-color);
-        --border-color-interactive: ButtonText;
         --border-color-interactive-hover: SelectedItem;
         --border-color-interactive-active: ButtonText;
         --border-color-interactive-disabled: GrayText;
-        --border-color-transparent: CanvasText;
 
         /** box-shadow **/
         --box-shadow-color-darker-layer-1: transparent;
@@ -1093,7 +1070,6 @@
         --button-background-color-destructive: var(--button-background-color-primary);
         --button-background-color-destructive-hover: var(--button-background-color-primary-hover);
         --button-background-color-destructive-active: var(--button-background-color-primary-active);
-        --button-background-color-ghost-disabled: var(--button-background-color-disabled);
         --button-background-color-menu: var(--button-background-color);
         --button-background-color-menu-hover: ButtonText;
         --button-background-color-menu-active: ButtonText;
@@ -1104,7 +1080,6 @@
         --button-background-color-muted-selected: var(--button-background-color-ghost-active);
         --button-background-color-primary-disabled: GrayText;
         --button-background-color-selected: SelectedItem;
-        --button-border-color: var(--border-color-interactive);
         --button-border-color-destructive: var(--button-border-color-primary);
         --button-border-color-destructive-selected: var(--button-border-color-destructive-active);
         --button-border-color-ghost: var(--button-border-color);
@@ -1125,10 +1100,7 @@
         --button-text-color-destructive: var(--button-text-color-primary);
         --button-text-color-destructive-disabled: var(--button-text-color-primary);
         --button-text-color-destructive-selected: var(--button-text-color-destructive-active);
-        --button-text-color-ghost: ButtonText;
         --button-text-color-ghost-hover: var(--button-text-color-ghost-active);
-        --button-text-color-ghost-active: var(--button-text-color-active);
-        --button-text-color-ghost-disabled: GrayText;
         --button-text-color-menu-hover: ButtonFace;
         --button-text-color-menu-active: ButtonFace;
         --button-text-color-menu-disabled: var(--button-text-color-disabled);
@@ -1143,7 +1115,6 @@
         --button-text-color-selected: SelectedItemText;
 
         /** card **/
-        --card-border-color: CanvasText;
         --card-header-border-color: var(--button-border-color);
 
         /** color **/
@@ -1155,17 +1126,6 @@
 
         /** icon **/
         --icon-color-accent-primary-desaturated: CanvasText;
-        --icon-color-critical: var(--icon-color);
-        --icon-color-information: var(--icon-color);
-        --icon-color-success: var(--icon-color);
-        --icon-color-warning: var(--icon-color);
-
-        /** popup **/
-        --popup-border-color: var(--border-color);
-
-        /** table **/
-        /* TODO Bug 1821203 - Gray use needs to be consolidated */
-        --table-row-background-color-alternate: var(--background-color-canvas);
 
         /** text-color **/
         --text-color-accent-primary-selected: SelectedItemText;
@@ -1176,6 +1136,8 @@
         --toolbar-field-text-color: var(--text-color);
 
         /** toolbarbutton **/
+        --toolbarbutton-background-color-hover: var(--button-background-color-ghost-hover);
+        --toolbarbutton-background-color-active: var(--button-background-color-ghost-active);
         --toolbarbutton-icon-fill: var(--button-text-color);
         --toolbarbutton-outline-color: var(--button-border-color);
         --toolbarbutton-outline-color-hover: var(--button-border-color-hover);

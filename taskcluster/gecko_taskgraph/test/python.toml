@@ -3,6 +3,8 @@ subsuite = "taskgraph"
 
 ["test_actions.py"]
 
+["test_actions_backfill.py"]
+
 ["test_actions_util.py"]
 
 ["test_decision.py"]
@@ -26,6 +28,8 @@ subsuite = "taskgraph"
 ["test_transforms_job.py"]
 
 ["test_transforms_job_common.py"]
+
+["test_transforms_perftest.py"]
 
 ["test_transforms_task.py"]
 

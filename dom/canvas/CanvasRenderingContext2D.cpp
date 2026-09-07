@@ -2980,6 +2980,9 @@ void CanvasRenderingContext2D::SetFilter(const nsACString& aFilter,
     CurrentState().filterString = aFilter;
     CurrentState().filterChain = std::move(filterChain);
     if (mCanvasElement) {
+      if (CurrentState().autoSVGFiltersObserver) {
+        CurrentState().autoSVGFiltersObserver->Detach();
+      }
       CurrentState().autoSVGFiltersObserver =
           SVGObserverUtils::ObserveFiltersForCanvasContext(
               this, mCanvasElement, CurrentState().filterChain.AsSpan());
@@ -5880,39 +5883,20 @@ bool ValidSurfaceDescriptorForRemoteCanvas2d(
     return false;
   }
   const auto& sdrd = sdv.get_SurfaceDescriptorRemoteDecoder();
-  const auto& subdesc = sdrd.subdesc();
-  switch (subdesc.type()) {
-    case layers::RemoteDecoderVideoSubDescriptor::Tnull_t:
+  switch (sdrd.videoType()) {
+    case layers::RemoteDecoderVideoType::Buffer:
       break;
 #ifdef XP_MACOSX
-    case layers::RemoteDecoderVideoSubDescriptor::
-        TSurfaceDescriptorMacIOSurface: {
-      const auto& ssd = subdesc.get_SurfaceDescriptorMacIOSurface();
-      if (ssd.gpuFence()) {
-        return false;
-      }
+    case layers::RemoteDecoderVideoType::MacIOSurface: {
       break;
     }
 #endif
 #ifdef XP_WIN
-    case layers::RemoteDecoderVideoSubDescriptor::TSurfaceDescriptorD3D10: {
+    case layers::RemoteDecoderVideoType::D3D10: {
       if (!StaticPrefs::gfx_canvas_remote_use_draw_image_fast_path_d3d()) {
         return false;
       }
-      const auto& ssd = subdesc.get_SurfaceDescriptorD3D10();
-      if (aResultSd) {
-        *aResultSd = Some(aSd);
-        // Not IPC-able, but it's just an optimization to have this.
-        aResultSd->ref()
-            .get_SurfaceDescriptorGPUVideo()
-            .get_SurfaceDescriptorRemoteDecoder()
-            .subdesc()
-            .get_SurfaceDescriptorD3D10()
-            .handle() = nullptr;
-      } else if (ssd.handle()) {
-        return false;
-      }
-      return true;
+      break;
     }
 #endif
     default:

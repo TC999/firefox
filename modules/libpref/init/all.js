@@ -398,12 +398,6 @@ pref("gfx.downloadable_fonts.fallback_delay_short", 100);
 pref("gfx.canvas.azure.backends", "skia");
 pref("gfx.content.azure.backends", "skia");
 
-#ifdef XP_WIN
-  pref("gfx.webrender.flip-sequential", false);
-  pref("gfx.webrender.dcomp-win.enabled", true);
-  pref("gfx.webrender.triple-buffering.enabled", true);
-#endif
-
 // WebRender debugging utilities.
 pref("gfx.webrender.debug.texture-cache", false);
 pref("gfx.webrender.debug.texture-cache.clear-evicted", true);
@@ -3030,7 +3024,9 @@ pref("signon.storage.rust.restoreEnabled", true);
 pref("signon.storage.rust.active", false);
 pref("signon.storage.rust.migrationAttempts", 0);
 pref("signon.storage.rust.restoreAttempts", 0);
-pref("signon.storage.rust.restoreDone", false);
+pref("signon.storage.rust.restoreAttemptsVersion", 0);
+pref("signon.storage.rust.restoreVersion", 0);
+pref("signon.storage.rust.restoreTargetVersion", 1);
 
 // Satchel (Form Manager) prefs
 pref("browser.formfill.debug",            false);
@@ -4082,6 +4078,12 @@ pref("extensions.formautofill.useml.twoHead", true);
 // How long an idle ML autofill engine is kept alive, in milliseconds. -1 means
 // never time out. Controlled by the form-autofill-ml Nimbus feature.
 pref("extensions.formautofill.useml.timeoutMS", 120000);
+// Comma separated list of field types the ML model is not trusted with. Those
+// types are classified by the regular expression based heuristics instead, and
+// any prediction the model makes for one of them is discarded. Related field
+// types belong on the list together, see `_getRegexpHeuristicFieldNames`.
+// Controlled by the autofill-ml-ignore-field-types Nimbus feature.
+pref("extensions.formautofill.useml.ignoreFieldTypes", "");
 
 // Optional AutoFill tokenizer features, as a JSON array of feature keys. Each
 // key adds tokens to every field's exported mlData

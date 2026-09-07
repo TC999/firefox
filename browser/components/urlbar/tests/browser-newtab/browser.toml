@@ -6,7 +6,7 @@ support-files = [
   "head.js",
   "richSuggestionEngine.sjs",
 ]
-prefs = ["browser.urlbar.newtab.featureGate=true"]
+prefs = ["browser.nova.enabled=true", "browser.urlbar.newtab.featureGate=true"]
 # Painting the results view, anchored inside New Tab's sticky search
 # wrapper, asserts in a debug build. Bug 2065180.
 skip-if = ["debug"]
@@ -14,6 +14,9 @@ skip-if = ["debug"]
 ["browser_blur.js"]
 
 ["browser_bounceTelemetry.js"]
+
+["browser_caret.js"]
+support-files = ["../browser/slow-page.sjs"]
 
 ["browser_disableTelemetry.js"]
 
@@ -46,4 +49,11 @@ support-files = [
 
 ["browser_topLayer.js"]
 
+["browser_trendingDismissal.js"]
+support-files = ["../../../search/test/browser/trendingSuggestionEngine.sjs"]
+
+["browser_undo_history.js"]
+
 ["browser_viewBounds.js"]
+
+["browser_zeroPrefixTelemetry.js"]

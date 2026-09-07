@@ -37,6 +37,15 @@ mozilla-intent:
         path-prefix: "onnx-models/Mozilla/mobilebert-uncased-finetuned-LoRA-intent-classifier/main/"
         artifact-name: mobilebert-uncased-finetuned-LoRA-intent-classifier.tar.zst
 
+mozilla-smart-intent:
+    description: Smart Window intent model
+    fetch:
+        type: git
+        repo: https://huggingface.co/Mozilla/mobilebert-query-intent-detection
+        revision: ab6ab166c5edb83c9b4893c5c1395c9ee2a14d17
+        path-prefix: "onnx-models/mozilla/mobilebert-query-intent-detection/main/"
+        artifact-name: mobilebert-query-intent-detection.tar.zst
+
 # We are testing two model architectures for form autofill. The first
 # (below) is text classification
 mozilla-autofill:

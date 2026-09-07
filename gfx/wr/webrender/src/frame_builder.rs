@@ -235,7 +235,6 @@ pub struct PictureContext {
     pub pic_index: PictureIndex,
     pub surface_spatial_node_index: SpatialNodeIndex,
     pub raster_spatial_node_index: SpatialNodeIndex,
-    pub visibility_spatial_node_index: SpatialNodeIndex,
     /// The surface that this picture will render on.
     pub surface_index: SurfaceIndex,
     pub dirty_region_count: usize,
@@ -246,7 +245,9 @@ pub struct PictureContext {
 /// the children are processed.
 pub struct PictureState {
     pub map_local_to_pic: SpaceMapper<LayoutPixel, PicturePixel>,
-    pub map_pic_to_vis: SpaceMapper<PicturePixel, VisPixel>,
+    /// Maps this picture's space to the screen framebuffer, for the debug
+    /// overlays that draw into it.
+    pub map_pic_to_device: SpaceMapper<PicturePixel, DevicePixel>,
 }
 
 impl FrameBuilder {
@@ -414,11 +415,9 @@ impl FrameBuilder {
                     visibility_state.clip_tree.push_clip_root_node(node);
                 }
 
-                let culling_rect = DeviceRect::max_rect();
                 update_prim_visibility(
                     *pic_index,
                     None,
-                    &culling_rect,
                     &scene.prim_store,
                     true,
                     &visibility_context,
@@ -461,7 +460,7 @@ impl FrameBuilder {
                         // If we have a tile cache for this picture, see if any of the
                         // relative transforms have changed, which means we need to
                         // re-map the dependencies of any child primitives.
-                        let culling_rect = tile_cache.pre_update(
+                        tile_cache.pre_update(
                             surface_index,
                             &visibility_context,
                             &mut visibility_state,
@@ -478,7 +477,6 @@ impl FrameBuilder {
                         update_prim_visibility(
                             *pic_index,
                             None,
-                            &culling_rect,
                             &scene.prim_store,
                             true,
                             &visibility_context,

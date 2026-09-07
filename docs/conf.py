@@ -70,7 +70,7 @@ root_for_relative_js_paths = ".."
 jsdoc_config_path = "jsdoc.json"
 
 templates_path = ["_templates"]
-source_suffix = [".rst", ".md"]
+source_suffix = [".md"]
 master_doc = "index"
 project = "Firefox Source Docs"
 
@@ -163,11 +163,11 @@ def add_github_source_link(app, pagename, templatename, context, doctree):
     # manager.trees maps staging prefixes to source prefixes,
     # e.g. {"gfx": "gfx/docs", "js": "js/src/doc"}.
     # Replace the staging prefix with the original source prefix to recover
-    # the real repo path, e.g. "gfx/Silk.rst" -> "gfx/docs/Silk.rst".
+    # the real repo path, e.g. "gfx/Silk.md" -> "gfx/docs/Silk.md".
     for staging_prefix, original_prefix in manager.trees.items():
         if staging_relpath.startswith(staging_prefix + "/"):
             # Strip the staging prefix and re-attach the original source prefix.
-            # e.g. "gfx/Silk.rst" -> strip "gfx" -> "Silk.rst" -> "gfx/docs/Silk.rst"
+            # e.g. "gfx/Silk.md" -> strip "gfx" -> "Silk.md" -> "gfx/docs/Silk.md"
             rel = staging_relpath[len(staging_prefix) + 1 :]
             context["github_source_path"] = original_prefix + "/" + rel
             return

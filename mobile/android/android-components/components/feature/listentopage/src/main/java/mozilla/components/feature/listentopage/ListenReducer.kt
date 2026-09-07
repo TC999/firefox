@@ -13,19 +13,20 @@ package mozilla.components.feature.listentopage
  */
 fun listenReducer(state: ListenState, action: ListenAction): ListenState =
     when (action) {
-        is ListenAction.Session -> reduceSession(action)
+        is ListenAction.Session -> reduceSession(state, action)
         is ListenAction.Content -> reduceContent(state, action)
+        is ListenAction.Voices -> reduceVoices(state, action)
         ListenAction.ErrorDismissed -> state.copy(error = null)
     }
 
-private fun reduceSession(action: ListenAction.Session): ListenState =
+private fun reduceSession(state: ListenState, action: ListenAction.Session): ListenState =
     when (action) {
         is ListenAction.Session.ListenRequested -> {
-            ListenState(tabId = action.tabId, url = action.url)
+            ListenState(tabId = action.tabId, url = action.url, voiceState = VoiceState())
         }
 
         ListenAction.Session.StopRequested -> {
-            ListenState()
+            ListenState(tabId = null, url = null, voiceState = state.voiceState.copy())
         }
     }
 
@@ -34,4 +35,14 @@ private fun reduceContent(state: ListenState, action: ListenAction.Content): Lis
         is ListenAction.Content.ContentReady -> state.copy(languageTag = action.languageTag)
 
         ListenAction.Content.ContentUnavailable -> state.copy(error = ListenError.ContentUnavailable)
+    }
+
+private fun reduceVoices(state: ListenState, action: ListenAction.Voices): ListenState =
+    when (action) {
+        is ListenAction.Voices.VoiceSelected ->
+            state.copy(voiceState = state.voiceState.copy(selectedVoice = action.voice))
+        is ListenAction.Voices.AvailableVoicesLoaded ->
+            state.copy(voiceState = state.voiceState.copy(availableVoices = action.voices))
+
+        ListenAction.Voices.NoOfflineVoicesAvailable -> state.copy(error = ListenError.NoOfflineVoice)
     }

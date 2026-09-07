@@ -47,6 +47,7 @@
 #include "mozilla/dom/ElementInlines.h"
 #include "mozilla/dom/GeneratedImageContent.h"
 #include "mozilla/dom/HTMLInputElement.h"
+#include "mozilla/dom/HTMLLabelElement.h"
 #include "mozilla/dom/HTMLSelectElement.h"
 #include "mozilla/dom/HTMLSharedListElement.h"
 #include "mozilla/dom/HTMLSummaryElement.h"
@@ -3422,6 +3423,9 @@ nsCSSFrameConstructor::FindHTMLData(const Element& aElement,
       SIMPLE_TAG_CREATE(progress, NS_NewProgressFrame),
       SIMPLE_TAG_CREATE(meter, NS_NewMeterFrame),
       SIMPLE_TAG_CHAIN(details, nsCSSFrameConstructor::FindDetailsData),
+      SIMPLE_TAG_CHAIN(label,
+                       nsCSSFrameConstructor::FindLabelOrDescriptionData),
+
   };
 
   return FindDataByTag(aElement, aStyle, sHTMLData, std::size(sHTMLData));
@@ -3989,9 +3993,9 @@ nsCSSFrameConstructor::FindXULTagData(const Element& aElement,
       SIMPLE_TAG_CREATE(image, NS_NewXULImageFrame),
       SIMPLE_TAG_CREATE(treechildren, NS_NewTreeBodyFrame),
       SIMPLE_TAG_CHAIN(label,
-                       nsCSSFrameConstructor::FindXULLabelOrDescriptionData),
+                       nsCSSFrameConstructor::FindLabelOrDescriptionData),
       SIMPLE_TAG_CHAIN(description,
-                       nsCSSFrameConstructor::FindXULLabelOrDescriptionData),
+                       nsCSSFrameConstructor::FindLabelOrDescriptionData),
       SIMPLE_TAG_CREATE(iframe, NS_NewSubDocumentFrame),
       SIMPLE_TAG_CREATE(editor, NS_NewSubDocumentFrame),
       SIMPLE_TAG_CREATE(browser, NS_NewSubDocumentFrame),
@@ -4012,8 +4016,12 @@ nsCSSFrameConstructor::FindXULTagData(const Element& aElement,
 
 /* static */
 const nsCSSFrameConstructor::FrameConstructionData*
-nsCSSFrameConstructor::FindXULLabelOrDescriptionData(const Element& aElement,
-                                                     ComputedStyle&) {
+nsCSSFrameConstructor::FindLabelOrDescriptionData(const Element& aElement,
+                                                  ComputedStyle&) {
+  if (!aElement.OwnerDoc()->ChromeRulesEnabled()) {
+    return nullptr;
+  }
+
   // Follow CSS display value if no value attribute
   if (!aElement.HasAttr(nsGkAtoms::value)) {
     return nullptr;
@@ -11199,8 +11207,12 @@ bool nsCSSFrameConstructor::FrameConstructionItem::IsWhitespace(
   if (!mIsText) {
     return false;
   }
-  mContent->SetFlags(NS_CREATE_FRAME_IF_NON_WHITESPACE |
-                     NS_REFRAME_IF_WHITESPACE);
+  // Set content whitespace flags, but not for generated content, where we
+  // never expect to see these.
+  if (!(aState.mAdditionalStateBits & NS_FRAME_GENERATED_CONTENT)) {
+    mContent->SetFlags(NS_CREATE_FRAME_IF_NON_WHITESPACE |
+                       NS_REFRAME_IF_WHITESPACE);
+  }
   return mContent->TextIsOnlyWhitespace();
 }
 

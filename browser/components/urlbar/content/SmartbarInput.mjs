@@ -562,12 +562,6 @@ ${
 
     this.window.addEventListener("customizationstarting", this);
     this.window.addEventListener("aftercustomization", this);
-    this.window.addEventListener("toolbarvisibilitychange", this);
-    let menuToolbar = this.window.document.getElementById("toolbar-menubar");
-    if (menuToolbar) {
-      menuToolbar.addEventListener("DOMMenuBarInactive", this);
-      menuToolbar.addEventListener("DOMMenuBarActive", this);
-    }
 
     if (this.window.gBrowser) {
       // On startup, this will be called again by browser-init.js
@@ -586,17 +580,6 @@ ${
 
     // Expanding requires a parent toolbar, and us not being read-only.
     this.#allowBreakout = !!this.closest("toolbar");
-    if (this.#allowBreakout) {
-      // TODO(emilio): This could use CSS anchor positioning rather than this
-      // ResizeObserver, eventually.
-      this._resizeObserver = new this.window.ResizeObserver(([entry]) => {
-        this.style.setProperty(
-          "--urlbar-width",
-          px(entry.borderBoxSize[0].inlineSize)
-        );
-      });
-      this._resizeObserver.observe(this.parentNode);
-    }
 
     this.#updateLayoutBreakout();
 
@@ -659,12 +642,6 @@ ${
 
     this.window.removeEventListener("customizationstarting", this);
     this.window.removeEventListener("aftercustomization", this);
-    this.window.removeEventListener("toolbarvisibilitychange", this);
-    let menuToolbar = this.window.document.getElementById("toolbar-menubar");
-    if (menuToolbar) {
-      menuToolbar.removeEventListener("DOMMenuBarInactive", this);
-      menuToolbar.removeEventListener("DOMMenuBarActive", this);
-    }
     if (this.#gBrowserListenersAdded) {
       this.window.gBrowser.tabContainer.removeEventListener("TabSelect", this);
       this.window.gBrowser.tabContainer.removeEventListener("TabClose", this);
@@ -690,8 +667,6 @@ ${
       this._inputCta.removeEventListener("shown", this);
       this.removeEventListener("ai-website-chip:remove", this);
     }
-
-    this._resizeObserver?.disconnect();
 
     this._removeObservers();
 
@@ -905,6 +880,10 @@ ${
    */
   get isSearchbarSAP() {
     return UrlbarShared.isSearchbarSAP(this.#sapName);
+  }
+
+  get parentController() {
+    return this.controller.parentController;
   }
 
   get smartbarAction() {
@@ -1824,7 +1803,7 @@ ${
       where,
       query: value,
     });
-    this.controller.openSERP(
+    this.parentController.openSERP(
       engine.id,
       value,
       where,
@@ -1989,7 +1968,7 @@ ${
       query: searchString,
       where,
     });
-    this.controller.openSERP(
+    this.parentController.openSERP(
       engine.id,
       searchString,
       where,
@@ -2539,7 +2518,7 @@ ${
           windowMode: this.windowMode,
         });
 
-        this.controller.switchToTab({
+        this.parentController.switchToTab({
           url: result.payload.url,
           searchString,
           userContextId: result.payload.userContext?.id,
@@ -2586,7 +2565,7 @@ ${
           // Because we are directly asking for a search here, bypassing the
           // docShell, we need to do the same ourselves.
           // See also keyword-uri-fixup.
-          this.controller.checkKeywordURIFixup(
+          this.parentController.checkKeywordURIFixup(
             originalUntrimmedValue.trim(),
             browserId
           );
@@ -2731,7 +2710,7 @@ ${
       }
       // `input` may be an empty string, so do a strict comparison here.
       if (input !== undefined) {
-        this.controller.addToInputHistory(url, input);
+        this.parentController.addToInputHistory(url, input);
       }
     }
 
@@ -3399,7 +3378,7 @@ ${
           this.window.gBrowser.selectedBrowser
         );
       }
-      this.controller.openSERP(
+      this.parentController.openSERP(
         searchEngine.id,
         trimmedValue,
         where,
@@ -3408,7 +3387,7 @@ ${
       );
     } else {
       // Telemetry is handled by the function.
-      this.controller.openSearchForm(
+      this.parentController.openSearchForm(
         searchEngine.id,
         where,
         inBackground,
@@ -3591,7 +3570,7 @@ ${
         this.userTypedValue = this.untrimmedValue;
         this.valueIsTyped = true;
         if (!searchMode.isPreview && !areSearchModesSame) {
-          this.controller.recordSearchMode(searchMode);
+          this.parentController.recordSearchMode(searchMode);
         }
       }
     }
@@ -3955,8 +3934,6 @@ ${
       return;
     }
 
-    this.#updateTextboxPosition();
-
     this.setAttribute("breakout-extend", "true");
 
     // Enable the animation only after the first extend call to ensure it
@@ -3979,7 +3956,6 @@ ${
     }
 
     this.removeAttribute("breakout-extend");
-    this.#updateTextboxPosition();
   }
 
   updateLayoutExtend() {
@@ -4249,36 +4225,9 @@ ${
     this.view.close();
   }
 
-  #updateTextboxPosition() {
-    if (!this.view.isOpen) {
-      this.style.top = "";
-      return;
-    }
-    this.style.top = px(
-      this.parentNode.getBoxQuads({
-        ignoreTransforms: true,
-        flush: false,
-      })[0].p1.y
-    );
-  }
-
-  #updateTextboxPositionNextFrame() {
-    if (!this.hasAttribute("breakout")) {
-      return;
-    }
-    // Allow for any layout changes to take place (e.g. when the menubar becomes
-    // inactive) before re-measuring to position the textbox
-    this.window.requestAnimationFrame(() => {
-      this.window.requestAnimationFrame(() => {
-        this.#updateTextboxPosition();
-      });
-    });
-  }
-
   #stopBreakout() {
     this.removeAttribute("breakout");
     this.parentNode.removeAttribute("breakout");
-    this.style.top = "";
     try {
       this.hidePopover();
     } catch (ex) {
@@ -4329,7 +4278,6 @@ ${
         this.setAttribute("breakout", "true");
         this.parentNode.setAttribute("breakout", "true");
         this.showPopover();
-        this.#updateTextboxPosition();
 
         resolve();
       });
@@ -4853,9 +4801,9 @@ ${
       },
     };
     if (where.startsWith("tab")) {
-      this.controller.recordSearchInOpenedTab(searchData);
+      this.parentController.recordSearchInOpenedTab(searchData);
     } else {
-      this.controller.recordSearch(searchData);
+      this.parentController.recordSearch(searchData);
     }
   }
 
@@ -5169,7 +5117,7 @@ ${
     // Notify about the start of navigation.
     this.#notifyStartNavigation(resultDetails);
 
-    let loadStatus = await this.controller.loadURL({
+    let loadStatus = await this.parentController.loadURL({
       loadRequest,
       where,
       params,
@@ -5477,7 +5425,7 @@ ${
       this.#pasteForPasteAndGo();
       this.setResultForCurrentValue(null);
       this.handleCommand();
-      this.controller.clearLastQueryContextCache();
+      this.parentController.clearLastQueryContextCache();
 
       if (!this._permanentlySuppressStartQuery) {
         this.unsuppressStartQuery();
@@ -5595,7 +5543,7 @@ ${
       return;
     }
 
-    await this.controller
+    await this.parentController
       .dismissAutofill(result.payload.url, action)
       .catch(console.error);
 
@@ -6405,7 +6353,7 @@ ${
         event.inputType === "deleteContentForward")
     ) {
       // Take a telemetry if user deleted whole autofilled value.
-      this.controller.recordAutofillDeletion();
+      this.parentController.recordAutofillDeletion();
     }
 
     let value = this.value;
@@ -6910,7 +6858,7 @@ ${
     });
   }
 
-  async _on_keyup(event) {
+  _on_keyup(event) {
     if (event.currentTarget == this.window) {
       this._untrimOnFocusAfterKeydown = false;
       return;
@@ -6940,14 +6888,27 @@ ${
     // Enter key before releasing Meta key, the keyup event is not fired.
     // Therefore, if Enter keydown is detecting, continue the post processing
     // for Enter key when any keyup event is detected.
+    if (this._keyDownEnterDeferred && !this._finishingDeferredEnter) {
+      this.#finishDeferredEnter();
+    }
+  }
+
+  /**
+   * Completes the deferred handling of an Enter keypress once a keyup arrives.
+   * Split out of `_on_keyup` so the common keyup path stays synchronous.
+   */
+  async #finishDeferredEnter() {
+    // Guard against a second keyup re-entering while the awaits below are
+    // pending; released in the finally along with the deferred.
+    this._finishingDeferredEnter = true;
     let keyDownEnterDeferred = this._keyDownEnterDeferred;
-    if (keyDownEnterDeferred) {
+    try {
       if (keyDownEnterDeferred.loadedContent) {
         try {
           const browserId = await keyDownEnterDeferred.promise;
           // The parent focuses the loading browser if it's still selected,
           // since only it can reach the browser element and the chrome window.
-          let { focused } = await this.controller.focusBrowser(browserId);
+          let { focused } = await this.parentController.focusBrowser(browserId);
           // focusBrowser resolves asynchronously; if the user began a fresh
           // search since this Enter (a later input bumped the epoch), its
           // caret must be left alone -- only keep the domain visible for our load.
@@ -6958,15 +6919,18 @@ ${
         } catch (ex) {
           // Not all the Enter actions in the urlbar will cause a navigation, then it
           // is normal for this to be rejected.
-          // If _keyDownEnterDeferred was rejected on keydown, we don't nullify it here
-          // to ensure not overwriting the new value created by keydown.
         }
       } else {
         // Discard the _keyDownEnterDeferred promise to receive any key inputs immediately.
         keyDownEnterDeferred.resolve();
       }
-
-      this._keyDownEnterDeferred = null;
+    } finally {
+      // Only clear if a newer Enter keydown hasn't already replaced it, so we
+      // don't overwrite that fresh deferred; then release the re-entry guard.
+      if (this._keyDownEnterDeferred === keyDownEnterDeferred) {
+        this._keyDownEnterDeferred = null;
+      }
+      this._finishingDeferredEnter = false;
     }
   }
 
@@ -7101,7 +7065,7 @@ ${
       // To simplify tracking of events, register an initial event for event
       // telemetry, to replace the missing input event.
       let queryContext = this.#makeQueryContext({ searchString: droppedURL });
-      this.controller.setLastQueryContextCache(queryContext);
+      this.parentController.setLastQueryContextCache(queryContext);
       this.controller.engagementEvent.start(event, queryContext);
       this.handleNavigation({ triggeringPrincipal: principal });
       if (this.#isAddressbar) {
@@ -7130,18 +7094,6 @@ ${
       return;
     }
     this.#updateLayoutBreakout();
-  }
-
-  _on_toolbarvisibilitychange() {
-    this.#updateTextboxPositionNextFrame();
-  }
-
-  _on_DOMMenuBarActive() {
-    this.#updateTextboxPositionNextFrame();
-  }
-
-  _on_DOMMenuBarInactive() {
-    this.#updateTextboxPositionNextFrame();
   }
 
   #allTextSelectedOnKeyDown = false;

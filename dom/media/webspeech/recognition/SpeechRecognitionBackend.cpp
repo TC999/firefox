@@ -975,21 +975,64 @@ already_AddRefed<Promise> SpeechRecognitionBackend::Install(
   LOG("SpeechRecognitionBackend::Install - Starting install for {} languages",
       aLanguages.Length());
 
-  using InstallPromise = MozPromise<bool, nsresult, true>;
-  RunWithTransientSession(
-      [languages = aLanguages.Clone(),
-       aInnerWindowId](hwinference::SpeechRecognitionChild* aChild) mutable {
-        return aChild->SendInstallModels(std::move(languages), aInnerWindowId);
-      })
+  InstallModels(aLanguages, aInnerWindowId)
       ->Then(GetMainThreadSerialEventTarget(), __func__,
-             [promise](InstallPromise::ResolveOrRejectValue&& aValue) {
-               bool success = aValue.IsResolve() && aValue.ResolveValue();
+             [promise](ModelInstallPromise::ResolveOrRejectValue&& aValue) {
+               bool success = aValue.IsResolve() &&
+                              aValue.ResolveValue() ==
+                                  hwinference::ModelInstallResult::Installed;
                LOG("SpeechRecognitionBackend::Install - Install completed: {}",
                    success ? "success" : "failed");
                promise->MaybeResolve(success);
              });
 
   return promise.forget();
+}
+
+/* static */
+RefPtr<SpeechRecognitionBackend::ModelInstallPromise>
+SpeechRecognitionBackend::InstallModels(const nsTArray<nsCString>& aLanguages,
+                                        uint64_t aInnerWindowId) {
+  AssertIsOnMainThread();
+  MOZ_ASSERT(!aLanguages.IsEmpty());
+
+  LOG("SpeechRecognitionBackend::InstallModels - Starting install for {} "
+      "languages",
+      aLanguages.Length());
+
+  return RunWithTransientSession(
+      [languages = aLanguages.Clone(),
+       aInnerWindowId](hwinference::SpeechRecognitionChild* aChild) mutable {
+        return aChild->SendInstallModels(std::move(languages), aInnerWindowId);
+      });
+}
+
+/* static */
+RefPtr<SpeechRecognitionBackend::ModelInstallPromise>
+SpeechRecognitionBackend::EnsureModelsInstalled(
+    const nsTArray<nsCString>& aLanguages, uint64_t aInnerWindowId) {
+  AssertIsOnMainThread();
+  MOZ_ASSERT(!aLanguages.IsEmpty());
+
+  return RunWithTransientSession(
+             [languages = aLanguages.Clone()](
+                 hwinference::SpeechRecognitionChild* aChild) mutable {
+               return IsModelInstalledNative(aChild, languages);
+             })
+      ->Then(
+          GetMainThreadSerialEventTarget(), __func__,
+          [languages = aLanguages.Clone(), aInnerWindowId](
+              MozPromise<bool, nsresult, true>::ResolveOrRejectValue&& aValue)
+              -> RefPtr<ModelInstallPromise> {
+            AssertIsOnMainThread();
+            if (aValue.IsResolve() && aValue.ResolveValue()) {
+              return ModelInstallPromise::CreateAndResolve(
+                  hwinference::ModelInstallResult::Installed, __func__);
+            }
+            // Not installed, or the query failed, in which case the
+            // install is what reports why.
+            return InstallModels(languages, aInnerWindowId);
+          });
 }
 
 }  // namespace mozilla::dom

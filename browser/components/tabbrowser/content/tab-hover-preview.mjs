@@ -250,6 +250,19 @@ export default class TabHoverPanelSet {
     this.#activePanel = null;
   }
 
+  /**
+   * Whether the given node is one of the hover preview panels managed here,
+   * as opposed to an unrelated panel or menupopup.
+   *
+   * @param {Node} node
+   * @returns {boolean}
+   */
+  isHoverPanel(node) {
+    return [this.tabPanel, this.tabGroupPanel, this.tabNotePanel].some(
+      panel => panel.panelElement == node
+    );
+  }
+
   shouldActivate() {
     return (
       // All other popups are closed.

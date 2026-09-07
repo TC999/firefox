@@ -24,6 +24,7 @@ import org.mozilla.fenix.helpers.HomeActivityIntentTestRule
 import org.mozilla.fenix.helpers.IdlingResourceHelper.unregisterAllIdlingResources
 import org.mozilla.fenix.helpers.TestHelper.appContext
 import org.mozilla.fenix.helpers.TestHelper.exitMenu
+import org.mozilla.fenix.helpers.perf.DetectMemoryLeaksRule
 import org.mozilla.fenix.ui.efficiency.logging.AttemptFinalization
 import org.mozilla.fenix.ui.efficiency.logging.DiagnosticFaultInjection
 import org.mozilla.fenix.ui.efficiency.logging.TestLogging
@@ -47,7 +48,8 @@ import org.mozilla.fenix.ui.efficiency.navigation.PageCatalog
  * -2 [finalizeAttempt] emits the terminal attempt record after every other rule -1 [sampleOnArrival] records what the
  * device arrived carrying, before anything clears it 0 FenixTestRule (legacy) GrantPermissionRule -> TestSetupRule ->
  * MockWebServerRule 1 [composeRuleWithCleanup] the per-test clear, then the activity, then the failure dump 2
- * [recordTestBoundaries] test start/end and the state samples around them
+ * [recordTestBoundaries] test start/end and the state samples around them 3 [memoryLeaksRule] the leak assertion, inert
+ * unless the run sets the detect-leaks argument
  *
  * ## What is cleared, and by which of them
  *
@@ -229,12 +231,24 @@ abstract class BaseTest(private val defaultLaunchConfig: LaunchConfig = LaunchCo
                                         base.evaluate()
                                     } catch (t: Throwable) {
                                         testFailure = t
-                                        runCatching {
-                                            ScreenDump.dumpAll(_composeRule, "test failed: ${description.methodName}")
-                                        }
-                                            .onFailure {
-                                                Log.i("BaseTest", "BaseTest: failure dump failed: ${it.message}")
+                                        // A leak is not a screen failure. The assertion fires after
+                                        // the test body has passed, so the dump would photograph a
+                                        // healthy screen and the leak trace is the artifact that
+                                        // matters.
+                                        if (t !is NoLeakAssertionFailedError) {
+                                            runCatching {
+                                                ScreenDump.dumpAll(
+                                                    _composeRule,
+                                                    "test failed: ${description.methodName}",
+                                                )
                                             }
+                                                .onFailure {
+                                                    Log.i(
+                                                        "BaseTest",
+                                                        "BaseTest: failure dump failed: ${it.message}",
+                                                    )
+                                                }
+                                        }
                                     }
 
                                     attemptFinalization.beginCleanup()
@@ -374,6 +388,25 @@ abstract class BaseTest(private val defaultLaunchConfig: LaunchConfig = LaunchCo
                 installedReporter().testEnd(description.displayName, TestStatus.SKIP)
             }
         }
+
+    /**
+     * Leak detection for every efficiency test, gated on the `detect-leaks` runner argument.
+     *
+     * One rule here replaces the per-class declaration the legacy suite repeats in 56 files, so a new test is covered
+     * by default and an author cannot forget it. It costs nothing when the argument is absent: [DetectMemoryLeaksRule]
+     * returns the unwrapped statement, which is what every task except the one that sets the flag gets --- including
+     * the generated shard suites, which inherit this class.
+     *
+     * Order 3 is forced from both directions. It has to be above 1 so the Compose rule that [composeRuleWithCleanup]
+     * builds is still active for the `waitForIdle()` drain the assertion depends on --- at order 1 or below,
+     * [composeRule] has not been built and reading it throws. Nothing is nested inside it, so the heap is sampled as
+     * soon as the test body and its `@After` methods return, which is before any of the cleaners in
+     * [composeRuleWithCleanup] run: tabs, app data and activity state are all still in place at that point.
+     *
+     * A failure here is a [NoLeakAssertionFailedError], caught by [composeRuleWithCleanup] for cleanup and re-thrown.
+     * The leak trace is written to a file and pulled as a task artifact; see FenixDetectLeaksAssert.
+     */
+    @get:Rule(order = 3) val memoryLeaksRule = DetectMemoryLeaksRule(composeTestRule = { composeRule })
 
     /**
      * Silent until a test installs a real one, so page objects driven outside a test - the inspector, tooling - narrate

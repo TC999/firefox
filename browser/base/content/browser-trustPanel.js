@@ -1070,10 +1070,15 @@ class TrustPanel {
   async #openBlockerDetailsSubview(event, blocker, blocking) {
     let count = await blocker.getBlockerCount();
     let blockingKey = blocking ? "blocking" : "not-blocking";
-    document.l10n.setAttributes(
-      document.getElementById("trustpanel-blockerDetailsView"),
-      blocker.l10nKeys.title[blockingKey]
-    );
+    // Null for a cookie behavior we don't know a title for. The rest of the
+    // subview is still worth showing, so only the title is skipped.
+    let titleL10nId = blocker.subViewTitleL10nId(blocking);
+    if (titleL10nId) {
+      document.l10n.setAttributes(
+        document.getElementById("trustpanel-blockerDetailsView"),
+        titleL10nId
+      );
+    }
     document.l10n.setAttributes(
       document.getElementById("trustpanel-blocker-details-header"),
       `trustpanel-${blocker.l10nKeys.general}-${blockingKey}-tab-header`,

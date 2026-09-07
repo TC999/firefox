@@ -17,13 +17,13 @@ use crate::properties::{ComputedValues, PropertyFlags};
 use crate::selector_parser::AttrValue as SelectorAttrValue;
 use crate::selector_parser::{PseudoElementCascadeType, SelectorParser};
 use crate::values::{AtomIdent, AtomString};
+use crate::FxHashMap;
 use crate::{Atom, CaseSensitivityExt, LocalName, Namespace, Prefix};
 use cssparser::{
     match_ignore_ascii_case, serialize_identifier, CowRcStr, Parser as CssParser, SourcePosition,
     ToCss,
 };
 use dom::{DocumentState, ElementState};
-use rustc_hash::FxHashMap;
 use selectors::attr::{AttrSelectorOperation, CaseSensitivity, NamespaceConstraint};
 use selectors::parser::SelectorParseErrorKind;
 use std::fmt;
@@ -855,8 +855,7 @@ impl ServoElementSnapshot {
 
     fn get_attr(&self, namespace: &Namespace, name: &LocalName) -> Option<&AttrValue> {
         self.attrs
-            .as_ref()
-            .unwrap()
+            .as_ref()?
             .iter()
             .find(|&&(ref ident, _)| ident.local_name == *name && ident.namespace == *namespace)
             .map(|&(_, ref v)| v)
@@ -879,9 +878,10 @@ impl ServoElementSnapshot {
     {
         self.attrs
             .as_ref()
-            .unwrap()
-            .iter()
-            .any(|&(ref ident, ref v)| ident.local_name == *name && f(v))
+            .is_some_and(|attrs| attrs
+                .iter()
+                .any(|&(ref ident, ref v)| ident.local_name == *name && f(v))
+            )
     }
 }
 

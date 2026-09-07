@@ -100,10 +100,55 @@ export class FormAutofillML {
   // featureId -> engine, covering whichever classifier is active.
   #engines = new Map();
 
+  // featureId -> resolved model revision. Kept separately from #engines so the
+  // reported version can be recomputed for the classifier serving the current
+  // detection, including when the engines are already cached.
+  #revisions = new Map();
+
+  // The revision(s) of the engines that served the most recent detection.
+  // Read by telemetry, which runs after detectFields() on the same form.
   static #modelVersion = "";
 
+  /**
+   * The classifier revision configured for this client, or "" when the feature
+   * is off.
+   *
+   * Reported on every detection, including forms the classifier did not label:
+   * a form the model declined to label is part of that model's behaviour, so
+   * gating this on the model having succeeded would make version cohorts
+   * conditional on the outcome being measured.
+   *
+   * The enabled check matters because #modelVersion is process-wide and only
+   * written when engines are created. Without it a profile that once ran the
+   * classifier keeps reporting that revision after the feature is turned off --
+   * which is how control-branch clients came to report a model version despite
+   * their detections being ~99% regexp.
+   *
+   * @returns {string} Revision, joined by "/" for a multi-engine classifier.
+   */
   static getModelVersion() {
-    return this.#modelVersion;
+    return FormAutofillUtils.isMLAutofillEnabled ? this.#modelVersion : "";
+  }
+
+  /**
+   * Publish the version for `configs` -- the classifier about to run.
+   *
+   * This must happen on every #ensureEngines() call, not only when engines are
+   * created. `extensions.formautofill.useml.twoHead` is Nimbus-controlled and
+   * live (defineLazyPreferenceGetter), so a profile can run the two-engine
+   * classifier and later the single-engine one. #engines is keyed by featureId,
+   * so each classifier correctly builds its own engines -- but the version was
+   * previously written only on the creation path, leaving the last-created
+   * value in place. A single-head detection then reported the two-head string
+   * ("rev/rev"), which is how single-head clients came to look like two-head
+   * ones in telemetry.
+   *
+   * @param {object[]} configs Engine configurations for the active classifier.
+   */
+  #publishVersion(configs) {
+    FormAutofillML.#modelVersion = configs
+      .map(config => this.#revisions.get(config.featureId) ?? "")
+      .join("/");
   }
 
   async detectFields(fieldDetails) {
@@ -132,6 +177,7 @@ export class FormAutofillML {
         engine => engine && !["closed", "error"].includes(engine.engineStatus)
       )
     ) {
+      this.#publishVersion(configs);
       return cached;
     }
 
@@ -175,10 +221,13 @@ export class FormAutofillML {
     );
     // Models are versioned independently, so telemetry reports every revision.
     // A single-model classifier therefore reports just its own revision.
-
-    FormAutofillML.#modelVersion = details
-      .map(detail => override || detail.modelRevision)
-      .join("/");
+    configs.forEach((config, i) =>
+      this.#revisions.set(
+        config.featureId,
+        override || details[i].modelRevision
+      )
+    );
+    this.#publishVersion(configs);
 
     return configs.map(config => this.#engines.get(config.featureId));
   }
@@ -187,7 +236,9 @@ export class FormAutofillML {
    * Apply the model's predictions to `fields`, positionally.
    *
    * Fields already labeled by the heuristics keep their assignment; the ML model
-   * only fills in the ones still missing a fieldName.
+   * only fills in the ones still missing a fieldName. Predictions for the field
+   * types the model is not trusted with are dropped like the "other" sentinel,
+   * since the regexp heuristics have already had their say on those.
    *
    * @param {object[]} fields The field details that were classified.
    * @param {object[]} results One `{ label }` per entry in `fields`.
@@ -200,7 +251,11 @@ export class FormAutofillML {
       }
 
       const fieldName = results[r].label;
-      if (fieldName && fieldName != "other") {
+      if (
+        fieldName &&
+        fieldName != "other" &&
+        !FormAutofillUtils.mlIgnoreFieldTypes.includes(fieldName)
+      ) {
         fd.fieldName = fieldName;
       }
 

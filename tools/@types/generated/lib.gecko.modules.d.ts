@@ -128,7 +128,6 @@ export interface Modules {
   "chrome://remote/content/marionette/reftest.sys.mjs": typeof import("chrome://remote/content/marionette/reftest.sys.mjs"),
   "chrome://remote/content/marionette/server.sys.mjs": typeof import("chrome://remote/content/marionette/server.sys.mjs"),
   "chrome://remote/content/marionette/stream-utils.sys.mjs": typeof import("chrome://remote/content/marionette/stream-utils.sys.mjs"),
-  "chrome://remote/content/marionette/sync.sys.mjs": typeof import("chrome://remote/content/marionette/sync.sys.mjs"),
   "chrome://remote/content/marionette/transport.sys.mjs": typeof import("chrome://remote/content/marionette/transport.sys.mjs"),
   "chrome://remote/content/marionette/web-reference.sys.mjs": typeof import("chrome://remote/content/marionette/web-reference.sys.mjs"),
   "chrome://remote/content/marionette/webauthn.sys.mjs": typeof import("chrome://remote/content/marionette/webauthn.sys.mjs"),

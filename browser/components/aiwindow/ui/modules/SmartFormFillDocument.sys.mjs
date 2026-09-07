@@ -99,6 +99,7 @@ const MUTATION_OBSERVER_OPTIONS = {
  * @typedef {object} FillFormOperationResult
  * @property {boolean} hasErrors Whether a valid field failed to be filled.
  * @property {boolean} cancelled Whether filling was cancelled before completion.
+ * @property {number} filledFieldCount Number of fields successfully filled.
  */
 
 /**
@@ -437,17 +438,18 @@ export class SmartFormFillDocument {
       return {
         hasErrors: false,
         cancelled: false,
+        filledFieldCount: 0,
       };
     }
 
     const generation = ++this.#fillGeneration;
     let hasErrors = false;
     let cancelled = false;
+    const filledFieldIds = new Set();
 
     Services.obs.notifyObservers(null, "autofill-fill-starting");
 
     try {
-      const filledFieldIds = new Set();
       const formFields = new Set(group.fields);
 
       for (const { id: fieldId, value } of fields) {
@@ -530,6 +532,7 @@ export class SmartFormFillDocument {
     return {
       hasErrors,
       cancelled,
+      filledFieldCount: filledFieldIds.size,
     };
   }
 

@@ -71,7 +71,7 @@ use app_units::Au;
 use dom::{DocumentState, ElementState};
 use euclid::default::Size2D;
 use nsstring::nsString;
-use rustc_hash::FxHashMap;
+use crate::FxHashMap;
 use selectors::attr::{AttrSelectorOperation, CaseSensitivity, NamespaceConstraint};
 use selectors::bloom::{BLOOM_HASH_MASK, BloomFilter};
 use selectors::matching::VisitedHandlingMode;

@@ -381,6 +381,7 @@ ml-multi-perf-wasm: &ml-multi-perf
             - xenova-all-minilm-l6-v2
             - mozilla-ner
             - mozilla-intent
+            - mozilla-smart-intent
     description: Run ML Models Perf Tests (wasm onnx backend)
     treeherder:
         symbol: perftest(ml-multi-perf-w)

@@ -1243,7 +1243,9 @@ nsresult nsHttpChannel::ContinueOnBeforeConnect(bool aShouldUpgrade,
   mConnectionInfo->SetTRRMode(nsIRequest::GetTRRMode());
   mConnectionInfo->SetIPv4Disabled(mCaps & NS_HTTP_DISABLE_IPV4);
   mConnectionInfo->SetIPv6Disabled(mCaps & NS_HTTP_DISABLE_IPV6);
-  mConnectionInfo->SetHttp3Disabled(mCaps & NS_HTTP_DISALLOW_HTTP3);
+  mConnectionInfo->SetHttp3Policy((mCaps & NS_HTTP_DISALLOW_HTTP3)
+                                      ? Http3Policy::Disabled
+                                      : Http3Policy::Allowed);
   mConnectionInfo->SetAnonymousAllowClientCert(
       (mLoadFlags & LOAD_ANONYMOUS_ALLOW_CLIENT_CERT) != 0);
 
@@ -2209,22 +2211,7 @@ nsresult nsHttpChannel::InitTransaction() {
   mLoadInfo->GetBrowsingContext(getter_AddRefs(bc));
 
   nsILoadInfo::IPAddressSpace parentAddressSpace =
-      nsILoadInfo::IPAddressSpace::Unknown;
-  // For worker-initiated requests, read IP address space from the policy
-  // container which carries the parent document's address space.
-  Maybe<dom::ClientInfo> clientInfo = mLoadInfo->GetClientInfo();
-  if (clientInfo.isSome() && clientInfo->Type() != dom::ClientType::Window) {
-    nsCOMPtr<nsIPolicyContainer> policyContainer =
-        mLoadInfo->GetPolicyContainer();
-    if (policyContainer) {
-      parentAddressSpace =
-          PolicyContainer::Cast(policyContainer)->GetIPAddressSpace();
-    }
-  } else if (!bc) {
-    parentAddressSpace = mLoadInfo->GetParentIpAddressSpace();
-  } else {
-    parentAddressSpace = bc->GetCurrentIPAddressSpace();
-  }
+      mozilla::net::GetParentIPAddressSpace(mLoadInfo);
 
   // Check if this is a top-level navigation load and grant LNA permissions
   // to skip local network access verification for navigational loads
@@ -5261,6 +5248,12 @@ nsHttpChannel::OnCacheEntryCheck(nsICacheEntry* entry, uint32_t* aResult) {
                             Flow::FromPointer(this));
   LOG(("nsHttpChannel::OnCacheEntryCheck enter [channel=%p entry=%p]", this,
        entry));
+
+  if (mCacheWaitTimedOut) {
+    LOG(("  cache entry check arrived after backstop timeout, declining"));
+    *aResult = ENTRY_NOT_WANTED;
+    return NS_OK;
+  }
 
   NoteCacheEntryKeyMatch(entry);
 
@@ -10044,20 +10037,7 @@ static void RecordLNATelemetry(nsHttpChannel* aChannel, bool aLoadSuccess) {
   loadInfo->GetBrowsingContext(getter_AddRefs(bc));
 
   nsILoadInfo::IPAddressSpace parentAddressSpace =
-      nsILoadInfo::IPAddressSpace::Unknown;
-  Maybe<dom::ClientInfo> clientInfo = loadInfo->GetClientInfo();
-  if (clientInfo.isSome() && clientInfo->Type() != dom::ClientType::Window) {
-    nsCOMPtr<nsIPolicyContainer> policyContainer =
-        loadInfo->GetPolicyContainer();
-    if (policyContainer) {
-      parentAddressSpace =
-          PolicyContainer::Cast(policyContainer)->GetIPAddressSpace();
-    }
-  } else if (!bc) {
-    parentAddressSpace = loadInfo->GetParentIpAddressSpace();
-  } else {
-    parentAddressSpace = bc->GetCurrentIPAddressSpace();
-  }
+      mozilla::net::GetParentIPAddressSpace(loadInfo);
 
   // Early return if NOT LNA - don't record telemetry or log
   if (!mozilla::net::IsLocalOrPrivateNetworkAccess(
@@ -12316,9 +12296,15 @@ nsresult nsHttpChannel::OnCacheWaitTimeout() {
   LOG(("  cache entry wait timed out, forcing network [this=%p]", this));
   mCacheWaitTimedOut = true;
 
-  // Stop treating the outstanding cache open as blocking.  A late
-  // OnCacheEntryAvailable will be ignored (see mCacheWaitTimedOut).
+  // Stop treating the outstanding cache open as blocking.  We stay registered
+  // as a callback on the entry, but a late OnCacheEntryCheck or
+  // OnCacheEntryAvailable will be declined/ignored (see mCacheWaitTimedOut).
   StoreWaitForCacheEntry(LoadWaitForCacheEntry() & ~WAIT_FOR_CACHE_ENTRY);
+
+  mCacheInputStream.CloseAndRelease();
+  mAvailableCachedAltDataType.Truncate();
+  StoreDeliveringAltData(false);
+  mAltDataLength = -1;
 
   nsresult rv = TriggerNetwork();
   if (NS_FAILED(rv)) {

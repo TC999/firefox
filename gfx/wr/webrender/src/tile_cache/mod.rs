@@ -211,8 +211,6 @@ pub struct TileCacheParams {
     pub slice_flags: SliceFlags,
     // The anchoring spatial node / scroll root
     pub spatial_node_index: SpatialNodeIndex,
-    // The space in which visibility/invalidation/clipping computations are done.
-    pub visibility_node_index: SpatialNodeIndex,
     // Optional background color of this tilecache. If present, can be used as an optimization
     // to enable opaque blending and/or subpixel AA in more places.
     pub background_color: Option<ColorF>,
@@ -763,7 +761,9 @@ pub struct TileCacheInstance {
     pub sub_slices: Vec<SubSlice>,
     /// The positioning node for this tile cache.
     pub spatial_node_index: SpatialNodeIndex,
-    /// The coordinate space to do visibility/clipping/invalidation in.
+    /// The coordinate space to do visibility/clipping/invalidation in, resolved
+    /// each frame in `pre_update` from the tile cache's surface. `INVALID`
+    /// before the first `pre_update` of a frame.
     pub visibility_node_index: SpatialNodeIndex,
     /// List of opacity bindings, with some extra information
     /// about whether they changed since last frame.
@@ -878,13 +878,14 @@ impl TileCacheInstance {
             slice: params.slice,
             slice_flags: params.slice_flags,
             spatial_node_index: params.spatial_node_index,
-            visibility_node_index: params.visibility_node_index,
+            visibility_node_index: SpatialNodeIndex::INVALID,
             sub_slices,
             opacity_bindings: FastHashMap::default(),
             old_opacity_bindings: FastHashMap::default(),
             color_bindings: FastHashMap::default(),
             old_color_bindings: FastHashMap::default(),
-            dirty_region: DirtyRegion::new(params.visibility_node_index, params.spatial_node_index),
+            // Re-targeted every frame by `post_update` before anything reads it.
+            dirty_region: DirtyRegion::new(SpatialNodeIndex::INVALID, params.spatial_node_index),
             tile_size: PictureSize::zero(),
             tile_rect: TileRect::zero(),
             tile_bounds_p0: TileOffset::zero(),
@@ -1064,11 +1065,12 @@ impl TileCacheInstance {
         surface_index: SurfaceIndex,
         frame_context: &FrameVisibilityContext,
         frame_state: &mut FrameVisibilityState,
-    ) -> DeviceRect {
+    ) {
         let surface = &frame_state.surfaces[surface_index.0];
         let pic_rect = surface.unclipped_local_rect;
 
         self.surface_index = surface_index;
+        self.visibility_node_index = surface.visibility_spatial_node_index;
         self.local_rect = pic_rect;
         self.local_clip_rect = PictureRect::max_rect();
         self.deferred_dirty_tests.clear();
@@ -1481,8 +1483,6 @@ impl TileCacheInstance {
         self.tile_bounds_p1 = TileOffset::new(x1, y1);
         self.tile_rect = new_tile_rect;
 
-        let mut root_culling_rect = DeviceRect::zero();
-
         let mut ctx = TilePreUpdateContext {
             pic_to_device_mapper: pic_to_root_mapper,
             background_color: self.background_color,
@@ -1498,22 +1498,6 @@ impl TileCacheInstance {
         for sub_slice in &mut self.sub_slices {
             for tile in sub_slice.tiles.values_mut() {
                 tile.pre_update(&ctx);
-
-                // Only include the tiles that are currently in view into the device culling
-                // rect. This is a very important optimization for a couple of reasons:
-                // (1) Primitives that intersect with tiles in the grid that are not currently
-                //     visible can be skipped from primitive preparation, clip chain building
-                //     and tile dependency updates.
-                // (2) When we need to allocate an off-screen surface for a child picture (for
-                //     example a CSS filter) we clip the size of the GPU surface to the device
-                //     culling rect below (to ensure we draw enough of it to be sampled by any
-                //     tiles that reference it). Making the device culling rect only affected
-                //     by visible tiles (rather than the entire virtual tile display port) can
-                //     result in allocating _much_ smaller GPU surfaces for cases where the
-                //     true off-screen surface size is very large.
-                if tile.is_visible {
-                    root_culling_rect = root_culling_rect.union(&tile.device_tile_rect);
-                }
             }
 
             // The background color can only be applied to the first sub-slice.
@@ -1559,8 +1543,6 @@ impl TileCacheInstance {
                 }
             }
         }
-
-        root_culling_rect
     }
 
     fn can_promote_to_surface(
@@ -3021,10 +3003,7 @@ impl TileCacheInstance {
     ) {
         assert!(self.current_surface_traversal_depth == 0);
 
-        // TODO: Switch from the root node ot raster space.
-        let visibility_node = frame_context.spatial_tree.root_reference_frame_index();
-
-        self.dirty_region.reset(visibility_node, self.spatial_node_index);
+        self.dirty_region.reset(self.visibility_node_index, self.spatial_node_index);
         self.subpixel_mode = self.calculate_subpixel_mode();
 
         self.transform_index = composite_state.register_transform(

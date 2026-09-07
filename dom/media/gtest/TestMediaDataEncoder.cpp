@@ -202,7 +202,8 @@ class MediaDataEncoderTest : public testing::Test {
 
 already_AddRefed<MediaDataEncoder> CreateVideoEncoder(
     CodecType aCodec, Usage aUsage, EncoderConfig::SampleFormat aFormat,
-    gfx::IntSize aSize, ScalabilityMode aScalabilityMode,
+    gfx::IntSize aSize, BitrateMode aBitrateMode,
+    HardwarePreference aHardwarePreference, ScalabilityMode aScalabilityMode,
     const EncoderConfig::CodecSpecific& aSpecific) {
   RefPtr<PEMFactory> f(new PEMFactory());
 
@@ -213,8 +214,7 @@ already_AddRefed<MediaDataEncoder> CreateVideoEncoder(
   const EncoderConfig config(
       aCodec, aSize, aUsage, aFormat, FRAME_RATE /* FPS */,
       KEYFRAME_INTERVAL /* keyframe interval */, BIT_RATE /* bitrate */, 0, 0,
-      BIT_RATE_MODE, HardwarePreference::None /* hardware preference */,
-      aScalabilityMode, aSpecific);
+      aBitrateMode, aHardwarePreference, aScalabilityMode, aSpecific);
   if (f->Supports(config).isEmpty()) {
     return nullptr;
   }
@@ -428,6 +428,7 @@ static already_AddRefed<MediaDataEncoder> CreateH264Encoder(
     const EncoderConfig::CodecSpecific& aSpecific =
         AsVariant(kH264SpecificAnnexB)) {
   return CreateVideoEncoder(CodecType::H264, aUsage, aFormat, aSize,
+                            BIT_RATE_MODE, HardwarePreference::None,
                             aScalabilityMode, aSpecific);
 }
 
@@ -853,6 +854,7 @@ static already_AddRefed<MediaDataEncoder> CreateVP8Encoder(
     ScalabilityMode aScalabilityMode = ScalabilityMode::None,
     const EncoderConfig::CodecSpecific& aSpecific = AsVariant(VP8Specific())) {
   return CreateVideoEncoder(CodecType::VP8, aUsage, aFormat, aSize,
+                            BIT_RATE_MODE, HardwarePreference::None,
                             aScalabilityMode, aSpecific);
 }
 
@@ -864,6 +866,7 @@ static already_AddRefed<MediaDataEncoder> CreateVP9Encoder(
     ScalabilityMode aScalabilityMode = ScalabilityMode::None,
     const EncoderConfig::CodecSpecific& aSpecific = AsVariant(VP9Specific())) {
   return CreateVideoEncoder(CodecType::VP9, aUsage, aFormat, aSize,
+                            BIT_RATE_MODE, HardwarePreference::None,
                             aScalabilityMode, aSpecific);
 }
 
@@ -1373,7 +1376,8 @@ TEST_F(MediaDataEncoderTest, AV1SignalsColorConfigInSequenceHeader) {
             EncoderConfig::VideoColorSpace(
                 gfx::ColorRange::FULL, gfx::YUVColorSpace::BT2020,
                 gfx::ColorSpace2::BT2020, gfx::TransferFunction::PQ)),
-        kImageSize, ScalabilityMode::None, AsVariant(void_t{}));
+        kImageSize, BIT_RATE_MODE, HardwarePreference::None,
+        ScalabilityMode::None, AsVariant(void_t{}));
     EXPECT_TRUE(EnsureInit(e));
 
     MediaDataEncoder::EncodedData output =
@@ -1389,6 +1393,52 @@ TEST_F(MediaDataEncoderTest, AV1SignalsColorConfigInSequenceHeader) {
     EXPECT_EQ(info.mColorSpace.mTransfer, gfx::CICP::TC_SMPTE2084);
     EXPECT_EQ(info.mColorSpace.mMatrix, gfx::CICP::MC_BT2020_NCL);
     EXPECT_EQ(info.mColorSpace.mRange, gfx::ColorRange::FULL);
+
+    WaitForShutdown(e);
+  });
+}
+
+static Maybe<uint8_t> GetAV1FrameTemporalId(const MediaRawData& aPacket) {
+  auto data = Span(aPacket.Data(), aPacket.Size());
+  auto iter = AOMDecoder::ReadOBUs(data);
+  while (iter.HasNext()) {
+    AOMDecoder::OBUInfo obu = iter.Next();
+    if (obu.mType == AOMDecoder::OBUType::FrameHeader ||
+        obu.mType == AOMDecoder::OBUType::Frame) {
+      return Some(obu.mTemporalId);
+    }
+  }
+  return Nothing();
+}
+
+TEST_F(MediaDataEncoderTest, AV1SVCTemporalIdsMatchBitstream) {
+  RUN_IF_SUPPORTED(CodecType::AV1, [this]() {
+    RefPtr<MediaDataEncoder> e = CreateVideoEncoder(
+        CodecType::AV1, Usage::Record,
+        EncoderConfig::SampleFormat(dom::ImageBitmapFormat::YUV420P),
+        kImageSize, BitrateMode::Constant, HardwarePreference::RequireSoftware,
+        ScalabilityMode::L1T3, AsVariant(void_t{}));
+    ASSERT_TRUE(EnsureInit(e));
+
+    MediaDataEncoder::EncodedData output;
+    for (size_t i = 0; i <= KEYFRAME_INTERVAL; ++i) {
+      RefPtr<MediaData> frame = mData.GetFrame(i);
+      frame->mKeyframe = i == 0;
+      output.AppendElements(GET_OR_RETURN_ON_ERROR(WaitFor(e->Encode(frame))));
+    }
+    output.AppendElements(GET_OR_RETURN_ON_ERROR(Drain(e)));
+
+    ASSERT_EQ(output.Length(), size_t{KEYFRAME_INTERVAL + 1});
+    for (size_t i = 0; i < output.Length(); ++i) {
+      SCOPED_TRACE(i);
+      Maybe<uint8_t> temporalId = GetAV1FrameTemporalId(*output[i]);
+      ASSERT_TRUE(temporalId);
+      EXPECT_EQ(output[i]->mTemporalLayerId, temporalId);
+    }
+
+    const RefPtr<MediaRawData>& keyframe = output[KEYFRAME_INTERVAL];
+    ASSERT_TRUE(keyframe->mKeyframe);
+    EXPECT_EQ(GetAV1FrameTemporalId(*keyframe), Some(uint8_t{1}));
 
     WaitForShutdown(e);
   });

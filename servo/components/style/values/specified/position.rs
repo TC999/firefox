@@ -28,11 +28,11 @@ use crate::values::specified::{AllowQuirks, Integer, LengthPercentage, NonNegati
 use crate::values::{AtomIdent, DashedIdent};
 use crate::Atom;
 use cssparser::{match_ignore_ascii_case, Parser};
+use hashbrown::hash_map::Entry;
 use num_traits::FromPrimitive;
 use selectors::parser::SelectorParseErrorKind;
 use servo_arc::Arc;
 use smallvec::{smallvec, SmallVec};
-use std::collections::hash_map::Entry;
 use std::fmt::{self, Write};
 use style_traits::arc_slice::ArcSlice;
 use style_traits::values::specified::AllowedNumericType;
